@@ -20,7 +20,7 @@ To startup an Express Sample App with local AWS Distro OTel auto-instrumentation
 ./../scripts/2-setup-local-instrumentation-code-for-sample-app.sh
 ```
 ```
-node --require '@aws-observability/aws-otel-js-instrumentation/register' sample-app-express-server.js
+node --require '@aws-observability/aws-distro-opentelemetry-autoinstrumentation/register' sample-app-express-server.js
 ```
 ### Ping Sample App
 ```

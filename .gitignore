@@ -1,0 +1,6 @@
+# generated directories (e.g. through `npm run compile`)
+build/
+node_modules/
+
+# generated files
+aws-distro-opentelemetry-autoinstrumentation/src/version.ts

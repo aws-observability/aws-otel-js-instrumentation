@@ -13,9 +13,9 @@
  * permissions and limitations under the License.
  */
 
-import { diag, DiagConsoleLogger } from '@opentelemetry/api';
+import { DiagConsoleLogger, diag } from '@opentelemetry/api';
 import { awsEc2Detector, awsEcsDetector, awsEksDetector } from '@opentelemetry/resource-detector-aws';
-import { Detector, detectResourcesSync, envDetector, hostDetector, processDetector, Resource, ResourceDetectionConfig } from '@opentelemetry/resources';
+import { Detector, DetectorSync, Resource, ResourceDetectionConfig, detectResourcesSync, envDetectorSync } from '@opentelemetry/resources';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { SEMRESATTRS_TELEMETRY_AUTO_VERSION } from '@opentelemetry/semantic-conventions';
 import { AwsApplicationSignalsConfigProvider } from './aws-application-signals-config-provider';
@@ -34,14 +34,8 @@ if (!process.env.OTEL_PROPAGATORS) {
 
 /*
  * Set Resource Detectors
- * The resource detector can be added to default resource detector list by adding the value `serviceinstance` to the list of
- * resource detectors on the environment variable `OTEL_NODE_RESOURCE_DETECTORS`, e.g `OTEL_NODE_RESOURCE_DETECTORS=env,host,os,serviceinstance`
- *
- * Alternatively, "aws" couuld be added to "OTEL_NODE_RESOURCE_DETECTORS" env var
- * TODO: Need to understand if any additional resource detectors should be used. Compare to Java/Python
- *   - in OTel JS, defaultDetectors = [envDetector, processDetector, hostDetector];
  */
-const resourceDetectors: Detector[] = [envDetector, processDetector, hostDetector, awsEc2Detector, awsEcsDetector, awsEksDetector];
+const resourceDetectors: (Detector | DetectorSync)[] = [envDetectorSync, awsEc2Detector, awsEcsDetector, awsEksDetector];
 let autoResource: Resource = new Resource({
   [SEMRESATTRS_TELEMETRY_AUTO_VERSION]: LIB_VERSION + '-sdk',
 });

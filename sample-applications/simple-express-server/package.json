@@ -1,5 +1,5 @@
 {
-  "name": "sample-applications",
+  "name": "simple-express-server-for-local-testing",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",

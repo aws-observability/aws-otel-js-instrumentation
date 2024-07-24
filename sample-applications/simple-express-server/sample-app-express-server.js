@@ -2,7 +2,7 @@ var http = require('http');
 var express = require('express');
 const { S3Client, ListObjectsCommand } = require("@aws-sdk/client-s3");
 
-const PORT = parseInt(process.env.PORT || '8080');
+const PORT = parseInt(process.env.SAMPLE_APP_PORT || '8080');
 
 const app = express();
 
@@ -50,7 +50,7 @@ app.get('/aws-sdk-s3', async (req, res) => {
       console.error("Exception thrown: ", e.message);
     }
   } finally {
-    res.send("done aws sdk s3 request");
+    res.send(`done aws sdk s3 request`);
   }
 });
 

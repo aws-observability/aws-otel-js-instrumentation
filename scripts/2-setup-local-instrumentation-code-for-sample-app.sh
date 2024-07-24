@@ -6,4 +6,4 @@ npm run compile
 npm link
 cd ../sample-applications/
 npm install
-npm link @aws-observability/aws-distro-opentelemetry-autoinstrumentation
+npm link @aws/aws-distro-opentelemetry-autoinstrumentation

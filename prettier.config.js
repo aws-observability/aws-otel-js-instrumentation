@@ -1,6 +1,6 @@
 module.exports = {
   arrowParens: 'avoid',
-  printWidth: 200, // Set to 80 in upstream
+  printWidth: 200,
   trailingComma: 'es5',
   tabWidth: 2,
   semi: true,

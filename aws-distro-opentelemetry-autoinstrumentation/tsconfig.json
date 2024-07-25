@@ -3,7 +3,7 @@
   "compilerOptions": {
     "rootDir": ".",
     "outDir": "build",
-    // below not in upstream
+    // This command allows TypeScript to import `sql_dialect_keywords.json`
     "resolveJsonModule": true
   },
   "include": [

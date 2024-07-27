@@ -1,6 +1,7 @@
 module.exports = {
   arrowParens: 'avoid',
-  printWidth: 200,
+  // OTel JS uses `printWidth: 80`
+  printWidth: 120,
   trailingComma: 'es5',
   tabWidth: 2,
   semi: true,

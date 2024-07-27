@@ -1,0 +1,62 @@
+{
+  "name": "@aws/aws-distro-opentelemetry-node-autoinstrumentation",
+  "version": "0.0.1",
+  "description": "This package provides Amazon Web Services distribution of the OpenTelemetry Node Instrumentation, which allows for auto-instrumentation of NodeJS applications.",
+  "author": {
+    "name": "Amazon Web Services",
+    "url": "http://aws.amazon.com"
+  },
+  "homepage": "https://github.com/aws-observability/aws-otel-js-instrumentation/tree/main/aws-distro-opentelemetry-node-autoinstrumentation#readme",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=14"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "build/src/index.js",
+  "types": "build/src/index.d.ts",
+  "exports": {
+    ".": "./build/src/index.js",
+    "./register": "./build/src/register.js"
+  },
+  "repository": "aws-observability/aws-otel-js-instrumentation",
+  "scripts": {
+    "clean": "rimraf build/*",
+    "compile": "tsc -p .",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "precompile": "tsc --version && lerna run version:update --scope @aws/aws-distro-opentelemetry-node-autoinstrumentation --include-dependencies",
+    "prewatch": "npm run precompile",
+    "prepublishOnly": "npm run compile",
+    "tdd": "yarn test -- --watch-extensions ts --watch",
+    "test": "nyc ts-mocha -p tsconfig.json 'test/**/*.ts'",
+    "watch": "tsc -w"
+  },
+  "bugs": {
+    "url": "https://github.com/aws-observability/aws-otel-js-instrumentation/issues"
+  },
+  "devDependencies": {
+    "@types/mocha": "7.0.2",
+    "@types/node": "18.6.5",
+    "@types/sinon": "10.0.18",
+    "mocha": "7.2.0",
+    "nyc": "15.1.0",
+    "rimraf": "5.0.5",
+    "sinon": "15.2.0",
+    "ts-mocha": "10.0.0",
+    "typescript": "4.4.4"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "0.48.0",
+    "@opentelemetry/exporter-metrics-otlp-grpc": "0.52.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "0.52.1",
+    "@opentelemetry/id-generator-aws-xray": "1.2.2"
+  },
+  "files": [
+    "build/src/**/*.js",
+    "build/src/**/*.js.map",
+    "build/src/**/*.d.ts"
+  ]
+}

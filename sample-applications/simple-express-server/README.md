@@ -24,14 +24,13 @@ node --require '@opentelemetry/auto-instrumentations-node/register' sample-app-e
 ```
 
 #### With ADOT Instrumentation
-To startup the Express Sample App with local AWS Distro OTel auto-instrumentation, first run:
+To startup the Express Sample App with local AWS Distro OTel auto-instrumentation, go to the `root` directory and run the following command to install the sample app with ADOT JS instrumentation:
 ```
-cd ./../../scripts/
-./setup-local-instrumentation-code-for-sample-app.sh
+./scripts/install_and_link_simple_express_app_with_instrumentation.sh
 ```
 Then start the app in this directory with:
 ```
-node --require '@aws/aws-distro-opentelemetry-autoinstrumentation/register' sample-app-express-server.js
+node --require '@aws/aws-distro-opentelemetry-node-autoinstrumentation/register' sample-app-express-server.js
 ```
 
 ### Ping Sample App

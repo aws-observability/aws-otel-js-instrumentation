@@ -13,15 +13,15 @@ module.exports = {
   rules: {
     "quotes": ["error", "single", { "avoidEscape": true }],
     "eqeqeq": [
-      "off",
+      "error",
       "smart"
     ],
     "prefer-rest-params": "off",
     "no-shadow": "off",
     "node/no-deprecated-api": ["warn"],
     "header/header": ["error", "line", [
-        "Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
-        "SPDX-License-Identifier: Apache-2.0"
+      "Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
+      "SPDX-License-Identifier: Apache-2.0"
     ]]
   },
   overrides: [
@@ -41,21 +41,10 @@ module.exports = {
         ],
         "@typescript-eslint/no-var-requires": "off",
         "@typescript-eslint/no-inferrable-types": 0,
-        "@typescript-eslint/typedef": [
-            "warn",
-            {
-                "variableDeclaration": true
-            }
-        ],
+        "@typescript-eslint/typedef": ["warn", {
+          "variableDeclaration": true
+        }],
         "@typescript-eslint/no-empty-function": ["off"],
-        "@typescript-eslint/no-unused-vars": [
-            "warn",
-            {
-                "argsIgnorePattern": "^_",
-                "varsIgnorePattern": "^_",
-                "caughtErrorsIgnorePattern": "^_"
-            }
-        ],
         "@typescript-eslint/ban-types": ["warn", {
           "types": {
             "Function": null,
@@ -78,13 +67,6 @@ module.exports = {
         "@typescript-eslint/no-non-null-assertion": ["off"],
         "@typescript-eslint/explicit-module-boundary-types": ["off"]
       }
-    },
-    {
-      files: ["src/version.ts"],
-      rules: {
-        "@typescript-eslint/typedef": "off",
-        "header/header": "off"
-      }
-    },
+    }
   ]
 };

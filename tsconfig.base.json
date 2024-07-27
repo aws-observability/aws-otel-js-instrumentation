@@ -11,7 +11,7 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "noImplicitReturns": true,
-    // "noUnusedLocals": true,
+    "noUnusedLocals": true,
     "pretty": true,
     "sourceMap": true,
     "strict": true,

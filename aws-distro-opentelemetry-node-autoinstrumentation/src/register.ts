@@ -1,0 +1,58 @@
+//Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+//SPDX-License-Identifier: Apache-2.0
+
+import { DiagConsoleLogger, diag } from '@opentelemetry/api';
+import * as opentelemetry from '@opentelemetry/sdk-node';
+import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
+
+diag.setLogger(new DiagConsoleLogger(), opentelemetry.core.getEnv().OTEL_LOG_LEVEL);
+
+/*
+Sets up default environment variables and apply patches
+
+Set default OTEL_EXPORTER_OTLP_PROTOCOL to be `http/protobuf`. This must be run before `configurator.configure()`, which will use this value to
+create an OTel Metric Exporter that is used for the customized AWS Span Procesors. The default value of OTEL_EXPORTER_OTLP_PROTOCOL should be `http/protobuf`:
+https://github.com/open-telemetry/opentelemetry-js/blob/34003c9b7ef7e7e95e86986550d1c7fb6c1c56c6/packages/opentelemetry-core/src/utils/environment.ts#L233
+
+We are setting OTEL_EXPORTER_OTLP_PROTOCOL to HTTP to avoid any potential issues with gRPC. In the ADOT Python SDKs, gRPC did not not work out of the box for
+the vended docker image, due to gRPC having a strict dependency on the Python version the artifact was built for (OTEL observed this:
+https://github.com/open-telemetry/opentelemetry-operator/blob/461ba68e80e8ac6bf2603eb353547cd026119ed2/autoinstrumentation/python/requirements.txt#L2-L3)
+
+Also sets default OTEL_PROPAGATORS to ensure good compatibility with X-Ray and Application Signals.
+
+This file may also be used to apply patches to upstream instrumentation - usually these are stopgap measures until we can contribute
+long-term changes to upstream.
+*/
+
+if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
+  process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
+}
+if (!process.env.OTEL_PROPAGATORS) {
+  process.env.OTEL_PROPAGATORS = 'xray,tracecontext,b3,b3multi';
+}
+
+const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator();
+const configuration: Partial<opentelemetry.NodeSDKConfiguration> = configurator.configure();
+
+const sdk: opentelemetry.NodeSDK = new opentelemetry.NodeSDK(configuration);
+
+// The OpenTelemetry Authors code
+// We need to copy OpenTelemetry's register.ts file in order to provide the configuration
+// created by AwsOpentelemetryConfigurator, which cannot be done by otherwise. In the long term,
+// we wish to make contributions to upstream to improve customizability of the Node auto-instrumentation.
+try {
+  sdk.start();
+  diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
+} catch (error) {
+  diag.error(
+    'Error initializing AWS Distro of OpenTelemetry SDK. Your application is not instrumented and will not produce telemetry',
+    error
+  );
+}
+
+process.on('SIGTERM', () => {
+  sdk
+    .shutdown()
+    .then(() => diag.debug('AWS Distro of OpenTelemetry SDK terminated'))
+    .catch(error => diag.error('Error terminating AWS Distro of OpenTelemetry SDK', error));
+});

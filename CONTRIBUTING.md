@@ -40,6 +40,48 @@ GitHub provides additional document on [forking a repository](https://help.githu
 [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
 
 
+## NPM Commands for ADOT JS Development
+
+The following are useful commands that can be run within the `root` directory of this repository.
+
+Use `npm install` within the root directory to initialize all package directories before running any of the following commands.
+
+### Build TypeScript into JavaScript
+```
+npm run compile
+```
+
+### Lint
+```
+npm run lint
+```
+
+### Lint automatic fixing
+```
+npm run lint:fix
+```
+### Test the local ADOT JS package with your own local NodeJS project
+
+In the `./aws-distro-opentelemetry-node-autoinstrumentation` directory, run:
+```
+npm install
+npm run compile
+npm link
+```
+
+In the target local NodeJS project to be instrumented, run
+
+```
+npm install
+npm link @aws/aws-distro-opentelemetry-node-autoinstrumentation
+```
+
+Your NodeJS project can now be run with your local copy of the ADOT NodeJS code with:
+```
+node --require '@aws/aws-distro-opentelemetry-node-autoinstrumentation/register' your-application.js.js
+```
+
+
 ## Finding contributions to work on
 Looking at the existing issues is a great way to find something to contribute on. As our projects, by default, use the default GitHub issue labels (enhancement/bug/duplicate/help wanted/invalid/question/wontfix), looking at any 'help wanted' issues is a great place to start.
 

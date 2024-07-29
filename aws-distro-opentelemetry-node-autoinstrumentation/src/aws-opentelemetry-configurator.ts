@@ -65,8 +65,8 @@ export class AwsOpentelemetryConfigurator {
   private customizeVersions(autoResource: Resource): Resource {
     // eslint-disable-next-line @typescript-eslint/typedef
     const packageJson = require('./../../package.json');
-    const LIB_VERSION: string = packageJson.version;
-    autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION] = LIB_VERSION + '-sdk';
+    const DISTRO_VERSION: string = packageJson.version;
+    autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION] = DISTRO_VERSION + '-aws';
     diag.debug(
       `@aws/aws-distro-opentelemetry-node-autoinstrumentation - version: ${autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION]}`
     );
@@ -76,7 +76,7 @@ export class AwsOpentelemetryConfigurator {
   public configure(): Partial<NodeSDKConfiguration> {
     let config: Partial<NodeSDKConfiguration>;
     if (this.isApplicationSignalsEnabled()) {
-      // Placeholder config
+      // TODO: This is a placeholder config. This will be replaced with an ADOT config in a future commit.
       config = {
         instrumentations: getNodeAutoInstrumentations(),
         resource: this.resource,

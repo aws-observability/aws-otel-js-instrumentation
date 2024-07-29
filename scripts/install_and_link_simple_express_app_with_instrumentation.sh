@@ -14,7 +14,7 @@ if [ "$current_dir" != "aws-otel-js-instrumentation" ]; then
 fi
 
 # Build and install ADOT JS instrumentation
-./scripts/build_and_install_instrumentation.sh
+./scripts/build_and_install_distro.sh
 
 # Install express sample app package and its dependencies
 cd ./sample-applications/simple-express-server/

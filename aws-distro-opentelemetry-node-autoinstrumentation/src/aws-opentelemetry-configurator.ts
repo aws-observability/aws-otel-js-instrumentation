@@ -39,7 +39,13 @@ export class AwsOpentelemetryConfigurator {
      *
      * The configurator must create and detect resources in order to populate any detected
      * resources into the Resource that is provided to the processors, exporters, and samplers
-     * that are instantiated in the configurator.
+     * that are instantiated in the configurator. Otherwise, if only OTel handles resource
+     * detection in the SDK, the AWS processors/exporters/samplers will lack such detected
+     * resources in their respective resources.
+     *
+     * envDetectorSync is used as opposed to envDetector (async), so it is guaranteed that the
+     * resource is populated with configured OTEL_RESOURCE_ATTRIBUTES or OTEL_SERVICE_NAME env
+     * var values by the time that this class provides a configuration to the OTel SDK.
      */
     const resourceDetectors: (Detector | DetectorSync)[] = [
       envDetectorSync,

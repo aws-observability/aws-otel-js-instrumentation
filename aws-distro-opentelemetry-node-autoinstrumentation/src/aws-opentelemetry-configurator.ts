@@ -2,7 +2,10 @@
 //SPDX-License-Identifier: Apache-2.0
 
 import { diag } from '@opentelemetry/api';
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import {
+  getNodeAutoInstrumentations,
+  getResourceDetectors as getResourceDetectorsFromEnv,
+} from '@opentelemetry/auto-instrumentations-node';
 import { awsEc2Detector, awsEcsDetector, awsEksDetector } from '@opentelemetry/resource-detector-aws';
 import {
   Detector,
@@ -47,18 +50,28 @@ export class AwsOpentelemetryConfigurator {
      * resource is populated with configured OTEL_RESOURCE_ATTRIBUTES or OTEL_SERVICE_NAME env
      * var values by the time that this class provides a configuration to the OTel SDK.
      */
-    const resourceDetectors: (Detector | DetectorSync)[] = [
+    let autoResource: Resource = new Resource({});
+    autoResource = this.customizeVersions(autoResource);
+    const awsResourceDetectors: (Detector | DetectorSync)[] = [
       envDetectorSync,
       awsEc2Detector,
       awsEcsDetector,
       awsEksDetector,
     ];
-    const internalConfig: ResourceDetectionConfig = {
-      detectors: resourceDetectors,
+    const awsResourceDetectionConfig: ResourceDetectionConfig = {
+      detectors: awsResourceDetectors,
     };
-    let autoResource: Resource = new Resource({});
-    autoResource = this.customizeVersions(autoResource);
-    autoResource = autoResource.merge(detectResourcesSync(internalConfig));
+    autoResource = autoResource.merge(detectResourcesSync(awsResourceDetectionConfig));
+
+    // envDetectorSync, awsEc2Detector, awsEcsDetector, and awsEksDetector may also be
+    // specified via Env Var and be repeated here. The repeated attributes will be overwritten
+    // in the merging of the resources.
+    const defaultDetectors: (Detector | DetectorSync)[] = getResourceDetectorsFromEnv();
+    const defaultDetectorsConfig: ResourceDetectionConfig = {
+      detectors: defaultDetectors,
+    };
+    autoResource = autoResource.merge(detectResourcesSync(defaultDetectorsConfig));
+
     this.resource = autoResource;
   }
 
@@ -80,12 +93,14 @@ export class AwsOpentelemetryConfigurator {
       config = {
         instrumentations: getNodeAutoInstrumentations(),
         resource: this.resource,
+        autoDetectResources: false,
       };
     } else {
       // Default experience config
       config = {
         instrumentations: getNodeAutoInstrumentations(),
         resource: this.resource,
+        autoDetectResources: false,
       };
     }
 

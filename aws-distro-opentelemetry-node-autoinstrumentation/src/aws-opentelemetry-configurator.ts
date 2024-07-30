@@ -14,6 +14,8 @@ import {
   ResourceDetectionConfig,
   detectResourcesSync,
   envDetectorSync,
+  hostDetector,
+  processDetector,
 } from '@opentelemetry/resources';
 import { NodeSDKConfiguration } from '@opentelemetry/sdk-node';
 import { SEMRESATTRS_TELEMETRY_AUTO_VERSION } from '@opentelemetry/semantic-conventions';
@@ -45,32 +47,45 @@ export class AwsOpentelemetryConfigurator {
      * that are instantiated in the configurator. Otherwise, if only OTel handles resource
      * detection in the SDK, the AWS processors/exporters/samplers will lack such detected
      * resources in their respective resources.
-     *
-     * envDetectorSync is used as opposed to envDetector (async), so it is guaranteed that the
-     * resource is populated with configured OTEL_RESOURCE_ATTRIBUTES or OTEL_SERVICE_NAME env
-     * var values by the time that this class provides a configuration to the OTel SDK.
      */
     let autoResource: Resource = new Resource({});
     autoResource = this.customizeVersions(autoResource);
-    const awsResourceDetectors: (Detector | DetectorSync)[] = [
-      envDetectorSync,
-      awsEc2Detector,
-      awsEcsDetector,
-      awsEksDetector,
-    ];
-    const awsResourceDetectionConfig: ResourceDetectionConfig = {
-      detectors: awsResourceDetectors,
-    };
-    autoResource = autoResource.merge(detectResourcesSync(awsResourceDetectionConfig));
 
-    // envDetectorSync, awsEc2Detector, awsEcsDetector, and awsEksDetector may also be
-    // specified via Env Var and be repeated here. The repeated attributes will be overwritten
-    // in the merging of the resources.
-    const defaultDetectors: (Detector | DetectorSync)[] = getResourceDetectorsFromEnv();
-    const defaultDetectorsConfig: ResourceDetectionConfig = {
+    // The following if/else block is based on upstream's logic
+    // https://github.com/open-telemetry/opentelemetry-js/blob/95edbd9992434f31f50532fedb3c7e8db5164479/experimental/packages/opentelemetry-sdk-node/src/sdk.ts#L125-L129
+    // In all cases, we want to include the Env Detector (Sync) and the AWS Resource Detectors
+    let defaultDetectors: (Detector | DetectorSync)[] = [];
+    if (process.env.OTEL_NODE_RESOURCE_DETECTORS != null) {
+      defaultDetectors = getResourceDetectorsFromEnv();
+      // Add Env/AWS Resource Detectors if not present
+      const resourceDetectorsFromEnv = process.env.OTEL_NODE_RESOURCE_DETECTORS.split(',');
+      if (!resourceDetectorsFromEnv.includes('env')) {
+        defaultDetectors.push(envDetectorSync);
+      }
+      if (!resourceDetectorsFromEnv.includes('aws')) {
+        defaultDetectors.push(awsEc2Detector, awsEcsDetector, awsEksDetector);
+      }
+    } else {
+      /*
+       * envDetectorSync is used as opposed to envDetector (async), so it is guaranteed that the
+       * resource is populated with configured OTEL_RESOURCE_ATTRIBUTES or OTEL_SERVICE_NAME env
+       * var values by the time that this class provides a configuration to the OTel SDK.
+       */
+      defaultDetectors = [
+        envDetectorSync,
+        processDetector,
+        hostDetector,
+        awsEc2Detector,
+        awsEcsDetector,
+        awsEksDetector,
+      ];
+    }
+
+    const internalConfig: ResourceDetectionConfig = {
       detectors: defaultDetectors,
     };
-    autoResource = autoResource.merge(detectResourcesSync(defaultDetectorsConfig));
+
+    autoResource = autoResource.merge(detectResourcesSync(internalConfig));
 
     this.resource = autoResource;
   }

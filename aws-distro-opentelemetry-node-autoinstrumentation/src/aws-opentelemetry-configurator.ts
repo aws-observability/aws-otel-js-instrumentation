@@ -2,10 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { diag } from '@opentelemetry/api';
-import {
-  getNodeAutoInstrumentations,
-  getResourceDetectors as getResourceDetectorsFromEnv,
-} from '@opentelemetry/auto-instrumentations-node';
+import { getResourceDetectors as getResourceDetectorsFromEnv } from '@opentelemetry/auto-instrumentations-node';
+import { Instrumentation } from '@opentelemetry/instrumentation';
 import { awsEc2Detector, awsEcsDetector, awsEksDetector } from '@opentelemetry/resource-detector-aws';
 import {
   Detector,
@@ -37,8 +35,9 @@ const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS
  */
 export class AwsOpentelemetryConfigurator {
   private resource: Resource;
+  private instrumentations: Instrumentation[];
 
-  constructor() {
+  constructor(instrumentations: Instrumentation[]) {
     /*
      * Set and Detect Resources via Resource Detectors
      *
@@ -88,6 +87,8 @@ export class AwsOpentelemetryConfigurator {
     autoResource = autoResource.merge(detectResourcesSync(internalConfig));
 
     this.resource = autoResource;
+
+    this.instrumentations = instrumentations;
   }
 
   private customizeVersions(autoResource: Resource): Resource {
@@ -106,14 +107,14 @@ export class AwsOpentelemetryConfigurator {
     if (this.isApplicationSignalsEnabled()) {
       // TODO: This is a placeholder config. This will be replaced with an ADOT config in a future commit.
       config = {
-        instrumentations: getNodeAutoInstrumentations(),
+        instrumentations: this.instrumentations,
         resource: this.resource,
         autoDetectResources: false,
       };
     } else {
       // Default experience config
       config = {
-        instrumentations: getNodeAutoInstrumentations(),
+        instrumentations: this.instrumentations,
         resource: this.resource,
         autoDetectResources: false,
       };

@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { DiagConsoleLogger, diag } from '@opentelemetry/api';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
+import { applyInstrumentationPatches } from './patches/instrumentation-patch';
 
 diag.setLogger(new DiagConsoleLogger(), opentelemetry.core.getEnv().OTEL_LOG_LEVEL);
 
@@ -31,7 +34,14 @@ if (!process.env.OTEL_PROPAGATORS) {
   process.env.OTEL_PROPAGATORS = 'xray,tracecontext,b3,b3multi';
 }
 
-const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator();
+const instrumentations: Instrumentation[] = getNodeAutoInstrumentations();
+
+// Apply instrumentation patches by default
+if (process.env.AWS_APPLY_PATCHES === undefined || process.env.AWS_APPLY_PATCHES?.toLowerCase() === 'true') {
+  applyInstrumentationPatches(instrumentations);
+}
+
+const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator(instrumentations);
 const configuration: Partial<opentelemetry.NodeSDKConfiguration> = configurator.configure();
 
 const sdk: opentelemetry.NodeSDK = new opentelemetry.NodeSDK(configuration);

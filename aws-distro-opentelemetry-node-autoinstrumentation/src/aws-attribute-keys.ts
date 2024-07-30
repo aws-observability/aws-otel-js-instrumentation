@@ -1,6 +1,12 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import {
+  SEMATTRS_AWS_DYNAMODB_TABLE_NAMES,
+  SEMATTRS_MESSAGING_DESTINATION,
+  SEMATTRS_MESSAGING_URL,
+} from '@opentelemetry/semantic-conventions';
+
 // Utility class holding attribute keys with special meaning to AWS components
 export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   AWS_SPAN_KIND: 'aws.span.kind',
@@ -20,13 +26,11 @@ export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   AWS_IS_LOCAL_ROOT: 'aws.is.local.root',
 
   // Divergence from Java/Python
-  // TODO: Audit this: These will most definitely be different in JavaScript.
-  //   For example:
-  //     - `messaging.url` for AWS_QUEUE_URL
-  //     - `aws.dynamodb.table_names` for AWS_TABLE_NAME
-  AWS_BUCKET_NAME: 'aws.bucket.name',
-  AWS_QUEUE_URL: 'aws.queue.url',
-  AWS_QUEUE_NAME: 'aws.queue.name',
-  AWS_STREAM_NAME: 'aws.stream.name',
-  AWS_TABLE_NAME: 'aws.table.name',
+  // For consistency between ADOT SDK languages, the attribute Key name is named similarly to Java/Python,
+  // while the value is different to accommodate the actual attribute set from OTel JS instrumentations
+  AWS_BUCKET_NAME: 'aws.s3.bucket',
+  AWS_QUEUE_URL: SEMATTRS_MESSAGING_URL,
+  AWS_QUEUE_NAME: SEMATTRS_MESSAGING_DESTINATION,
+  AWS_STREAM_NAME: 'aws.kinesis.stream.name',
+  AWS_TABLE_NAMES: SEMATTRS_AWS_DYNAMODB_TABLE_NAMES,
 };

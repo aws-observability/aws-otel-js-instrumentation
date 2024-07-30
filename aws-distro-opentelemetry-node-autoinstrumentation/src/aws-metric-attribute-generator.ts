@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Attributes, AttributeValue, diag, SpanKind } from '@opentelemetry/api';
-import { Resource, defaultServiceName } from '@opentelemetry/resources';
+import { defaultServiceName, Resource } from '@opentelemetry/resources';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
   SEMATTRS_DB_CONNECTION_STRING,
@@ -340,10 +340,13 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     let remoteResourceIdentifier: AttributeValue | undefined;
 
     if (AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
-      if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME)) {
+      if (
+        AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES) &&
+        (span.attributes[AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES] as string[]).length === 1
+      ) {
         remoteResourceType = NORMALIZED_DYNAMO_DB_SERVICE_NAME + '::Table';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME]
+          (span.attributes[AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES] as string[])[0]
         );
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_STREAM_NAME)) {
         remoteResourceType = NORMALIZED_KINESIS_SERVICE_NAME + '::Stream';

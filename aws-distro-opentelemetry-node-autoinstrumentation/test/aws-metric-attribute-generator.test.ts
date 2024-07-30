@@ -760,20 +760,30 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes('AWS::Kinesis::Stream', 'aws_stream_name');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STREAM_NAME, undefined);
 
-    // Validate behaviour of AWS_TABLE_NAME attribute, then remove it.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, 'aws_table_name');
+    // Validate behaviour of AWS_TABLE_NAMES attribute with one table name, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES, ['aws_table_name']);
     validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'aws_table_name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES, undefined);
 
-    // Validate behaviour of AWS_TABLE_NAME attribute with special chars(|), then remove it.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, 'aws_table|name');
+    // Validate behaviour of AWS_TABLE_NAMES attribute with no table name, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES, []);
+    validateRemoteResourceAttributes(undefined, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES, undefined);
+
+    // Validate behaviour of AWS_TABLE_NAMES attribute with two table names, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES, ['aws_table_name1', 'aws_table_name2']);
+    validateRemoteResourceAttributes(undefined, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES, undefined);
+
+    // Validate behaviour of AWS_TABLE_NAMES attribute with special chars(|), then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES, ['aws_table|name']);
     validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'aws_table^|name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES, undefined);
 
-    // Validate behaviour of AWS_TABLE_NAME attribute with special chars(^), then remove it.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, 'aws_table^name');
+    // Validate behaviour of AWS_TABLE_NAMES attribute with special chars(^), then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES, ['aws_table^name']);
     validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'aws_table^^name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES, undefined);
   });
 
   it('testDBClientSpanWithRemoteResourceAttributes', () => {
@@ -1010,7 +1020,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(SEMATTRS_PEER_SERVICE, undefined);
   }
 
-  function validateRemoteResourceAttributes(type: string, identifier: string): void {
+  function validateRemoteResourceAttributes(type: string | undefined, identifier: string | undefined): void {
     // Client, Producer and Consumer spans should generate the expected remote resource attributes
     (spanDataMock as any).kind = SpanKind.CLIENT;
     let actualAttributes: Attributes = GENERATOR.generateMetricAttributeMapFromSpan(spanDataMock, resource)[

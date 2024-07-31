@@ -7,18 +7,30 @@ You may change the port number from `8080` using:
 export SAMPLE_APP_PORT=8082
 ```
 
-To startup an Express Sample App without instrumentation
+#### Without Instrumentation
+To startup the Express Sample App without instrumentation
 ```
 npm install
 node sample-app-express-server.js
 ```
 
-To startup an Express Sample App with OTel auto-instrumentation
+#### With OTel Instrumentation
+To startup the Express Sample App with OTel auto-instrumentation
 ```
 npm install
 npm install --save @opentelemetry/api
 npm install --save @opentelemetry/auto-instrumentations-node
 node --require '@opentelemetry/auto-instrumentations-node/register' sample-app-express-server.js
+```
+
+#### With ADOT Instrumentation
+To startup the Express Sample App with local AWS Distro OTel auto-instrumentation, go to the `root` directory and run the following command to install the sample app with ADOT JS instrumentation:
+```
+./scripts/install_and_link_simple_express_app_with_instrumentation.sh
+```
+Then start the app in this directory with:
+```
+node --require '@aws/aws-distro-opentelemetry-node-autoinstrumentation/register' sample-app-express-server.js
 ```
 
 ### Ping Sample App

@@ -1,0 +1,21 @@
+{
+  "npmClient": "npm",
+  "useWorkspaces": true,
+  "version": "independent",
+  "changelog": {
+    "repo": "aws-observability/aws-otel-js-instrumentation",
+    "labels": {
+      "breaking": ":boom: Breaking Change",
+      "bug": ":bug: (Bug Fix)",
+      "core": ":wrench: Core",
+      "document": ":books: (Refine Doc)",
+      "enhancement": ":rocket: (Enhancement)",
+      "feature-request": ":sparkles: (Feature)",
+      "internal": ":house: Internal"
+    },
+    "cacheDir": ".changelog",
+    "ignoreCommitters": [
+      "github-actions"
+    ]
+  }
+}

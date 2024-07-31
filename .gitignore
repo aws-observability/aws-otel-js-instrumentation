@@ -1,0 +1,6 @@
+# Generated directories (e.g. through `npm run compile`)
+build/
+node_modules/
+
+# Other
+.git/

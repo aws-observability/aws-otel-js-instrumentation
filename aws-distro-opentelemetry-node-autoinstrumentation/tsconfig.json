@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "build",
+    // This command allows TypeScript to import `sql_dialect_keywords.json`
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ]
+}

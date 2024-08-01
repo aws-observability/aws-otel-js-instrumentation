@@ -21,6 +21,7 @@ reported the issue. Please try to include as much information as you can. Detail
 
 
 ## Contributing via Pull Requests
+
 Contributions via pull requests are much appreciated. Before sending us a pull request, please ensure that:
 
 1. You are working against the latest source on the *main* branch.
@@ -47,23 +48,28 @@ The following are useful commands that can be run within the `root` directory of
 Use `npm install` within the root directory to initialize all package directories before running any of the following commands.
 
 ### Build TypeScript into JavaScript
-```
+
+```shell
 npm run compile
 ```
 
 ### Lint
-```
+
+```shell
 npm run lint
 ```
 
 ### Lint automatic fixing
-```
+
+```shell
 npm run lint:fix
 ```
+
 ### Test the local ADOT JS package with your own local NodeJS project
 
 In the `./aws-distro-opentelemetry-node-autoinstrumentation` directory, run:
-```
+
+```shell
 npm install
 npm run compile
 npm link
@@ -71,28 +77,32 @@ npm link
 
 In the target local NodeJS project to be instrumented, run
 
-```
+```shell
 npm install
 npm link @aws/aws-distro-opentelemetry-node-autoinstrumentation
 ```
 
 Your NodeJS project can now be run with your local copy of the ADOT NodeJS code with:
-```
+
+```shell
 node --require '@aws/aws-distro-opentelemetry-node-autoinstrumentation/register' your-application.js.js
 ```
 
 
 ## Finding contributions to work on
+
 Looking at the existing issues is a great way to find something to contribute on. As our projects, by default, use the default GitHub issue labels (enhancement/bug/duplicate/help wanted/invalid/question/wontfix), looking at any 'help wanted' issues is a great place to start.
 
 
 ## Code of Conduct
+
 This project has adopted the [Amazon Open Source Code of Conduct](https://aws.github.io/code-of-conduct).
 For more information see the [Code of Conduct FAQ](https://aws.github.io/code-of-conduct-faq) or contact
-opensource-codeofconduct@amazon.com with any additional questions or comments.
+<opensource-codeofconduct@amazon.com> with any additional questions or comments.
 
 
 ## Security issue notifications
+
 If you discover a potential security issue in this project we ask that you notify AWS/Amazon Security via our [vulnerability reporting page](http://aws.amazon.com/security/vulnerability-reporting/). Please do **not** create a public github issue.
 
 

@@ -1,18 +1,20 @@
 # AWS Distro for OpenTelemetry (ADOT) NodeJS Auto-Instrumentation
 
 Install this package into your NodeJS project with:
-```
+
+```shell
 npm install --save @aws/aws-distro-opentelemetry-node-autoinstrumentation
 ```
 
 Run your application with ADOT NodeJS with:
-```
+
+```shell
 node --require '@aws/aws-distro-opentelemetry-node-autoinstrumentation/register' your-application.js
 ```
 
 ## Sample Environment Variables for Application Signals
 
-```
+```shell
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
 export OTEL_PROPAGATORS=xray,tracecontext,b3,b3multi \
 export OTEL_TRACES_EXPORTER=console,otlp \

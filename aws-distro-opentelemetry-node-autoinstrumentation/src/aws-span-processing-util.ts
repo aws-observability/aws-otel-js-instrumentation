@@ -140,10 +140,10 @@ export class AwsSpanProcessingUtil {
   // parent context and returns true if it is a local root.
   static isLocalRoot(spanData: ReadableSpan): boolean {
     // Workaround implemented for this function as parent span context is not obtainable.
-    // This isLocalRoot value is precalculated in AttributePropagatingSpanProcessor, which is assumed
-    // to start before the other processors (e.g. AwsSpanMetricsProcessor)
+    // This isLocalRoot value is precalculated in AttributePropagatingSpanProcessor, which
+    // is started before the other processors (e.g. AwsSpanMetricsProcessor)
     // Thus this function is implemented differently than in Java/Python
-    const isLocalRoot: AttributeValue | undefined = spanData.attributes[AWS_ATTRIBUTE_KEYS.APPSIGNALS_IS_LOCAL_ROOT];
+    const isLocalRoot: AttributeValue | undefined = spanData.attributes[AWS_ATTRIBUTE_KEYS.AWS_IS_LOCAL_ROOT];
     if (isLocalRoot === undefined) {
       // isLocalRoot should be precalculated, this code block should not be entered
       diag.debug('isLocalRoot for span has not been precalculated. Assuming span is Local Root Span.');
@@ -239,6 +239,6 @@ export class AwsSpanProcessingUtil {
     const isParentSpanRemote: boolean = parentSpanContext !== undefined && parentSpanContext.isRemote === true;
 
     const isLocalRoot: boolean = span.parentSpanId === undefined || !isParentSpanContextValid || isParentSpanRemote;
-    span.setAttribute(AWS_ATTRIBUTE_KEYS.APPSIGNALS_IS_LOCAL_ROOT, isLocalRoot);
+    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_IS_LOCAL_ROOT, isLocalRoot);
   }
 }

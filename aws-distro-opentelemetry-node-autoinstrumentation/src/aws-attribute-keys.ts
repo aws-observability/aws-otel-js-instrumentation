@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// Utility class holding attribute keys with special meaning to AWS components
 export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   AWS_SPAN_KIND: 'aws.span.kind',
   AWS_LOCAL_SERVICE: 'aws.local.service',
@@ -16,7 +17,7 @@ export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   AWS_REMOTE_DB_USER: 'aws.remote.db.user',
 
   // Used for JavaScript workaround - attribute for pre-calculated value of isLocalRoot
-  APPSIGNALS_IS_LOCAL_ROOT: 'appsignals.is.local.root',
+  AWS_IS_LOCAL_ROOT: 'aws.is.local.root',
 
   // Divergence from Java/Python
   // TODO: Audit this: These will most definitely be different in JavaScript.

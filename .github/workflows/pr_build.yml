@@ -1,9 +1,6 @@
 name: JavaScript Instrumentation PR Build
 on:
   pull_request:
-    branches:
-      - main
-      - "release/v*"
 
 permissions:
   id-token: write
@@ -40,4 +37,16 @@ jobs:
           verbose: true
 
   lint:
-    uses: ./.github/workflows/lint.yml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+      - run: npm ci
+      - name: Lint
+        run: |
+          npm run lint
+          npm run lint:markdown
+          npm run lint:readme

@@ -70,7 +70,8 @@ export class AwsSpanProcessingUtil {
    * @param httpTarget http request target string value. Eg, /payment/1234
    * @return the first part from the http target. Eg, /payment
    */
-  static extractAPIPathValue(httpTarget: string): string {
+  static extractAPIPathValue(httpTarget: string | undefined | null): string {
+    // In TypeScript, `httpTarget == null` checks both null and undefined
     if (httpTarget == null || httpTarget === '') {
       return '/';
     }

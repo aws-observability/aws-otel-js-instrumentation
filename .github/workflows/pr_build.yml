@@ -27,9 +27,6 @@ jobs:
       - name: Unit tests (Full)
         if: matrix.code-coverage
         run: npm run test
-      - name: Unit tests (Delta)
-        if: ${{ !matrix.code-coverage }}
-        run: npm run test:ci:changed
       - name: Report Coverage
         if: ${{ matrix.code-coverage && !cancelled()}}
         uses: codecov/codecov-action@v4

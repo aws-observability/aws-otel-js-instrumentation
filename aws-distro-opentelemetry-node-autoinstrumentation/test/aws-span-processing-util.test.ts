@@ -266,6 +266,7 @@ describe('AwsSpanProcessingUtilTest', () => {
     expect(AwsSpanProcessingUtil.shouldGenerateDependencyMetricAttributes(spanDataMock)).toBeTruthy();
   });
 
+  // Divergence from Java/Python - set AWS_IS_LOCAL_ROOT to test isLocalRoot
   it('testIsLocalRoot', () => {
     // AWS_ATTRIBUTE_KEYS.AWS_IS_LOCAL_ROOT is undefined
     expect(AwsSpanProcessingUtil.isLocalRoot(spanDataMock)).toBeTruthy();
@@ -275,30 +276,6 @@ describe('AwsSpanProcessingUtilTest', () => {
 
     spanDataMock.attributes[AWS_ATTRIBUTE_KEYS.AWS_IS_LOCAL_ROOT] = false;
     expect(AwsSpanProcessingUtil.isLocalRoot(spanDataMock)).toBeFalsy();
-
-    //
-
-    // // Parent Context is empty
-    // expect(AwsSpanProcessingUtil.isLocalRoot(spanDataMock)).toBeTruthy();
-
-    // SpanContext parentSpanContext = mock(SpanContext.class);
-    // when(spanDataMock.getParentSpanContext()).thenReturn(parentSpanContext);
-
-    // (parentSpanContext as any).isRemote = false;
-    // when(parentSpanContext.isValid()).thenReturn(true);
-    // expect(AwsSpanProcessingUtil.isLocalRoot(spanDataMock)).toBeFalsy();
-
-    // (parentSpanContext as any).isRemote = true;
-    // when(parentSpanContext.isValid()).thenReturn(true);
-    // expect(AwsSpanProcessingUtil.isLocalRoot(spanDataMock)).toBeTruthy();
-
-    // (parentSpanContext as any).isRemote = false;
-    // when(parentSpanContext.isValid()).thenReturn(false);
-    // expect(AwsSpanProcessingUtil.isLocalRoot(spanDataMock)).toBeTruthy();
-
-    // (parentSpanContext as any).isRemote = true;
-    // when(parentSpanContext.isValid()).thenReturn(false);
-    // expect(AwsSpanProcessingUtil.isLocalRoot(spanDataMock)).toBeTruthy();
   });
 
   it('testIsConsumerProcessSpanFalse', () => {

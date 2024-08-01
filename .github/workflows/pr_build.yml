@@ -13,6 +13,8 @@ jobs:
       fail-fast: false # ensures the entire test matrix is run, even if one permutation fails
       matrix:
         node: ["14", "16", "18", "20", "22"]
+    env:
+      NPM_CONFIG_UNSAFE_PERM: true
     steps:
       - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@v4

@@ -1,0 +1,43 @@
+name: JavaScript Instrumentation PR Build
+on:
+  pull_request:
+    branches:
+      - main
+      - "release/v*"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # ensures the entire test matrix is run, even if one permutation fails
+      matrix:
+        node: ["14", "16", "18", "20", "22"]
+    steps:
+      - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@v4
+
+      - name: Update npm to a version that supports workspaces (v7 or later)
+        if: ${{ matrix.node < 16 }}
+        run: npm install -g npm@9 # npm@9 supports node >=14.17.0
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run compile
+      - name: Unit tests (Full)
+        if: matrix.code-coverage
+        run: npm run test
+      - name: Unit tests (Delta)
+        if: ${{ !matrix.code-coverage }}
+        run: npm run test:ci:changed
+      - name: Report Coverage
+        if: ${{ matrix.code-coverage && !cancelled()}}
+        uses: codecov/codecov-action@v4
+        with:
+          verbose: true
+
+  lint:
+    uses: ./.github/workflows/lint.yml

@@ -28,7 +28,7 @@ export class AwsSpanProcessingUtil {
   static INTERNAL_OPERATION: string = 'InternalOperation';
   static LOCAL_ROOT: string = 'LOCAL_ROOT';
   static SQS_RECEIVE_MESSAGE_SPAN_NAME: string = 'Sqs.ReceiveMessage';
-  static AWS_SDK_INSTRUMENTATION_SCOPE_PREFIX: string = 'io.opentelemetry.aws-sdk-';
+  static AWS_SDK_INSTRUMENTATION_SCOPE_PREFIX: string = '@opentelemetry/instrumentation-aws-sdk';
 
   // Max keyword length supported by parsing into remote_operation from DB_STATEMENT.
   // The current longest command word is DATETIME_INTERVAL_PRECISION at 27 characters.

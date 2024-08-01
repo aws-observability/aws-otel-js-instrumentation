@@ -288,27 +288,14 @@ describe('AwsSpanProcessingUtilTest', () => {
     expect(AwsSpanProcessingUtil.isConsumerProcessSpan(spanDataMock)).toBeTruthy();
   });
 
-  // check that AWS SDK v1 SQS ReceiveMessage consumer spans metrics are suppressed
-  it('testNoMetricAttributesForSqsConsumerSpanAwsSdkV1', () => {
+  // check that AWS SDK SQS ReceiveMessage consumer spans metrics are suppressed
+  it('testNoMetricAttributesForSqsConsumerSpanAwsSdk', () => {
     const instrumentationLibrary: InstrumentationLibrary = {
-      name: 'io.opentelemetry.aws-sdk-1.11',
+      name: '@opentelemetry/instrumentation-aws-sdk',
     };
     (spanDataMock as any).instrumentationLibrary = instrumentationLibrary;
     (spanDataMock as any).kind = SpanKind.CONSUMER;
     (spanDataMock as any).name = 'SQS.ReceiveMessage';
-
-    expect(AwsSpanProcessingUtil.shouldGenerateServiceMetricAttributes(spanDataMock)).toBeFalsy();
-    expect(AwsSpanProcessingUtil.shouldGenerateDependencyMetricAttributes(spanDataMock)).toBeFalsy();
-  });
-
-  // check that AWS SDK v2 SQS ReceiveMessage consumer spans metrics are suppressed
-  it('testNoMetricAttributesForSqsConsumerSpanAwsSdkV2', () => {
-    const instrumentationLibrary: InstrumentationLibrary = {
-      name: 'io.opentelemetry.aws-sdk-2.2',
-    };
-    (spanDataMock as any).instrumentationLibrary = instrumentationLibrary;
-    (spanDataMock as any).kind = SpanKind.CONSUMER;
-    (spanDataMock as any).name = 'Sqs.ReceiveMessage';
 
     expect(AwsSpanProcessingUtil.shouldGenerateServiceMetricAttributes(spanDataMock)).toBeFalsy();
     expect(AwsSpanProcessingUtil.shouldGenerateDependencyMetricAttributes(spanDataMock)).toBeFalsy();
@@ -332,7 +319,7 @@ describe('AwsSpanProcessingUtilTest', () => {
   // process and not receive
   it('testNoMetricAttributesForAwsSdkSqsConsumerProcessSpan', () => {
     const instrumentationLibrary: InstrumentationLibrary = {
-      name: 'io.opentelemetry.aws-sdk-2.2',
+      name: '@opentelemetry/instrumentation-aws-sdk',
     };
     (spanDataMock as any).instrumentationLibrary = instrumentationLibrary;
     (spanDataMock as any).kind = SpanKind.CONSUMER;

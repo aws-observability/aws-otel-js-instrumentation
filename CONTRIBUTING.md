@@ -65,6 +65,12 @@ npm run lint
 npm run lint:fix
 ```
 
+### Run unit tests
+
+```shell
+npm run tests
+```
+
 ### Test the local ADOT JS package with your own local NodeJS project
 
 In the `./aws-distro-opentelemetry-node-autoinstrumentation` directory, run:

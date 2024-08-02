@@ -1184,4 +1184,68 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     expect(attributeMap[SERVICE_METRIC]).toEqual(serviceAttributes);
     expect(attributeMap[DEPENDENCY_METRIC]).toEqual(dependencyAttributes);
   });
+
+  it('testJdbcDbConnectionString', () => {
+    mockAttribute(SEMATTRS_DB_SYSTEM, 'mysql');
+
+    // Validate behaviour of SEMATTRS_DB_NAME and SEMATTRS_DB_CONNECTION_STRING exist, then remove it.
+    mockAttribute(SEMATTRS_DB_NAME, 'db_name');
+    mockAttribute(
+      SEMATTRS_DB_CONNECTION_STRING,
+      'jdbc:mysql://mysql.db.server:3306/my_database?useSSL=false&serverTimezone=UTC'
+    );
+    validateRemoteResourceAttributes('DB::Connection', 'db_name|mysql.db.server|3306');
+    mockAttribute(SEMATTRS_DB_NAME, undefined);
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, undefined);
+
+    // Validate behaviour of SEMATTRS_DB_NAME and SEMATTRS_DB_CONNECTION_STRING exist, then remove it.
+    mockAttribute(SEMATTRS_DB_NAME, 'db_name');
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, 'jdbc:mysql://myhostname:3306/db_name?prop1=value1&prop2=value2');
+    validateRemoteResourceAttributes('DB::Connection', 'db_name|myhostname|3306');
+    mockAttribute(SEMATTRS_DB_NAME, undefined);
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, undefined);
+
+    // Validate behaviour of SEMATTRS_DB_NAME and SEMATTRS_DB_CONNECTION_STRING exist, then remove it.
+    mockAttribute(SEMATTRS_DB_NAME, 'db_name');
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, 'jdbc:mysql://root:mypassword@myhostname:3306/db_name');
+    validateRemoteResourceAttributes('DB::Connection', 'db_name|myhostname|3306');
+    mockAttribute(SEMATTRS_DB_NAME, undefined);
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, undefined);
+
+    // Validate behaviour of SEMATTRS_DB_NAME and SEMATTRS_DB_CONNECTION_STRING exist, then remove it.
+    mockAttribute(SEMATTRS_DB_NAME, 'db_name');
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, 'jdbc:postgresql://host:3306/database?properties');
+    validateRemoteResourceAttributes('DB::Connection', 'db_name|host|3306');
+    mockAttribute(SEMATTRS_DB_NAME, undefined);
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, undefined);
+
+    // Validate behaviour of SEMATTRS_DB_NAME and SEMATTRS_DB_CONNECTION_STRING exist, then remove it.
+    mockAttribute(SEMATTRS_DB_NAME, 'db_name');
+    mockAttribute(
+      SEMATTRS_DB_CONNECTION_STRING,
+      'jdbc:postgresql://postgresql.db.server:3306/mydatabase?ssl=true&loglevel=1'
+    );
+    validateRemoteResourceAttributes('DB::Connection', 'db_name|postgresql.db.server|3306');
+    mockAttribute(SEMATTRS_DB_NAME, undefined);
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, undefined);
+
+    // Validate behaviour of SEMATTRS_DB_NAME and SEMATTRS_DB_CONNECTION_STRING exist, then remove it.
+    mockAttribute(SEMATTRS_DB_NAME, 'db_name');
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, 'jdbc://myhostname:3306/db_name?user=root&password=mypassword');
+    validateRemoteResourceAttributes('DB::Connection', 'db_name|myhostname|3306');
+    mockAttribute(SEMATTRS_DB_NAME, undefined);
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, undefined);
+
+    // Validate behaviour of SEMATTRS_DB_NAME and SEMATTRS_DB_CONNECTION_STRING exist, then remove it.
+    mockAttribute(SEMATTRS_DB_NAME, 'db_name');
+    mockAttribute(
+      SEMATTRS_DB_CONNECTION_STRING,
+      'jdbc:mysql:loadbalance://myhostname:3306/db_name?user=root&password=mypassword'
+    );
+    validateRemoteResourceAttributes('DB::Connection', 'db_name|myhostname|3306');
+    mockAttribute(SEMATTRS_DB_NAME, undefined);
+    mockAttribute(SEMATTRS_DB_CONNECTION_STRING, undefined);
+
+    mockAttribute(SEMATTRS_DB_SYSTEM, undefined);
+  });
 });

@@ -61,8 +61,6 @@ const DB_CONNECTION_RESOURCE_TYPE: string = 'DB::Connection';
 // the service name to unknown_service:<process name> or just unknown_service.
 const OTEL_UNKNOWN_SERVICE: string = 'unknown_service:node';
 
-const JDBC_PROTOCOL_PREFIX: string = 'jdbc:';
-
 /**
  * AwsMetricAttributeGenerator generates very specific metric attributes based on low-cardinality
  * span and resource attributes. If such attributes are not present, we fallback to default values.
@@ -450,17 +448,19 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     let address: string;
     let port: string;
     try {
-      uri = new URL(connectionString as string);
-
       // Divergence from Java/Python
       // `jdbc:<dababase>://` isn't handled well with `new URL()`
       // uri.host and uri.port will be empty strings
       // examples:
       // - jdbc:postgresql://host:port/database?properties
       // - jdbc:mysql://localhost:3306
-      // Try again with the substring after `jdbc:`)
-      if ((connectionString as string).startsWith(JDBC_PROTOCOL_PREFIX)) {
-        uri = new URL((connectionString as string).substring(JDBC_PROTOCOL_PREFIX.length));
+      // - abc:def:ghi://host:3306
+      // Try with a dummy schema without `:`, since we do not care about the schema
+      const schemeEndIndex: number = (connectionString as string).indexOf('://');
+      if (schemeEndIndex === -1) {
+        uri = new URL(connectionString as string);
+      } else {
+        uri = new URL('dummyschema' + (connectionString as string).substring(schemeEndIndex));
       }
 
       address = uri.hostname;

@@ -19,20 +19,21 @@ jobs:
     env:
       NPM_CONFIG_UNSAFE_PERM: true
     steps:
-      - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
+      - name: Checkout Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-
       - name: Update npm to a version that supports workspaces (v7 or later)
         if: ${{ matrix.node < 16 }}
         run: npm install -g npm@9 # npm@9 supports node >=14.17.0
-      - name: Install
+      - name: NPM Clean Install
+        # https://docs.npmjs.com/cli/v10/commands/npm-ci
         run: npm ci
-      - name: Build
+      - name: Compile all NPM projects
         run: npm run compile
       - name: Unit tests (Full)
         if: matrix.code-coverage

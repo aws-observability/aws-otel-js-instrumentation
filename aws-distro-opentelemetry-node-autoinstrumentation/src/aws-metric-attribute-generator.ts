@@ -434,7 +434,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     address: AttributeValue | undefined,
     port: AttributeValue | undefined
   ): string | undefined {
-    if (address === undefined || port === undefined) {
+    if (address === undefined) {
       return undefined;
     }
 

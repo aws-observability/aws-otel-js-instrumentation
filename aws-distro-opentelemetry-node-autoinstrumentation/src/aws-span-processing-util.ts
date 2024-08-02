@@ -12,6 +12,7 @@ import {
   SEMATTRS_DB_SYSTEM,
   SEMATTRS_HTTP_METHOD,
   SEMATTRS_HTTP_TARGET,
+  SEMATTRS_HTTP_URL,
   SEMATTRS_MESSAGING_OPERATION,
   SEMATTRS_RPC_SYSTEM,
 } from '@opentelemetry/semantic-conventions';
@@ -206,21 +207,36 @@ export class AwsSpanProcessingUtil {
    */
   private static generateIngressOperation(span: ReadableSpan): string {
     let operation: string = AwsSpanProcessingUtil.UNKNOWN_OPERATION;
+    let httpPath: AttributeValue | undefined = undefined;
+
     if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_TARGET)) {
-      const httpTarget: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_TARGET];
-      // get the first part from API path string as operation value
-      // the more levels/parts we get from API path the higher chance for getting high cardinality
-      // data
-      if (httpTarget != null) {
-        operation = AwsSpanProcessingUtil.extractAPIPathValue(httpTarget.toString());
-        if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_METHOD)) {
-          const httpMethod: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_METHOD];
-          if (httpMethod != null) {
-            operation = httpMethod.toString() + ' ' + operation;
-          }
+      httpPath = span.attributes[SEMATTRS_HTTP_TARGET];
+    } else if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_URL)) {
+      const httpUrl: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_URL];
+      try {
+        let url: URL;
+        if (httpUrl !== undefined) {
+          url = new URL(httpUrl as string);
+          httpPath = url.pathname;
+        }
+      } catch (e: unknown) {
+        // In Python, if `httpUrl == ''`, there is no error from URL parsing, and `url.pathname = ''`
+        // In TypeScript, this catch block will be invoked. Here `httpPath = ''` is set as default to match Python.
+        diag.verbose(`invalid http.url attribute: ${httpUrl}, setting httpPath as empty string`);
+        httpPath = '';
+      }
+    }
+
+    if (httpPath !== undefined) {
+      operation = this.extractAPIPathValue(httpPath as string);
+      if (this.isKeyPresent(span, SEMATTRS_HTTP_METHOD)) {
+        const httpMethod: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_METHOD];
+        if (httpMethod !== undefined) {
+          operation = httpMethod + ' ' + operation;
         }
       }
     }
+
     return operation;
   }
 

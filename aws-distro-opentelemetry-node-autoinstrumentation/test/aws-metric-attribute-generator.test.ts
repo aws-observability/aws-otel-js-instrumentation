@@ -128,9 +128,6 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       droppedEventsCount: 0,
       droppedLinksCount: 0,
     };
-    // (spanDataMock as any).getAttributes() = attributesMock;
-    // (spanDataMock as any).getInstrumentationScopeInfo() = instrumentationScopeInfoMock;
-    //[][] (spanDataMock as any).getSpanContext() = mock(SpanContext.class);
     parentSpanContextMock = {
       traceId: 'traceId',
       spanId: 'spanId',

@@ -1,0 +1,18 @@
+// https://github.com/open-telemetry/opentelemetry-js-contrib/blob/d52d4218235528dcecc706867425b86bac49b1f0/.markdownlint-cli2.jsonc
+{
+  "config": {
+    // https://github.com/DavidAnson/markdownlint/blob/main/README.md#rules--aliases
+    "MD013": false,
+    "MD024": false,
+    "MD033": false,
+    "MD041": false,
+    // MD004/ul-style. We prefer dash, but generated CHANGELOG.md files use
+    // asterisk. The default "consistent" is a good compromise.
+    "MD004": { "style": "consistent" },
+    // This setting is for a future potential CHANGELOG.md file, which doesn't exist yet
+    "MD012": false // no-multiple-blanks; disabled because common in CHANGELOG.md files
+  },
+  "gitignore": true,
+  "noBanner": true,
+  "noProgress": true
+}

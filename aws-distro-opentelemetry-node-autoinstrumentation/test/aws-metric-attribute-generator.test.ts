@@ -71,32 +71,6 @@ let parentSpanContextMock: SpanContext;
 
 /** Unit tests for {@link AwsMetricAttributeGenerator}. */
 describe('AwsMetricAttributeGeneratorTest', () => {
-  //   static class ThrowableWithMethodGetStatusCode extends Throwable {
-  //     private final int httpStatusCode;
-
-  //     ThrowableWithMethodGetStatusCode(int httpStatusCode) {
-  //       this.httpStatusCode = httpStatusCode;
-  //     }
-
-  //     public int getStatusCode() {
-  //       return this.httpStatusCode;
-  //     }
-  //   }
-
-  //   static class ThrowableWithMethodStatusCode extends Throwable {
-  //     private final int httpStatusCode;
-
-  //     ThrowableWithMethodStatusCode(int httpStatusCode) {
-  //       this.httpStatusCode = httpStatusCode;
-  //     }
-
-  //     public int statusCode() {
-  //       return this.httpStatusCode;
-  //     }
-  //   }
-
-  //   static class ThrowableWithoutStatusCode extends Throwable {}
-
   // setUpMocks
   beforeEach(() => {
     attributesMock = {};

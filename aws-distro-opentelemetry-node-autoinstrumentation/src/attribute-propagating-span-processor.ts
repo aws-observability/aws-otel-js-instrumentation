@@ -70,7 +70,7 @@ export class AttributePropagatingSpanProcessor implements SpanProcessor {
       }
 
       if (SpanKind.INTERNAL === parentReadableSpan.kind) {
-        for (const keyToPropagate in this.attributesKeysToPropagate) {
+        for (const keyToPropagate of this.attributesKeysToPropagate) {
           const valueToPropagate: AttributeValue | undefined = parentReadableSpan.attributes[keyToPropagate];
           if (valueToPropagate !== undefined) {
             span.setAttribute(keyToPropagate, valueToPropagate);

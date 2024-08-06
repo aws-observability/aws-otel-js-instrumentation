@@ -114,14 +114,20 @@ export class AwsMetricAttributesSpanExporter implements SpanExporter {
    * context on this approach.
    */
   private static wrapSpanWithAttributes(span: ReadableSpan, attributes: Attributes): ReadableSpan {
-    const originalAttributes: Attributes = { ...span.attributes };
+    const originalAttributes: Attributes = span.attributes;
+    const updateAttributes: Attributes = {};
 
-    // Modify span's attributes directly
-    for (const key in attributes) {
-      if (!(key in originalAttributes)) {
-        span.attributes[key] = attributes[key];
-      }
+    for (const key in originalAttributes) {
+      updateAttributes[key] = originalAttributes[key];
     }
+    for (const key in attributes) {
+      updateAttributes[key] = attributes[key];
+    }
+
+    // Bypass `readonly` restriction of ReadableSpan's attributes.
+    type Mutable<T> = { -readonly [P in keyof T]: T[P] };
+    const mutableSpan: Mutable<ReadableSpan> = span;
+    mutableSpan.attributes = updateAttributes;
 
     return span;
   }

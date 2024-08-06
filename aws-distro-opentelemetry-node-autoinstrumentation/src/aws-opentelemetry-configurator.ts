@@ -1,5 +1,5 @@
-//Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-//SPDX-License-Identifier: Apache-2.0
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 import { diag } from '@opentelemetry/api';
 import {
@@ -58,7 +58,7 @@ export class AwsOpentelemetryConfigurator {
     if (process.env.OTEL_NODE_RESOURCE_DETECTORS != null) {
       defaultDetectors = getResourceDetectorsFromEnv();
       // Add Env/AWS Resource Detectors if not present
-      const resourceDetectorsFromEnv = process.env.OTEL_NODE_RESOURCE_DETECTORS.split(',');
+      const resourceDetectorsFromEnv: string[] = process.env.OTEL_NODE_RESOURCE_DETECTORS.split(',');
       if (!resourceDetectorsFromEnv.includes('env')) {
         defaultDetectors.push(envDetectorSync);
       }

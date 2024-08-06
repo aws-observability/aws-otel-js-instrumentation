@@ -1,5 +1,5 @@
-//Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-//SPDX-License-Identifier: Apache-2.0
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 import { DiagConsoleLogger, diag } from '@opentelemetry/api';
 import * as opentelemetry from '@opentelemetry/sdk-node';

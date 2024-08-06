@@ -22,9 +22,9 @@ export interface MetricAttributeGenerator {
    * Given a span and associated resource, produce meaningful metric attributes for metrics produced
    * from the span. If no metrics should be generated from this span, return an empty Attributes={}.
    *
-   * @param span - SpanData to be used to generate metric attributes.
+   * @param span - ReadableSpan to be used to generate metric attributes.
    * @param resource - Resource associated with Span to be used to generate metric attributes.
-   * @return A map of Attributes objects0 with values assigned to key "Service" or "Dependency". It
+   * @return A map of Attributes objects with values assigned to key "Service" or "Dependency". It
    *     will contain either 0, 1, or 2 items.
    */
   generateMetricAttributeMapFromSpan(span: ReadableSpan, resource: Resource): AttributeMap;

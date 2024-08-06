@@ -133,8 +133,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
   it('testConsumerSpanWithoutAttributes', () => {
     const expectedAttributes: Attributes = {
       [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.CONSUMER],
-      // This is tested to be UnknownService in Java/Python
-      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: `unknown_service:${process.argv0}`,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: UNKNOWN_SERVICE,
       [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: UNKNOWN_OPERATION,
       [AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE]: UNKNOWN_REMOTE_SERVICE,
       [AWS_ATTRIBUTE_KEYS.AWS_REMOTE_OPERATION]: UNKNOWN_REMOTE_OPERATION,
@@ -145,8 +144,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
   it('testServerSpanWithoutAttributes', () => {
     const expectedAttributes: Attributes = {
       [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
-      // This is tested to be UnknownService in Java/Python
-      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: `unknown_service:${process.argv0}`,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: UNKNOWN_SERVICE,
       // This is tested to be UNKNOWN_OPERATION in Java/Python
       // This is because in other langauges, span name could be null, but
       // this is not possibly in OTel JS.
@@ -158,8 +156,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
   it('testProducerSpanWithoutAttributes', () => {
     const expectedAttributes: Attributes = {
       [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.PRODUCER],
-      // This is tested to be UnknownService in Java/Python
-      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: `unknown_service:${process.argv0}`,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: UNKNOWN_SERVICE,
       [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: UNKNOWN_OPERATION,
       [AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE]: UNKNOWN_REMOTE_SERVICE,
       [AWS_ATTRIBUTE_KEYS.AWS_REMOTE_OPERATION]: UNKNOWN_REMOTE_OPERATION,
@@ -170,8 +167,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
   it('testClientSpanWithoutAttributes', () => {
     const expectedAttributes: Attributes = {
       [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.CLIENT],
-      // This is tested to be UnknownService in Java/Python
-      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: `unknown_service:${process.argv0}`,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: UNKNOWN_SERVICE,
       [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: UNKNOWN_OPERATION,
       [AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE]: UNKNOWN_REMOTE_SERVICE,
       [AWS_ATTRIBUTE_KEYS.AWS_REMOTE_OPERATION]: UNKNOWN_REMOTE_OPERATION,

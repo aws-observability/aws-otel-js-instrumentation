@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Attributes, AttributeValue, diag, SpanKind } from '@opentelemetry/api';
-import { Resource } from '@opentelemetry/resources';
+import { Resource, defaultServiceName } from '@opentelemetry/resources';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
   SEMATTRS_DB_CONNECTION_STRING,
@@ -59,7 +59,9 @@ const NORMALIZED_SQS_SERVICE_NAME: string = 'AWS::SQS';
 const DB_CONNECTION_RESOURCE_TYPE: string = 'DB::Connection';
 // As per https://opentelemetry.io/docs/specs/semconv/resource/#service, if service name is not specified, SDK defaults
 // the service name to unknown_service:<process name> or just unknown_service.
-const OTEL_UNKNOWN_SERVICE: string = 'unknown_service:node';
+// - https://github.com/open-telemetry/opentelemetry-js/blob/b2778e1b2ff7b038cebf371f1eb9f808fd98107f/packages/opentelemetry-resources/src/platform/node/default-service-name.ts#L16.
+// - `defaultServiceName()` returns `unknown_service:${process.argv0}`
+const OTEL_UNKNOWN_SERVICE: string = defaultServiceName();
 
 /**
  * AwsMetricAttributeGenerator generates very specific metric attributes based on low-cardinality
@@ -108,7 +110,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   }
 
   /** Service is always derived from {@link SEMRESATTRS_SERVICE_NAME} */
-  private static setService(resource: Resource, span: ReadableSpan, builder: Attributes): void {
+  private static setService(resource: Resource, span: ReadableSpan, attributes: Attributes): void {
     let service: AttributeValue | undefined = resource.attributes[SEMRESATTRS_SERVICE_NAME];
 
     // In practice the service name is never undefined, but we can be defensive here.
@@ -116,7 +118,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       AwsMetricAttributeGenerator.logUnknownAttribute(AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE, span);
       service = AwsSpanProcessingUtil.UNKNOWN_SERVICE;
     }
-    builder[AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE] = service;
+    attributes[AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE] = service;
   }
 
   /**
@@ -124,12 +126,12 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * "http.method + http.target/with the first API path parameter" if the default span name equals
    * null, UnknownOperation or http.method value.
    */
-  private static setIngressOperation(span: ReadableSpan, builder: Attributes): void {
+  private static setIngressOperation(span: ReadableSpan, attributes: Attributes): void {
     const operation: string = AwsSpanProcessingUtil.getIngressOperation(span);
     if (operation === AwsSpanProcessingUtil.UNKNOWN_OPERATION) {
       AwsMetricAttributeGenerator.logUnknownAttribute(AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION, span);
     }
-    builder[AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION] = operation;
+    attributes[AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION] = operation;
   }
 
   /**
@@ -137,13 +139,13 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * special span attribute, {@link AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION}. This attribute is
    * generated with a separate SpanProcessor, {@link AttributePropagatingSpanProcessor}
    */
-  private static setEgressOperation(span: ReadableSpan, builder: Attributes): void {
+  private static setEgressOperation(span: ReadableSpan, attributes: Attributes): void {
     let operation: AttributeValue | undefined = AwsSpanProcessingUtil.getEgressOperation(span);
     if (operation === undefined) {
       AwsMetricAttributeGenerator.logUnknownAttribute(AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION, span);
       operation = AwsSpanProcessingUtil.UNKNOWN_OPERATION;
     }
-    builder[AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION] = operation;
+    attributes[AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION] = operation;
   }
 
   /**
@@ -183,7 +185,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * `net.peer.sock.port` and `http.url` will be used to derive the RemoteService. And `http.method`
    * and `http.url` will be used to derive the RemoteOperation.
    */
-  private static setRemoteServiceAndOperation(span: ReadableSpan, builder: Attributes): void {
+  private static setRemoteServiceAndOperation(span: ReadableSpan, attributes: Attributes): void {
     let remoteService: string = AwsSpanProcessingUtil.UNKNOWN_REMOTE_SERVICE;
     let remoteOperation: string = AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION;
 
@@ -242,8 +244,8 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       remoteOperation = AwsMetricAttributeGenerator.generateRemoteOperation(span);
     }
 
-    builder[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE] = remoteService;
-    builder[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_OPERATION] = remoteOperation;
+    attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE] = remoteService;
+    attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_OPERATION] = remoteOperation;
   }
 
   /**
@@ -333,7 +335,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * href="https://docs.aws.amazon.com/cloudcontrolapi/latest/userguide/supported-resources.html">AWS
    * Cloud Control resource format</a>.
    */
-  private static setRemoteResourceTypeAndIdentifier(span: ReadableSpan, builder: Attributes): void {
+  private static setRemoteResourceTypeAndIdentifier(span: ReadableSpan, attributes: Attributes): void {
     let remoteResourceType: AttributeValue | undefined;
     let remoteResourceIdentifier: AttributeValue | undefined;
 
@@ -370,8 +372,8 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     }
 
     if (remoteResourceType !== undefined && remoteResourceIdentifier !== undefined) {
-      builder[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_TYPE] = remoteResourceType;
-      builder[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER] = remoteResourceIdentifier;
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_TYPE] = remoteResourceType;
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER] = remoteResourceIdentifier;
     }
   }
 
@@ -491,22 +493,22 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   }
 
   /** Span kind is needed for differentiating metrics in the EMF exporter */
-  private static setSpanKindForService(span: ReadableSpan, builder: Attributes): void {
+  private static setSpanKindForService(span: ReadableSpan, attributes: Attributes): void {
     let spanKind: string = SpanKind[span.kind];
     if (AwsSpanProcessingUtil.isLocalRoot(span)) {
       spanKind = AwsSpanProcessingUtil.LOCAL_ROOT;
     }
-    builder[AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND] = spanKind;
+    attributes[AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND] = spanKind;
   }
 
-  private static setSpanKindForDependency(span: ReadableSpan, builder: Attributes): void {
+  private static setSpanKindForDependency(span: ReadableSpan, attributes: Attributes): void {
     const spanKind: string = SpanKind[span.kind];
-    builder[AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND] = spanKind;
+    attributes[AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND] = spanKind;
   }
 
-  private static setRemoteDbUser(span: ReadableSpan, builder: Attributes): void {
+  private static setRemoteDbUser(span: ReadableSpan, attributes: Attributes): void {
     if (AwsSpanProcessingUtil.isDBSpan(span) && AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_USER)) {
-      builder[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_DB_USER] = span.attributes[SEMATTRS_DB_USER];
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_DB_USER] = span.attributes[SEMATTRS_DB_USER];
     }
   }
 

@@ -32,8 +32,8 @@ describe('AwsSpanProcessingUtilTest', () => {
       kind: SpanKind.SERVER,
       spanContext: () => {
         const spanContext: SpanContext = {
-          traceId: 'traceId',
-          spanId: 'spanId',
+          traceId: '00000000000000000000000000000008',
+          spanId: '0000000000000009',
           traceFlags: 0,
         };
         return spanContext;
@@ -205,8 +205,8 @@ describe('AwsSpanProcessingUtilTest', () => {
 
   it('testShouldGenerateServiceMetricAttributes', () => {
     const parentSpanContext: SpanContext = {
-      traceId: 'traceId',
-      spanId: 'spanId',
+      traceId: '00000000000000000000000000000008',
+      spanId: '0000000000000009',
       traceFlags: 0,
     };
     (parentSpanContext as any).isRemote = false;
@@ -354,8 +354,8 @@ describe('AwsSpanProcessingUtilTest', () => {
 
 function createMockSpanContext(): SpanContext {
   return {
-    traceId: 'traceId',
-    spanId: 'spanId',
+    traceId: '00000000000000000000000000000008',
+    spanId: '0000000000000009',
     traceFlags: 0,
   };
 }

@@ -67,7 +67,6 @@ let attributesMock: Attributes;
 let spanDataMock: ReadableSpan;
 let instrumentationScopeInfoMock: InstrumentationLibrary;
 let resource: Resource;
-let parentSpanContextMock: SpanContext;
 
 /** Unit tests for {@link AwsMetricAttributeGenerator}. */
 describe('AwsMetricAttributeGeneratorTest', () => {
@@ -82,12 +81,13 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       kind: SpanKind.SERVER,
       spanContext: () => {
         const spanContext: SpanContext = {
-          traceId: 'traceId',
-          spanId: 'spanId',
+          traceId: '00000000000000000000000000000008',
+          spanId: '0000000000000009',
           traceFlags: 0,
         };
         return spanContext;
       },
+      parentSpanId: '0000000000000007',
       startTime: [0, 0],
       endTime: [0, 1],
       status: { code: 0 },
@@ -102,12 +102,6 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       droppedEventsCount: 0,
       droppedLinksCount: 0,
     };
-    parentSpanContextMock = {
-      traceId: 'traceId',
-      spanId: 'spanId',
-      traceFlags: 0,
-    };
-    parentSpanContextMock.isRemote = false;
     // Divergence from Java/Python - set AWS_IS_LOCAL_ROOT as false because parentSpanContext is valid and not remote in this test
     attributesMock[AWS_ATTRIBUTE_KEYS.AWS_IS_LOCAL_ROOT] = false;
 

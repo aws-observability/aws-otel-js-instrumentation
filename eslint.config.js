@@ -20,8 +20,8 @@ module.exports = {
     "no-shadow": "off",
     "node/no-deprecated-api": ["warn"],
     "header/header": ["error", "line", [
-      "Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
-      "SPDX-License-Identifier: Apache-2.0"
+      " Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
+      " SPDX-License-Identifier: Apache-2.0"
     ]]
   },
   overrides: [

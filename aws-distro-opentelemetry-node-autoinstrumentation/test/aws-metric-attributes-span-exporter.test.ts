@@ -228,9 +228,9 @@ describe('AwsMetricAttributesSpanExporterTest', () => {
     (spanDataMock as any).resource = testResource;
     expect(exportedSpan.resource).toEqual(testResource);
 
-    const testInstrumentationScopeInfo: InstrumentationLibrary = { name: 'mockedLibrary' };
-    (spanDataMock as any).instrumentationLibrary = testInstrumentationScopeInfo;
-    expect(exportedSpan.instrumentationLibrary).toEqual(testInstrumentationScopeInfo);
+    const testInstrumentationLibrary: InstrumentationLibrary = { name: 'mockedLibrary' };
+    (spanDataMock as any).instrumentationLibrary = testInstrumentationLibrary;
+    expect(exportedSpan.instrumentationLibrary).toEqual(testInstrumentationLibrary);
 
     const testName: string = 'name';
     (spanDataMock as any).name = testName;

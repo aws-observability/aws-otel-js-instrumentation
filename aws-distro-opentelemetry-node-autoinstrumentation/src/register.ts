@@ -23,13 +23,15 @@ Also sets default OTEL_PROPAGATORS to ensure good compatibility with X-Ray and A
 This file may also be used to apply patches to upstream instrumentation - usually these are stopgap measures until we can contribute
 long-term changes to upstream.
 */
-
-if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
-  process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
+export function setAwsDefaultEnvironmentVariables(): void {
+  if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
+    process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
+  }
+  if (!process.env.OTEL_PROPAGATORS) {
+    process.env.OTEL_PROPAGATORS = 'xray,tracecontext,b3,b3multi';
+  }
 }
-if (!process.env.OTEL_PROPAGATORS) {
-  process.env.OTEL_PROPAGATORS = 'xray,tracecontext,b3,b3multi';
-}
+setAwsDefaultEnvironmentVariables();
 
 const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator();
 const configuration: Partial<opentelemetry.NodeSDKConfiguration> = configurator.configure();
@@ -43,6 +45,8 @@ const sdk: opentelemetry.NodeSDK = new opentelemetry.NodeSDK(configuration);
 try {
   sdk.start();
   diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
+  diag.debug(`Environment variable OTEL_PROPAGATORS is set to '${process.env.OTEL_PROPAGATORS}'`);
+  diag.debug(`Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to '${process.env.OTEL_EXPORTER_OTLP_PROTOCOL}'`);
 } catch (error) {
   diag.error(
     'Error initializing AWS Distro of OpenTelemetry SDK. Your application is not instrumented and will not produce telemetry',

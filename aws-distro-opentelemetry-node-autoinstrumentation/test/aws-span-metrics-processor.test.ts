@@ -5,6 +5,7 @@ import {
   Attributes,
   Context,
   Histogram,
+  HrTime,
   Meter,
   SpanContext,
   SpanKind,
@@ -13,7 +14,7 @@ import {
   TraceFlags,
   isSpanContextValid,
 } from '@opentelemetry/api';
-import { InstrumentationLibrary } from '@opentelemetry/core';
+import { InstrumentationLibrary, hrTimeDuration } from '@opentelemetry/core';
 import { Resource } from '@opentelemetry/resources';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 import { ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
@@ -317,6 +318,7 @@ describe('AwsSpanMetricsProcessorTest', () => {
     configureMocksForOnEnd(readableSpanMock, metricAttributesMap);
 
     readableSpanMock.endTime[1] = 5_500_000;
+    (readableSpanMock as any).duration = hrTimeDuration(readableSpanMock.startTime, readableSpanMock.endTime);
 
     awsSpanMetricsProcessor.onEnd(readableSpanMock);
     sinon.assert.calledOnceWithExactly(errorHistogramMockRecord, 0, metricAttributesMap[SERVICE_METRIC]);
@@ -430,6 +432,10 @@ describe('AwsSpanMetricsProcessorTest', () => {
       name: '@opentelemetry/instrumentation-aws-sdk',
     };
 
+    const startTime: HrTime = [0, 0];
+    const endTime: HrTime = [0, TEST_LATENCY_NANOS];
+    const duration: HrTime = hrTimeDuration(startTime, endTime);
+
     // Configure spanData
     const mockSpanData: ReadableSpan = {
       name: 'spanName',
@@ -443,16 +449,16 @@ describe('AwsSpanMetricsProcessorTest', () => {
         };
         return spanContext;
       },
-      startTime: [0, 0],
+      startTime: startTime,
       // Configure latency
-      endTime: [0, TEST_LATENCY_NANOS],
+      endTime: endTime,
       // Configure Span Status
       status: statusData,
       // Configure attributes
       attributes: spanAttributes,
       links: [],
       events: [],
-      duration: [0, 1],
+      duration: duration,
       ended: true,
       resource: new Resource({}),
       // Configure Instrumentation Library

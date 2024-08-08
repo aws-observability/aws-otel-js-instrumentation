@@ -123,8 +123,9 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
   }
 
   private recordLatency(span: ReadableSpan, attributes: Attributes): void {
-    const millisFromSeconds: number = (span.endTime[0] - span.startTime[0]) * this.SECONDS_TO_MILLIS_MULTIPLIER;
-    const millisFromNanos: number = (span.endTime[1] - span.startTime[1]) / this.NANOS_TO_MILLIS_DIVIDER;
+    const millisFromSeconds: number = span.duration[0] * this.SECONDS_TO_MILLIS_MULTIPLIER;
+    const millisFromNanos: number = span.duration[1] / this.NANOS_TO_MILLIS_DIVIDER;
+
     const millis: number = millisFromSeconds + millisFromNanos;
     this.latencyHistogram.record(millis, attributes);
   }

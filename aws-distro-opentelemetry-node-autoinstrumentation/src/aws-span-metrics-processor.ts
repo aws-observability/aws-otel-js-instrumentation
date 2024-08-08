@@ -68,20 +68,12 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   public onStart(span: Span, parentContext: Context): void {}
 
-  public isStartRequired(): boolean {
-    return false;
-  }
-
   public onEnd(span: ReadableSpan): void {
     const attributeMap: AttributeMap = this.generator.generateMetricAttributeMapFromSpan(span, this.resource);
 
     for (const attribute in attributeMap) {
       this.recordMetrics(span, attributeMap[attribute]);
     }
-  }
-
-  public isEndRequired(): boolean {
-    return true;
   }
 
   // The logic to record error and fault should be kept in sync with the aws-xray exporter whenever

@@ -41,6 +41,9 @@ export class AwsSpanMetricsProcessorBuilder {
    * processor. If unset, defaults to {@link DEFAULT_GENERATOR}. Must not be null.
    */
   public setGenerator(generator: MetricAttributeGenerator): AwsSpanMetricsProcessorBuilder {
+    if (generator == null) {
+      throw new Error('generator must not be null/undefined');
+    }
     this.generator = generator;
     return this;
   }

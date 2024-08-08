@@ -116,16 +116,8 @@ export class AttributePropagatingSpanProcessor implements SpanProcessor {
     return SpanKind.SERVER === span.kind;
   }
 
-  public isStartRequired(): boolean {
-    return true;
-  }
-
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   public onEnd(span: ReadableSpan): void {}
-
-  public isEndRequired(): boolean {
-    return false;
-  }
 
   public shutdown(): Promise<void> {
     return this.forceFlush();

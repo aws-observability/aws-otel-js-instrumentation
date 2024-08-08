@@ -16,10 +16,10 @@ import {
 
 /**
  * This exporter will update a span with metric attributes before exporting. It depends on a
- * {@link SpanExporter} being provided on instantiation, which the AwsSpanMetricsExporter will delegate
- * export to. Also, a {@link MetricAttributeGenerator} must be provided, which will provide a means
- * to determine attributes which should be applied to the span. Finally, a {@link Resource} must be
- * provided, which is used to generate metric attributes.
+ * {@link SpanExporter} being provided on instantiation, which the AwsMetricAttributesSpanExporter will
+ * delegate export to. Also, a {@link MetricAttributeGenerator} must be provided, which will provide a
+ * means to determine attributes which should be applied to the span. Finally, a {@link Resource} must
+ * be provided, which is used to generate metric attributes.
  *
  * <p>This exporter should be coupled with the {@link AwsSpanMetricsProcessor} using the same
  * {@link MetricAttributeGenerator}. This will result in metrics and spans being produced with
@@ -98,10 +98,10 @@ export class AwsMetricAttributesSpanExporter implements SpanExporter {
   }
 
   private copyAttributesWithLocalRoot(attributes: Attributes): Attributes {
-    const builder: Attributes = { ...attributes };
-    delete builder[AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND];
-    builder[AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND] = AwsSpanProcessingUtil.LOCAL_ROOT;
-    return builder;
+    const updatedAttributes: Attributes = { ...attributes };
+    delete updatedAttributes[AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND];
+    updatedAttributes[AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND] = AwsSpanProcessingUtil.LOCAL_ROOT;
+    return updatedAttributes;
   }
 
   /**
@@ -125,6 +125,8 @@ export class AwsMetricAttributesSpanExporter implements SpanExporter {
     }
 
     // Bypass `readonly` restriction of ReadableSpan's attributes.
+    // Workaround provided from official TypeScript docs:
+    // https://www.typescriptlang.org/docs/handbook/release-notes/typescript-2-8.html#improved-control-over-mapped-type-modifiers
     type Mutable<T> = { -readonly [P in keyof T]: T[P] };
     const mutableSpan: Mutable<ReadableSpan> = span;
     mutableSpan.attributes = updateAttributes;

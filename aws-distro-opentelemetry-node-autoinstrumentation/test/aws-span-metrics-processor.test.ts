@@ -97,11 +97,6 @@ describe('AwsSpanMetricsProcessorTest', () => {
     );
   });
 
-  it('testIsRequired', () => {
-    expect(awsSpanMetricsProcessor.isStartRequired()).toBeFalsy();
-    expect(awsSpanMetricsProcessor.isEndRequired()).toBeTruthy();
-  });
-
   it('testStartDoesNothingToSpan', () => {
     const parentContextMock: Context = {
       getValue: (key: symbol) => 'unknown',

@@ -32,6 +32,9 @@ export class AwsMetricAttributesSpanExporterBuilder {
    * defaults to {@link DEFAULT_GENERATOR}. Must not be null.
    */
   public setGenerator(generator: MetricAttributeGenerator): AwsMetricAttributesSpanExporterBuilder {
+    if (generator == null) {
+      throw new Error('generator must not be null/undefined');
+    }
     this.generator = generator;
     return this;
   }

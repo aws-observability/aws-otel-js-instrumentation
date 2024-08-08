@@ -30,6 +30,8 @@ export function setAwsDefaultEnvironmentVariables(): void {
   if (!process.env.OTEL_PROPAGATORS) {
     process.env.OTEL_PROPAGATORS = 'xray,tracecontext,b3,b3multi';
   }
+  // Disable `@opentelemetry/instrumentation-fs` instrumentation by default
+  // This auto-instrumentation for the `fs` module would otherwise generate many low-value spans.
   // https://github.com/open-telemetry/opentelemetry-js-contrib/issues/1344#issuecomment-1618993178
   if (!process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS) {
     process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'fs';

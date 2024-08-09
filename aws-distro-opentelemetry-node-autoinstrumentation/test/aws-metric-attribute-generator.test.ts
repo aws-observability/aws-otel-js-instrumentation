@@ -65,7 +65,7 @@ const GENERATOR: AwsMetricAttributeGenerator = new AwsMetricAttributeGenerator()
 
 let attributesMock: Attributes;
 let spanDataMock: ReadableSpan;
-let instrumentationScopeInfoMock: InstrumentationLibrary;
+let instrumentationLibraryMock: InstrumentationLibrary;
 let resource: Resource;
 
 /** Unit tests for {@link AwsMetricAttributeGenerator}. */
@@ -73,7 +73,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
   // setUpMocks
   beforeEach(() => {
     attributesMock = {};
-    instrumentationScopeInfoMock = {
+    instrumentationLibraryMock = {
       name: 'Scope name',
     };
     spanDataMock = {
@@ -97,7 +97,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       duration: [0, 1],
       ended: true,
       resource: Resource.default(),
-      instrumentationLibrary: instrumentationScopeInfoMock,
+      instrumentationLibrary: instrumentationLibraryMock,
       droppedAttributesCount: 0,
       droppedEventsCount: 0,
       droppedLinksCount: 0,
@@ -118,7 +118,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: UNKNOWN_SERVICE,
       // This is tested to be UNKNOWN_OPERATION in Java/Python
       // This is because in other langauges, span name could be null, but
-      // this is not possibly in OTel JS.
+      // this is not possible in OTel JS.
       [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'spanDataMockName',
     };
     validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
@@ -141,7 +141,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: UNKNOWN_SERVICE,
       // This is tested to be UNKNOWN_OPERATION in Java/Python
       // This is because in other langauges, span name could be null, but
-      // this is not possibly in OTel JS.
+      // this is not possible in OTel JS.
       [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'spanDataMockName',
     };
     validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);

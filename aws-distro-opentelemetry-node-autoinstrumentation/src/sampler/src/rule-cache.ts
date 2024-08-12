@@ -101,7 +101,7 @@ export class RuleCache {
         this.ruleAppliers[index] = rule.withTarget(target);
         if (target.Interval) {
           if (minPollingInteral === undefined || minPollingInteral > target.Interval) {
-            minPollingInteral = target.Interval
+            minPollingInteral = target.Interval;
           }
         }
       } else {
@@ -110,7 +110,7 @@ export class RuleCache {
     });
 
     if (minPollingInteral) {
-      nextPollingInterval = minPollingInteral
+      nextPollingInterval = minPollingInteral;
     }
 
     const refreshSamplingRules: boolean = lastRuleModification * 1000 > this.lastUpdatedEpochMillis;

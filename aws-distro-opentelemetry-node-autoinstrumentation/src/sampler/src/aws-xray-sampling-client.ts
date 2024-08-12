@@ -1,7 +1,8 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { DiagLogFunction, DiagLogger } from '@opentelemetry/api';
+import { DiagLogFunction, DiagLogger, context } from '@opentelemetry/api';
+import { suppressTracing } from '@opentelemetry/core';
 import * as http from 'http';
 import { GetSamplingRulesResponse, GetSamplingTargetsBody, GetSamplingTargetsResponse } from './remote-sampler.types';
 
@@ -50,36 +51,39 @@ export class AwsXraySamplingClient {
       };
     }
 
-    const req = http
-      .request(url, options, response => {
-        response.setEncoding('utf-8');
-        let responseData = '';
-        response.on('data', dataChunk => (responseData += dataChunk));
-        response.on('end', () => {
-          if (response.statusCode === 200 && responseData.length > 0) {
-            let responseObject: T | undefined = undefined;
-            try {
-              responseObject = JSON.parse(responseData) as T;
-            } catch (e: unknown) {
-              logger(`Error occurred when parsing responseData from ${url}`);
-            }
+    // Ensure AWS X-Ray Sampler does not generate traces itself
+    context.with(suppressTracing(context.active()), () => {
+      const req = http
+        .request(url, options, response => {
+          response.setEncoding('utf-8');
+          let responseData = '';
+          response.on('data', dataChunk => (responseData += dataChunk));
+          response.on('end', () => {
+            if (response.statusCode === 200 && responseData.length > 0) {
+              let responseObject: T | undefined = undefined;
+              try {
+                responseObject = JSON.parse(responseData) as T;
+              } catch (e: unknown) {
+                logger(`Error occurred when parsing responseData from ${url}`);
+              }
 
-            if (responseObject) {
-              callback(responseObject);
+              if (responseObject) {
+                callback(responseObject);
+              }
+            } else {
+              this.samplerDiag.debug(`${url} Response Code is: ${response.statusCode}`);
+              this.samplerDiag.debug(`${url} responseData is: ${responseData}`);
             }
-          } else {
-            this.samplerDiag.debug(`${url} Response Code is: ${response.statusCode}`);
-            this.samplerDiag.debug(`${url} responseData is: ${responseData}`);
-          }
+          });
+        })
+        .on('error', (error: unknown) => {
+          logger(`Error occurred when making an HTTP POST to ${url}: ${error}`);
         });
-      })
-      .on('error', (error: unknown) => {
-        logger(`Error occurred when making an HTTP POST to ${url}: ${error}`);
-      });
-    if (requestBodyJsonString) {
-      req.end(requestBodyJsonString);
-    } else {
-      req.end();
-    }
+      if (requestBodyJsonString) {
+        req.end(requestBodyJsonString);
+      } else {
+        req.end();
+      }
+    });
   }
 }

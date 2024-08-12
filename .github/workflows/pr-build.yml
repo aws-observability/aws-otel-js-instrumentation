@@ -16,6 +16,9 @@ jobs:
       fail-fast: false # ensures the entire test matrix is run, even if one permutation fails
       matrix:
         node: ["14", "16", "18", "20", "22"]
+        include:
+          - node: 18
+            code-coverage: true
     env:
       NPM_CONFIG_UNSAFE_PERM: true
     steps:
@@ -36,7 +39,6 @@ jobs:
       - name: Compile all NPM projects
         run: npm run compile
       - name: Unit tests (Full)
-        if: matrix.code-coverage
         run: npm run test
       - name: Report Coverage
         if: ${{ matrix.code-coverage && !cancelled()}}

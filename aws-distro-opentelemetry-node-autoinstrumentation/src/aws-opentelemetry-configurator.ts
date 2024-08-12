@@ -28,7 +28,7 @@ import {
 } from '@opentelemetry/sdk-trace-base';
 import { SEMRESATTRS_TELEMETRY_AUTO_VERSION } from '@opentelemetry/semantic-conventions';
 import { AlwaysRecordSampler } from './always-record-sampler';
-import { AwsXRayRemoteSampler } from './sampler/src';
+import { AwsXRayRemoteSampler } from './sampler';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 

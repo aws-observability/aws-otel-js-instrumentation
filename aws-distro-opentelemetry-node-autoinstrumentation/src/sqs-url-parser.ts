@@ -45,7 +45,7 @@ export class SqsUrlParser {
   }
 
   private static isValidQueueName(input: string): boolean {
-    if (input === null || input.length === 0 || input.length > 80) {
+    if (input == null || input.length === 0 || input.length > 80) {
       return false;
     }
 

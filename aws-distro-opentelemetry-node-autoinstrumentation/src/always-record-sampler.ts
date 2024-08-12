@@ -24,8 +24,8 @@ export class AlwaysRecordSampler implements Sampler {
   }
 
   private constructor(rootSampler: Sampler) {
-    if (rootSampler === null) {
-      throw new Error('rootSampler is null. It must be provided');
+    if (rootSampler == null) {
+      throw new Error('rootSampler is null/undefined. It must be provided');
     }
     this.rootSampler = rootSampler;
   }

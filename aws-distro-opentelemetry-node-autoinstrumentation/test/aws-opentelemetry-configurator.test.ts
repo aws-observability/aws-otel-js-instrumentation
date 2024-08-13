@@ -47,7 +47,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.OTEL_TRACES_SAMPLER_ARG = '0.01';
 
     // Create configurator
-    awsOtelConfigurator = new AwsOpentelemetryConfigurator();
+    awsOtelConfigurator = new AwsOpentelemetryConfigurator([]);
   });
 
   // The probability of this passing once without correct IDs is low, 20 times is inconceivable.

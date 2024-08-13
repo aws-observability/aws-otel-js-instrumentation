@@ -1,12 +1,25 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+// Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
-import { diag } from '@opentelemetry/api';
+import { TextMapPropagator, diag } from '@opentelemetry/api';
+import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
 import {
   getNodeAutoInstrumentations,
   getResourceDetectors as getResourceDetectorsFromEnv,
 } from '@opentelemetry/auto-instrumentations-node';
-import { ENVIRONMENT, TracesSamplerValues, getEnv } from '@opentelemetry/core';
+import { ENVIRONMENT, TracesSamplerValues, getEnv, getEnvWithoutDefaults } from '@opentelemetry/core';
+import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
+import {
+  AggregationTemporalityPreference,
+  OTLPMetricExporter as OTLPHttpOTLPMetricExporter,
+} from '@opentelemetry/exporter-metrics-otlp-http';
+import { OTLPTraceExporter as OTLPGrpcTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
+import { OTLPTraceExporter as OTLPHttpTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
+import { ZipkinExporter } from '@opentelemetry/exporter-zipkin';
+import { AWSXRayIdGenerator } from '@opentelemetry/id-generator-aws-xray';
+import { Instrumentation } from '@opentelemetry/instrumentation';
 import { awsEc2Detector, awsEcsDetector, awsEksDetector } from '@opentelemetry/resource-detector-aws';
 import {
   Detector,
@@ -18,19 +31,39 @@ import {
   hostDetector,
   processDetector,
 } from '@opentelemetry/resources';
+import {
+  Aggregation,
+  AggregationSelector,
+  InstrumentType,
+  MeterProvider,
+  PeriodicExportingMetricReader,
+  PushMetricExporter,
+} from '@opentelemetry/sdk-metrics';
 import { NodeSDKConfiguration } from '@opentelemetry/sdk-node';
 import {
   AlwaysOffSampler,
   AlwaysOnSampler,
+  BatchSpanProcessor,
+  ConsoleSpanExporter,
+  IdGenerator,
   ParentBasedSampler,
   Sampler,
+  SimpleSpanProcessor,
+  SpanExporter,
+  SpanProcessor,
   TraceIdRatioBasedSampler,
 } from '@opentelemetry/sdk-trace-base';
 import { SEMRESATTRS_TELEMETRY_AUTO_VERSION } from '@opentelemetry/semantic-conventions';
 import { AlwaysRecordSampler } from './always-record-sampler';
+import { AttributePropagatingSpanProcessorBuilder } from './attribute-propagating-span-processor-builder';
+import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-span-exporter-builder';
+import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
 import { AwsXRayRemoteSampler } from './sampler';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
+const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
+const METRIC_EXPORT_INTERVAL_CONFIG: string = 'OTEL_METRIC_EXPORT_INTERVAL';
+const DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS: number = 60000;
 
 /**
  * Aws Application Signals Config Provider creates a configuration object that can be provided to
@@ -47,7 +80,11 @@ const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS
  */
 export class AwsOpentelemetryConfigurator {
   private resource: Resource;
+  private instrumentations: Instrumentation[];
+  private idGenerator: IdGenerator;
   private sampler: Sampler;
+  private spanProcessors: SpanProcessor[];
+  private propagator: TextMapPropagator;
 
   constructor() {
     /*
@@ -97,10 +134,22 @@ export class AwsOpentelemetryConfigurator {
     };
 
     autoResource = autoResource.merge(detectResourcesSync(internalConfig));
-
     this.resource = autoResource;
 
+    this.instrumentations = getNodeAutoInstrumentations();
+    this.propagator = getPropagator();
+
+    // TODO: Consider removing AWSXRayIdGenerator as it is not needed
+    // Similarly to Java, always use AWS X-Ray Id Generator
+    // https://github.com/aws-observability/aws-otel-java-instrumentation/blob/a011b8cc29ee32b7f668c04ccfdf64cd30de467c/awsagentprovider/src/main/java/software/amazon/opentelemetry/javaagent/providers/AwsTracerCustomizerProvider.java#L36
+    this.idGenerator = new AWSXRayIdGenerator();
+
     this.sampler = AwsOpentelemetryConfigurator.customizeSampler(customBuildSamplerFromEnv(this.resource));
+
+    // default SpanProcessors with Span Exporters wrapped inside AwsMetricAttributesSpanExporter
+    const awsSpanProcessorProvider: AwsSpanProcessorProvider = new AwsSpanProcessorProvider(this.resource);
+    this.spanProcessors = awsSpanProcessorProvider.getSpanProcessors();
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(this.spanProcessors, this.resource);
   }
 
   private customizeVersions(autoResource: Resource): Resource {
@@ -117,19 +166,30 @@ export class AwsOpentelemetryConfigurator {
   public configure(): Partial<NodeSDKConfiguration> {
     let config: Partial<NodeSDKConfiguration>;
     if (AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
-      // TODO: This is a placeholder config. This will be replaced with an ADOT config in a future commit.
+      // config.autoDetectResources is set to False, as the resources are detected and added to the
+      // resource ahead of time. The resource is needed to be populated ahead of time instead of letting
+      // the OTel Node SDK do the population work because the constructed resource was required to build
+      // the sampler (if using XRay sampler) and the AwsMetricAttributesSpanExporter and AwsSpanMetricsProcessor
       config = {
-        instrumentations: getNodeAutoInstrumentations(),
+        instrumentations: this.instrumentations,
         resource: this.resource,
+        idGenerator: this.idGenerator,
         sampler: this.sampler,
+        // Error message 'Exporter "otlp" requested through environment variable is unavailable.'
+        // will appear from BasicTracerProvider that is used in the OTel JS SDK, even though the
+        // span processors are specified
+        // https://github.com/open-telemetry/opentelemetry-js/issues/3449
+        spanProcessors: this.spanProcessors,
         autoDetectResources: false,
+        textMapPropagator: this.propagator,
       };
     } else {
       // Default experience config
       config = {
-        instrumentations: getNodeAutoInstrumentations(),
+        instrumentations: this.instrumentations,
         resource: this.resource,
         sampler: this.sampler,
+        idGenerator: this.idGenerator,
         autoDetectResources: false,
       };
     }
@@ -144,6 +204,37 @@ export class AwsOpentelemetryConfigurator {
     }
 
     return isApplicationSignalsEnabled.toLowerCase() === 'true';
+  }
+
+  static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
+    if (!AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
+      return;
+    }
+
+    diag.info('AWS Application Signals enabled.');
+
+    let exportIntervalMillis: number = Number(process.env[METRIC_EXPORT_INTERVAL_CONFIG]);
+    diag.debug(`AWS Application Signals Metrics export interval: ${exportIntervalMillis}`);
+
+    if (isNaN(exportIntervalMillis) || exportIntervalMillis.valueOf() > DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS) {
+      exportIntervalMillis = DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS;
+
+      diag.info(`AWS Application Signals metrics export interval capped to ${exportIntervalMillis}`);
+    }
+
+    spanProcessors.push(AttributePropagatingSpanProcessorBuilder.create().build());
+    const applicationSignalsMetricExporter: PushMetricExporter =
+      ApplicationSignalsExporterProvider.Instance.createExporter();
+    const periodicExportingMetricReader: PeriodicExportingMetricReader = new PeriodicExportingMetricReader({
+      exporter: applicationSignalsMetricExporter,
+      exportIntervalMillis: exportIntervalMillis,
+    });
+    const meterProvider: MeterProvider = new MeterProvider({
+      /** Resource associated with metric telemetry  */
+      resource: resource,
+      readers: [periodicExportingMetricReader],
+    });
+    spanProcessors.push(AwsSpanMetricsProcessorBuilder.create(meterProvider, resource).build());
   }
 
   static customizeSampler(sampler: Sampler): Sampler {
@@ -189,18 +280,247 @@ export function customBuildSamplerFromEnv(resource: Resource): Sampler {
   return buildSamplerFromEnv();
 }
 
+export class ApplicationSignalsExporterProvider {
+  private static _instance: ApplicationSignalsExporterProvider;
+  private constructor() {}
+  public static get Instance() {
+    return this._instance || (this._instance = new this());
+  }
+
+  public createExporter(): PushMetricExporter {
+    let protocol: string | undefined = process.env['OTEL_EXPORTER_OTLP_METRICS_PROTOCOL'];
+    if (protocol === undefined) {
+      protocol = process.env['OTEL_EXPORTER_OTLP_PROTOCOL'];
+    }
+    if (protocol === undefined) {
+      protocol = 'grpc';
+    }
+
+    diag.debug(`AWS Application Signals export protocol: ${protocol}`);
+
+    const temporalityPreference: AggregationTemporalityPreference = AggregationTemporalityPreference.DELTA;
+    const aggregationPreference: AggregationSelector = this.aggregationSelector;
+
+    if (protocol === 'http/protobuf') {
+      let applicationSignalsEndpoint: string | undefined = process.env[APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG];
+      if (applicationSignalsEndpoint === undefined) {
+        applicationSignalsEndpoint = 'http://localhost:4316/v1/metrics';
+      }
+      diag.debug(`AWS Application Signals export endpoint: ${applicationSignalsEndpoint}`);
+
+      return new OTLPHttpOTLPMetricExporter({
+        url: applicationSignalsEndpoint,
+        temporalityPreference: temporalityPreference,
+        aggregationPreference: aggregationPreference,
+      });
+    }
+    if (protocol === 'grpc') {
+      let applicationSignalsEndpoint: string | undefined = process.env[APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG];
+      if (applicationSignalsEndpoint === undefined) {
+        applicationSignalsEndpoint = 'http://localhost:4315';
+      }
+      diag.debug(`AWS Application Signals export endpoint: ${applicationSignalsEndpoint}`);
+
+      return new OTLPGrpcOTLPMetricExporter({
+        url: applicationSignalsEndpoint,
+        temporalityPreference: temporalityPreference,
+        aggregationPreference: aggregationPreference,
+      });
+    }
+
+    throw new Error(`Unsupported AWS Application Signals export protocol: ${protocol}`);
+  }
+
+  private aggregationSelector: AggregationSelector = (instrumentType: InstrumentType) => {
+    switch (instrumentType) {
+      case InstrumentType.HISTOGRAM: {
+        return Aggregation.ExponentialHistogram();
+      }
+    }
+    return Aggregation.Default();
+  };
+}
+
+// The OpenTelemetry Authors code
+//
+// ADOT JS needs the logic to (1) get the SpanExporters from Env and then (2) wrap the SpanExporters with AwsMetricAttributesSpanExporter
+// However, the logic to perform (1) is only in the `TracerProviderWithEnvExporters` class, which is not exported publicly.
+// `TracerProviderWithEnvExporters` is also responsible for (3) wrapping the SpanExporters inside the Simple/Batch SpanProcessors
+// which must happen after (2). Thus in order to perform (1), (2), and (3), we need to add these non-exported methods here.
+//
+// https://github.com/open-telemetry/opentelemetry-js/blob/01cea7caeb130142cc017f77ea74834a35d0e8d6/experimental/packages/opentelemetry-sdk-node/src/TracerProviderWithEnvExporter.ts
+//
+// This class is a modified version of TracerProviderWithEnvExporters (extends NodeTracerProvider), without
+// any of the TracerProvider functionalities. The AwsSpanProcessorProvider retains the functionality to
+// only create the default span processors with exporters specified in `OTEL_TRACES_EXPORTER`. These span
+// exporters are wrapped with AwsMetricAttributesSpanExporter when configuring the configureSpanProcessors
+//
+// Unlike `TracerProviderWithEnvExporters`, `AwsSpanProcessorProvider` does not extend `NodeTracerProvider`.
+// The following class member variables are unmodified:
+//   - _configuredExporters
+//   - _spanProcessors
+// The following class member variables are modified:
+//   - _hasSpanProcessors (removed)
+//   - resource (new)
+// The following methods are unmodified:
+//   - configureOtlp(), getOtlpProtocol(), configureJaeger(), createExportersFromList(), _getSpanExporter(), filterBlanksAndNulls()
+// The following methods are modified:
+//   - constructor() (modified)
+//     - removed usage of `this.addSpanProcessor(...)`, which calls `super.addSpanProcessor(...)`
+//       to register it to the BasicTracerProvider, which should be done later by the OTel JS SDK
+//   - configureSpanProcessors(exporters) (modified)
+//     - wrap exporters with customizeSpanExporter()
+//   - customizeSpanExporter() (new)
+//   - getSpanProcessors() (new)
+//   - override addSpanProcessor() (removed)
+//   - override register() (removed)
+//
+// TODO: `TracerProviderWithEnvExporters` is not exported, thus its useful static methods that
+// provides some default SpanExporter configurations are unavailable. Ideally, we could contribute
+// to upstream to export `TracerProviderWithEnvExporters`
+export class AwsSpanProcessorProvider {
+  private _configuredExporters: SpanExporter[] = [];
+  private _spanProcessors: SpanProcessor[] = [];
+  private resource: Resource;
+
+  static configureOtlp(): SpanExporter {
+    // eslint-disable-next-line @typescript-eslint/typedef
+    const protocol = this.getOtlpProtocol();
+
+    switch (protocol) {
+      case 'grpc':
+        return new OTLPGrpcTraceExporter();
+      case 'http/json':
+        return new OTLPHttpTraceExporter();
+      case 'http/protobuf':
+        return new OTLPProtoTraceExporter();
+      default:
+        diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
+        return new OTLPProtoTraceExporter();
+    }
+  }
+
+  static getOtlpProtocol(): string {
+    // eslint-disable-next-line @typescript-eslint/typedef
+    const parsedEnvValues = getEnvWithoutDefaults();
+
+    return (
+      parsedEnvValues.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL ??
+      parsedEnvValues.OTEL_EXPORTER_OTLP_PROTOCOL ??
+      getEnv().OTEL_EXPORTER_OTLP_TRACES_PROTOCOL ??
+      getEnv().OTEL_EXPORTER_OTLP_PROTOCOL
+    );
+  }
+
+  private static configureJaeger() {
+    // The JaegerExporter does not support being required in bundled
+    // environments. By delaying the require statement to here, we only crash when
+    // the exporter is actually used in such an environment.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { JaegerExporter } = require('@opentelemetry/exporter-jaeger');
+      return new JaegerExporter();
+    } catch (e) {
+      throw new Error(
+        `Could not instantiate JaegerExporter. This could be due to the JaegerExporter's lack of support for bundling. If possible, use @opentelemetry/exporter-trace-otlp-proto instead. Original Error: ${e}`
+      );
+    }
+  }
+
+  protected static _registeredExporters = new Map<string, () => SpanExporter>([
+    ['otlp', () => this.configureOtlp()],
+    ['zipkin', () => new ZipkinExporter()],
+    ['jaeger', () => this.configureJaeger()],
+    ['console', () => new ConsoleSpanExporter()],
+  ]);
+
+  public constructor(resource: Resource) {
+    this.resource = resource;
+
+    // eslint-disable-next-line @typescript-eslint/typedef
+    let traceExportersList = this.filterBlanksAndNulls(Array.from(new Set(getEnv().OTEL_TRACES_EXPORTER.split(','))));
+
+    if (traceExportersList[0] === 'none') {
+      diag.warn('OTEL_TRACES_EXPORTER contains "none". SDK will not be initialized.');
+    } else if (traceExportersList.length === 0) {
+      diag.warn('OTEL_TRACES_EXPORTER is empty. Using default otlp exporter.');
+
+      traceExportersList = ['otlp'];
+      this.createExportersFromList(traceExportersList);
+
+      this._spanProcessors = this.configureSpanProcessors(this._configuredExporters);
+    } else {
+      if (traceExportersList.length > 1 && traceExportersList.includes('none')) {
+        diag.warn('OTEL_TRACES_EXPORTER contains "none" along with other exporters. Using default otlp exporter.');
+        traceExportersList = ['otlp'];
+      }
+
+      this.createExportersFromList(traceExportersList);
+
+      if (this._configuredExporters.length > 0) {
+        this._spanProcessors = this.configureSpanProcessors(this._configuredExporters);
+      } else {
+        diag.warn('Unable to set up trace exporter(s) due to invalid exporter and/or protocol values.');
+      }
+    }
+  }
+
+  private createExportersFromList(exporterList: string[]) {
+    exporterList.forEach(exporterName => {
+      // eslint-disable-next-line @typescript-eslint/typedef
+      const exporter = this._getSpanExporter(exporterName);
+      if (exporter) {
+        this._configuredExporters.push(exporter);
+      } else {
+        diag.warn(`Unrecognized OTEL_TRACES_EXPORTER value: ${exporterName}.`);
+      }
+    });
+  }
+
+  protected _getSpanExporter(name: string): SpanExporter | undefined {
+    return (this.constructor as typeof AwsSpanProcessorProvider)._registeredExporters.get(name)?.();
+  }
+
+  private configureSpanProcessors(exporters: SpanExporter[]): (BatchSpanProcessor | SimpleSpanProcessor)[] {
+    return exporters.map(exporter => {
+      const configuredExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(exporter, this.resource);
+      if (exporter instanceof ConsoleSpanExporter) {
+        return new SimpleSpanProcessor(configuredExporter);
+      } else {
+        return new BatchSpanProcessor(configuredExporter);
+      }
+    });
+  }
+
+  private filterBlanksAndNulls(list: string[]): string[] {
+    return list.map(item => item.trim()).filter(s => s !== 'null' && s !== '');
+  }
+
+  public static customizeSpanExporter(spanExporter: SpanExporter, resource: Resource): SpanExporter {
+    if (AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
+      return AwsMetricAttributesSpanExporterBuilder.create(spanExporter, resource).build();
+    }
+    return spanExporter;
+  }
+
+  public getSpanProcessors(): SpanProcessor[] {
+    return this._spanProcessors;
+  }
+}
+// END The OpenTelemetry Authors code
+
 // The OpenTelemetry Authors code
 //
 // We need the logic to build the Sampler from user-defined Environment variables in order
 // to wrap the Sampler with an AlwaysRecord sampler. However, this logic is not exported
-// in an `index.ts` file, so this code needs to be added here.
+// in an `index.ts` file, so the portion of code that does this is added here.
 //
 // TODO: Ideally, upstream's `buildSamplerFromEnv()` method should be exported
+// https://github.com/open-telemetry/opentelemetry-js/blob/f047db9da20a7d4394169f812b2d255d934883f1/packages/opentelemetry-sdk-trace-base/src/config.ts#L62
 //
 // An alternative method is to instantiate a new OTel JS Tracer with an empty config, which
 // would also have the (private+readonly) sampler from the `buildSamplerFromEnv()` method.
 // https://github.com/open-telemetry/opentelemetry-js/blob/01cea7caeb130142cc017f77ea74834a35d0e8d6/packages/opentelemetry-sdk-trace-base/src/Tracer.ts#L36-L53
-
 const FALLBACK_OTEL_TRACES_SAMPLER: string = TracesSamplerValues.AlwaysOn;
 const DEFAULT_RATIO: number = 1;
 
@@ -261,3 +581,4 @@ function getSamplerProbabilityFromEnv(environment: Required<ENVIRONMENT>): numbe
 
   return probability;
 }
+// END The OpenTelemetry Authors code

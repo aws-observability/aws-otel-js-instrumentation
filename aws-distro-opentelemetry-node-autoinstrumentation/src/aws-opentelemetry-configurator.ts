@@ -225,9 +225,10 @@ export class AwsOpentelemetryConfigurator {
     }
 
     spanProcessors.push(AttributePropagatingSpanProcessorBuilder.create().build());
-    const otelMetricExporter: PushMetricExporter = ApplicationSignalsExporterProvider.Instance.createExporter();
+    const applicationSignalsMetricExporter: PushMetricExporter =
+      ApplicationSignalsExporterProvider.Instance.createExporter();
     const periodicExportingMetricReader: PeriodicExportingMetricReader = new PeriodicExportingMetricReader({
-      exporter: otelMetricExporter,
+      exporter: applicationSignalsMetricExporter,
       exportIntervalMillis: exportIntervalMillis,
     });
     const meterProvider: MeterProvider = new MeterProvider({
@@ -454,11 +455,11 @@ export class AwsSpanProcessorProvider {
 
   private configureSpanProcessors(exporters: SpanExporter[]): (BatchSpanProcessor | SimpleSpanProcessor)[] {
     return exporters.map(exporter => {
-      const wrappedExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(exporter, this.resource);
+      const configuredExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(exporter, this.resource);
       if (exporter instanceof ConsoleSpanExporter) {
-        return new SimpleSpanProcessor(wrappedExporter);
+        return new SimpleSpanProcessor(configuredExporter);
       } else {
-        return new BatchSpanProcessor(wrappedExporter);
+        return new BatchSpanProcessor(configuredExporter);
       }
     });
   }
@@ -478,6 +479,7 @@ export class AwsSpanProcessorProvider {
     return this._spanProcessors;
   }
 }
+// END The OpenTelemetry Authors code
 
 // The OpenTelemetry Authors code
 //
@@ -490,7 +492,6 @@ export class AwsSpanProcessorProvider {
 // An alternative method is to instantiate a new OTel JS Tracer with an empty config, which
 // would also have the (private+readonly) sampler from the `buildSamplerFromEnv()` method.
 // https://github.com/open-telemetry/opentelemetry-js/blob/01cea7caeb130142cc017f77ea74834a35d0e8d6/packages/opentelemetry-sdk-trace-base/src/Tracer.ts#L36-L53
-
 const FALLBACK_OTEL_TRACES_SAMPLER: string = TracesSamplerValues.AlwaysOn;
 const DEFAULT_RATIO: number = 1;
 
@@ -551,3 +552,4 @@ function getSamplerProbabilityFromEnv(environment: Required<ENVIRONMENT>): numbe
 
   return probability;
 }
+// END The OpenTelemetry Authors code

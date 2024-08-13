@@ -1,16 +1,17 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-// The OpenTelemetry Authors code
+// Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
 import * as assert from 'assert';
 import { spawnSync, SpawnSyncReturns } from 'child_process';
 
+// The OpenTelemetry Authors code
+// Extend register.test.ts functionality to also test exported span with Application Signals enabled
 describe('Register', function () {
   it('can load auto instrumentation from command line', () => {
     const proc: SpawnSyncReturns<Buffer> = spawnSync(
       process.execPath,
-      ['--require', '../build/src/register.js', './test-app/app.js'],
+      ['--require', '../build/src/register.js', './third-party/otel/test-app/app.js'],
       {
         cwd: __dirname,
         timeout: 10000,

@@ -1,5 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+// Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
 import { TextMapPropagator, diag } from '@opentelemetry/api';
 import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
@@ -485,9 +486,10 @@ export class AwsSpanProcessorProvider {
 //
 // We need the logic to build the Sampler from user-defined Environment variables in order
 // to wrap the Sampler with an AlwaysRecord sampler. However, this logic is not exported
-// in an `index.ts` file, so this code needs to be added here.
+// in an `index.ts` file, so the portion of code that does this is added here.
 //
 // TODO: Ideally, upstream's `buildSamplerFromEnv()` method should be exported
+// https://github.com/open-telemetry/opentelemetry-js/blob/f047db9da20a7d4394169f812b2d255d934883f1/packages/opentelemetry-sdk-trace-base/src/config.ts#L62
 //
 // An alternative method is to instantiate a new OTel JS Tracer with an empty config, which
 // would also have the (private+readonly) sampler from the `buildSamplerFromEnv()` method.

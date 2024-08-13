@@ -1,5 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+// Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
 import { DiagConsoleLogger, diag } from '@opentelemetry/api';
 import * as opentelemetry from '@opentelemetry/sdk-node';
@@ -66,3 +67,5 @@ process.on('SIGTERM', () => {
     .then(() => diag.debug('AWS Distro of OpenTelemetry SDK terminated'))
     .catch(error => diag.error('Error terminating AWS Distro of OpenTelemetry SDK', error));
 });
+
+// END The OpenTelemetry Authors code

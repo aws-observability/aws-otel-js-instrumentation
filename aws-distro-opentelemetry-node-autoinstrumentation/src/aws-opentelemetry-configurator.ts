@@ -211,14 +211,9 @@ export class AwsOpentelemetryConfigurator {
 
     diag.info('AWS Application Signals enabled.');
 
-    let millis: string | undefined = process.env[METRIC_EXPORT_INTERVAL_CONFIG];
-    if (millis === undefined) {
-      millis = DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS.toString();
-    }
+    let exportIntervalMillis: number = Number(process.env[METRIC_EXPORT_INTERVAL_CONFIG]);
+    diag.debug(`AWS Application Signals Metrics export interval: ${exportIntervalMillis}`);
 
-    diag.debug(`AWS Application Signals Metrics export interval: ${millis}`);
-
-    let exportIntervalMillis: number = Number(millis).valueOf();
     if (isNaN(exportIntervalMillis) || exportIntervalMillis.valueOf() > DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS) {
       exportIntervalMillis = DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS;
 

@@ -1,5 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+// Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
 import { DiagConsoleLogger, diag } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
@@ -26,13 +27,21 @@ Also sets default OTEL_PROPAGATORS to ensure good compatibility with X-Ray and A
 This file may also be used to apply patches to upstream instrumentation - usually these are stopgap measures until we can contribute
 long-term changes to upstream.
 */
-
-if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
-  process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
+export function setAwsDefaultEnvironmentVariables(): void {
+  if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
+    process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
+  }
+  if (!process.env.OTEL_PROPAGATORS) {
+    process.env.OTEL_PROPAGATORS = 'xray,tracecontext,b3,b3multi';
+  }
+  // Disable `@opentelemetry/instrumentation-fs` instrumentation by default
+  // This auto-instrumentation for the `fs` module would otherwise generate many low-value spans.
+  // https://github.com/open-telemetry/opentelemetry-js-contrib/issues/1344#issuecomment-1618993178
+  if (!process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS) {
+    process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'fs';
+  }
 }
-if (!process.env.OTEL_PROPAGATORS) {
-  process.env.OTEL_PROPAGATORS = 'xray,tracecontext,b3,b3multi';
-}
+setAwsDefaultEnvironmentVariables();
 
 const instrumentations: Instrumentation[] = getNodeAutoInstrumentations();
 
@@ -53,6 +62,8 @@ const sdk: opentelemetry.NodeSDK = new opentelemetry.NodeSDK(configuration);
 try {
   sdk.start();
   diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
+  diag.debug(`Environment variable OTEL_PROPAGATORS is set to '${process.env.OTEL_PROPAGATORS}'`);
+  diag.debug(`Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to '${process.env.OTEL_EXPORTER_OTLP_PROTOCOL}'`);
 } catch (error) {
   diag.error(
     'Error initializing AWS Distro of OpenTelemetry SDK. Your application is not instrumented and will not produce telemetry',
@@ -66,3 +77,5 @@ process.on('SIGTERM', () => {
     .then(() => diag.debug('AWS Distro of OpenTelemetry SDK terminated'))
     .catch(error => diag.error('Error terminating AWS Distro of OpenTelemetry SDK', error));
 });
+
+// END The OpenTelemetry Authors code

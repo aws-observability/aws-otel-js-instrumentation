@@ -115,6 +115,14 @@ export class AwsSpanProcessingUtil {
       return false;
     }
 
+    // TODO:
+    // Telemetry improvements:
+    // - return false for dns instrumentation client spans
+    //   (suppress metrics for spans with name: `dns.lookup`)
+    // - return false for mongoose instrumentation client spans in
+    //   favor of lower level mongodb instrumentation client spans
+    //   (suppress metrics for spans attribute 'db.system': 'mongoose')
+
     return (
       SpanKind.CLIENT === span.kind ||
       SpanKind.PRODUCER === span.kind ||

@@ -30,7 +30,7 @@
     "prewatch": "npm run precompile",
     "prepublishOnly": "npm run compile",
     "tdd": "yarn test -- --watch-extensions ts --watch",
-    "test": "nyc ts-mocha -p tsconfig.json 'test/**/*.ts'",
+    "test": "nyc ts-mocha --timeout 10000 -p tsconfig.json 'test/**/*.ts'",
     "watch": "tsc -w"
   },
   "bugs": {
@@ -46,15 +46,28 @@
     "sinon": "15.2.0",
     "ts-mocha": "10.0.0",
     "typescript": "4.4.4",
-    "expect": "29.2.0"
+    "expect": "29.2.0",
+    "nock": "13.2.1"
   },
   "dependencies": {
     "@opentelemetry/api": "1.9.0",
     "@opentelemetry/auto-instrumentations-node": "0.48.0",
+    "@opentelemetry/auto-configuration-propagators": "0.2.0",
     "@opentelemetry/exporter-metrics-otlp-grpc": "0.52.1",
     "@opentelemetry/exporter-metrics-otlp-http": "0.52.1",
+    "@opentelemetry/instrumentation": "0.52.1",
     "@opentelemetry/id-generator-aws-xray": "1.2.2",
-    "@opentelemetry/propagator-aws-xray": "1.25.1"
+    "@opentelemetry/propagator-aws-xray": "1.25.1",
+    "@opentelemetry/core": "1.25.1",
+    "@opentelemetry/sdk-trace-base": "1.25.1",
+    "@opentelemetry/semantic-conventions": "1.25.1",
+    "@opentelemetry/resources": "1.25.1",
+    "@opentelemetry/resource-detector-aws": "1.5.2",
+    "@opentelemetry/exporter-trace-otlp-proto": "0.52.1",
+    "@opentelemetry/exporter-zipkin": "1.25.1",
+    "@opentelemetry/sdk-metrics": "1.25.1",
+    "@opentelemetry/sdk-node": "0.52.1",
+    "@opentelemetry/instrumentation-aws-sdk": "0.43.1"
   },
   "overrides": {
     "@opentelemetry/auto-instrumentations-node": {

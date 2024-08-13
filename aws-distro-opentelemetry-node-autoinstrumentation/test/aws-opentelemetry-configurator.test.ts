@@ -14,6 +14,7 @@ import {
   Sampler,
   SpanExporter,
 } from '@opentelemetry/sdk-trace-node';
+import * as assert from 'assert';
 import expect from 'expect';
 import * as sinon from 'sinon';
 import { AlwaysRecordSampler } from '../src/always-record-sampler';
@@ -153,6 +154,22 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     const secondProcessor: SpanProcessor = spanProcessors[1];
     expect(secondProcessor).toBeInstanceOf(AwsSpanMetricsProcessor);
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+
+    try {
+      process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = undefined;
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = '123abc';
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = '!@#$%^&*()';
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = '123';
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+    } catch (e: any) {
+      assert.fail(`AwsOpentelemetryConfigurator.customizeSpanProcessors() has incorrectly thrown error: ${e}`);
+    } finally {
+      delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+    }
   });
 
   it('ApplicationSignalsExporterProviderTest', () => {

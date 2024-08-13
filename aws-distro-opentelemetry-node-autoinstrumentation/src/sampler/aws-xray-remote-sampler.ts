@@ -42,7 +42,7 @@ export class AwsXRayRemoteSampler implements Sampler {
 
     if (samplerConfig.pollingInterval == null || samplerConfig.pollingInterval < 10) {
       this.samplerDiag.warn(
-        `'pollingInterval' is undefined or too small. Defaulting to ${DEFAULT_RULES_POLLING_INTERVAL_SECONDS}`
+        `'pollingInterval' is undefined or too small. Defaulting to ${DEFAULT_RULES_POLLING_INTERVAL_SECONDS} seconds`
       );
       this.rulePollingIntervalMillis = DEFAULT_RULES_POLLING_INTERVAL_SECONDS * 1000;
     } else {

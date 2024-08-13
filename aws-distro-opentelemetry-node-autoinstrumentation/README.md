@@ -18,7 +18,7 @@ node --require '@aws/aws-distro-opentelemetry-node-autoinstrumentation/register'
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
 export OTEL_PROPAGATORS=xray,tracecontext,b3,b3multi \
 export OTEL_TRACES_EXPORTER=console,otlp \
-export OTEL_TRACES_SAMPLER=always_on \
+export OTEL_TRACES_SAMPLER=xray \
 export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4316/v1/traces \
 export OTEL_RESOURCE_ATTRIBUTES=service.name=test-adot-sdk-ec2-service-name \
 export OTEL_AWS_APPLICATION_SIGNALS_ENABLED=true \

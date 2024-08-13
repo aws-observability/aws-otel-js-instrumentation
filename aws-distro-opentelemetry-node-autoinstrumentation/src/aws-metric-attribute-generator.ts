@@ -340,33 +340,33 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     let remoteResourceIdentifier: AttributeValue | undefined;
 
     if (AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
+      const awsTableNames: AttributeValue | undefined = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES];
       if (
-        AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES) &&
-        (span.attributes[AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES] as string[]).length === 1
+        AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES) &&
+        Array.isArray(awsTableNames) &&
+        awsTableNames.length === 1
       ) {
         remoteResourceType = NORMALIZED_DYNAMO_DB_SERVICE_NAME + '::Table';
-        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          (span.attributes[AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAMES] as string[])[0]
-        );
-      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_STREAM_NAME)) {
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(awsTableNames[0]);
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME)) {
         remoteResourceType = NORMALIZED_KINESIS_SERVICE_NAME + '::Stream';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_STREAM_NAME]
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME]
         );
-      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_BUCKET_NAME)) {
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET)) {
         remoteResourceType = NORMALIZED_S3_SERVICE_NAME + '::Bucket';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BUCKET_NAME]
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET]
         );
-      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_QUEUE_NAME)) {
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME)) {
         remoteResourceType = NORMALIZED_SQS_SERVICE_NAME + '::Queue';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_QUEUE_NAME]
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]
         );
-      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_QUEUE_URL)) {
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL)) {
         remoteResourceType = NORMALIZED_SQS_SERVICE_NAME + '::Queue';
         remoteResourceIdentifier = SqsUrlParser.getQueueName(
-          AwsMetricAttributeGenerator.escapeDelimiters(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_QUEUE_URL])
+          AwsMetricAttributeGenerator.escapeDelimiters(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL])
         );
       }
     } else if (AwsSpanProcessingUtil.isDBSpan(span)) {
@@ -482,8 +482,8 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     return AwsMetricAttributeGenerator.escapeDelimiters(address) + (port !== '' ? '|' + port : '');
   }
 
-  private static escapeDelimiters(input: string | AttributeValue | undefined): string | undefined {
-    if (input === undefined) {
+  private static escapeDelimiters(input: string | AttributeValue | undefined | null): string | undefined {
+    if (typeof input !== 'string') {
       return undefined;
     }
 

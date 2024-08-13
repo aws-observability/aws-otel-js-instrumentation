@@ -45,10 +45,8 @@ setAwsDefaultEnvironmentVariables();
 
 const instrumentations: Instrumentation[] = getNodeAutoInstrumentations();
 
-// Apply instrumentation patches by default
-if (process.env.AWS_APPLY_PATCHES === undefined || process.env.AWS_APPLY_PATCHES?.toLowerCase() === 'true') {
-  applyInstrumentationPatches(instrumentations);
-}
+// Apply instrumentation patches
+applyInstrumentationPatches(instrumentations);
 
 const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator(instrumentations);
 const configuration: Partial<opentelemetry.NodeSDKConfiguration> = configurator.configure();

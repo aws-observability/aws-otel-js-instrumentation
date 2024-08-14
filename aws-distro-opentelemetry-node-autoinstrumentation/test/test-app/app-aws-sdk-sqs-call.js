@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Used in register.test.ts to mimic a JS app using SQS client of AWS SDK for JS (v3).
+// Used in register.patch.test.ts to mimic a JS app using SQS client of AWS SDK for JS (v3).
 const { SQSClient, SendMessageCommand } = require("@aws-sdk/client-sqs");
 
 const sqsClient = new SQSClient({});

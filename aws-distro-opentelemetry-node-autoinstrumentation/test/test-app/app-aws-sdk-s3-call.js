@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Used in register.test.ts to mimic a JS app using S3 client of AWS SDK for JS (v3).
+// Used in register.patch.test.ts to mimic a JS app using S3 client of AWS SDK for JS (v3).
 const { S3Client, ListObjectsCommand } = require("@aws-sdk/client-s3");
 
 const s3Client = new S3Client({});

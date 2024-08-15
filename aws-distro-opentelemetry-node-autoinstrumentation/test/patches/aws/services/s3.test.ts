@@ -32,8 +32,6 @@ describe('S3', () => {
         secretAccessKey: 'abcde',
       },
     });
-
-    nock(`https://s3.${region}.amazonaws.com`).post('/').reply(200, {});
   });
 
   describe('ListObjects', () => {

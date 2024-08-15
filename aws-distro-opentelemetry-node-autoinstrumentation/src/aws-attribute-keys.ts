@@ -21,7 +21,8 @@ export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   // Used for JavaScript workaround - attribute for pre-calculated value of isLocalRoot
   AWS_IS_LOCAL_ROOT: 'aws.is.local.root',
 
-  // Naming divergence from Java/Python
+  // AWS_#_NAME attributes are not supported in JavaScript as they are not part of the Semantic Conventions.
+  // TODO：Move to Semantic Conventions when these attributes are added.
   AWS_S3_BUCKET: 'aws.s3.bucket',
   AWS_SQS_QUEUE_URL: 'aws.sqs.queue.url',
   AWS_SQS_QUEUE_NAME: 'aws.sqs.queue.name',

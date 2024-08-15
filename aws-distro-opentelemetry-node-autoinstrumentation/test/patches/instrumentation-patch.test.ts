@@ -75,7 +75,11 @@ describe('InstrumentationPatchTest', () => {
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
     expect(() => doExtractSqsAttributes(services)).not.toThrow();
 
-    const sqsAttributes: Attributes = doExtractSqsAttributes(services);
+    let sqsAttributes: Attributes = doExtractSqsAttributes(services, false);
+    expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL]).toBeUndefined();
+    expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]).toBeUndefined();
+
+    sqsAttributes = doExtractSqsAttributes(services, true);
     expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL]).toBeUndefined();
     expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]).toBeUndefined();
   });
@@ -97,9 +101,15 @@ describe('InstrumentationPatchTest', () => {
   it('SQS with patching', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const sqsAttributes: Attributes = doExtractSqsAttributes(services);
+    const sqsAttributes: Attributes = doExtractSqsAttributes(services, false);
     expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL]).toEqual(_QUEUE_URL);
-    expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]).toEqual(_QUEUE_NAME);
+  });
+
+  it('SQS with patching if Queue Name was available (but is not)', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const sqsAttributes: Attributes = doExtractSqsAttributes(services, true);
+    expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL]).toEqual(_QUEUE_URL);
   });
 
   function extractAwsSdkInstrumentation(instrumentations: Instrumentation[]): AwsInstrumentation {
@@ -144,7 +154,10 @@ describe('InstrumentationPatchTest', () => {
     return doExtractAttributes(services, serviceName, params);
   }
 
-  function doExtractSqsAttributes(services: Map<string, ServiceExtension>): Attributes {
+  function doExtractSqsAttributes(
+    services: Map<string, ServiceExtension>,
+    includeQueueName: boolean = false
+  ): Attributes {
     const serviceName: string = 'SQS';
     const params: NormalizedRequest = {
       serviceName: serviceName,
@@ -153,6 +166,9 @@ describe('InstrumentationPatchTest', () => {
         QueueUrl: _QUEUE_URL,
       },
     };
+    if (includeQueueName) {
+      params.commandInput.QueueName = _QUEUE_NAME;
+    }
     return doExtractAttributes(services, serviceName, params);
   }
 

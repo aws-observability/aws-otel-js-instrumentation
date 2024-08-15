@@ -32,13 +32,14 @@ describe('Kinesis', () => {
         secretAccessKey: 'abcde',
       },
     });
-
-    nock(`https://kinesis.${region}.amazonaws.com`).post('/').reply(200, {});
   });
 
   describe('DescribeStream', () => {
     it('adds Stream Name', async () => {
       const dummyStreamName: string = 'dummy-stream-name';
+
+      nock(`https://kinesis.${region}.amazonaws.com`).post('/').reply(200, {});
+
       await kinesis
         .describeStream({
           StreamName: dummyStreamName,

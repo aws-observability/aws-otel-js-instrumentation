@@ -28,6 +28,14 @@ export class RuleCache {
     this.lastUpdatedEpochMillis = Date.now();
   }
 
+  public getRuleAppliers(): SamplingRuleApplier[] {
+    return this.ruleAppliers;
+  }
+
+  public getSamplerResource(): Resource {
+    return this.samplerResource;
+  }
+
   public isExpired(): boolean {
     const nowInMillis: number = Date.now();
     return nowInMillis > this.lastUpdatedEpochMillis + RULE_CACHE_TTL_MILLIS;

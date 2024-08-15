@@ -37,9 +37,7 @@ export class AwsXRayRemoteSampler implements Sampler {
   private samplingClient: AwsXraySamplingClient;
 
   constructor(samplerConfig: AwsXRayRemoteSamplerConfig) {
-    this.samplerDiag = diag.createComponentLogger({
-      namespace: 'AwsXRayRemoteSampler',
-    });
+    this.samplerDiag = diag;
 
     if (samplerConfig.pollingInterval == null || samplerConfig.pollingInterval < 10) {
       this.samplerDiag.warn(
@@ -51,7 +49,7 @@ export class AwsXRayRemoteSampler implements Sampler {
     }
 
     this.rulePollingJitterMillis = Math.random() * 5 * 1000;
-    this.targetPollingInterval = DEFAULT_TARGET_POLLING_INTERVAL_SECONDS;
+    this.targetPollingInterval = this.getDefaultTargetPollingInterval();
     this.targetPollingJitterMillis = (Math.random() / 10) * 1000;
 
     this.awsProxyEndpoint = samplerConfig.endpoint ? samplerConfig.endpoint : DEFAULT_AWS_PROXY_ENDPOINT;
@@ -66,6 +64,38 @@ export class AwsXRayRemoteSampler implements Sampler {
 
     // Start the Sampling Targets poller where the first poll occurs after the default interval
     this.startSamplingTargetsPoller();
+  }
+
+  public getRulePoller(): NodeJS.Timer | undefined {
+    return this.rulePoller;
+  }
+
+  public getRulePollingIntervalMillis(): number {
+    return this.rulePollingIntervalMillis;
+  }
+
+  public getTargetPollingInterval(): number {
+    return this.targetPollingInterval;
+  }
+
+  public getDefaultTargetPollingInterval(): number {
+    return DEFAULT_TARGET_POLLING_INTERVAL_SECONDS;
+  }
+
+  public getSamplingClient(): AwsXraySamplingClient {
+    return this.samplingClient;
+  }
+
+  public getRuleCache(): RuleCache {
+    return this.ruleCache;
+  }
+
+  public getClientId(): string {
+    return this.clientId;
+  }
+
+  public getAwsProxyEndpoint(): string {
+    return this.awsProxyEndpoint;
   }
 
   public shouldSample(

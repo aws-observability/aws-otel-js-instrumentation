@@ -127,4 +127,10 @@ describe('FallBackSampler', () => {
     }
     expect(sampled).toEqual(1);
   });
+
+  it('toString()', () => {
+    expect(new FallbackSampler().toString()).toEqual(
+      'FallbackSampler{fallback sampling with sampling config of 1 req/sec and 5% of additional requests'
+    );
+  });
 });

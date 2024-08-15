@@ -12,30 +12,30 @@ import { setAwsDefaultEnvironmentVariables } from '../src/register';
 // Extend register.test.ts functionality to also test exported span with Application Signals enabled
 describe('Register', function () {
   it('Requires without error', () => {
-    const originalPrototypeStart = NodeSDK.prototype.start
-    NodeSDK.prototype.start = () => {}
+    const originalPrototypeStart = NodeSDK.prototype.start;
+    NodeSDK.prototype.start = () => {};
     try {
       require('../src/register');
-    } catch(err: unknown) {
+    } catch (err: unknown) {
       assert.fail(`require register unexpectedly failed: ${err}`);
     }
 
-    NodeSDK.prototype.start = originalPrototypeStart
-  })
+    NodeSDK.prototype.start = originalPrototypeStart;
+  });
 
   it('Tests AWS Default Environment Variables', () => {
     this.beforeEach(() => {
-      delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL
-      delete process.env.OTEL_PROPAGATORS
-      delete process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS
-    })
+      delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
+      delete process.env.OTEL_PROPAGATORS;
+      delete process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+    });
 
     it('sets AWS Default Environment Variables', () => {
       setAwsDefaultEnvironmentVariables();
       expect(process.env.OTEL_EXPORTER_OTLP_PROTOCOL).toEqual('http/protobuf');
       expect(process.env.OTEL_PROPAGATORS).toEqual('xray,tracecontext,b3,b3multi');
       expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs');
-    })
+    });
 
     it('Does not set AWS Default Environment Variables', () => {
       process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'customProtocol';
@@ -45,7 +45,7 @@ describe('Register', function () {
       expect(process.env.OTEL_EXPORTER_OTLP_PROTOCOL).toEqual('customProtocol');
       expect(process.env.OTEL_PROPAGATORS).toEqual('customPropagators');
       expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('customDisabledInstrumentations');
-    })
+    });
   });
 
   it('can load auto instrumentation from command line', () => {

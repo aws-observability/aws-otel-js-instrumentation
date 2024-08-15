@@ -39,7 +39,7 @@ jobs:
       - name: Compile all NPM projects
         run: npm run compile
       - name: Unit tests (Full)
-        run: npm run test
+        run: npm run test:coverage
       - name: Report Coverage
         if: ${{ matrix.code-coverage && !cancelled()}}
         uses: codecov/codecov-action@v4

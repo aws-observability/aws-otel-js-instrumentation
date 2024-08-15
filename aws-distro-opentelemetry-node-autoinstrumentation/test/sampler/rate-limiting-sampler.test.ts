@@ -136,4 +136,10 @@ describe('RateLimitingSampler', () => {
     }
     expect(sampled).toEqual(1);
   });
+
+  it('toString()', () => {
+    expect(new RateLimitingSampler(123).toString()).toEqual(
+      'RateLimitingSampler{rate limiting sampling with sampling config of 123 req/sec and 0% of additional requests}'
+    );
+  });
 });

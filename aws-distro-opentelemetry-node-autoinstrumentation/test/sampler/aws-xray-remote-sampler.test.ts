@@ -191,4 +191,10 @@ describe('AwsXrayRemoteSampler', () => {
       }, 2000);
     }, 100);
   });
+
+  it('generates valid ClientId', () => {
+    const clientId: string = (AwsXRayRemoteSampler as any).generateClientId();
+    const match: RegExpMatchArray | null = clientId.match(/[0-9a-z]{24}/g);
+    expect(match).not.toBeNull();
+  });
 });

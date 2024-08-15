@@ -54,7 +54,7 @@ export class AwsXRayRemoteSampler implements Sampler {
 
     this.awsProxyEndpoint = samplerConfig.endpoint ? samplerConfig.endpoint : DEFAULT_AWS_PROXY_ENDPOINT;
     this.fallbackSampler = new ParentBasedSampler({ root: new FallbackSampler() });
-    this.clientId = this.generateClientId();
+    this.clientId = AwsXRayRemoteSampler.generateClientId();
     this.ruleCache = new RuleCache(samplerConfig.resource);
 
     this.samplingClient = new AwsXraySamplingClient(this.awsProxyEndpoint, this.samplerDiag);
@@ -202,7 +202,7 @@ export class AwsXRayRemoteSampler implements Sampler {
     }
   }
 
-  private generateClientId(): string {
+  private static generateClientId(): string {
     const hexChars: string[] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
     const clientIdArray: string[] = [];
     for (let _: number = 0; _ < 24; _ += 1) {

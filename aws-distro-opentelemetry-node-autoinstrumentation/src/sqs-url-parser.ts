@@ -1,6 +1,8 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { AttributeValue } from '@opentelemetry/api';
+
 const HTTP_SCHEMA: string = 'http://';
 const HTTPS_SCHEMA: string = 'https://';
 
@@ -16,8 +18,8 @@ export class SqsUrlParser {
    * /'s (excluding schema), the second part should be a 12-digit account id, and the third part
    * should be a valid queue name, per SQS naming conventions.
    */
-  public static getQueueName(url: string | undefined): string | undefined {
-    if (url === undefined) {
+  public static getQueueName(url: AttributeValue | undefined): string | undefined {
+    if (typeof url !== 'string') {
       return undefined;
     }
     url = url.replace(HTTP_SCHEMA, '').replace(HTTPS_SCHEMA, '');

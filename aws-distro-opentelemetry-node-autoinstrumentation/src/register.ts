@@ -3,8 +3,11 @@
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
 import { DiagConsoleLogger, diag } from '@opentelemetry/api';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
+import { applyInstrumentationPatches } from './patches/instrumentation-patch';
 
 diag.setLogger(new DiagConsoleLogger(), opentelemetry.core.getEnv().OTEL_LOG_LEVEL);
 
@@ -40,7 +43,12 @@ export function setAwsDefaultEnvironmentVariables(): void {
 }
 setAwsDefaultEnvironmentVariables();
 
-const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator();
+const instrumentations: Instrumentation[] = getNodeAutoInstrumentations();
+
+// Apply instrumentation patches
+applyInstrumentationPatches(instrumentations);
+
+const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator(instrumentations);
 const configuration: Partial<opentelemetry.NodeSDKConfiguration> = configurator.configure();
 
 const sdk: opentelemetry.NodeSDK = new opentelemetry.NodeSDK(configuration);

@@ -4,7 +4,7 @@
 // Used in register.patch.test.ts to mimic a JS app using SQS client of AWS SDK for JS (v3).
 const { S3Client, ListObjectsCommand } = require("@aws-sdk/client-s3");
 const { KinesisClient, ListStreamsCommand } = require('@aws-sdk/client-kinesis');
-const { SQSClient, ReceiveMessageCommand } = require("@aws-sdk/client-sqs");
+const { SQSClient, GetQueueAttributesCommand } = require("@aws-sdk/client-sqs");
 
 const s3Client = new S3Client({});
 const bucketName = "test-bucket-not-exists";
@@ -27,7 +27,7 @@ const awsSdkClientSendPromises = [
         })
     ),
     sqsClient.send(
-        new ReceiveMessageCommand({
+        new GetQueueAttributesCommand({
             QueueUrl: queueUrl
         })
     ),

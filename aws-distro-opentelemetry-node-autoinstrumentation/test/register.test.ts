@@ -2,12 +2,52 @@
 // SPDX-License-Identifier: Apache-2.0
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
+import { NodeSDK } from '@opentelemetry/sdk-node';
 import * as assert from 'assert';
 import { spawnSync, SpawnSyncReturns } from 'child_process';
+import expect from 'expect';
+import { setAwsDefaultEnvironmentVariables } from '../src/register';
 
 // The OpenTelemetry Authors code
 // Extend register.test.ts functionality to also test exported span with Application Signals enabled
 describe('Register', function () {
+  it('Requires without error', () => {
+    const originalPrototypeStart = NodeSDK.prototype.start
+    NodeSDK.prototype.start = () => {}
+    try {
+      require('../src/register');
+    } catch(err: unknown) {
+      assert.fail(`require register unexpectedly failed: ${err}`);
+    }
+
+    NodeSDK.prototype.start = originalPrototypeStart
+  })
+
+  it('Tests AWS Default Environment Variables', () => {
+    this.beforeEach(() => {
+      delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL
+      delete process.env.OTEL_PROPAGATORS
+      delete process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS
+    })
+
+    it('sets AWS Default Environment Variables', () => {
+      setAwsDefaultEnvironmentVariables();
+      expect(process.env.OTEL_EXPORTER_OTLP_PROTOCOL).toEqual('http/protobuf');
+      expect(process.env.OTEL_PROPAGATORS).toEqual('xray,tracecontext,b3,b3multi');
+      expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs');
+    })
+
+    it('Does not set AWS Default Environment Variables', () => {
+      process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'customProtocol';
+      process.env.OTEL_PROPAGATORS = 'customPropagators';
+      process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'customDisabledInstrumentations';
+      setAwsDefaultEnvironmentVariables();
+      expect(process.env.OTEL_EXPORTER_OTLP_PROTOCOL).toEqual('customProtocol');
+      expect(process.env.OTEL_PROPAGATORS).toEqual('customPropagators');
+      expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('customDisabledInstrumentations');
+    })
+  });
+
   it('can load auto instrumentation from command line', () => {
     const proc: SpawnSyncReturns<Buffer> = spawnSync(
       process.execPath,

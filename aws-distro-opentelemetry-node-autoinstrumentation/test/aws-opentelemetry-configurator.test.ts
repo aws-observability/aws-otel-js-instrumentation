@@ -53,6 +53,13 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     awsOtelConfigurator = new AwsOpentelemetryConfigurator([]);
   });
 
+  // Cleanup any span processors to avoid unit test conflicts
+  after(() => {
+    (awsOtelConfigurator as any).spanProcessors.forEach((spanProcessor: SpanProcessor) => {
+      spanProcessor.shutdown();
+    });
+  });
+
   // The probability of this passing once without correct IDs is low, 20 times is inconceivable.
   it('ProvideGenerateXrayIdsTest', () => {
     const tracerProvider: NodeTracerProvider = new NodeTracerProvider(awsOtelConfigurator.configure());
@@ -262,6 +269,11 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
       delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     }
+
+    // shut down exporters for test cleanup
+    spanProcessors.forEach(spanProcessor => {
+      spanProcessor.shutdown();
+    });
   });
 
   it('ApplicationSignalsExporterProviderTest', () => {

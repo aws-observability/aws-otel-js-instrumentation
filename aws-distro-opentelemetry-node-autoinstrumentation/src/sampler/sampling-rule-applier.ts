@@ -74,7 +74,7 @@ export class SamplingRuleApplier {
   }
 
   public withTarget(target: SamplingTargetDocument): SamplingRuleApplier {
-    const newApplier = new SamplingRuleApplier(this.samplingRule, this.statistics, target);
+    const newApplier: SamplingRuleApplier = new SamplingRuleApplier(this.samplingRule, this.statistics, target);
     return newApplier;
   }
 
@@ -107,11 +107,11 @@ export class SamplingRuleApplier {
 
     // target may be in url
     if (httpTarget === undefined && typeof httpUrl === 'string') {
-      const scheme_end_index = httpUrl.indexOf('://');
+      const schemeEndIndex: number = httpUrl.indexOf('://');
       // For network calls, URL usually has `scheme://host[:port][path][?query][#fragment]` format
       // Per spec, url.full is always populated with scheme://
       // If scheme is not present, assume it's bad instrumentation and ignore.
-      if (scheme_end_index > -1) {
+      if (schemeEndIndex > -1) {
         // urlparse("scheme://netloc/path;parameters?query#fragment")
         httpTarget = new URL(httpUrl).pathname;
         if (httpTarget === '') httpTarget = '/';

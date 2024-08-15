@@ -77,9 +77,7 @@ export class AwsXRayRemoteSampler implements Sampler {
     links: Link[]
   ): SamplingResult {
     if (this.ruleCache.isExpired()) {
-      this.samplerDiag.debug(
-        'Rule cache is expired, so using fallback sampling strategy'
-      );
+      this.samplerDiag.debug('Rule cache is expired, so using fallback sampling strategy');
       return this.fallbackSampler.shouldSample(context, traceId, spanName, spanKind, attributes, links);
     }
 

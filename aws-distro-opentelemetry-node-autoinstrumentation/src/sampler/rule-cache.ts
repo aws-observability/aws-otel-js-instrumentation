@@ -3,7 +3,12 @@
 
 import { Attributes, diag } from '@opentelemetry/api';
 import { Resource } from '@opentelemetry/resources';
-import { ISamplingStatistics, SamplingStatisticsDocument, SamplingTargetDocument, TargetMap } from './remote-sampler.types';
+import {
+  ISamplingStatistics,
+  SamplingStatisticsDocument,
+  SamplingTargetDocument,
+  TargetMap,
+} from './remote-sampler.types';
 import { SamplingRuleApplier } from './sampling-rule-applier';
 
 // The cache expires 1 hour after the last refresh time.

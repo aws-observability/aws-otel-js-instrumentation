@@ -39,7 +39,7 @@ export class AwsXraySamplingClient {
     logger: DiagLogFunction,
     requestBodyJsonString?: string
   ): void {
-    const options = {
+    const options: http.RequestOptions = {
       method: 'POST',
       headers: {},
     };
@@ -53,10 +53,10 @@ export class AwsXraySamplingClient {
 
     // Ensure AWS X-Ray Sampler does not generate traces itself
     context.with(suppressTracing(context.active()), () => {
-      const req = http
+      const req: http.ClientRequest = http
         .request(url, options, response => {
           response.setEncoding('utf-8');
-          let responseData = '';
+          let responseData: string = '';
           response.on('data', dataChunk => (responseData += dataChunk));
           response.on('end', () => {
             if (response.statusCode === 200 && responseData.length > 0) {

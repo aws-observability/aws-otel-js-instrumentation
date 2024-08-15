@@ -30,10 +30,10 @@ export class RateLimiter {
     // assume divide by zero not possible
     const costInMillis: number = cost / quotaPerMillis;
 
-    const walletCeilingMillis = Date.now();
+    const walletCeilingMillis: number = Date.now();
     let currentBalanceMillis: number = walletCeilingMillis - this.walletFloorMillis;
     currentBalanceMillis = Math.min(currentBalanceMillis, this.MAX_BALANCE_MILLIS);
-    const pendingRemainingBalanceMillis = currentBalanceMillis - costInMillis;
+    const pendingRemainingBalanceMillis: number = currentBalanceMillis - costInMillis;
     if (pendingRemainingBalanceMillis >= 0) {
       this.walletFloorMillis = walletCeilingMillis - pendingRemainingBalanceMillis;
       return true;

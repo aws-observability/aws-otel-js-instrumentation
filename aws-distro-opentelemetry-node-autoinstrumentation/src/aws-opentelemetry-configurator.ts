@@ -4,10 +4,7 @@
 
 import { TextMapPropagator, diag } from '@opentelemetry/api';
 import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
-import {
-  getNodeAutoInstrumentations,
-  getResourceDetectors as getResourceDetectorsFromEnv,
-} from '@opentelemetry/auto-instrumentations-node';
+import { getResourceDetectors as getResourceDetectorsFromEnv } from '@opentelemetry/auto-instrumentations-node';
 import { ENVIRONMENT, TracesSamplerValues, getEnv, getEnvWithoutDefaults } from '@opentelemetry/core';
 import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import {
@@ -85,7 +82,18 @@ export class AwsOpentelemetryConfigurator {
   private spanProcessors: SpanProcessor[];
   private propagator: TextMapPropagator;
 
-  constructor() {
+  /**
+   * The constructor will setup the AwsOpentelemetryConfigurator object to be able to provide a
+   * configuration for ADOT JavaScript Auto-Instrumentation.
+   *
+   * The `instrumentations` are the desired Node auto-instrumentations to be used when using ADOT JavaScript.
+   * The auto-Instrumentions are usually populated from OTel's `getNodeAutoInstrumentations()` method from the
+   * `@opentelemetry/auto-instrumentations-node` NPM package, and may have instrumentation patching applied.
+   *
+   * @constructor
+   * @param {Instrumentation[]} instrumentations - Auto-Instrumentations to be added to the ADOT Config
+   */
+  public constructor(instrumentations: Instrumentation[]) {
     /*
      * Set and Detect Resources via Resource Detectors
      *
@@ -135,7 +143,7 @@ export class AwsOpentelemetryConfigurator {
     autoResource = autoResource.merge(detectResourcesSync(internalConfig));
     this.resource = autoResource;
 
-    this.instrumentations = getNodeAutoInstrumentations();
+    this.instrumentations = instrumentations;
     this.propagator = getPropagator();
 
     // TODO: Consider removing AWSXRayIdGenerator as it is not needed

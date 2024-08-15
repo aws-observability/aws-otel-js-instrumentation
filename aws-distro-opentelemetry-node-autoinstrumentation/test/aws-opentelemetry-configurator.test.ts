@@ -47,7 +47,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.OTEL_TRACES_SAMPLER_ARG = '0.01';
 
     // Create configurator
-    awsOtelConfigurator = new AwsOpentelemetryConfigurator();
+    awsOtelConfigurator = new AwsOpentelemetryConfigurator([]);
   });
 
   // The probability of this passing once without correct IDs is low, 20 times is inconceivable.
@@ -163,11 +163,12 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
       process.env.OTEL_METRIC_EXPORT_INTERVAL = '!@#$%^&*()';
       AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
-      process.env.OTEL_METRIC_EXPORT_INTERVAL = '123';
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = '40000';
       AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
     } catch (e: any) {
       assert.fail(`AwsOpentelemetryConfigurator.customizeSpanProcessors() has incorrectly thrown error: ${e}`);
     } finally {
+      delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
       delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     }
   });

@@ -731,49 +731,59 @@ describe('AwsMetricAttributeGeneratorTest', () => {
   it('testSdkClientSpanWithRemoteResourceAttributes', () => {
     mockAttribute(SEMATTRS_RPC_SYSTEM, 'aws-api');
     // Validate behaviour of aws bucket name attribute, then remove it.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BUCKET_NAME, 'aws_s3_bucket_name');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET, 'aws_s3_bucket_name');
     validateRemoteResourceAttributes('AWS::S3::Bucket', 'aws_s3_bucket_name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BUCKET_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET, undefined);
 
-    // Validate behaviour of AWS_QUEUE_NAME attribute, then remove it.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_QUEUE_NAME, 'aws_queue_name');
+    // Validate behaviour of AWS_SQS_QUEUE_NAME attribute, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, 'aws_queue_name');
     validateRemoteResourceAttributes('AWS::SQS::Queue', 'aws_queue_name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_QUEUE_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, undefined);
 
-    // Validate behaviour of having both AWS_QUEUE_NAME and AWS_QUEUE_URL attribute, then remove
+    // Validate behaviour of having both AWS_SQS_QUEUE_NAME and AWS_SQS_QUEUE_URL attribute, then remove
     // them. Queue name is more reliable than queue URL, so we prefer to use name over URL.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_QUEUE_URL, 'https://sqs.us-east-2.amazonaws.com/123456789012/Queue');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_QUEUE_NAME, 'aws_queue_name');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, 'https://sqs.us-east-2.amazonaws.com/123456789012/Queue');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, 'aws_queue_name');
     validateRemoteResourceAttributes('AWS::SQS::Queue', 'aws_queue_name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_QUEUE_URL, undefined);
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_QUEUE_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, undefined);
 
     // Valid queue name with invalid queue URL, we should default to using the queue name.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_QUEUE_URL, 'invalidUrl');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_QUEUE_NAME, 'aws_queue_name');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, 'invalidUrl');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, 'aws_queue_name');
     validateRemoteResourceAttributes('AWS::SQS::Queue', 'aws_queue_name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_QUEUE_URL, undefined);
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_QUEUE_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, undefined);
 
-    // Validate behaviour of AWS_STREAM_NAME attribute, then remove it.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STREAM_NAME, 'aws_stream_name');
-    validateRemoteResourceAttributes('AWS::Kinesis::Stream', 'aws_stream_name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STREAM_NAME, undefined);
+    // Validate behaviour of AWS_KINESIS_STREAM_NAME attribute, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, 'AWS_KINESIS_STREAM_NAME');
+    validateRemoteResourceAttributes('AWS::Kinesis::Stream', 'AWS_KINESIS_STREAM_NAME');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, undefined);
 
-    // Validate behaviour of AWS_TABLE_NAME attribute, then remove it.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, 'aws_table_name');
+    // Validate behaviour of AWS_TABLE_NAMES attribute with one table name, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, ['aws_table_name']);
     validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'aws_table_name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
 
-    // Validate behaviour of AWS_TABLE_NAME attribute with special chars(|), then remove it.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, 'aws_table|name');
+    // Validate behaviour of AWS_TABLE_NAMES attribute with no table name, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, []);
+    validateRemoteResourceAttributes(undefined, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
+
+    // Validate behaviour of AWS_TABLE_NAMES attribute with two table names, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, ['aws_table_name1', 'aws_table_name2']);
+    validateRemoteResourceAttributes(undefined, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
+
+    // Validate behaviour of AWS_TABLE_NAMES attribute with special chars(|), then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, ['aws_table|name']);
     validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'aws_table^|name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
 
-    // Validate behaviour of AWS_TABLE_NAME attribute with special chars(^), then remove it.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, 'aws_table^name');
+    // Validate behaviour of AWS_TABLE_NAMES attribute with special chars(^), then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, ['aws_table^name']);
     validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'aws_table^^name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_TABLE_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
   });
 
   it('testDBClientSpanWithRemoteResourceAttributes', () => {
@@ -1010,7 +1020,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(SEMATTRS_PEER_SERVICE, undefined);
   }
 
-  function validateRemoteResourceAttributes(type: string, identifier: string): void {
+  function validateRemoteResourceAttributes(type: string | undefined, identifier: string | undefined): void {
     // Client, Producer and Consumer spans should generate the expected remote resource attributes
     (spanDataMock as any).kind = SpanKind.CLIENT;
     let actualAttributes: Attributes = GENERATOR.generateMetricAttributeMapFromSpan(spanDataMock, resource)[

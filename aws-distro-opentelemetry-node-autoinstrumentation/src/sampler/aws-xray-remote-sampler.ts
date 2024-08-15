@@ -38,7 +38,7 @@ export class AwsXRayRemoteSampler implements Sampler {
 
   constructor(samplerConfig: AwsXRayRemoteSamplerConfig) {
     this.samplerDiag = diag.createComponentLogger({
-      namespace: '@aws-observability/aws-xray-remote-sampler',
+      namespace: 'AwsXRayRemoteSampler',
     });
 
     if (samplerConfig.pollingInterval == null || samplerConfig.pollingInterval < 10) {

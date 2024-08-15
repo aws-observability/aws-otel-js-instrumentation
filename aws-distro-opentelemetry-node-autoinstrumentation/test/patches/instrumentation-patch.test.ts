@@ -103,6 +103,7 @@ describe('InstrumentationPatchTest', () => {
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
     const sqsAttributes: Attributes = doExtractSqsAttributes(services, false);
     expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL]).toEqual(_QUEUE_URL);
+    expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]).toBeUndefined();
   });
 
   it('SQS with patching if Queue Name was available (but is not)', () => {
@@ -110,6 +111,7 @@ describe('InstrumentationPatchTest', () => {
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
     const sqsAttributes: Attributes = doExtractSqsAttributes(services, true);
     expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL]).toEqual(_QUEUE_URL);
+    expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]).toEqual(_QUEUE_NAME);
   });
 
   function extractAwsSdkInstrumentation(instrumentations: Instrumentation[]): AwsInstrumentation {

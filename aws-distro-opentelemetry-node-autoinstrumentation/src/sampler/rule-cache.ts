@@ -3,7 +3,7 @@
 
 import { Attributes, diag } from '@opentelemetry/api';
 import { Resource } from '@opentelemetry/resources';
-import { ISamplingStatistics, SamplingStatisticsDocument, SamplingTargetDocument } from './remote-sampler.types';
+import { ISamplingStatistics, SamplingStatisticsDocument, SamplingTargetDocument, TargetMap } from './remote-sampler.types';
 import { SamplingRuleApplier } from './sampling-rule-applier';
 
 // The cache expires 1 hour after the last refresh time.
@@ -11,10 +11,6 @@ const RULE_CACHE_TTL_MILLIS: number = 60 * 60 * 1000;
 
 // 10 second default sampling targets polling interval
 export const DEFAULT_TARGET_POLLING_INTERVAL_SECONDS: number = 10;
-
-export interface TargetMap {
-  [targetName: string]: SamplingTargetDocument;
-}
 
 export class RuleCache {
   private ruleAppliers: SamplingRuleApplier[];

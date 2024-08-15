@@ -12,8 +12,9 @@ import {
   GetSamplingTargetsResponse,
   SamplingRuleRecord,
   SamplingTargetDocument,
+  TargetMap,
 } from './remote-sampler.types';
-import { DEFAULT_TARGET_POLLING_INTERVAL_SECONDS, RuleCache, TargetMap } from './rule-cache';
+import { DEFAULT_TARGET_POLLING_INTERVAL_SECONDS, RuleCache } from './rule-cache';
 import { SamplingRuleApplier } from './sampling-rule-applier';
 
 // 5 minute default sampling rules polling interval
@@ -63,8 +64,7 @@ export class AwsXRayRemoteSampler implements Sampler {
     // Start the Sampling Rules poller
     this.startSamplingRulesPoller();
 
-    // execute first Sampling Targets update and then start the Sampling Targets poller
-    this.getAndUpdateSamplingTargets();
+    // Start the Sampling Targets poller where the first poll occurs after the default interval
     this.startSamplingTargetsPoller();
   }
 
@@ -77,6 +77,9 @@ export class AwsXRayRemoteSampler implements Sampler {
     links: Link[]
   ): SamplingResult {
     if (this.ruleCache.isExpired()) {
+      this.samplerDiag.debug(
+        'Rule cache is expired, so using fallback sampling strategy'
+      );
       return this.fallbackSampler.shouldSample(context, traceId, spanName, spanKind, attributes, links);
     }
 

@@ -29,6 +29,9 @@ import { SamplingRule } from './sampling-rule';
 import { Statistics } from './statistics';
 import { CLOUD_PLATFORM_MAPPING, attributeMatch, wildcardMatch } from './utils';
 
+// Max date time in JavaScript
+const MAX_DATE_TIME_MILLIS: number = new Date(8_640_000_000_000_000).getTime();
+
 export class SamplingRuleApplier {
   public samplingRule: SamplingRule;
   private reservoirSampler: ParentBasedSampler;
@@ -47,8 +50,7 @@ export class SamplingRuleApplier {
       this.reservoirSampler = new ParentBasedSampler({ root: new RateLimitingSampler(0) });
     }
 
-    // Max date time in JavaScript
-    this.reservoirExpiryTimeInMillis = new Date(8_640_000_000_000_000).getTime();
+    this.reservoirExpiryTimeInMillis = MAX_DATE_TIME_MILLIS;
     this.statistics = statistics;
     this.statistics.resetStatistics();
     this.borrowingEnabled = true;

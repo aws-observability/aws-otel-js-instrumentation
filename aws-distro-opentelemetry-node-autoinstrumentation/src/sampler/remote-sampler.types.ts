@@ -14,6 +14,7 @@ export interface AwsXRayRemoteSamplerConfig {
   pollingInterval?: number;
 }
 
+// https://docs.aws.amazon.com/xray/latest/api/API_SamplingRule.html
 export interface ISamplingRule {
   // A unique name for the rule
   RuleName?: string;
@@ -55,12 +56,14 @@ export interface ISamplingRule {
   Version: number;
 }
 
+// https://docs.aws.amazon.com/xray/latest/api/API_SamplingRuleRecord.html
 export interface SamplingRuleRecord {
   CreatedAt?: number;
   ModifiedAt?: number;
   SamplingRule?: ISamplingRule;
 }
 
+// https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingRules.html#API_GetSamplingRules_ResponseSyntax
 export interface GetSamplingRulesResponse {
   NextToken?: string;
   SamplingRuleRecords?: SamplingRuleRecord[];
@@ -77,6 +80,7 @@ export interface ISamplingStatistics {
   BorrowCount: number;
 }
 
+// https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_RequestSyntax
 // SamplingStatisticsDocument is used to store current state of sampling statistics.
 export interface SamplingStatisticsDocument {
   // A unique identifier for the service in hexadecimal.
@@ -93,6 +97,7 @@ export interface SamplingStatisticsDocument {
   Timestamp: number;
 }
 
+// https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_RequestBody
 export interface SamplingTargetDocument {
   // The percentage of matching requests to instrument, after the reservoir is exhausted.
   FixedRate: number;
@@ -106,18 +111,25 @@ export interface SamplingTargetDocument {
   RuleName: string;
 }
 
+// https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_RequestBody
 export interface UnprocessedStatistic {
   ErrorCode: string;
   Message: string;
   RuleName: string;
 }
 
+// https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_RequestBody
 export interface GetSamplingTargetsBody {
   SamplingStatisticsDocuments: SamplingStatisticsDocument[];
 }
 
+// https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_ResponseSyntax
 export interface GetSamplingTargetsResponse {
   LastRuleModification: number;
   SamplingTargetDocuments: SamplingTargetDocument[];
   UnprocessedStatistics: UnprocessedStatistic[];
+}
+
+export interface TargetMap {
+  [targetName: string]: SamplingTargetDocument;
 }

@@ -1,27 +1,30 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { expect } from 'expect';
-import * as sinon from 'sinon';
 import { SpanKind, context } from '@opentelemetry/api';
 import { SamplingDecision } from '@opentelemetry/sdk-trace-base';
+import { expect } from 'expect';
+import * as sinon from 'sinon';
 import { RateLimitingSampler } from '../../src/sampler/rate-limiting-sampler';
 
-let clock:sinon.SinonFakeTimers;
+let clock: sinon.SinonFakeTimers;
 
 describe('RateLimitingSampler', () => {
   beforeEach(() => {
     clock = sinon.useFakeTimers(Date.now());
-  })
+  });
   afterEach(() => {
     clock.restore();
-  })
+  });
   it('testShouldSample', () => {
     const sampler = new RateLimitingSampler(30);
 
-    var sampled = 0;
+    let sampled = 0;
     for (let i = 0; i < 100; i++) {
-      if (sampler.shouldSample(context.active(), '1234', "name", SpanKind.CLIENT, {}, []).decision != SamplingDecision.NOT_RECORD) {
+      if (
+        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        SamplingDecision.NOT_RECORD
+      ) {
         sampled += 1;
       }
     }
@@ -31,7 +34,10 @@ describe('RateLimitingSampler', () => {
 
     sampled = 0;
     for (let i = 0; i < 100; i++) {
-      if (sampler.shouldSample(context.active(), '1234', "name", SpanKind.CLIENT, {}, []).decision != SamplingDecision.NOT_RECORD) {
+      if (
+        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        SamplingDecision.NOT_RECORD
+      ) {
         sampled += 1;
       }
     }
@@ -41,7 +47,10 @@ describe('RateLimitingSampler', () => {
 
     sampled = 0;
     for (let i = 0; i < 100; i++) {
-      if (sampler.shouldSample(context.active(), '1234', "name", SpanKind.CLIENT, {}, []).decision != SamplingDecision.NOT_RECORD) {
+      if (
+        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        SamplingDecision.NOT_RECORD
+      ) {
         sampled += 1;
       }
     }
@@ -51,7 +60,10 @@ describe('RateLimitingSampler', () => {
 
     sampled = 0;
     for (let i = 0; i < 100; i++) {
-      if (sampler.shouldSample(context.active(), '1234', "name", SpanKind.CLIENT, {}, []).decision != SamplingDecision.NOT_RECORD) {
+      if (
+        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        SamplingDecision.NOT_RECORD
+      ) {
         sampled += 1;
       }
     }
@@ -61,7 +73,10 @@ describe('RateLimitingSampler', () => {
 
     sampled = 0;
     for (let i = 0; i < 100; i++) {
-      if (sampler.shouldSample(context.active(), '1234', "name", SpanKind.CLIENT, {}, []).decision != SamplingDecision.NOT_RECORD) {
+      if (
+        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        SamplingDecision.NOT_RECORD
+      ) {
         sampled += 1;
       }
     }
@@ -71,9 +86,12 @@ describe('RateLimitingSampler', () => {
   it('testShouldSampleWithQuotaOfOne', () => {
     const sampler = new RateLimitingSampler(1);
 
-    var sampled = 0;
+    let sampled = 0;
     for (let i = 0; i < 50; i++) {
-      if (sampler.shouldSample(context.active(), '1234', "name", SpanKind.CLIENT, {}, []).decision != SamplingDecision.NOT_RECORD) {
+      if (
+        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        SamplingDecision.NOT_RECORD
+      ) {
         sampled += 1;
       }
     }
@@ -83,7 +101,10 @@ describe('RateLimitingSampler', () => {
 
     sampled = 0;
     for (let i = 0; i < 50; i++) {
-      if (sampler.shouldSample(context.active(), '1234', "name", SpanKind.CLIENT, {}, []).decision != SamplingDecision.NOT_RECORD) {
+      if (
+        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        SamplingDecision.NOT_RECORD
+      ) {
         sampled += 1;
       }
     }
@@ -93,7 +114,10 @@ describe('RateLimitingSampler', () => {
 
     sampled = 0;
     for (let i = 0; i < 50; i++) {
-      if (sampler.shouldSample(context.active(), '1234', "name", SpanKind.CLIENT, {}, []).decision != SamplingDecision.NOT_RECORD) {
+      if (
+        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        SamplingDecision.NOT_RECORD
+      ) {
         sampled += 1;
       }
     }
@@ -103,11 +127,13 @@ describe('RateLimitingSampler', () => {
 
     sampled = 0;
     for (let i = 0; i < 50; i++) {
-      if (sampler.shouldSample(context.active(), '1234', "name", SpanKind.CLIENT, {}, []).decision != SamplingDecision.NOT_RECORD) {
+      if (
+        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        SamplingDecision.NOT_RECORD
+      ) {
         sampled += 1;
       }
     }
     expect(sampled).toEqual(1);
-
-  })
+  });
 });

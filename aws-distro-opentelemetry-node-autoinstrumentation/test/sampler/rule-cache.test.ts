@@ -26,7 +26,6 @@ const createRule = (name: string, priority: number, reservoirSize: number, fixed
 };
 
 describe('RuleCache', () => {
-
   it('testCacheUpdatesAndSortsRules', () => {
     // Set up default rule in rule cache
     const defaultRule = createRule('Default', 10000, 1, 0.05);

@@ -114,25 +114,28 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     clearInterval((sampler as any).rulePoller);
     clearInterval((sampler as any).targetPoller);
-
   });
 
   it('ImportXRaySamplerWhenSamplerArgsSet', () => {
     delete process.env.OTEL_TRACES_SAMPLER;
 
     process.env.OTEL_TRACES_SAMPLER = 'xray';
-    process.env.OTEL_TRACES_SAMPLER_ARG = "endpoint=http://asdfghjkl:2000,polling_interval=600"; // seconds
+    process.env.OTEL_TRACES_SAMPLER_ARG = 'endpoint=http://asdfghjkl:2000,polling_interval=600'; // seconds
     const sampler = customBuildSamplerFromEnv(Resource.empty());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
     expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('http://asdfghjkl:2000');
     expect((sampler as AwsXRayRemoteSampler).getRulePollingIntervalMillis()).toEqual(600000); // ms
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual('http://asdfghjkl:2000/GetSamplingRules');
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual('http://asdfghjkl:2000/SamplingTargets');
+    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual(
+      'http://asdfghjkl:2000/GetSamplingRules'
+    );
+    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual(
+      'http://asdfghjkl:2000/SamplingTargets'
+    );
 
     clearInterval((sampler as any).rulePoller);
     clearInterval((sampler as any).targetPoller);
-  })
+  });
 
   it('ImportXRaySamplerWithInvalidPollingIntervalSet', () => {
     delete process.env.OTEL_TRACES_SAMPLER;
@@ -146,12 +149,16 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
     expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('http://asdfghjkl:2000');
     expect((sampler as AwsXRayRemoteSampler).getRulePollingIntervalMillis()).toEqual(300000); // default value
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual('http://asdfghjkl:2000/GetSamplingRules');
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual('http://asdfghjkl:2000/SamplingTargets');
+    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual(
+      'http://asdfghjkl:2000/GetSamplingRules'
+    );
+    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual(
+      'http://asdfghjkl:2000/SamplingTargets'
+    );
 
     clearInterval((sampler as any).rulePoller);
     clearInterval((sampler as any).targetPoller);
-  })
+  });
 
   // test_import_xray_sampler_with_invalid_environment_arguments
   it('ImportXRaySamplerWithInvalidURLSet', () => {
@@ -161,8 +168,11 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.OTEL_TRACES_SAMPLER = 'xray';
     process.env.OTEL_TRACES_SAMPLER_ARG = 'endpoint=ht-tp:/-/-a-a-:2-2-2,polling_interval=600';
 
-    let tmp = (AwsXraySamplingClient.prototype as any).makeSamplingRequest;
-    (AwsXraySamplingClient.prototype as any).makeSamplingRequest = (endpoint:string, callback:(responseObject: GetSamplingRulesResponse) => void) => {
+    const tmp = (AwsXraySamplingClient.prototype as any).makeSamplingRequest;
+    (AwsXraySamplingClient.prototype as any).makeSamplingRequest = (
+      endpoint: string,
+      callback: (responseObject: GetSamplingRulesResponse) => void
+    ) => {
       callback({});
     };
 
@@ -171,11 +181,15 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
     expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('ht-tp:/-/-a-a-:2-2-2');
     expect((sampler as AwsXRayRemoteSampler).getRulePollingIntervalMillis()).toEqual(600000);
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual('ht-tp:/-/-a-a-:2-2-2/GetSamplingRules');
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual('ht-tp:/-/-a-a-:2-2-2/SamplingTargets');
+    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual(
+      'ht-tp:/-/-a-a-:2-2-2/GetSamplingRules'
+    );
+    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual(
+      'ht-tp:/-/-a-a-:2-2-2/SamplingTargets'
+    );
 
     (AwsXraySamplingClient.prototype as any).makeSamplingRequest = tmp;
-  })
+  });
 
   it('IsApplicationSignalsEnabledTest', () => {
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';

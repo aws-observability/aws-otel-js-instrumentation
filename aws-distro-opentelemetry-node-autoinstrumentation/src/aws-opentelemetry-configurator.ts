@@ -56,6 +56,7 @@ import { AttributePropagatingSpanProcessorBuilder } from './attribute-propagatin
 import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-span-exporter-builder';
 import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
 // This file is generated via `npm run compile`
+import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 import { LIB_VERSION } from './version';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
@@ -196,6 +197,7 @@ export class AwsOpentelemetryConfigurator {
       config = {
         instrumentations: this.instrumentations,
         resource: this.resource,
+        sampler: this.sampler,
         idGenerator: this.idGenerator,
         autoDetectResources: false,
       };
@@ -253,7 +255,37 @@ export class AwsOpentelemetryConfigurator {
 }
 
 export function customBuildSamplerFromEnv(resource: Resource): Sampler {
-  // TODO: Add XRay Sampler (with resource) if specified through Environment variable
+  switch (process.env.OTEL_TRACES_SAMPLER) {
+    case 'xray': {
+      const samplerArgumentEnv: string | undefined = process.env.OTEL_TRACES_SAMPLER_ARG;
+      let endpoint: string | undefined = undefined;
+      let pollingInterval: number | undefined = undefined;
+
+      if (samplerArgumentEnv !== undefined) {
+        const args: string[] = samplerArgumentEnv.split(',');
+        for (const arg of args) {
+          const keyValue: string[] = arg.split('=', 2);
+          if (keyValue.length !== 2) {
+            continue;
+          }
+          if (keyValue[0] === 'endpoint') {
+            endpoint = keyValue[1];
+          } else if (keyValue[0] === 'polling_interval') {
+            pollingInterval = Number(keyValue[1]);
+            if (isNaN(pollingInterval)) {
+              pollingInterval = undefined;
+              diag.error('polling_interval in OTEL_TRACES_SAMPLER_ARG must be a valid number');
+            }
+          }
+        }
+      }
+
+      diag.debug(`XRay Sampler Endpoint: ${endpoint}`);
+      diag.debug(`XRay Sampler Polling Interval: ${pollingInterval}`);
+      return new AwsXRayRemoteSampler({ resource: resource, endpoint: endpoint, pollingInterval: pollingInterval });
+    }
+  }
+
   return buildSamplerFromEnv();
 }
 
@@ -455,7 +487,7 @@ export class AwsSpanProcessorProvider {
   }
 
   protected _getSpanExporter(name: string): SpanExporter | undefined {
-    return (this.constructor as typeof AwsSpanProcessorProvider)._registeredExporters.get(name)?.();
+    return AwsSpanProcessorProvider._registeredExporters.get(name)?.();
   }
 
   private configureSpanProcessors(exporters: SpanExporter[]): (BatchSpanProcessor | SimpleSpanProcessor)[] {

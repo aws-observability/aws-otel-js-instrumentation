@@ -14,10 +14,10 @@ if [ "$current_dir" != "aws-otel-js-instrumentation" ]; then
 fi
 
 # Install dependencies and compile all projects in this repostory
-cd ./aws-distro-opentelemetry-node-autoinstrumentation
 npm install
 npm run compile
 
+cd ./aws-distro-opentelemetry-node-autoinstrumentation
 # This is handy for installing a local copy of the instrumentation for your own NodeJS project. After running this command,
 # run `npm link @aws/aws-distro-opentelemetry-node-autoinstrumentation` in your NodeJS project directory to create a symbolic link
 # from the globally-installed `@aws/aws-distro-opentelemetry-node-autoinstrumentation` to `node_modules/` of your NodeJS project folder

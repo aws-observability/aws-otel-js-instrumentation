@@ -83,14 +83,14 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
     let httpStatusCode: AttributeValue | undefined = spanData.attributes[SEMATTRS_HTTP_STATUS_CODE];
     const statusCode: SpanStatusCode = spanData.status.code;
 
-    if (httpStatusCode === undefined) {
+    if (typeof httpStatusCode !== 'number') {
       httpStatusCode = attributes[SEMATTRS_HTTP_STATUS_CODE];
     }
 
     if (
-      httpStatusCode === undefined ||
-      (httpStatusCode as number) < this.ERROR_CODE_LOWER_BOUND ||
-      (httpStatusCode as number) > this.FAULT_CODE_UPPER_BOUND
+      typeof httpStatusCode !== 'number' ||
+      httpStatusCode < this.ERROR_CODE_LOWER_BOUND ||
+      httpStatusCode > this.FAULT_CODE_UPPER_BOUND
     ) {
       if (SpanStatusCode.ERROR === statusCode) {
         this.errorHistogram.record(0, attributes);
@@ -99,16 +99,10 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
         this.errorHistogram.record(0, attributes);
         this.faultHistogram.record(0, attributes);
       }
-    } else if (
-      (httpStatusCode as number) >= this.ERROR_CODE_LOWER_BOUND &&
-      (httpStatusCode as number) <= this.ERROR_CODE_UPPER_BOUND
-    ) {
+    } else if (httpStatusCode >= this.ERROR_CODE_LOWER_BOUND && httpStatusCode <= this.ERROR_CODE_UPPER_BOUND) {
       this.errorHistogram.record(1, attributes);
       this.faultHistogram.record(0, attributes);
-    } else if (
-      (httpStatusCode as number) >= this.FAULT_CODE_LOWER_BOUND &&
-      (httpStatusCode as number) <= this.FAULT_CODE_UPPER_BOUND
-    ) {
+    } else if (httpStatusCode >= this.FAULT_CODE_LOWER_BOUND && httpStatusCode <= this.FAULT_CODE_UPPER_BOUND) {
       this.errorHistogram.record(0, attributes);
       this.faultHistogram.record(1, attributes);
     }

@@ -68,7 +68,7 @@ npm run lint:fix
 ### Run unit tests
 
 ```shell
-npm run tests
+npm run test
 ```
 
 ### Test the local ADOT JS package with your own local NodeJS project

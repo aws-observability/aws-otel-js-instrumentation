@@ -258,17 +258,18 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       const httpUrl: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_URL];
       try {
         let url: URL;
-        if (httpUrl !== undefined) {
-          url = new URL(httpUrl as string);
+        if (typeof httpUrl === 'string') {
+          url = new URL(httpUrl);
           remoteOperation = AwsSpanProcessingUtil.extractAPIPathValue(url.pathname);
         }
       } catch (e: unknown) {
         diag.verbose(`invalid http.url attribute: ${httpUrl}`);
       }
     }
-    if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_METHOD)) {
-      const httpMethod: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_METHOD];
-      remoteOperation = (httpMethod as string) + ' ' + remoteOperation;
+
+    const httpMethod: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_METHOD];
+    if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_METHOD) && typeof httpMethod === 'string') {
+      remoteOperation = httpMethod + ' ' + remoteOperation;
     }
     if (remoteOperation === AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION) {
       AwsMetricAttributeGenerator.logUnknownAttribute(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_OPERATION, span);
@@ -283,13 +284,13 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       remoteService = AwsMetricAttributeGenerator.getRemoteService(span, SEMATTRS_NET_PEER_NAME);
       if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_NET_PEER_PORT)) {
         const port: AttributeValue | undefined = span.attributes[SEMATTRS_NET_PEER_PORT];
-        remoteService += ':' + (port as string);
+        remoteService += ':' + port;
       }
     } else if (AwsSpanProcessingUtil.isKeyPresent(span, _NET_SOCK_PEER_ADDR)) {
       remoteService = AwsMetricAttributeGenerator.getRemoteService(span, _NET_SOCK_PEER_ADDR);
       if (AwsSpanProcessingUtil.isKeyPresent(span, _NET_SOCK_PEER_PORT)) {
         const port: AttributeValue | undefined = span.attributes[_NET_SOCK_PEER_PORT];
-        remoteService += ':' + (port as string);
+        remoteService += ':' + port;
       }
     } else if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_URL)) {
       const httpUrl: string = span.attributes[SEMATTRS_HTTP_URL] as string;
@@ -437,15 +438,15 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     address: AttributeValue | undefined,
     port: AttributeValue | undefined
   ): string | undefined {
-    if (address === undefined) {
+    if (typeof address !== 'string') {
       return undefined;
     }
 
-    return AwsMetricAttributeGenerator.escapeDelimiters(address as string) + (port !== undefined ? '|' + port : '');
+    return AwsMetricAttributeGenerator.escapeDelimiters(address) + (port !== undefined ? '|' + port : '');
   }
 
   private static buildDbConnectionString(connectionString: AttributeValue | undefined): string | undefined {
-    if (connectionString === undefined) {
+    if (typeof connectionString !== 'string') {
       return undefined;
     }
 
@@ -461,11 +462,11 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       // - jdbc:mysql://localhost:3306
       // - abc:def:ghi://host:3306
       // Try with a dummy schema without `:`, since we do not care about the schema
-      const schemeEndIndex: number = (connectionString as string).indexOf('://');
+      const schemeEndIndex: number = connectionString.indexOf('://');
       if (schemeEndIndex === -1) {
-        uri = new URL(connectionString as string);
+        uri = new URL(connectionString);
       } else {
-        uri = new URL('dummyschema' + (connectionString as string).substring(schemeEndIndex));
+        uri = new URL('dummyschema' + connectionString.substring(schemeEndIndex));
       }
 
       address = uri.hostname;
@@ -492,7 +493,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     // `split(a).join(b)` is not equivalent for all (a,b), but works with `a = '^'` or a = '|'`.
     // Implementing some regex is also possible
     //   e.g. let re = new RegExp(String.raw`\s${variable}\s`, "g");
-    return (input as string).split('^').join('^^').split('|').join('^|');
+    return input.split('^').join('^^').split('|').join('^|');
   }
 
   /** Span kind is needed for differentiating metrics in the EMF exporter */
@@ -517,18 +518,18 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
 
   private static getRemoteService(span: ReadableSpan, remoteServiceKey: string): string {
     let remoteService: AttributeValue | undefined = span.attributes[remoteServiceKey];
-    if (remoteService === undefined) {
+    if (typeof remoteService !== 'string') {
       remoteService = AwsSpanProcessingUtil.UNKNOWN_REMOTE_SERVICE;
     }
-    return remoteService as string;
+    return remoteService;
   }
 
   private static getRemoteOperation(span: ReadableSpan, remoteOperationKey: string): string {
     let remoteOperation: AttributeValue | undefined = span.attributes[remoteOperationKey];
-    if (remoteOperation === undefined) {
+    if (typeof remoteOperation !== 'string') {
       remoteOperation = AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION;
     }
-    return remoteOperation as string;
+    return remoteOperation;
   }
 
   /**
@@ -539,13 +540,13 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    */
   private static getDBStatementRemoteOperation(span: ReadableSpan, remoteOperationKey: string): string {
     let remoteOperation: AttributeValue | undefined = span.attributes[remoteOperationKey];
-    if (remoteOperation === undefined) {
+    if (typeof remoteOperation !== 'string') {
       remoteOperation = AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION;
     }
 
     // Remove all whitespace and newline characters from the beginning of remote_operation
     // and retrieve the first MAX_KEYWORD_LENGTH characters
-    remoteOperation = (remoteOperation as string).trimStart();
+    remoteOperation = remoteOperation.trimStart();
     if (remoteOperation.length > AwsSpanProcessingUtil.MAX_KEYWORD_LENGTH) {
       remoteOperation = remoteOperation.substring(0, AwsSpanProcessingUtil.MAX_KEYWORD_LENGTH);
     }

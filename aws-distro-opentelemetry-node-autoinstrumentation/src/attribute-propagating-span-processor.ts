@@ -52,13 +52,14 @@ export class AttributePropagatingSpanProcessor implements SpanProcessor {
     AwsSpanProcessingUtil.setIsLocalRootInformation(span, parentContext);
 
     const parentSpan: APISpan | undefined = trace.getSpan(parentContext);
-    let parentReadableSpan: ReadableSpan | undefined = undefined;
+    let parentReadableSpan: Span | undefined = undefined;
 
-    // `if check` is different than Python and Java. Here we just check if parentSpan is not undefined
-    // Whereas in Python and Java, the check is if parentSpan is and instance of ReadableSpan, which is
-    // not possible in TypeScript because the check is not allowed for interfaces (such as ReadableSpan).
-    if (parentSpan !== undefined) {
-      parentReadableSpan = parentSpan as Span;
+    // In Python and Java, the check is "parentSpan is an instance of ReadableSpan" is not possible
+    // in TypeScript because the check is not allowed for TypeScript interfaces (such as ReadableSpan).
+    // This is because JavaScript doesn't support interfaces, which is what TypeScript will compile to.
+    // `Span` is the only class that implements ReadableSpan, so check for instance of Span.
+    if (parentSpan instanceof Span) {
+      parentReadableSpan = parentSpan;
 
       // Add the AWS_SDK_DESCENDANT attribute to the immediate child spans of AWS SDK span.
       // This attribute helps the backend differentiate between SDK spans and their immediate

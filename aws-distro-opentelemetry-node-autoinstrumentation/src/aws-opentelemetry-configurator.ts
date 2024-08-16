@@ -454,7 +454,7 @@ export class AwsSpanProcessorProvider {
   }
 
   protected _getSpanExporter(name: string): SpanExporter | undefined {
-    return (this.constructor as typeof AwsSpanProcessorProvider)._registeredExporters.get(name)?.();
+    return AwsSpanProcessorProvider._registeredExporters.get(name)?.();
   }
 
   private configureSpanProcessors(exporters: SpanExporter[]): (BatchSpanProcessor | SimpleSpanProcessor)[] {

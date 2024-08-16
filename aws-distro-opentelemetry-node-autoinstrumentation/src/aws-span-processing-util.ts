@@ -154,12 +154,12 @@ export class AwsSpanProcessingUtil {
     // is started before the other processors (e.g. AwsSpanMetricsProcessor)
     // Thus this function is implemented differently than in Java/Python
     const isLocalRoot: AttributeValue | undefined = spanData.attributes[AWS_ATTRIBUTE_KEYS.AWS_IS_LOCAL_ROOT];
-    if (isLocalRoot === undefined) {
-      // isLocalRoot should be precalculated, this code block should not be entered
+    if (typeof isLocalRoot !== 'boolean') {
+      // isLocalRoot should be a precalculated boolean, this code block should not be entered
       diag.debug('isLocalRoot for span has not been precalculated. Assuming span is Local Root Span.');
       return true;
     }
-    return isLocalRoot as boolean;
+    return isLocalRoot;
   }
 
   // To identify the SQS consumer spans produced by AWS SDK instrumentation
@@ -223,8 +223,8 @@ export class AwsSpanProcessingUtil {
       const httpUrl: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_URL];
       try {
         let url: URL;
-        if (httpUrl !== undefined) {
-          url = new URL(httpUrl as string);
+        if (typeof httpUrl === 'string') {
+          url = new URL(httpUrl);
           httpPath = url.pathname;
         }
       } catch (e: unknown) {
@@ -235,8 +235,8 @@ export class AwsSpanProcessingUtil {
       }
     }
 
-    if (httpPath !== undefined) {
-      operation = this.extractAPIPathValue(httpPath as string);
+    if (typeof httpPath === 'string') {
+      operation = this.extractAPIPathValue(httpPath);
       if (this.isKeyPresent(span, SEMATTRS_HTTP_METHOD)) {
         const httpMethod: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_METHOD];
         if (httpMethod !== undefined) {

@@ -55,6 +55,8 @@ import { AlwaysRecordSampler } from './always-record-sampler';
 import { AttributePropagatingSpanProcessorBuilder } from './attribute-propagating-span-processor-builder';
 import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-span-exporter-builder';
 import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
+// This file is generated via `npm run compile`
+import { LIB_VERSION } from './version';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
@@ -161,8 +163,7 @@ export class AwsOpentelemetryConfigurator {
 
   private customizeVersions(autoResource: Resource): Resource {
     // eslint-disable-next-line @typescript-eslint/typedef
-    const packageJson = require('./../../package.json');
-    const DISTRO_VERSION: string = packageJson.version;
+    const DISTRO_VERSION: string = LIB_VERSION;
     autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION] = DISTRO_VERSION + '-aws';
     diag.debug(
       `@aws/aws-distro-opentelemetry-node-autoinstrumentation - version: ${autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION]}`

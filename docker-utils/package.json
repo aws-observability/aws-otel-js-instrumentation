@@ -6,7 +6,7 @@
     "clean": "rimraf build/*",
     "prepare": "npm run compile",
     "compile": "tsc -p .",
-    "postcompile": "copyfiles -f 'build/src/**' build/workspace/ && copyfiles 'node_modules/**' package.json build/workspace/ && npm -C build/workspace prune --omit=dev --no-package-lock"
+    "postcompile": "copyfiles -f 'build/src/*.js' build/workspace/ && copyfiles -f 'build/src/configuration/*.json' build/workspace/configuration/ && copyfiles -f 'build/src/patches/*.js' build/workspace/patches/ && copyfiles -f 'build/src/patches/aws/services/*.js' build/workspace/patches/aws/services/ && copyfiles -f 'build/src/third-party/otel/aws/services/*.js' build/workspace/third-party/otel/aws/services/ && copyfiles -f 'build/src/configuration/*.json' build/workspace/configuration/ && copyfiles 'node_modules/**' package.json build/workspace/ && npm -C build/workspace prune --omit=dev --no-package-lock"
   },
   "devDependencies": {
     "@types/mocha": "7.0.2",

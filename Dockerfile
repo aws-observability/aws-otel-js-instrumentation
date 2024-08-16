@@ -15,9 +15,10 @@ COPY docker-utils/package.json ./package.json
 
 RUN npm install
 
-WORKDIR /operator-build/build/workspace
 RUN pwd
-RUN ls -ls
+RUN ls -ls /operator-build/build/workspace
+RUN ls -ls /operator-build/build/workspace/configuration
+RUN ls -ls /operator-build/build/workspace/patches
 
 # TODO - use scratch image
 FROM public.ecr.aws/amazonlinux/amazonlinux:minimal

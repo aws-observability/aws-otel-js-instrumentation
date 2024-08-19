@@ -6,10 +6,6 @@ on:
       - main
       - "release/v*"
       - e2e-parallel
-  # REMOVE AFTER TESTING
-  pull_request:
-    branches:
-      - main
 
 env:
   AWS_DEFAULT_REGION: us-east-1

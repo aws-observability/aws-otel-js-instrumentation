@@ -1,7 +1,9 @@
 # # Stage 1: Install ADOT nodejs instrumentation in the /operator-build folder
 FROM node:20 AS build
 
-# Copy Source Code without original package.json (try to keep original package.json in the future)...
+# In the future, when ADOT JS is uploaded to NPM, the source code can be obtained from there
+# and this Dockerfile will not need to copy the source code anymore as a workaround.
+# Copy Source Code without original package.json
 WORKDIR /
 COPY tsconfig.base.json ./tsconfig.base.json
 WORKDIR /operator-build
@@ -14,11 +16,6 @@ COPY docker-utils/autoinstrumentation.ts ./src/autoinstrumentation.ts
 COPY docker-utils/package.json ./package.json
 
 RUN npm install
-
-RUN pwd
-RUN ls -ls /operator-build/build/workspace
-RUN ls -ls /operator-build/build/workspace/configuration
-RUN ls -ls /operator-build/build/workspace/patches
 
 # Stage 2: Build the cp-utility binary
 FROM rust:1.75 as builder

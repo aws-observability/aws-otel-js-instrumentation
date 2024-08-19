@@ -1,4 +1,4 @@
-name: Build and Push aws-opentelemetry-distro
+name: Build and Push aws-distro-opentelemetry-node-autoinstrumentation
 description: |
   This action assumes that the repo was checked out. Builds and pushes/loads tarball and image files. Also performs scan
   of the resultant image.

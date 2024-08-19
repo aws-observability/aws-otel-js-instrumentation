@@ -6,6 +6,11 @@ on:
       - main
       - "release/v*"
       - e2e-parallel
+  # REMOVE AFTER TESTING
+  pull_request:
+    branches:
+      - main
+
 env:
   AWS_DEFAULT_REGION: us-east-1
   STAGING_ECR_REGISTRY: 637423224110.dkr.ecr.us-east-1.amazonaws.com

@@ -78,4 +78,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
-          path: dist/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
+          path: aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}

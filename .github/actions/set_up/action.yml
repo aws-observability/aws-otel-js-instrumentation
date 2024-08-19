@@ -1,0 +1,45 @@
+name: Set up
+description: |
+  This action assumes that the repo was checked out. Installs node, then runs the unit tests.
+
+inputs:
+  node_version:
+    required: true
+    description: "The node version used in actions"
+  package_name:
+    required: true
+    description: "The package name"
+  os:
+    required: true
+    description: "The os"
+  run_unit_tests:
+    required: true
+    description: "true/false flag indicating if we should run unit tests/benchmarks"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version }}
+
+    - name: Install dependencies and compile to build directory
+      shell: bash
+      run: |
+        npm install
+        npm run compile
+
+    - name: Cache NPM environment
+      # Preserves .tox directory between runs for faster installs
+      uses: actions/cache@v1
+      with:
+        path: |
+          .tox
+          ~/.cache/pip
+        key: v7-build-tox-cache-${{ inputs.node_version }}-${{ inputs.package_name }}-${{ inputs.os }}-${{ hashFiles('aws-distro-opentelemetry-node-autoinstrumentation/package.json', 'package-lock.json') }}
+
+    - name: Run unit tests/benchmarks
+      if: ${{ inputs.run_unit_tests == 'true' }}
+      shell: bash
+      run: npm run test

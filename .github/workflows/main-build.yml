@@ -14,6 +14,8 @@ on:
 env:
   AWS_DEFAULT_REGION: us-east-1
   STAGING_ECR_REGISTRY: 637423224110.dkr.ecr.us-east-1.amazonaws.com
+  # Another team is testing the `adot-autoinstrumentation-node-staging` image
+  # Temporarily use a testing image repo until that other team is done
   STAGING_ECR_REPOSITORY: aws-observability/adot-autoinstrumentation-node-testing
   STAGING_S3_BUCKET: ${{ secrets.STAGING_BUCKET_NAME }}
 

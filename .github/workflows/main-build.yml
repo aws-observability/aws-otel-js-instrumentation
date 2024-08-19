@@ -72,6 +72,12 @@ jobs:
           staging_tarball="aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ steps.node_output.outputs.ADOT_NODE_VERSION }}.tgz"
           echo "STAGING_TARBALL=$staging_tarball" >> $GITHUB_OUTPUT
 
-      - name: Upload Tarball build to S3
+      - name: Upload Tarball to S3
         run: |
           aws s3 cp aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL }} s3://${{ env.STAGING_S3_BUCKET }}
+
+      - name: Upload Tarball to GitHub Actions
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
+          path: dist/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}

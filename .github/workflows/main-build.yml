@@ -79,3 +79,22 @@ jobs:
         with:
           name: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
           path: aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
+      # TODO - implement contract tests in NodeJS
+      # - name: Set up and run contract tests with pytest
+      #   run: |
+      #     bash scripts/set-up-contract-tests.sh
+      #     pip install pytest
+      #     pytest contract-tests/tests
+
+  # TODO - implement E2E tests in NodeJS
+  # application-signals-e2e-test:
+  #   name: "Application Signals E2E Test"
+  #   needs: [ build ]
+  #   uses: ./.github/workflows/application-signals-e2e-test.yml
+  #   secrets: inherit
+  #   permissions:
+  #     id-token: write
+  #     contents: read
+  #   with:
+  #     staging-wheel-name: ${{ needs.build.outputs.staging_wheel_file }}
+  #     adot-image-name: ${{ needs.build.outputs.staging_registry }}/aws-observability/adot-autoinstrumentation-python-staging:${{ needs.build.outputs.python_image_tag }}

@@ -20,6 +20,5 @@ fi
 cd ./sample-applications/simple-express-server/
 npm install
 
-# create a symbolic link from the globally-installed `@aws/aws-distro-opentelemetry-node-autoinstrumentation``
-# to the `node_modules/` of the simple express server application
-npm link @aws/aws-distro-opentelemetry-node-autoinstrumentation
+# Install the locally compiled `@aws/aws-distro-opentelemetry-node-autoinstrumentation` project
+npm install ./../../aws-distro-opentelemetry-node-autoinstrumentation

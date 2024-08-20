@@ -27,6 +27,9 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 1. You are working against the latest source on the *main* branch.
 2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
 3. You open an issue to discuss any significant work - we would hate for your time to be wasted.
+4. You are not mixing substantial refactoring changes in with functional changes.
+   1. If refactoring is desirable, publish a separate refactoring PR first, followed by a functional change PR. This will ensure safe and efficient reviews.
+   2. PRs that do not meet these expectations will be rejected.
 
 To send us a pull request, please:
 
@@ -36,10 +39,12 @@ To send us a pull request, please:
 4. Commit to your fork using clear commit messages.
 5. Send us a pull request, answering any default questions in the pull request interface.
 6. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.
+7. Please do not squash commits between revisions, this makes review challenging, as the diff between revisions is harder to find and review.
 
 GitHub provides additional document on [forking a repository](https://help.github.com/articles/fork-a-repo/) and
 [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
 
+The following sections provide some guidance that will help you make contributions.
 
 ## NPM Commands for ADOT JS Development
 
@@ -73,19 +78,17 @@ npm run test
 
 ### Test the local ADOT JS package with your own local NodeJS project
 
-In the `./aws-distro-opentelemetry-node-autoinstrumentation` directory, run:
+In the root directory of `aws-otel-js-instrumentation`, run:
 
 ```shell
-npm install
-npm run compile
-npm link
+./scripts/build_and_install_distro.sh
 ```
 
 In the target local NodeJS project to be instrumented, run
 
 ```shell
 npm install
-npm link @aws/aws-distro-opentelemetry-node-autoinstrumentation
+npm install /<PATH>/<TO>/aws-distro-opentelemetry-node-autoinstrumentation
 ```
 
 Your NodeJS project can now be run with your local copy of the ADOT NodeJS code with:

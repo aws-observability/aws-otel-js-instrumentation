@@ -17,9 +17,3 @@ fi
 npm install
 npm run compile
 
-cd ./aws-distro-opentelemetry-node-autoinstrumentation
-# This is handy for installing a local copy of the instrumentation for your own NodeJS project. After running this command,
-# run `npm link @aws/aws-distro-opentelemetry-node-autoinstrumentation` in your NodeJS project directory to create a symbolic link
-# from the globally-installed `@aws/aws-distro-opentelemetry-node-autoinstrumentation` to `node_modules/` of your NodeJS project folder
-# See - https://docs.npmjs.com/cli/v10/commands/npm-link
-npm link

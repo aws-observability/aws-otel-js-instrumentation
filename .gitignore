@@ -1,6 +1,8 @@
-# Generated directories (e.g. through `npm run compile`)
+# Generated directories (e.g. through `npm run ...`)
 build/
 node_modules/
+aws-distro-opentelemetry-node-autoinstrumentation/coverage/
+aws-distro-opentelemetry-node-autoinstrumentation/src/version.ts
 
 # Other
 .git/

@@ -30,15 +30,6 @@ runs:
         npm install
         npm run compile
 
-    - name: Cache NPM environment
-      # Preserves .tox directory between runs for faster installs
-      uses: actions/cache@v1
-      with:
-        path: |
-          .tox
-          ~/.cache/pip
-        key: v7-build-tox-cache-${{ inputs.node_version }}-${{ inputs.package_name }}-${{ inputs.os }}-${{ hashFiles('aws-distro-opentelemetry-node-autoinstrumentation/package.json', 'package-lock.json') }}
-
     - name: Run unit tests/benchmarks
       if: ${{ inputs.run_unit_tests == 'true' }}
       shell: bash

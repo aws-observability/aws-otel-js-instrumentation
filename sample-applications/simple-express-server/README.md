@@ -48,5 +48,5 @@ node --require '@aws/aws-distro-opentelemetry-node-autoinstrumentation/register'
 ```shell
 curl http://localhost:8080/rolldice
 curl http://localhost:8080/http
-curl http://localhost:8080/aws-sdk
+curl http://localhost:8080/aws-sdk-s3
 ```

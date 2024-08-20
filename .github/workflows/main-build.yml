@@ -1,0 +1,81 @@
+# This workflow builds the aws-opentelemetry-js-distro JavaScript files, uploads to staging S3 bucket, and builds the project docker image that is pushed to a staging ECR repository
+name: NodeJS Instrumentation Main Build
+on:
+  push:
+    branches:
+      - main
+      - "release/v*"
+      - e2e-parallel
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+  STAGING_ECR_REGISTRY: 637423224110.dkr.ecr.us-east-1.amazonaws.com
+  # Another team is testing the `adot-autoinstrumentation-node-staging` image
+  # Temporarily use a testing image repo until that other team is done
+  STAGING_ECR_REPOSITORY: aws-observability/adot-autoinstrumentation-node-testing
+  STAGING_S3_BUCKET: ${{ secrets.STAGING_BUCKET_NAME }}
+
+concurrency:
+  group: node-instrumentation-main-build
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      aws_default_region: ${{ steps.node_output.outputs.awsDefaultRegion}}
+      node_image_tag: ${{ steps.node_output.outputs.node_image_tag}}
+      staging_image: ${{ steps.node_output.outputs.stagingImage}}
+      staging_registry: ${{ steps.node_output.outputs.stagingRegistry}}
+      staging_repository: ${{ steps.node_output.outputs.stagingRepository}}
+      staging_tarball_file: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
+    steps:
+      - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@v4
+
+      - name: Get Node Distro Output
+        id: node_output
+        run: |
+          pkg_version=$(jq -r '.version' ./package.json)
+          echo "ADOT_NODE_VERSION=$pkg_version" >> $GITHUB_OUTPUT
+          shortsha="$(git rev-parse --short HEAD)"
+          echo "SHORT_SHA=$shortsha" >> $GITHUB_ENV
+          node_distro_tag=$pkg_version-$shortsha
+          echo "awsDefaultRegion=${{ env.AWS_DEFAULT_REGION }}" >> $GITHUB_OUTPUT
+          echo "node_image_tag=$node_distro_tag" >> $GITHUB_OUTPUT
+          echo "stagingRegistry=${{ env.STAGING_ECR_REGISTRY }}" >> $GITHUB_OUTPUT
+          echo "stagingRepository=${{ env.STAGING_ECR_REPOSITORY }}" >> $GITHUB_OUTPUT
+          echo "stagingImage=${{ env.STAGING_ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}:$node_distro_tag" >> $GITHUB_OUTPUT
+
+      - name: Build and Push Tarball and Image Files
+        uses: ./.github/actions/artifacts_build
+        with:
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+          image_uri_with_tag: ${{ steps.node_output.outputs.stagingImage }}
+          image_registry: ${{ env.STAGING_ECR_REGISTRY }}
+          snapshot-ecr-role: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
+          push_image: true
+          load_image: false
+          node_version: "20"
+          package_name: aws-distro-opentelemetry-node-autoinstrumentation
+          os: ubuntu-latest
+
+      - name: Output Tarball File Name
+        id: staging_tarball_output
+        run: |
+          staging_tarball="aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ steps.node_output.outputs.ADOT_NODE_VERSION }}.tgz"
+          echo "STAGING_TARBALL=$staging_tarball" >> $GITHUB_OUTPUT
+
+      - name: Upload Tarball to S3
+        run: |
+          aws s3 cp aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL }} s3://${{ env.STAGING_S3_BUCKET }}
+
+      - name: Upload Tarball to GitHub Actions
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
+          path: aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}

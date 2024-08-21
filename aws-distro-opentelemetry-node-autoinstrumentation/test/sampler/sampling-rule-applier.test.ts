@@ -1,7 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { expect } from 'expect';
 import { Attributes } from '@opentelemetry/api/build/src/common/Attributes';
 import { Resource } from '@opentelemetry/resources';
 import {
@@ -13,6 +12,7 @@ import {
   SEMRESATTRS_CLOUD_PLATFORM,
   SEMRESATTRS_SERVICE_NAME,
 } from '@opentelemetry/semantic-conventions';
+import { expect } from 'expect';
 import { SamplingRule } from '../../src/sampler/sampling-rule';
 import { SamplingRuleApplier } from '../../src/sampler/sampling-rule-applier';
 
@@ -183,5 +183,34 @@ describe('SamplingRuleApplier', () => {
     expect(ruleApplier.matches({}, Resource.EMPTY)).toEqual(true);
     expect(ruleApplier.matches(attributes, new Resource({}))).toEqual(true);
     expect(ruleApplier.matches({}, new Resource({}))).toEqual(true);
+  });
+
+  it('testApplierMatchesWithHttpUrlWithHttpTargetUndefined', () => {
+    const ruleApplier = new SamplingRuleApplier(
+      new SamplingRule({
+        Attributes: {},
+        FixedRate: 0.11,
+        HTTPMethod: '*',
+        Host: '*',
+        Priority: 20,
+        ReservoirSize: 1,
+        ResourceARN: '*',
+        RuleARN: 'arn:aws:xray:us-east-1:999999999999:sampling-rule/test',
+        RuleName: 'test',
+        ServiceName: '*',
+        ServiceType: '*',
+        URLPath: '/somerandompath',
+        Version: 1,
+      })
+    );
+
+    const attributes: Attributes = {
+      [SEMATTRS_HTTP_URL]: 'https://somerandomurl.com/somerandompath',
+    };
+    const resource = new Resource({});
+
+    expect(ruleApplier.matches(attributes, resource)).toEqual(true);
+    expect(ruleApplier.matches(attributes, Resource.EMPTY)).toEqual(true);
+    expect(ruleApplier.matches(attributes, new Resource({}))).toEqual(true);
   });
 });

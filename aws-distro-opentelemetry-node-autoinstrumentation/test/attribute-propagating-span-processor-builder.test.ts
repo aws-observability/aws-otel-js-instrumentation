@@ -1,11 +1,11 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
+import expect from 'expect';
+import * as sinon from 'sinon';
 import { AttributePropagatingSpanProcessor } from '../src/attribute-propagating-span-processor';
 import { AttributePropagatingSpanProcessorBuilder } from '../src/attribute-propagating-span-processor-builder';
-import expect from 'expect';
-import { ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
-import * as sinon from 'sinon';
 
 describe('AttributePropagatingSpanProcessorBuilderTest', () => {
   it('BasicTest', () => {
@@ -22,5 +22,12 @@ describe('AttributePropagatingSpanProcessorBuilderTest', () => {
     expect((spanProcessor as any).propagationDataKey).toBe('test');
     expect((spanProcessor as any).propagationDataExtractor(sinon.createStubInstance(Span))).toEqual('test');
     expect((spanProcessor as any).attributesKeysToPropagate).toEqual(['test']);
+  });
+
+  it('throws errors when expected to', () => {
+    const builder: AttributePropagatingSpanProcessorBuilder = AttributePropagatingSpanProcessorBuilder.create();
+    expect(() => builder.setPropagationDataExtractor(undefined as any)).toThrow();
+    expect(() => builder.setPropagationDataKey(undefined as any)).toThrow();
+    expect(() => builder.setAttributesKeysToPropagate(undefined as any)).toThrow();
   });
 });

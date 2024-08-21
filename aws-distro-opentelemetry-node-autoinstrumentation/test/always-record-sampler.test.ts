@@ -37,6 +37,11 @@ describe('AlwaysRecordSamplerTest', () => {
   it('testDropSamplingDecision', () => {
     validateShouldSample(SamplingDecision.NOT_RECORD, SamplingDecision.RECORD);
   });
+
+  it('testCreateAlwaysRecordSamplerThrows', () => {
+    expect(() => AlwaysRecordSampler.create(null as unknown as Sampler)).toThrow();
+    expect(() => AlwaysRecordSampler.create(undefined as unknown as Sampler)).toThrow();
+  });
 });
 
 function validateShouldSample(rootDecision: SamplingDecision, expectedDecision: SamplingDecision): void {

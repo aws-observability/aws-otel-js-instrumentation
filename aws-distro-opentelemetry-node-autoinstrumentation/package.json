@@ -17,7 +17,6 @@
   "main": "build/src/index.js",
   "types": "build/src/index.d.ts",
   "exports": {
-    ".": "./build/src/index.js",
     "./register": "./build/src/register.js"
   },
   "repository": "aws-observability/aws-otel-js-instrumentation",
@@ -32,6 +31,7 @@
     "prepublishOnly": "npm run compile",
     "tdd": "yarn test -- --watch-extensions ts --watch",
     "test": "nyc ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/**/*.ts'",
+    "test:coverage": "nyc --all --check-coverage --functions 95 --lines 95 ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/**/*.ts'",
     "watch": "tsc -w"
   },
   "bugs": {

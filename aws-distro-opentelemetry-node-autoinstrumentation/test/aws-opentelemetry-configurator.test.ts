@@ -53,6 +53,13 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     awsOtelConfigurator = new AwsOpentelemetryConfigurator([]);
   });
 
+  // Cleanup any span processors to avoid unit test conflicts
+  after(() => {
+    (awsOtelConfigurator as any).spanProcessors.forEach((spanProcessor: SpanProcessor) => {
+      spanProcessor.shutdown();
+    });
+  });
+
   // The probability of this passing once without correct IDs is low, 20 times is inconceivable.
   it('ProvideGenerateXrayIdsTest', () => {
     const tracerProvider: NodeTracerProvider = new NodeTracerProvider(awsOtelConfigurator.configure());
@@ -170,7 +177,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     const tmp = (AwsXraySamplingClient.prototype as any).makeSamplingRequest;
     (AwsXraySamplingClient.prototype as any).makeSamplingRequest = (
-      endpoint: string,
+      url: string,
       callback: (responseObject: GetSamplingRulesResponse) => void
     ) => {
       callback({});
@@ -262,6 +269,11 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
       delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     }
+
+    // shut down exporters for test cleanup
+    spanProcessors.forEach(spanProcessor => {
+      spanProcessor.shutdown();
+    });
   });
 
   it('ApplicationSignalsExporterProviderTest', () => {
@@ -281,6 +293,24 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
     expect('http://localhost:4316/v1/metrics').toEqual((exporter as any)._otlpExporter.url);
+  });
+
+  it('tests getSamplerProbabilityFromEnv() ratio out of bounds', () => {
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
+    process.env.OTEL_TRACES_SAMPLER = 'traceidratio';
+    process.env.OTEL_TRACES_SAMPLER_ARG = '105';
+    awsOtelConfigurator = new AwsOpentelemetryConfigurator([]);
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+    delete process.env.OTEL_TRACES_SAMPLER_ARG;
+  });
+
+  it('tests getSamplerProbabilityFromEnv() ratio not a number', () => {
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
+    process.env.OTEL_TRACES_SAMPLER = 'traceidratio';
+    process.env.OTEL_TRACES_SAMPLER_ARG = 'abc';
+    awsOtelConfigurator = new AwsOpentelemetryConfigurator([]);
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+    delete process.env.OTEL_TRACES_SAMPLER_ARG;
   });
 
   function validateConfiguratorEnviron() {

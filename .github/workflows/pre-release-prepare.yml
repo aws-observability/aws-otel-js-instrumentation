@@ -1,13 +1,6 @@
 name: Pre Release Prepare - Update Version and Create PR
 
 on:
-  pull_request:
-    branches:
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
   workflow_dispatch:
     inputs:
       version:

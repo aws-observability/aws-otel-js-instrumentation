@@ -121,3 +121,4 @@ describe('Register', function () {
     );
   });
 });
+// END The OpenTelemetry Authors code

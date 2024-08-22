@@ -53,7 +53,7 @@ RUN if [ $TARGETARCH = "amd64" ]; then export ARCH="x86_64" ; \
 FROM scratch
 
 # Required to copy attribute files to distributed docker images
-# ADD THIRD-PARTY-LICENSES ./THIRD-PARTY-LICENSES
+ADD THIRD-PARTY-LICENSES ./THIRD-PARTY-LICENSES
 
 COPY --from=builder /usr/src/cp-utility/bin/cp-utility /bin/cp
 COPY --from=build /operator-build/build/workspace /autoinstrumentation

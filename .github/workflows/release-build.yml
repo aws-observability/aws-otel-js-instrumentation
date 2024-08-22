@@ -1,0 +1,109 @@
+name: Release Build
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to tag the release with, e.g., 1.2.0
+        required: true
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_PUBLIC_ECR_REGION: us-east-1
+  AWS_PRIVATE_ECR_REGION: us-west-2
+  RELEASE_PUBLIC_REPOSITORY: public.ecr.aws/aws-observability/adot-autoinstrumentation-node
+  RELEASE_PRIVATE_REPOSITORY: 020628701572.dkr.ecr.us-west-2.amazonaws.com/adot-autoinstrumentation-node
+  RELEASE_PRIVATE_REGISTRY: 020628701572.dkr.ecr.us-west-2.amazonaws.com
+  PACKAGE_NAME: aws-distro-opentelemetry-node-autoinstrumentation
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  build:
+    environment: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@v4
+
+      - name: Build Tarball and Image Files
+        uses: ./.github/actions/artifacts_build
+        with:
+          image_uri_with_tag: "adot-autoinstrumentation-node:test"
+          push_image: false
+          load_image: true
+          node_version: "20"
+          package_name: aws-distro-opentelemetry-node-autoinstrumentation
+          os: ubuntu-latest
+
+      # TODO: Add some sort of smoke/integration testing before we go
+      # release the artifacts. adot java for reference:
+      # https://github.com/aws-observability/aws-otel-java-instrumentation/tree/93870a550ac30988fbdd5d3bf1e8f9f1b37916f5/smoke-tests
+
+      - name: Configure AWS credentials for private ECR
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_ECR_RELEASE }}
+          aws-region: ${{ env.AWS_PRIVATE_ECR_REGION }}
+
+      - name: Log in to AWS private ECR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.RELEASE_PRIVATE_REGISTRY }}
+
+      - name: Configure AWS credentials for public ECR
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_ECR_RELEASE }}
+          aws-region: ${{ env.AWS_PUBLIC_ECR_REGION }}
+
+      - name: Log in to AWS public ECR
+        uses: docker/login-action@v3
+        with:
+          registry: public.ecr.aws
+
+
+    #   # Publish to public ECR
+    #   - name: Build and push public ECR image
+    #     uses: docker/build-push-action@v5
+    #     with:
+    #       push: true
+    #       context: .
+    #       file: ./Dockerfile
+    #       platforms: linux/amd64,linux/arm64
+    #       tags: |
+    #         ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ github.event.inputs.version }}
+
+    #   # Publish to private ECR
+    #   - name: Build and push private ECR image
+    #     uses: docker/build-push-action@v5
+    #     with:
+    #       push: true
+    #       context: .
+    #       file: ./Dockerfile
+    #       platforms: linux/amd64,linux/arm64
+    #       tags: |
+    #         ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
+
+      # # Publish to GitHub releases
+      # - name: Create GH release
+      #   id: create_release
+      #   uses: actions/create-release@v1
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+      #   with:
+      #     tag_name: "v${{ github.event.inputs.version }}"
+      #     release_name: "Release v${{ github.event.inputs.version }}"
+      #     body: "Fill in the changes for the current release"
+      #     draft: true
+      #     prerelease: false
+    
+      # Publish to npm
+      # - name: Publish to npm
+      #   env:
+      #     NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+      #     NPM_CONFIG_PROVENANCE: true
+      #   run: npx lerna publish from-package --no-push --no-private --no-git-tag-version --no-verify-access --yes
+    
+    

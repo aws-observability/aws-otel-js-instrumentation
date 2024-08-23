@@ -89,16 +89,15 @@ jobs:
       # # Publish to GitHub releases
       # - name: Create GH release
       #   id: create_release
-      #   uses: actions/create-release@v1
       #   env:
       #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
-      #   with:
-      #     tag_name: "v${{ github.event.inputs.version }}"
-      #     release_name: "Release v${{ github.event.inputs.version }}"
-      #     body: "Fill in the changes for the current release"
-      #     draft: true
-      #     prerelease: false
-    
+      #   run: |
+      #     gh release create --target "$GITHUB_REF_NAME" \
+      #        --title "Release v${{ github.event.inputs.version }}" \
+      #        --draft \
+      #        "v${{ github.event.inputs.version }}" \
+      #        aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz
+
       # Publish to npm
       # - name: Publish to npm
       #   env:

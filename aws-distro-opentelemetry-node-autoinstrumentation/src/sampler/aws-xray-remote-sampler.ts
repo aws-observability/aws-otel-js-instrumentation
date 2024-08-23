@@ -20,7 +20,7 @@ import { SamplingRuleApplier } from './sampling-rule-applier';
 // 5 minute default sampling rules polling interval
 const DEFAULT_RULES_POLLING_INTERVAL_SECONDS: number = 5 * 60;
 // Default endpoint for awsproxy : https://aws-otel.github.io/docs/getting-started/remote-sampling#enable-awsproxy-extension
-const DEFAULT_AWS_PROXY_ENDPOINT: string = 'http://localhost:2000';
+const DEFAULT_AWS_PROXY_ENDPOINT = 'http://localhost:2000';
 
 export class AwsXRayRemoteSampler implements Sampler {
   private rulePollingIntervalMillis: number;
@@ -205,7 +205,7 @@ export class AwsXRayRemoteSampler implements Sampler {
   private static generateClientId(): string {
     const hexChars: string[] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
     const clientIdArray: string[] = [];
-    for (let _: number = 0; _ < 24; _ += 1) {
+    for (let _ = 0; _ < 24; _ += 1) {
       clientIdArray.push(hexChars[Math.floor(Math.random() * hexChars.length)]);
     }
     return clientIdArray.join('');

@@ -40,10 +40,10 @@ const INVALID_SPAN_CONTEXT: SpanContext = {
 
 describe('AwsSpanMetricsProcessorTest', () => {
   // Test constants
-  const CONTAINS_ATTRIBUTES: boolean = true;
-  const CONTAINS_NO_ATTRIBUTES: boolean = false;
-  const TEST_LATENCY_MILLIS: number = 150.0;
-  const TEST_LATENCY_NANOS: number = 150_000_000;
+  const CONTAINS_ATTRIBUTES = true;
+  const CONTAINS_NO_ATTRIBUTES = false;
+  const TEST_LATENCY_MILLIS = 150.0;
+  const TEST_LATENCY_NANOS = 150_000_000;
 
   // Resource is not mockable, but tests can safely rely on an empty resource.
   const testResource: Resource = Resource.empty();

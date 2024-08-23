@@ -36,7 +36,7 @@ describe('S3', () => {
 
   describe('ListObjects', () => {
     it('adds bucket Name', async () => {
-      const dummyBucketName: string = 'dummy-bucket-name';
+      const dummyBucketName = 'dummy-bucket-name';
 
       nock(`https://s3.${region}.amazonaws.com/`).post('/').reply(200, 'null');
 

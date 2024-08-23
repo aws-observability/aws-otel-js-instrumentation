@@ -36,7 +36,7 @@ describe('Kinesis', () => {
 
   describe('DescribeStream', () => {
     it('adds Stream Name', async () => {
-      const dummyStreamName: string = 'dummy-stream-name';
+      const dummyStreamName = 'dummy-stream-name';
 
       nock(`https://kinesis.${region}.amazonaws.com`).post('/').reply(200, {});
 

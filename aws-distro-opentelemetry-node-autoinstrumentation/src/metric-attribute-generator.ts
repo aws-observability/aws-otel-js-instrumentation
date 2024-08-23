@@ -5,8 +5,8 @@ import { Attributes } from '@opentelemetry/api';
 import { Resource } from '@opentelemetry/resources';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 
-export const SERVICE_METRIC: string = 'Service';
-export const DEPENDENCY_METRIC: string = 'Dependency';
+export const SERVICE_METRIC = 'Service';
+export const DEPENDENCY_METRIC = 'Dependency';
 
 export interface AttributeMap {
   [attributeKey: string]: Attributes;

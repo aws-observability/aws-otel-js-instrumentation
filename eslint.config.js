@@ -40,10 +40,7 @@ module.exports = {
           }
         ],
         "@typescript-eslint/no-var-requires": "off",
-        "@typescript-eslint/no-inferrable-types": 0,
-        "@typescript-eslint/typedef": ["warn", {
-          "variableDeclaration": true
-        }],
+        "@typescript-eslint/no-inferrable-types": ["error", { ignoreProperties: true }],
         "@typescript-eslint/no-empty-function": ["off"],
         "@typescript-eslint/ban-types": ["warn", {
           "types": {

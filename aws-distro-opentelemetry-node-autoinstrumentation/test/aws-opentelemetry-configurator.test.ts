@@ -67,13 +67,13 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     tracerProvider.addSpanProcessor(
       AttributePropagatingSpanProcessor.create((span: ReadableSpan) => '', 'spanNameKey', ['testKey1', 'testKey2'])
     );
-    for (let _: number = 0; _ < 20; _++) {
+    for (let _ = 0; _ < 20; _++) {
       const tracer: Tracer = tracerProvider.getTracer('test');
       const startTimeSec: number = Math.floor(new Date().getTime() / 1000.0);
       const span: Span = tracer.startSpan('test');
       const traceId: string = span.spanContext().traceId;
       const traceId4ByteHex: string = traceId.substring(0, 8);
-      const traceId4ByteNumber: number = Number(`0x${traceId4ByteHex}`);
+      const traceId4ByteNumber = Number(`0x${traceId4ByteHex}`);
       expect(traceId4ByteNumber).toBeGreaterThanOrEqual(startTimeSec);
     }
   });
@@ -87,11 +87,11 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     tracerProvider.addSpanProcessor(
       AttributePropagatingSpanProcessor.create((span: ReadableSpan) => '', 'spanNameKey', ['testKey1', 'testKey2'])
     );
-    for (let _: number = 0; _ < 20; _++) {
-      const numSpans: number = 100000;
-      let numSampled: number = 0;
+    for (let _ = 0; _ < 20; _++) {
+      const numSpans = 100000;
+      let numSampled = 0;
       const tracer: Tracer = tracerProvider.getTracer('test');
-      for (let __: number = 0; __ < numSpans; __++) {
+      for (let __ = 0; __ < numSpans; __++) {
         const span: Span = tracer.startSpan('test');
         if (span.spanContext().traceFlags & TraceFlags.SAMPLED) {
           numSampled += 1;

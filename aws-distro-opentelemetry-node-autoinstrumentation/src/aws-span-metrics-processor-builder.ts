@@ -8,10 +8,10 @@ import { AwsSpanMetricsProcessor } from './aws-span-metrics-processor';
 import { MetricAttributeGenerator } from './metric-attribute-generator';
 
 // Metric instrument configuration constants
-const ERROR: string = 'Error';
-const FAULT: string = 'Fault';
-const LATENCY: string = 'Latency';
-const LATENCY_UNITS: string = 'Milliseconds';
+const ERROR = 'Error';
+const FAULT = 'Fault';
+const LATENCY = 'Latency';
+const LATENCY_UNITS = 'Milliseconds';
 
 /** A builder for {@link AwsSpanMetricsProcessor} */
 export class AwsSpanMetricsProcessorBuilder {

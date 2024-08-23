@@ -35,28 +35,28 @@ import {
 import { SqsUrlParser } from './sqs-url-parser';
 
 // Does not exist in @opentelemetry/semantic-conventions
-const _SERVER_SOCKET_ADDRESS: string = 'server.socket.address';
-const _SERVER_SOCKET_PORT: string = 'server.socket.port';
-const _NET_SOCK_PEER_ADDR: string = 'net.sock.peer.addr';
-const _NET_SOCK_PEER_PORT: string = 'net.sock.peer.port';
+const _SERVER_SOCKET_ADDRESS = 'server.socket.address';
+const _SERVER_SOCKET_PORT = 'server.socket.port';
+const _NET_SOCK_PEER_ADDR = 'net.sock.peer.addr';
+const _NET_SOCK_PEER_PORT = 'net.sock.peer.port';
 // Alternatively, `import { SemanticAttributes } from '@opentelemetry/instrumentation-undici/build/src/enums/SemanticAttributes';`
 //   SemanticAttributes.SERVER_ADDRESS
 //   SemanticAttributes.SERVER_PORT
-const _SERVER_ADDRESS: string = 'server.address';
-const _SERVER_PORT: string = 'server.port';
+const _SERVER_ADDRESS = 'server.address';
+const _SERVER_PORT = 'server.port';
 // Alternatively, `import { AttributeNames } from '@opentelemetry/instrumentation-graphql/build/src/enums/AttributeNames';`
 //   AttributeNames.OPERATION_TYPE
-const _GRAPHQL_OPERATION_TYPE: string = 'graphql.operation.type';
+const _GRAPHQL_OPERATION_TYPE = 'graphql.operation.type';
 // Special DEPENDENCY attribute value if GRAPHQL_OPERATION_TYPE attribute key is present.
-const GRAPHQL: string = 'graphql';
+const GRAPHQL = 'graphql';
 
 // Normalized remote service names for supported AWS services
-const NORMALIZED_DYNAMO_DB_SERVICE_NAME: string = 'AWS::DynamoDB';
-const NORMALIZED_KINESIS_SERVICE_NAME: string = 'AWS::Kinesis';
-const NORMALIZED_S3_SERVICE_NAME: string = 'AWS::S3';
-const NORMALIZED_SQS_SERVICE_NAME: string = 'AWS::SQS';
+const NORMALIZED_DYNAMO_DB_SERVICE_NAME = 'AWS::DynamoDB';
+const NORMALIZED_KINESIS_SERVICE_NAME = 'AWS::Kinesis';
+const NORMALIZED_S3_SERVICE_NAME = 'AWS::S3';
+const NORMALIZED_SQS_SERVICE_NAME = 'AWS::SQS';
 
-const DB_CONNECTION_RESOURCE_TYPE: string = 'DB::Connection';
+const DB_CONNECTION_RESOURCE_TYPE = 'DB::Connection';
 // As per https://opentelemetry.io/docs/specs/semconv/resource/#service, if service name is not specified, SDK defaults
 // the service name to unknown_service:<process name> or just unknown_service.
 // - https://github.com/open-telemetry/opentelemetry-js/blob/b2778e1b2ff7b038cebf371f1eb9f808fd98107f/packages/opentelemetry-resources/src/platform/node/default-service-name.ts#L16.

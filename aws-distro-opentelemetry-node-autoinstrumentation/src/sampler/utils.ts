@@ -33,7 +33,7 @@ export function wildcardMatch(pattern?: string, text?: AttributeValue): boolean 
   if (pattern === undefined || typeof text !== 'string') return false;
   if (pattern.length === 0) return text.length === 0;
 
-  const match: RegExpMatchArray | null = text.toLowerCase().match(convertPatternToRegExp(pattern.toLowerCase()));
+  const match: RegExpMatchArray | null = text.toLowerCase().match(`^${convertPatternToRegExp(pattern.toLowerCase())}$`);
 
   if (match === null) {
     diag.debug(`WildcardMatch: no match found for ${text} against pattern ${pattern}`);

@@ -264,10 +264,11 @@ export function customBuildSamplerFromEnv(resource: Resource): Sampler {
       if (samplerArgumentEnv !== undefined) {
         const args: string[] = samplerArgumentEnv.split(',');
         for (const arg of args) {
-          const keyValue: string[] = arg.split('=', 2);
-          if (keyValue.length !== 2) {
+          const equalIndex: number = arg.indexOf('=');
+          if (equalIndex === -1) {
             continue;
           }
+          const keyValue: string[] = [arg.substring(0, equalIndex), arg.substring(equalIndex + 1)];
           if (keyValue[0] === 'endpoint') {
             endpoint = keyValue[1];
           } else if (keyValue[0] === 'polling_interval') {

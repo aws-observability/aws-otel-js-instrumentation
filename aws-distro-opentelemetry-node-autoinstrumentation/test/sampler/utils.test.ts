@@ -23,7 +23,7 @@ const positiveTests: any = [
   ['a*a', 'aba'],
   ['a*a*', 'aaaaaaaaaaaaaaaaaaaaaaa'],
   ['a*b*a*b*a*b*a*b*a*', 'akljd9gsdfbkjhaabajkhbbyiaahkjbjhbuykjakjhabkjhbabjhkaabbabbaaakljdfsjklababkjbsdabab'],
-  ['a*na*ha', 'anananahahanahana'],
+  ['a*na*ha', 'anananahahanahanaha'],
   ['***a', 'a'],
   ['**a**', 'a'],
   ['a**b', 'ab'],
@@ -35,15 +35,27 @@ const positiveTests: any = [
   ['?at', 'cat'],
   ['?o?se', 'horse'],
   ['?o?se', 'mouse'],
-  ['*s', 'horse'],
+  ['*s', 'horses'],
   ['J*', 'Jeep'],
   ['J*', 'jeep'],
   ['*/foo', '/bar/foo'],
   ['ja*script', 'javascript'],
+  ['*', undefined],
+  ['*', ''],
+  ['*', 'HelloWorld'],
+  ['HelloWorld', 'HelloWorld'],
+  ['Hello*', 'HelloWorld'],
+  ['*World', 'HelloWorld'],
+  ['?ello*', 'HelloWorld'],
+  ['Hell?W*d', 'HelloWorld'],
+  ['*.World', 'Hello.World'],
+  ['*.World', 'Bye.World'],
 ];
 
 const negativeTests: any = [
   ['', 'whatever'],
+  ['/', 'target'],
+  ['/', '/target'],
   ['foo', 'bar'],
   ['f?o', 'boo'],
   ['f??', 'boo'],
@@ -53,6 +65,8 @@ const negativeTests: any = [
   ['??', 'a'],
   ['??', 'a'],
   ['*?*a', 'a'],
+  ['a*na*ha', 'anananahahanahana'],
+  ['*s', 'horse'],
 ];
 
 describe('SamplingUtils', () => {

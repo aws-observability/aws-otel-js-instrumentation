@@ -173,7 +173,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     delete process.env.OTEL_TRACES_SAMPLER_ARG;
 
     process.env.OTEL_TRACES_SAMPLER = 'xray';
-    process.env.OTEL_TRACES_SAMPLER_ARG = 'endpoint=ht-tp:/-/-a-a-:2-2-2,polling_interval=600';
+    process.env.OTEL_TRACES_SAMPLER_ARG = 'endpoint=http://lo=cal=host=:2000,polling_interval=600';
 
     const tmp = (AwsXraySamplingClient.prototype as any).makeSamplingRequest;
     (AwsXraySamplingClient.prototype as any).makeSamplingRequest = (
@@ -183,16 +183,30 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       callback({});
     };
 
-    const sampler = customBuildSamplerFromEnv(Resource.empty());
+    let sampler = customBuildSamplerFromEnv(Resource.empty());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
-    expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('ht-tp:/-/-a-a-:2-2-2');
+    expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('http://lo=cal=host=:2000');
     expect((sampler as AwsXRayRemoteSampler).getRulePollingIntervalMillis()).toEqual(600000);
     expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual(
-      'ht-tp:/-/-a-a-:2-2-2/GetSamplingRules'
+      'http://lo=cal=host=:2000/GetSamplingRules'
     );
     expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual(
-      'ht-tp:/-/-a-a-:2-2-2/SamplingTargets'
+      'http://lo=cal=host=:2000/SamplingTargets'
+    );
+
+    process.env.OTEL_TRACES_SAMPLER_ARG = 'abc,polling_interval=550,123';
+
+    sampler = customBuildSamplerFromEnv(Resource.empty());
+
+    expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
+    expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('http://localhost:2000');
+    expect((sampler as AwsXRayRemoteSampler).getRulePollingIntervalMillis()).toEqual(550000);
+    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual(
+      'http://localhost:2000/GetSamplingRules'
+    );
+    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual(
+      'http://localhost:2000/SamplingTargets'
     );
 
     (AwsXraySamplingClient.prototype as any).makeSamplingRequest = tmp;

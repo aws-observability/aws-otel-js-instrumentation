@@ -32,7 +32,7 @@ describe('SamplingRuleApplier', () => {
     });
 
     const attr: Attributes = {
-      [SEMATTRS_HTTP_TARGET]: 'target',
+      [SEMATTRS_HTTP_TARGET]: '/target',
       [SEMATTRS_HTTP_METHOD]: 'method',
       [SEMATTRS_HTTP_URL]: 'url',
       [SEMATTRS_HTTP_HOST]: 'host',
@@ -66,7 +66,7 @@ describe('SamplingRuleApplier', () => {
       [SEMATTRS_HTTP_HOST]: 'localhost',
       [SEMATTRS_HTTP_METHOD]: 'GET',
       [SEMATTRS_AWS_LAMBDA_INVOKED_ARN]: 'arn:aws:lambda:us-west-2:123456789012:function:my-function',
-      [SEMATTRS_HTTP_TARGET]: 'http://127.0.0.1:5000/helloworld',
+      [SEMATTRS_HTTP_URL]: 'http://127.0.0.1:5000/helloworld',
       ['abc']: '123',
       ['def']: '456',
       ['ghi']: '789',
@@ -79,6 +79,9 @@ describe('SamplingRuleApplier', () => {
 
     const ruleApplier = new SamplingRuleApplier(rule);
 
+    expect(ruleApplier.matches(attributes, resource)).toEqual(true);
+    delete attributes[SEMATTRS_HTTP_URL];
+    attributes[SEMATTRS_HTTP_TARGET] = '/helloworld';
     expect(ruleApplier.matches(attributes, resource)).toEqual(true);
   });
   it('testApplierWildCardAttributesMatchesSpanAttributes', () => {
@@ -146,7 +149,7 @@ describe('SamplingRuleApplier', () => {
     const attributes: Attributes = {
       [SEMATTRS_HTTP_HOST]: 'localhost',
       [SEMATTRS_HTTP_METHOD]: 'GET',
-      [SEMATTRS_HTTP_TARGET]: 'http://127.0.0.1:5000/helloworld',
+      [SEMATTRS_HTTP_URL]: 'http://127.0.0.1:5000/helloworld',
     };
 
     expect(ruleApplier.matches(attributes, Resource.EMPTY)).toEqual(true);

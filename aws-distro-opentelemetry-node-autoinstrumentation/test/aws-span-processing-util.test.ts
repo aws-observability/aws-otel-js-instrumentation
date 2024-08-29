@@ -171,6 +171,20 @@ describe('AwsSpanProcessingUtilTest', () => {
     expect(pathValue).toEqual('/users');
   });
 
+  it('testExtractAPIPathValidPathSingleSlash', () => {
+    let validTarget: string = '/users?query#fragment';
+    let pathValue: string = AwsSpanProcessingUtil.extractAPIPathValue(validTarget);
+    expect(pathValue).toEqual('/users');
+
+    validTarget = '/users?query';
+    pathValue = AwsSpanProcessingUtil.extractAPIPathValue(validTarget);
+    expect(pathValue).toEqual('/users');
+
+    validTarget = '/users#fragment';
+    pathValue = AwsSpanProcessingUtil.extractAPIPathValue(validTarget);
+    expect(pathValue).toEqual('/users');
+  });
+
   it('testIsKeyPresentKeyPresent', () => {
     attributesMock[SEMATTRS_HTTP_TARGET] = 'target';
     expect(AwsSpanProcessingUtil.isKeyPresent(spanDataMock, SEMATTRS_HTTP_TARGET)).toBeTruthy();

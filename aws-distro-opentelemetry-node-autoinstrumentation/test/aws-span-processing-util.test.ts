@@ -176,6 +176,10 @@ describe('AwsSpanProcessingUtilTest', () => {
     let pathValue: string = AwsSpanProcessingUtil.extractAPIPathValue(validTarget);
     expect(pathValue).toEqual('/users');
 
+    validTarget = '/users#fragment?fragment_part_2';
+    pathValue = AwsSpanProcessingUtil.extractAPIPathValue(validTarget);
+    expect(pathValue).toEqual('/users');
+
     validTarget = '/users?query';
     pathValue = AwsSpanProcessingUtil.extractAPIPathValue(validTarget);
     expect(pathValue).toEqual('/users');

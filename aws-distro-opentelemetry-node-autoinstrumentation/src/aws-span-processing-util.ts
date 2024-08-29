@@ -76,7 +76,6 @@ export class AwsSpanProcessingUtil {
     if (httpTarget == null || httpTarget === '') {
       return '/';
     }
-
     // Divergence from Java/Python
     // https://github.com/open-telemetry/semantic-conventions/blob/4e7c42ee8e4c3a39a899c4c85c64df28cd543f78/docs/attributes-registry/http.md#deprecated-http-attributes
     // According to OTel Spec, httpTarget may include query and fragment:
@@ -84,23 +83,14 @@ export class AwsSpanProcessingUtil {
     // We do NOT want the `?` or `#` parts, so let us strip it out,
     // because HTTP (ingress) instrumentation was observed to include the query (`?`) part
     // - https://github.com/open-telemetry/opentelemetry-js/blob/b418d36609c371d1fcae46898e9ede6278aca917/experimental/packages/opentelemetry-instrumentation-http/src/utils.ts#L502-L504
+    // According to RFC Specification, "The path is terminated by the first question mark ("?") or number sign ("#") character, or by the end of the URI."
+    // - https://datatracker.ietf.org/doc/html/rfc3986#section-3.3
+    //
     // This is a fix that can be applied here since this is the central location for generating API Path Value
     // TODO: Possibly contribute fix to upstream for this diff between langauges. However, the current attribute value in JS is according to spec.
     //
     // Interestingly, according to Spec, Java/Python should be affected, but they are not.
-    let apiPathValueEndIndex: number = httpTarget.indexOf('?');
-    if (apiPathValueEndIndex === -1) {
-      apiPathValueEndIndex = httpTarget.indexOf('#');
-    }
-
-    let httpTargetWithoutQuery;
-    if (apiPathValueEndIndex === -1) {
-      httpTargetWithoutQuery = httpTarget;
-    } else {
-      httpTargetWithoutQuery = httpTarget.substring(0, apiPathValueEndIndex);
-    }
-
-    const paths: string[] = httpTargetWithoutQuery.split('/');
+    const paths: string[] = httpTarget.split(/[/?#]/);
     if (paths.length > 1) {
       return '/' + paths[1];
     }

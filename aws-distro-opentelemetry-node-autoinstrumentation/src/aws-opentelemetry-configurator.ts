@@ -398,8 +398,11 @@ export class AwsSpanProcessorProvider {
 
   static configureOtlp(): SpanExporter {
     // eslint-disable-next-line @typescript-eslint/typedef
-    const protocol = this.getOtlpProtocol();
+    let protocol = this.getOtlpProtocol();
 
+    if (AwsOpentelemetryConfigurator.isApplicationSignalsEnabled() && isLambdaEnvironment()) {
+      protocol = 'udp';
+    }
     switch (protocol) {
       case 'grpc':
         return new OTLPGrpcTraceExporter();
@@ -407,6 +410,9 @@ export class AwsSpanProcessorProvider {
         return new OTLPHttpTraceExporter();
       case 'http/protobuf':
         return new OTLPProtoTraceExporter();
+      case 'udp':
+        diag.debug('Detected AWS Lambda environment and enabling UDPSpanExporter');
+        return new OTLPUdpSpanExporter(process.env[AWS_XRAY_DAEMON_ADDRESS_CONFIG]);
       default:
         diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
         return new OTLPProtoTraceExporter();
@@ -511,20 +517,7 @@ export class AwsSpanProcessorProvider {
 
   public static customizeSpanExporter(spanExporter: SpanExporter, resource: Resource): SpanExporter {
     if (AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
-      if (isLambdaEnvironment()) {
-        diag.debug('Detected AWS Lambda environment and enabling UDPSpanExporter');
-        // When running in Lambda, export Application Signals metrics over UDP
-        let applicationSignalsEndpoint: string | undefined = process.env[AWS_XRAY_DAEMON_ADDRESS_CONFIG];
-        if (applicationSignalsEndpoint === undefined) {
-          applicationSignalsEndpoint = '127.0.0.1:2000';
-        }
-        return AwsMetricAttributesSpanExporterBuilder.create(
-          new OTLPUdpSpanExporter(applicationSignalsEndpoint),
-          resource
-        ).build();
-      } else {
-        return AwsMetricAttributesSpanExporterBuilder.create(spanExporter, resource).build();
-      }
+      return AwsMetricAttributesSpanExporterBuilder.create(spanExporter, resource).build();
     }
     return spanExporter;
   }

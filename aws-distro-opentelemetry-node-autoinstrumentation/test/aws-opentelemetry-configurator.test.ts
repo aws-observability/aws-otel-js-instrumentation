@@ -331,15 +331,13 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   it('tests Span Exporter on Lambda with ApplicationSignals enabled', () => {
     process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
-    process.env.AWS_XRAY_DAEMON_ADDRESS = 'www.test.com:2222';
-    const mockExporter: SpanExporter = sinon.createStubInstance(AwsMetricAttributesSpanExporter);
+    const mockExporter: SpanExporter = sinon.createStubInstance(OTLPUdpSpanExporter);
     const customizedExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(
       mockExporter,
       Resource.empty()
     );
     // should return UDP exporter for Lambda with AppSignals enabled
     expect((customizedExporter as any).delegate).toBeInstanceOf(OTLPUdpSpanExporter);
-    expect((customizedExporter as any).delegate['_endpoint']).toBe('www.test.com:2222');
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     delete process.env.AWS_LAMBDA_FUNCTION_NAME;
   });
@@ -356,6 +354,20 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(mockExporter).toEqual(customizedExporter);
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  });
+
+  it('tests configureOTLP on Lambda with ApplicationSignals enabled', () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
+    process.env.OTEL_TRACES_EXPORTER = 'otlp';
+    process.env.AWS_XRAY_DAEMON_ADDRESS = 'www.test.com:2222';
+    const spanExporter: SpanExporter = AwsSpanProcessorProvider.configureOtlp();
+    expect(spanExporter).toBeInstanceOf(OTLPUdpSpanExporter);
+    expect((spanExporter as OTLPUdpSpanExporter)['_endpoint']).toBe('www.test.com:2222');
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    delete process.env.OTEL_TRACES_EXPORTER;
+    delete process.env.AWS_XRAY_DAEMON_ADDRESS;
   });
 
   function validateConfiguratorEnviron() {

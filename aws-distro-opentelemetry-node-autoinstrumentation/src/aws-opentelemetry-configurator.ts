@@ -58,11 +58,14 @@ import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-bui
 import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
+import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
 const METRIC_EXPORT_INTERVAL_CONFIG: string = 'OTEL_METRIC_EXPORT_INTERVAL';
 const DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS: number = 60000;
+const AWS_LAMBDA_FUNCTION_NAME_CONFIG: string = 'AWS_LAMBDA_FUNCTION_NAME';
+const AWS_XRAY_DAEMON_ADDRESS_CONFIG: string = 'AWS_XRAY_DAEMON_ADDRESS';
 
 /**
  * Aws Application Signals Config Provider creates a configuration object that can be provided to
@@ -395,8 +398,11 @@ export class AwsSpanProcessorProvider {
 
   static configureOtlp(): SpanExporter {
     // eslint-disable-next-line @typescript-eslint/typedef
-    const protocol = this.getOtlpProtocol();
+    let protocol = this.getOtlpProtocol();
 
+    if (AwsOpentelemetryConfigurator.isApplicationSignalsEnabled() && isLambdaEnvironment()) {
+      protocol = 'udp';
+    }
     switch (protocol) {
       case 'grpc':
         return new OTLPGrpcTraceExporter();
@@ -404,6 +410,9 @@ export class AwsSpanProcessorProvider {
         return new OTLPHttpTraceExporter();
       case 'http/protobuf':
         return new OTLPProtoTraceExporter();
+      case 'udp':
+        diag.debug('Detected AWS Lambda environment and enabling UDPSpanExporter');
+        return new OTLPUdpSpanExporter(process.env[AWS_XRAY_DAEMON_ADDRESS_CONFIG]);
       default:
         diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
         return new OTLPProtoTraceExporter();
@@ -590,5 +599,10 @@ function getSamplerProbabilityFromEnv(environment: Required<ENVIRONMENT>): numbe
   }
 
   return probability;
+}
+
+export function isLambdaEnvironment() {
+  // detect if running in AWS Lambda environment
+  return process.env[AWS_LAMBDA_FUNCTION_NAME_CONFIG] !== undefined;
 }
 // END The OpenTelemetry Authors code

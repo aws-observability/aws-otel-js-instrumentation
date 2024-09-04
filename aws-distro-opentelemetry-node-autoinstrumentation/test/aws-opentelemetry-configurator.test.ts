@@ -31,6 +31,7 @@ import { setAwsDefaultEnvironmentVariables } from '../src/register';
 import { AwsXRayRemoteSampler } from '../src/sampler/aws-xray-remote-sampler';
 import { AwsXraySamplingClient } from '../src/sampler/aws-xray-sampling-client';
 import { GetSamplingRulesResponse } from '../src/sampler/remote-sampler.types';
+import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -325,6 +326,48 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     awsOtelConfigurator = new AwsOpentelemetryConfigurator([]);
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     delete process.env.OTEL_TRACES_SAMPLER_ARG;
+  });
+
+  it('tests Span Exporter on Lambda with ApplicationSignals enabled', () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
+    const mockExporter: SpanExporter = sinon.createStubInstance(OTLPUdpSpanExporter);
+    const customizedExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(
+      mockExporter,
+      Resource.empty()
+    );
+    // should return UDP exporter for Lambda with AppSignals enabled
+    expect((customizedExporter as any).delegate).toBeInstanceOf(OTLPUdpSpanExporter);
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  });
+
+  it('tests Span Exporter on Lambda with ApplicationSignals disabled', () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'False';
+    const mockExporter: SpanExporter = sinon.createStubInstance(AwsMetricAttributesSpanExporter);
+    const customizedExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(
+      mockExporter,
+      Resource.empty()
+    );
+    // should still return AwsMetricAttributesSpanExporter for Lambda if AppSignals disabled
+    expect(mockExporter).toEqual(customizedExporter);
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  });
+
+  it('tests configureOTLP on Lambda with ApplicationSignals enabled', () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
+    process.env.OTEL_TRACES_EXPORTER = 'otlp';
+    process.env.AWS_XRAY_DAEMON_ADDRESS = 'www.test.com:2222';
+    const spanExporter: SpanExporter = AwsSpanProcessorProvider.configureOtlp();
+    expect(spanExporter).toBeInstanceOf(OTLPUdpSpanExporter);
+    expect((spanExporter as OTLPUdpSpanExporter)['_endpoint']).toBe('www.test.com:2222');
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    delete process.env.OTEL_TRACES_EXPORTER;
+    delete process.env.AWS_XRAY_DAEMON_ADDRESS;
   });
 
   function validateConfiguratorEnviron() {

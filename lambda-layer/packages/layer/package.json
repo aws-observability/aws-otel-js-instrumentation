@@ -1,0 +1,53 @@
+{
+  "name": "@aws/aws-distro-opentelemetry-node-autoinstrumentatio-sdk-layer",
+  "version": "0.0.1",
+  "description": "Lambda Layer including AWS Distro OpenTelemetry SDK for supporting Amazon Application Signals",
+  "repository": "aws-observability/aws-otel-js-instrumentation",
+  "author": {
+    "name": "Amazon Web Services",
+    "url": "http://aws.amazon.com"
+  },
+  "homepage": "https://github.com/aws-observability/aws-otel-js-instrumentation/tree/main/aws-distro-opentelemetry-node-autoinstrumentation#readme",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=16"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "rimraf build/*",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "prepare": "npm run compile",
+    "compile": "tsc -p .",
+    "postcompile": "copyfiles -F -e 'node_modules/@aws/aws-distro-opentelemetry-node-autoinstrumentation/node_modules/**' 'node_modules/**' build/workspace/nodejs && copyfiles -f 'scripts/*' build/workspace && copyfiles -f 'build/src/*' build/workspace && cd build/workspace && bestzip ../layer.zip *"
+  },
+  "keywords": [
+    "awsdistroopentelemetry",
+    "opentelemetry",
+    "awslambda",
+    "nodejs",
+    "tracing",
+    "profiling",
+    "instrumentation"
+  ],
+  "dependencies": {
+    "@aws/aws-distro-opentelemetry-node-autoinstrumentation": "file:../../../aws-distro-opentelemetry-node-autoinstrumentation",
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "0.48.0",
+    "@opentelemetry/auto-configuration-propagators": "0.2.0",
+    "@opentelemetry/exporter-metrics-otlp-grpc": "0.52.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "0.52.1",
+    "@opentelemetry/instrumentation": "0.52.1",
+    "@opentelemetry/id-generator-aws-xray": "1.2.2",
+    "@opentelemetry/propagator-aws-xray": "1.25.1",
+    "@opentelemetry/core": "1.25.1",
+    "@opentelemetry/sdk-trace-base": "1.25.1",
+    "@opentelemetry/semantic-conventions": "1.25.1",
+    "@opentelemetry/resources": "1.25.1",
+    "@opentelemetry/exporter-trace-otlp-proto": "0.52.1",
+    "@opentelemetry/exporter-zipkin": "1.25.1",
+    "@opentelemetry/sdk-metrics": "1.25.1"
+  }
+}

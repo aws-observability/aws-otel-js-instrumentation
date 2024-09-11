@@ -9,7 +9,7 @@ import { SpanExporter, ReadableSpan } from '@opentelemetry/sdk-trace-base';
 
 const DEFAULT_ENDPOINT = '127.0.0.1:2000';
 const PROTOCOL_HEADER = '{"format":"json","version":1}\n';
-const FORMAT_OTEL_TRACES_BINARY_PREFIX = 'T1';
+const DEFAULT_FORMAT_OTEL_TRACES_BINARY_PREFIX = 'T1S';
 
 export class UdpExporter {
   private _endpoint: string;
@@ -62,7 +62,7 @@ export class OTLPUdpSpanExporter implements SpanExporter {
   constructor(endpoint?: string, _signalPrefix?: string) {
     this._endpoint = endpoint || DEFAULT_ENDPOINT;
     this._udpExporter = new UdpExporter(this._endpoint);
-    this._signalPrefix = _signalPrefix || FORMAT_OTEL_TRACES_BINARY_PREFIX;
+    this._signalPrefix = _signalPrefix || DEFAULT_FORMAT_OTEL_TRACES_BINARY_PREFIX;
   }
 
   export(spans: ReadableSpan[], resultCallback: (result: ExportResult) => void): void {

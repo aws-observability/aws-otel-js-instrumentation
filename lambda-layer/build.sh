@@ -10,6 +10,8 @@ cd "${SOURCEDIR}/.."
 
 # Install dependencies and compile all projects in the repository
 echo "Installing dependencies and compiling projects..."
+rm -rf ./aws-distro-opentelemetry-node-autoinstrumentation/build
+rm -rf ./aws-distro-opentelemetry-node-autoinstrumentation/node_modules
 npm install
 npm run compile
 

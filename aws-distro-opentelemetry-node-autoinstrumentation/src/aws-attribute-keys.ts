@@ -21,6 +21,9 @@ export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   // Used for JavaScript workaround - attribute for pre-calculated value of isLocalRoot
   AWS_IS_LOCAL_ROOT: 'aws.is.local.root',
 
+  // Trace Span Unsampled flag
+  AWS_TRACE_FLAG_UNSAMPLED: 'aws.trace.flag.unsampled',
+
   // AWS_#_NAME attributes are not supported in JavaScript as they are not part of the Semantic Conventions.
   // TODO：Move to Semantic Conventions when these attributes are added.
   AWS_S3_BUCKET: 'aws.s3.bucket',

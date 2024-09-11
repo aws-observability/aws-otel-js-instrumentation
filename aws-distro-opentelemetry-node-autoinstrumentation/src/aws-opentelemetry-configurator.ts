@@ -59,6 +59,7 @@ import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
 import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
+import { AwsBatchUnsampledSpanProcessor } from './aws-batch-unsampled-span-processor';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
@@ -66,7 +67,8 @@ const METRIC_EXPORT_INTERVAL_CONFIG: string = 'OTEL_METRIC_EXPORT_INTERVAL';
 const DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS: number = 60000;
 const AWS_LAMBDA_FUNCTION_NAME_CONFIG: string = 'AWS_LAMBDA_FUNCTION_NAME';
 const AWS_XRAY_DAEMON_ADDRESS_CONFIG: string = 'AWS_XRAY_DAEMON_ADDRESS';
-
+const FORMAT_OTEL_SAMPLED_TRACES_BINARY_PREFIX = 'T1S';
+const FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX = 'T1U';
 /**
  * Aws Application Signals Config Provider creates a configuration object that can be provided to
  * the OTel NodeJS SDK for Auto Instrumentation with Application Signals Functionality.
@@ -224,6 +226,17 @@ export class AwsOpentelemetryConfigurator {
     }
 
     diag.info('AWS Application Signals enabled.');
+
+    // Register BatchUnsampledSpanProcessor to export unsampled traces in Lambda
+    // when Application Signals enabled
+    if (isLambdaEnvironment()) {
+      spanProcessors.push(
+        new AwsBatchUnsampledSpanProcessor(
+          new OTLPUdpSpanExporter(getXrayDaemonEndpoint(), FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX)
+        )
+      );
+      diag.info('Enabled batch unsampled span processor for Lambda environment.');
+    }
 
     let exportIntervalMillis: number = Number(process.env[METRIC_EXPORT_INTERVAL_CONFIG]);
     diag.debug(`AWS Application Signals Metrics export interval: ${exportIntervalMillis}`);
@@ -412,7 +425,7 @@ export class AwsSpanProcessorProvider {
         return new OTLPProtoTraceExporter();
       case 'udp':
         diag.debug('Detected AWS Lambda environment and enabling UDPSpanExporter');
-        return new OTLPUdpSpanExporter(process.env[AWS_XRAY_DAEMON_ADDRESS_CONFIG]);
+        return new OTLPUdpSpanExporter(getXrayDaemonEndpoint(), FORMAT_OTEL_SAMPLED_TRACES_BINARY_PREFIX);
       default:
         diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
         return new OTLPProtoTraceExporter();
@@ -601,8 +614,13 @@ function getSamplerProbabilityFromEnv(environment: Required<ENVIRONMENT>): numbe
   return probability;
 }
 
-export function isLambdaEnvironment() {
+function isLambdaEnvironment() {
   // detect if running in AWS Lambda environment
   return process.env[AWS_LAMBDA_FUNCTION_NAME_CONFIG] !== undefined;
 }
+
+function getXrayDaemonEndpoint() {
+  return process.env[AWS_XRAY_DAEMON_ADDRESS_CONFIG];
+}
+
 // END The OpenTelemetry Authors code

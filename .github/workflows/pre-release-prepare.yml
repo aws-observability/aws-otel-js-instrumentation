@@ -88,11 +88,17 @@ jobs:
           git checkout -b "v${VERSION}_release"
           git push origin "v${VERSION}_release"
 
+      - name: Set up node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Update version in file
         run: |
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" aws-distro-opentelemetry-node-autoinstrumentation/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" docker-utils/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json
+          npm install          
           git commit -am "Update version to ${VERSION}"
           git push origin "v${VERSION}_release"
 

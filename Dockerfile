@@ -1,20 +1,20 @@
-# # Stage 1: Install ADOT nodejs instrumentation in the /operator-build folder
+# Stage 1: Install ADOT nodejs instrumentation in the /operator-build folder
 FROM node:20 AS build
 
-# In the future, when ADOT JS is uploaded to NPM, the source code can be obtained from there
-# and this Dockerfile will not need to copy the source code anymore as a workaround.
-# Copy Source Code without original package.json
-WORKDIR /
-COPY tsconfig.base.json ./tsconfig.base.json
-WORKDIR /operator-build
-COPY aws-distro-opentelemetry-node-autoinstrumentation/src ./src/
-COPY aws-distro-opentelemetry-node-autoinstrumentation/tsconfig.json ./tsconfig.json
-COPY aws-distro-opentelemetry-node-autoinstrumentation/LICENSE ./LICENSE
-# ... but also add the required autoinstrumentation.ts and package.json to be consistent with upstream
-# https://github.com/open-telemetry/opentelemetry-operator/tree/main/autoinstrumentation/nodejs
-COPY docker-utils/autoinstrumentation.ts ./src/autoinstrumentation.ts
-COPY docker-utils/package.json ./package.json
+# Build the ADOT JS SDK Tarball: aws-aws-distro-opentelemetry-node-autoinstrumentation-x.y.z.tgz
+WORKDIR /adot-js-build
+COPY . .
+RUN npm install
+WORKDIR /adot-js-build/aws-distro-opentelemetry-node-autoinstrumentation
+RUN npm run compile
+RUN npm pack
 
+# Install Tarball build from previous step so that autoinstrumentation.ts can "require" the ADOT JS SDK
+WORKDIR /operator-build
+COPY docker-utils/ .
+COPY aws-distro-opentelemetry-node-autoinstrumentation/tsconfig.json ./tsconfig.json
+RUN cp /adot-js-build/aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-*.tgz ./
+RUN npm install aws-aws-distro-opentelemetry-node-autoinstrumentation-$(node -p -e "require('./package.json').version").tgz
 RUN npm install
 
 # Stage 2: Build the cp-utility binary

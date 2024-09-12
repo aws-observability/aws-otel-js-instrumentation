@@ -53,13 +53,13 @@ import {
 import { SEMRESATTRS_TELEMETRY_AUTO_VERSION } from '@opentelemetry/semantic-conventions';
 import { AlwaysRecordSampler } from './always-record-sampler';
 import { AttributePropagatingSpanProcessorBuilder } from './attribute-propagating-span-processor-builder';
+import { AwsBatchUnsampledSpanProcessor } from './aws-batch-unsampled-span-processor';
 import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-span-exporter-builder';
 import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
+import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
 import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
-import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
-import { AwsBatchUnsampledSpanProcessor } from './aws-batch-unsampled-span-processor';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
@@ -133,14 +133,16 @@ export class AwsOpentelemetryConfigurator {
        * envDetectorSync is used as opposed to envDetector (async), so it is guaranteed that the
        * resource is populated with configured OTEL_RESOURCE_ATTRIBUTES or OTEL_SERVICE_NAME env
        * var values by the time that this class provides a configuration to the OTel SDK.
+       *
+       * envDetectorSync needs to be last so it can override any conflicting resource attributes.
        */
       defaultDetectors = [
-        envDetectorSync,
         processDetector,
         hostDetector,
         awsEc2Detector,
         awsEcsDetector,
         awsEksDetector,
+        envDetectorSync,
       ];
     }
 

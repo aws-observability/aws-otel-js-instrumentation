@@ -64,27 +64,27 @@ jobs:
           registry: public.ecr.aws
 
 
-      # # Publish to public ECR
-      # - name: Build and push public ECR image
-      #   uses: docker/build-push-action@v5
-      #   with:
-      #     push: true
-      #     context: .
-      #     file: ./Dockerfile
-      #     platforms: linux/amd64,linux/arm64
-      #     tags: |
-      #       ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ github.event.inputs.version }}
+      # Publish to public ECR
+      - name: Build and push public ECR image
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ github.event.inputs.version }}
 
-      # # Publish to private ECR
-      # - name: Build and push private ECR image
-      #   uses: docker/build-push-action@v5
-      #   with:
-      #     push: true
-      #     context: .
-      #     file: ./Dockerfile
-      #     platforms: linux/amd64,linux/arm64
-      #     tags: |
-      #       ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
+      # Publish to private ECR
+      - name: Build and push private ECR image
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
 
       # Publish to GitHub releases
       - name: Create GH release

@@ -64,45 +64,45 @@ jobs:
           registry: public.ecr.aws
 
 
-      # # Publish to public ECR
-      # - name: Build and push public ECR image
-      #   uses: docker/build-push-action@v5
-      #   with:
-      #     push: true
-      #     context: .
-      #     file: ./Dockerfile
-      #     platforms: linux/amd64,linux/arm64
-      #     tags: |
-      #       ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ github.event.inputs.version }}
+      # Publish to public ECR
+      - name: Build and push public ECR image
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ github.event.inputs.version }}
 
-      # # Publish to private ECR
-      # - name: Build and push private ECR image
-      #   uses: docker/build-push-action@v5
-      #   with:
-      #     push: true
-      #     context: .
-      #     file: ./Dockerfile
-      #     platforms: linux/amd64,linux/arm64
-      #     tags: |
-      #       ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
+      # Publish to private ECR
+      - name: Build and push private ECR image
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
 
       # Publish to GitHub releases
-      # - name: Create GH release
-      #   id: create_release
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
-      #   run: |
-      #     gh release create --target "$GITHUB_REF_NAME" \
-      #        --title "Release v${{ github.event.inputs.version }}" \
-      #        --draft \
-      #        "v${{ github.event.inputs.version }}" \
-      #        aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz
+      - name: Create GH release
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+        run: |
+          gh release create --target "$GITHUB_REF_NAME" \
+             --title "Release v${{ github.event.inputs.version }}" \
+             --draft \
+             "v${{ github.event.inputs.version }}" \
+             aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz
 
       # Publish to npm
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
           NPM_CONFIG_PROVENANCE: true
-        run: npx lerna publish from-package --no-push --no-private --no-git-tag-version --no-verify-access --yes --loglevel verbose
+        run: npx lerna publish from-package --no-push --no-private --no-git-tag-version --no-verify-access --yes
     
     

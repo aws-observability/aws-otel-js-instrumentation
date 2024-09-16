@@ -66,36 +66,8 @@ export class AwsXRayRemoteSampler implements Sampler {
     this.startSamplingTargetsPoller();
   }
 
-  public getRulePoller(): NodeJS.Timer | undefined {
-    return this.rulePoller;
-  }
-
-  public getRulePollingIntervalMillis(): number {
-    return this.rulePollingIntervalMillis;
-  }
-
-  public getTargetPollingInterval(): number {
-    return this.targetPollingInterval;
-  }
-
   public getDefaultTargetPollingInterval(): number {
     return DEFAULT_TARGET_POLLING_INTERVAL_SECONDS;
-  }
-
-  public getSamplingClient(): AwsXraySamplingClient {
-    return this.samplingClient;
-  }
-
-  public getRuleCache(): RuleCache {
-    return this.ruleCache;
-  }
-
-  public getClientId(): string {
-    return this.clientId;
-  }
-
-  public getAwsProxyEndpoint(): string {
-    return this.awsProxyEndpoint;
   }
 
   public shouldSample(

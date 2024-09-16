@@ -101,7 +101,7 @@ jobs:
 
       - name: Update version to next development version in main
         run: |
-          DEV_VERSION="${{ github.event.inputs.version }}.dev0"
+          DEV_VERSION="${{ github.event.inputs.version }}-dev0"
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" aws-distro-opentelemetry-node-autoinstrumentation/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" docker-utils/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" package.json
@@ -117,7 +117,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ env.BOT_TOKEN_GITHUB_RW_PATOKEN }}
         run: |
-          DEV_VERSION="${{ github.event.inputs.version }}.dev0"
+          DEV_VERSION="${{ github.event.inputs.version }}-dev0"
           gh pr create --title "Post release $VERSION: Update version to $DEV_VERSION" \
                        --body "This PR prepares the main branch for the next development cycle by updating the version to $DEV_VERSION and updating the image version to be scanned to the latest released.
           

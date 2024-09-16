@@ -1,9 +1,9 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { Resource } from '@opentelemetry/resources';
 import { expect } from 'expect';
 import * as sinon from 'sinon';
-import { Resource } from '@opentelemetry/resources';
 import { RuleCache } from '../../src/sampler/rule-cache';
 import { SamplingRule } from '../../src/sampler/sampling-rule';
 import { SamplingRuleApplier } from '../../src/sampler/sampling-rule-applier';
@@ -33,7 +33,7 @@ describe('RuleCache', () => {
     cache.updateRules([defaultRule]);
 
     // Expect default rule to exist
-    expect(cache.getRuleAppliers().length).toEqual(1);
+    expect((cache as any).ruleAppliers.length).toEqual(1);
 
     // Set up incoming rules
     const rule1 = createRule('low', 200, 0, 0.0);
@@ -47,13 +47,13 @@ describe('RuleCache', () => {
     cache.updateRules(rules);
 
     // Default rule should be removed because it doesn't exist in the new list
-    expect(cache.getRuleAppliers().length).toEqual(rules.length);
-    expect(cache.getRuleAppliers()[0].samplingRule.RuleName).toEqual('high');
-    expect(cache.getRuleAppliers()[1].samplingRule.RuleName).toEqual('A');
-    expect(cache.getRuleAppliers()[2].samplingRule.RuleName).toEqual('Abc');
-    expect(cache.getRuleAppliers()[3].samplingRule.RuleName).toEqual('ab');
-    expect(cache.getRuleAppliers()[4].samplingRule.RuleName).toEqual('abc');
-    expect(cache.getRuleAppliers()[5].samplingRule.RuleName).toEqual('low');
+    expect((cache as any).ruleAppliers.length).toEqual(rules.length);
+    expect((cache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('high');
+    expect((cache as any).ruleAppliers[1].samplingRule.RuleName).toEqual('A');
+    expect((cache as any).ruleAppliers[2].samplingRule.RuleName).toEqual('Abc');
+    expect((cache as any).ruleAppliers[3].samplingRule.RuleName).toEqual('ab');
+    expect((cache as any).ruleAppliers[4].samplingRule.RuleName).toEqual('abc');
+    expect((cache as any).ruleAppliers[5].samplingRule.RuleName).toEqual('low');
   });
 
   it('testRuleCacheExpirationLogic', () => {
@@ -79,40 +79,40 @@ describe('RuleCache', () => {
 
     cache.updateRules(ruleAppliers);
 
-    const ruleAppliersCopy = cache.getRuleAppliers();
+    const ruleAppliersCopy = (cache as any).ruleAppliers;
 
     const newRule3 = createRule('new_rule_3', 5, 0, 0.0);
     const newRuleAppliers = [rule1, rule2, newRule3];
     cache.updateRules(newRuleAppliers);
 
     // Check rule cache is still correct length and has correct rules
-    expect(cache.getRuleAppliers().length).toEqual(3);
-    expect(cache.getRuleAppliers()[0].samplingRule.RuleName).toEqual('rule_1');
-    expect(cache.getRuleAppliers()[1].samplingRule.RuleName).toEqual('new_rule_3');
-    expect(cache.getRuleAppliers()[2].samplingRule.RuleName).toEqual('rule_2');
+    expect((cache as any).ruleAppliers.length).toEqual(3);
+    expect((cache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('rule_1');
+    expect((cache as any).ruleAppliers[1].samplingRule.RuleName).toEqual('new_rule_3');
+    expect((cache as any).ruleAppliers[2].samplingRule.RuleName).toEqual('rule_2');
 
     // Assert before and after of rule cache
-    expect(ruleAppliersCopy[0]).toEqual(cache.getRuleAppliers()[0]);
-    expect(ruleAppliersCopy[1]).toEqual(cache.getRuleAppliers()[2]);
-    expect(ruleAppliersCopy[2]).not.toEqual(cache.getRuleAppliers()[1]);
+    expect(ruleAppliersCopy[0]).toEqual((cache as any).ruleAppliers[0]);
+    expect(ruleAppliersCopy[1]).toEqual((cache as any).ruleAppliers[2]);
+    expect(ruleAppliersCopy[2]).not.toEqual((cache as any).ruleAppliers[1]);
   });
 
   it('testUpdateRulesRemovesOlderRule', () => {
     // Set up default rule in rule cache
     const cache = new RuleCache(new Resource({}));
-    expect(cache.getRuleAppliers().length).toEqual(0);
+    expect((cache as any).ruleAppliers.length).toEqual(0);
 
     const rule1 = createRule('first_rule', 200, 0, 0.0);
     const rules = [rule1];
     cache.updateRules(rules);
-    expect(cache.getRuleAppliers().length).toEqual(1);
-    expect(cache.getRuleAppliers()[0].samplingRule.RuleName).toEqual('first_rule');
+    expect((cache as any).ruleAppliers.length).toEqual(1);
+    expect((cache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('first_rule');
 
     const replacement_rule1 = createRule('second_rule', 200, 0, 0.0);
     const replacementRules = [replacement_rule1];
     cache.updateRules(replacementRules);
-    expect(cache.getRuleAppliers().length).toEqual(1);
-    expect(cache.getRuleAppliers()[0].samplingRule.RuleName).toEqual('second_rule');
+    expect((cache as any).ruleAppliers.length).toEqual(1);
+    expect((cache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('second_rule');
   });
 
   it('testUpdateSamplingTargets', () => {
@@ -121,11 +121,11 @@ describe('RuleCache', () => {
     const cache = new RuleCache(new Resource({}));
     cache.updateRules([rule1, rule2]);
 
-    expect((cache.getRuleAppliers()[0] as any).reservoirSampler._root.quota).toEqual(1);
-    expect((cache.getRuleAppliers()[0] as any).fixedRateSampler._root._ratio).toEqual(rule2.samplingRule.FixedRate);
+    expect(((cache as any).ruleAppliers[0] as any).reservoirSampler._root.quota).toEqual(1);
+    expect(((cache as any).ruleAppliers[0] as any).fixedRateSampler._root._ratio).toEqual(rule2.samplingRule.FixedRate);
 
-    expect((cache.getRuleAppliers()[1] as any).reservoirSampler._root.quota).toEqual(1);
-    expect((cache.getRuleAppliers()[1] as any).fixedRateSampler._root._ratio).toEqual(rule1.samplingRule.FixedRate);
+    expect(((cache as any).ruleAppliers[1] as any).reservoirSampler._root.quota).toEqual(1);
+    expect(((cache as any).ruleAppliers[1] as any).fixedRateSampler._root._ratio).toEqual(rule1.samplingRule.FixedRate);
 
     const time = Date.now() / 1000;
     const target1 = {
@@ -156,12 +156,12 @@ describe('RuleCache', () => {
     expect(nextPollingInterval).toEqual(target2.Interval);
 
     // Ensure cache is still of length 2
-    expect(cache.getRuleAppliers().length).toEqual(2);
+    expect((cache as any).ruleAppliers.length).toEqual(2);
 
-    expect((cache.getRuleAppliers()[0] as any).reservoirSampler._root.quota).toEqual(target2.ReservoirQuota);
-    expect((cache.getRuleAppliers()[0] as any).fixedRateSampler._root._ratio).toEqual(target2.FixedRate);
-    expect((cache.getRuleAppliers()[1] as any).reservoirSampler._root.quota).toEqual(target1.ReservoirQuota);
-    expect((cache.getRuleAppliers()[1] as any).fixedRateSampler._root._ratio).toEqual(target1.FixedRate);
+    expect(((cache as any).ruleAppliers[0] as any).reservoirSampler._root.quota).toEqual(target2.ReservoirQuota);
+    expect(((cache as any).ruleAppliers[0] as any).fixedRateSampler._root._ratio).toEqual(target2.FixedRate);
+    expect(((cache as any).ruleAppliers[1] as any).reservoirSampler._root.quota).toEqual(target1.ReservoirQuota);
+    expect(((cache as any).ruleAppliers[1] as any).fixedRateSampler._root._ratio).toEqual(target1.FixedRate);
 
     const [refreshSamplingRulesAfter, _] = cache.updateTargets(targetMap, time + 1);
     expect(refreshSamplingRulesAfter).toBe(true);

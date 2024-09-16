@@ -14,7 +14,7 @@ WORKDIR /operator-build
 COPY docker-utils/ .
 COPY aws-distro-opentelemetry-node-autoinstrumentation/tsconfig.json ./tsconfig.json
 RUN cp /adot-js-build/aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-*.tgz ./
-RUN npm install aws-aws-distro-opentelemetry-node-autoinstrumentation-$(node -p -e "require('./package.json').version").tgz
+RUN npm install aws-aws-distro-opentelemetry-node-autoinstrumentation-$(node -p -e "require('/adot-js-build/aws-distro-opentelemetry-node-autoinstrumentation/package.json').version").tgz
 RUN npm install
 
 # Stage 2: Build the cp-utility binary

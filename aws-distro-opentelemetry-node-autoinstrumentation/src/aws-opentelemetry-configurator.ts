@@ -61,12 +61,12 @@ import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
 
-const APPLICATION_SIGNALS_ENABLED_CONFIG = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
-const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
-const METRIC_EXPORT_INTERVAL_CONFIG = 'OTEL_METRIC_EXPORT_INTERVAL';
-const DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS = 60000;
-const AWS_LAMBDA_FUNCTION_NAME_CONFIG = 'AWS_LAMBDA_FUNCTION_NAME';
-const AWS_XRAY_DAEMON_ADDRESS_CONFIG = 'AWS_XRAY_DAEMON_ADDRESS';
+const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
+const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
+const METRIC_EXPORT_INTERVAL_CONFIG: string = 'OTEL_METRIC_EXPORT_INTERVAL';
+const DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS: number = 60000;
+const AWS_LAMBDA_FUNCTION_NAME_CONFIG: string = 'AWS_LAMBDA_FUNCTION_NAME';
+const AWS_XRAY_DAEMON_ADDRESS_CONFIG: string = 'AWS_XRAY_DAEMON_ADDRESS';
 const FORMAT_OTEL_SAMPLED_TRACES_BINARY_PREFIX = 'T1S';
 const FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX = 'T1U';
 /**
@@ -240,7 +240,7 @@ export class AwsOpentelemetryConfigurator {
       diag.info('Enabled batch unsampled span processor for Lambda environment.');
     }
 
-    let exportIntervalMillis = Number(process.env[METRIC_EXPORT_INTERVAL_CONFIG]);
+    let exportIntervalMillis: number = Number(process.env[METRIC_EXPORT_INTERVAL_CONFIG]);
     diag.debug(`AWS Application Signals Metrics export interval: ${exportIntervalMillis}`);
 
     if (isNaN(exportIntervalMillis) || exportIntervalMillis.valueOf() > DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS) {
@@ -461,7 +461,7 @@ export class AwsSpanProcessorProvider {
     }
   }
 
-  protected static _registeredExporters = new Map<string, () => SpanExporter>([
+  protected static _registeredExporters: Map<string, () => SpanExporter> = new Map<string, () => SpanExporter>([
     ['otlp', () => this.configureOtlp()],
     ['zipkin', () => new ZipkinExporter()],
     ['jaeger', () => this.configureJaeger()],
@@ -556,7 +556,7 @@ export class AwsSpanProcessorProvider {
 // would also have the (private+readonly) sampler from the `buildSamplerFromEnv()` method.
 // https://github.com/open-telemetry/opentelemetry-js/blob/01cea7caeb130142cc017f77ea74834a35d0e8d6/packages/opentelemetry-sdk-trace-base/src/Tracer.ts#L36-L53
 const FALLBACK_OTEL_TRACES_SAMPLER: string = TracesSamplerValues.AlwaysOn;
-const DEFAULT_RATIO = 1;
+const DEFAULT_RATIO: number = 1;
 
 /**
  * Based on environment, builds a sampler, complies with specification.

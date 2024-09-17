@@ -10,10 +10,10 @@ import { AWS_ATTRIBUTE_KEYS } from '../../src/aws-attribute-keys';
 import { RequestMetadata, ServiceExtension } from '../../src/third-party/otel/aws/services/ServiceExtension';
 import { applyInstrumentationPatches } from './../../src/patches/instrumentation-patch';
 
-const _STREAM_NAME = 'streamName';
-const _BUCKET_NAME = 'bucketName';
-const _QUEUE_NAME = 'queueName';
-const _QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/123412341234/queueName';
+const _STREAM_NAME: string = 'streamName';
+const _BUCKET_NAME: string = 'bucketName';
+const _QUEUE_NAME: string = 'queueName';
+const _QUEUE_URL: string = 'https://sqs.us-east-1.amazonaws.com/123412341234/queueName';
 
 const UNPATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations();
 
@@ -133,7 +133,7 @@ describe('InstrumentationPatchTest', () => {
   }
 
   function doExtractKinesisAttributes(services: Map<string, ServiceExtension>): Attributes {
-    const serviceName = 'Kinesis';
+    const serviceName: string = 'Kinesis';
     const params: NormalizedRequest = {
       serviceName: serviceName,
       commandName: 'mockCommandName',
@@ -145,7 +145,7 @@ describe('InstrumentationPatchTest', () => {
   }
 
   function doExtractS3Attributes(services: Map<string, ServiceExtension>): Attributes {
-    const serviceName = 'S3';
+    const serviceName: string = 'S3';
     const params: NormalizedRequest = {
       serviceName: serviceName,
       commandName: 'mockCommandName',
@@ -156,8 +156,11 @@ describe('InstrumentationPatchTest', () => {
     return doExtractAttributes(services, serviceName, params);
   }
 
-  function doExtractSqsAttributes(services: Map<string, ServiceExtension>, includeQueueName = false): Attributes {
-    const serviceName = 'SQS';
+  function doExtractSqsAttributes(
+    services: Map<string, ServiceExtension>,
+    includeQueueName: boolean = false
+  ): Attributes {
+    const serviceName: string = 'SQS';
     const params: NormalizedRequest = {
       serviceName: serviceName,
       commandName: 'mockCommandName',

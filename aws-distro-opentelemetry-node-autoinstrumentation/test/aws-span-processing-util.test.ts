@@ -17,9 +17,9 @@ import { expect } from 'expect';
 import { AWS_ATTRIBUTE_KEYS } from '../src/aws-attribute-keys';
 import { AwsSpanProcessingUtil } from '../src/aws-span-processing-util';
 
-const DEFAULT_PATH_VALUE = '/';
-const UNKNOWN_OPERATION = 'UnknownOperation';
-const INTERNAL_OPERATION = 'InternalOperation';
+const DEFAULT_PATH_VALUE: string = '/';
+const UNKNOWN_OPERATION: string = 'UnknownOperation';
+const INTERNAL_OPERATION: string = 'InternalOperation';
 
 let attributesMock: Attributes;
 let spanDataMock: ReadableSpan;
@@ -56,7 +56,7 @@ describe('AwsSpanProcessingUtilTest', () => {
   });
 
   it('testGetIngressOperationValidName', () => {
-    const validName = 'ValidName';
+    const validName: string = 'ValidName';
     (spanDataMock as any).name = validName;
     (spanDataMock as any).kind = SpanKind.SERVER;
     const actualOperation: string = AwsSpanProcessingUtil.getIngressOperation(spanDataMock);
@@ -64,7 +64,7 @@ describe('AwsSpanProcessingUtilTest', () => {
   });
 
   it('testGetIngressOperationWithNotServer', () => {
-    const validName = 'ValidName';
+    const validName: string = 'ValidName';
     (spanDataMock as any).name = validName;
     (spanDataMock as any).kind = SpanKind.CLIENT;
     const actualOperation: string = AwsSpanProcessingUtil.getIngressOperation(spanDataMock);
@@ -72,7 +72,7 @@ describe('AwsSpanProcessingUtilTest', () => {
   });
 
   it('testGetIngressOperationHttpMethodNameAndNoFallback', () => {
-    const invalidName = 'GET';
+    const invalidName: string = 'GET';
     (spanDataMock as any).name = invalidName;
     (spanDataMock as any).kind = SpanKind.SERVER;
     attributesMock[SEMATTRS_HTTP_METHOD] = invalidName;
@@ -98,7 +98,7 @@ describe('AwsSpanProcessingUtilTest', () => {
 
   it('testGetIngressOperationInvalidNameAndValidTarget', () => {
     const invalidName: string | null = null;
-    const validTarget = '/';
+    const validTarget: string = '/';
     (spanDataMock as any).name = invalidName;
     (spanDataMock as any).kind = SpanKind.SERVER;
     attributesMock[SEMATTRS_HTTP_TARGET] = validTarget;
@@ -108,8 +108,8 @@ describe('AwsSpanProcessingUtilTest', () => {
 
   it('testGetIngressOperationInvalidNameAndValidTargetAndMethod', () => {
     const invalidName: string | null = null;
-    const validTarget = '/';
-    const validMethod = 'GET';
+    const validTarget: string = '/';
+    const validMethod: string = 'GET';
     (spanDataMock as any).name = invalidName;
     (spanDataMock as any).kind = SpanKind.SERVER;
     attributesMock[SEMATTRS_HTTP_TARGET] = validTarget;
@@ -127,7 +127,7 @@ describe('AwsSpanProcessingUtilTest', () => {
   });
 
   it('testGetEgressOperationGetLocalOperation', () => {
-    const operation = 'TestOperation';
+    const operation: string = 'TestOperation';
     attributesMock[AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION] = operation;
     (spanDataMock as any).attributes = attributesMock;
     (spanDataMock as any).kind = SpanKind.SERVER;
@@ -136,7 +136,7 @@ describe('AwsSpanProcessingUtilTest', () => {
   });
 
   it('testExtractAPIPathValueEmptyTarget', () => {
-    const invalidTarget = '';
+    const invalidTarget: string = '';
     const pathValue: string = AwsSpanProcessingUtil.extractAPIPathValue(invalidTarget);
     expect(pathValue).toEqual(DEFAULT_PATH_VALUE);
   });
@@ -148,31 +148,31 @@ describe('AwsSpanProcessingUtilTest', () => {
   });
 
   it('testExtractAPIPathValueNoSlash', () => {
-    const invalidTarget = 'users';
+    const invalidTarget: string = 'users';
     const pathValue: string = AwsSpanProcessingUtil.extractAPIPathValue(invalidTarget);
     expect(pathValue).toEqual(DEFAULT_PATH_VALUE);
   });
 
   it('testExtractAPIPathValueOnlySlash', () => {
-    const invalidTarget = '/';
+    const invalidTarget: string = '/';
     const pathValue: string = AwsSpanProcessingUtil.extractAPIPathValue(invalidTarget);
     expect(pathValue).toEqual(DEFAULT_PATH_VALUE);
   });
 
   it('testExtractAPIPathValueOnlySlashAtEnd', () => {
-    const invalidTarget = 'users/';
+    const invalidTarget: string = 'users/';
     const pathValue: string = AwsSpanProcessingUtil.extractAPIPathValue(invalidTarget);
     expect(pathValue).toEqual(DEFAULT_PATH_VALUE);
   });
 
   it('testExtractAPIPathValidPath', () => {
-    const validTarget = '/users/1/pet?query#fragment';
+    const validTarget: string = '/users/1/pet?query#fragment';
     const pathValue: string = AwsSpanProcessingUtil.extractAPIPathValue(validTarget);
     expect(pathValue).toEqual('/users');
   });
 
   it('testExtractAPIPathValidPathSingleSlash', () => {
-    let validTarget = '/users?query#fragment';
+    let validTarget: string = '/users?query#fragment';
     let pathValue: string = AwsSpanProcessingUtil.extractAPIPathValue(validTarget);
     expect(pathValue).toEqual('/users');
 

@@ -56,7 +56,7 @@ export class AwsXraySamplingClient {
       const req: http.ClientRequest = http
         .request(url, options, response => {
           response.setEncoding('utf-8');
-          let responseData = '';
+          let responseData: string = '';
           response.on('data', dataChunk => (responseData += dataChunk));
           response.on('end', () => {
             if (response.statusCode === 200 && responseData.length > 0) {

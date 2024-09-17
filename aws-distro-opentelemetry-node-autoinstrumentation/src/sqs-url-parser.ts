@@ -3,8 +3,8 @@
 
 import { AttributeValue } from '@opentelemetry/api';
 
-const HTTP_SCHEMA = 'http://';
-const HTTPS_SCHEMA = 'https://';
+const HTTP_SCHEMA: string = 'http://';
+const HTTPS_SCHEMA: string = 'https://';
 
 // Cannot define type for regex variables
 // eslint-disable-next-line @typescript-eslint/typedef
@@ -51,7 +51,7 @@ export class SqsUrlParser {
       return false;
     }
 
-    for (let i = 0; i < input.length; i++) {
+    for (let i: number = 0; i < input.length; i++) {
       const c: string = input.charAt(i);
       if (c !== '_' && c !== '-' && !ALPHABET_REGEX.test(c) && !(c >= '0' && c <= '9')) {
         return false;

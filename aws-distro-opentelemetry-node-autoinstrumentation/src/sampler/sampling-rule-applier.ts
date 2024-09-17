@@ -140,7 +140,7 @@ export class SamplingRuleApplier {
     attributes: Attributes,
     links: Link[]
   ): SamplingResult {
-    let hasBorrowed = false;
+    let hasBorrowed: boolean = false;
     let result: SamplingResult = { decision: SamplingDecision.NOT_RECORD };
 
     const nowInMillis: number = Date.now();

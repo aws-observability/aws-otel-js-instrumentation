@@ -22,8 +22,8 @@ import {
 
 describe('AwsMetricAttributesSpanExporterTest', () => {
   // Test constants
-  const CONTAINS_ATTRIBUTES = true;
-  const CONTAINS_NO_ATTRIBUTES = false;
+  const CONTAINS_ATTRIBUTES: boolean = true;
+  const CONTAINS_NO_ATTRIBUTES: boolean = false;
 
   // Tests can safely rely on an empty resource.
   const testResource: Resource = Resource.empty();
@@ -232,7 +232,7 @@ describe('AwsMetricAttributesSpanExporterTest', () => {
     (spanDataMock as any).instrumentationLibrary = testInstrumentationLibrary;
     expect(exportedSpan.instrumentationLibrary).toEqual(testInstrumentationLibrary);
 
-    const testName = 'name';
+    const testName: string = 'name';
     (spanDataMock as any).name = testName;
     expect(exportedSpan.name).toEqual(testName);
 
@@ -240,7 +240,7 @@ describe('AwsMetricAttributesSpanExporterTest', () => {
     (spanDataMock as any).kind = kindMock;
     expect(exportedSpan.kind).toEqual(kindMock);
 
-    const testStartEpochNanos = 1;
+    const testStartEpochNanos: number = 1;
     spanDataMock.startTime[1] = testStartEpochNanos;
     expect(exportedSpan.startTime[1]).toEqual(testStartEpochNanos);
 
@@ -256,14 +256,14 @@ describe('AwsMetricAttributesSpanExporterTest', () => {
     (spanDataMock as any).status = statusMock;
     expect(exportedSpan.status).toEqual(statusMock);
 
-    const testEndEpochNanosMock = 2;
+    const testEndEpochNanosMock: number = 2;
     spanDataMock.endTime[1] = testEndEpochNanosMock;
     expect(exportedSpan.endTime[1]).toEqual(testEndEpochNanosMock);
 
     (spanDataMock as any).ended = true;
     expect(exportedSpan.ended).toEqual(true);
 
-    const testTotalRecordedEventsMock = 3;
+    const testTotalRecordedEventsMock: number = 3;
     (spanDataMock as any).events = [
       { time: [0, 1], name: 'event0' },
       { time: [0, 2], name: 'event1' },
@@ -271,7 +271,7 @@ describe('AwsMetricAttributesSpanExporterTest', () => {
     ];
     expect(exportedSpan.events.length).toEqual(testTotalRecordedEventsMock);
 
-    const testTotalRecordedLinksMock = 4;
+    const testTotalRecordedLinksMock: number = 4;
     (spanDataMock as any).links = [
       createMockSpanContext(),
       createMockSpanContext(),

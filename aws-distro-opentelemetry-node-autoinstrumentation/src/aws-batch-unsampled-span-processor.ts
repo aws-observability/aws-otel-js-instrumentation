@@ -11,7 +11,7 @@ import {
   suppressTracing,
   unrefTimer,
 } from '@opentelemetry/core';
-import { ReadableSpan, BufferConfig, Span, SpanProcessor, SpanExporter } from '@opentelemetry/sdk-trace-base';
+import { BufferConfig, ReadableSpan, Span, SpanExporter, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 
 /**
@@ -47,7 +47,7 @@ export class AwsBatchUnsampledSpanProcessor implements SpanProcessor {
   private readonly _scheduledDelayMillis: number;
   private readonly _exportTimeoutMillis: number;
 
-  private _isExporting = false;
+  private _isExporting: boolean = false;
   private _finishedSpans: ReadableSpan[] = [];
   private _timer: NodeJS.Timeout | undefined;
   private _shutdownOnce: BindOnceFuture<void>;

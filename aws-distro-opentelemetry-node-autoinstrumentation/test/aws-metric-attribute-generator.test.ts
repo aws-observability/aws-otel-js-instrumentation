@@ -35,31 +35,31 @@ import { AwsMetricAttributeGenerator } from '../src/aws-metric-attribute-generat
 import { AttributeMap, DEPENDENCY_METRIC, SERVICE_METRIC } from '../src/metric-attribute-generator';
 
 // Does not exist in @opentelemetry/semantic-conventions
-const _SERVER_SOCKET_ADDRESS = 'server.socket.address';
-const _SERVER_SOCKET_PORT = 'server.socket.port';
-const _NET_SOCK_PEER_ADDR = 'net.sock.peer.addr';
-const _NET_SOCK_PEER_PORT = 'net.sock.peer.port';
+const _SERVER_SOCKET_ADDRESS: string = 'server.socket.address';
+const _SERVER_SOCKET_PORT: string = 'server.socket.port';
+const _NET_SOCK_PEER_ADDR: string = 'net.sock.peer.addr';
+const _NET_SOCK_PEER_PORT: string = 'net.sock.peer.port';
 // Alternatively, `import { SemanticAttributes } from '@opentelemetry/instrumentation-undici/build/src/enums/SemanticAttributes';`
 //   SemanticAttributes._SERVER_ADDRESS
 //   SemanticAttributes._SERVER_PORT
-const _SERVER_ADDRESS = 'server.address';
-const _SERVER_PORT = 'server.port';
+const _SERVER_ADDRESS: string = 'server.address';
+const _SERVER_PORT: string = 'server.port';
 // Alternatively, `import { AttributeNames } from '@opentelemetry/instrumentation-graphql/build/src/enums/AttributeNames';`
 //   AttributeNames.OPERATION_TYPE
-const _GRAPHQL_OPERATION_TYPE = 'graphql.operation.type';
+const _GRAPHQL_OPERATION_TYPE: string = 'graphql.operation.type';
 
 // String constants that are used many times in these tests.
-const AWS_LOCAL_OPERATION_VALUE = 'AWS local operation';
-const AWS_REMOTE_SERVICE_VALUE = 'AWS remote service';
-const AWS_REMOTE_OPERATION_VALUE = 'AWS remote operation';
-const SERVICE_NAME_VALUE = 'Service name';
-const SPAN_NAME_VALUE = 'Span name';
-const UNKNOWN_SERVICE = 'UnknownService';
-const UNKNOWN_OPERATION = 'UnknownOperation';
-const UNKNOWN_REMOTE_SERVICE = 'UnknownRemoteService';
-const UNKNOWN_REMOTE_OPERATION = 'UnknownRemoteOperation';
-const INTERNAL_OPERATION = 'InternalOperation';
-const LOCAL_ROOT = 'LOCAL_ROOT';
+const AWS_LOCAL_OPERATION_VALUE: string = 'AWS local operation';
+const AWS_REMOTE_SERVICE_VALUE: string = 'AWS remote service';
+const AWS_REMOTE_OPERATION_VALUE: string = 'AWS remote operation';
+const SERVICE_NAME_VALUE: string = 'Service name';
+const SPAN_NAME_VALUE: string = 'Span name';
+const UNKNOWN_SERVICE: string = 'UnknownService';
+const UNKNOWN_OPERATION: string = 'UnknownOperation';
+const UNKNOWN_REMOTE_SERVICE: string = 'UnknownRemoteService';
+const UNKNOWN_REMOTE_OPERATION: string = 'UnknownRemoteOperation';
+const INTERNAL_OPERATION: string = 'InternalOperation';
+const LOCAL_ROOT: string = 'LOCAL_ROOT';
 
 const GENERATOR: AwsMetricAttributeGenerator = new AwsMetricAttributeGenerator();
 
@@ -1101,7 +1101,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
   });
 
   it('testNormalizeRemoteServiceName_NoNormalization', () => {
-    const serviceName = 'non aws service';
+    const serviceName: string = 'non aws service';
     mockAttribute(SEMATTRS_RPC_SERVICE, serviceName);
     (spanDataMock as any).kind = SpanKind.CLIENT;
 

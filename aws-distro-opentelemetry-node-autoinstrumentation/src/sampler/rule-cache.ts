@@ -15,7 +15,7 @@ import { SamplingRuleApplier } from './sampling-rule-applier';
 const RULE_CACHE_TTL_MILLIS: number = 60 * 60 * 1000;
 
 // 10 second default sampling targets polling interval
-export const DEFAULT_TARGET_POLLING_INTERVAL_SECONDS = 10;
+export const DEFAULT_TARGET_POLLING_INTERVAL_SECONDS: number = 10;
 
 export class RuleCache {
   private ruleAppliers: SamplingRuleApplier[];

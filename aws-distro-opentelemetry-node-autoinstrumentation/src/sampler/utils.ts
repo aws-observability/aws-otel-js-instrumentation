@@ -59,7 +59,7 @@ export function attributeMatch(
     return false;
   }
 
-  let matchedCount = 0;
+  let matchedCount: number = 0;
   for (const [key, value] of Object.entries(attributes)) {
     const foundKey: string | undefined = Object.keys(ruleAttributes).find(ruleKey => ruleKey === key);
 

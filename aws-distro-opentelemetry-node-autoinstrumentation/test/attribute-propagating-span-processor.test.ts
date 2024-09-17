@@ -31,9 +31,9 @@ import { AwsSpanProcessingUtil } from '../src/aws-span-processing-util';
 let tracer: Tracer;
 
 const spanNameExtractor: (span: ReadableSpan) => string = AwsSpanProcessingUtil.getIngressOperation;
-const spanNameKey = 'spanName';
-const testKey1 = 'key1';
-const testKey2 = 'key2';
+const spanNameKey: string = 'spanName';
+const testKey1: string = 'key1';
+const testKey2: string = 'key2';
 
 const SPAN_KINDS: SpanKind[] = [
   SpanKind.INTERNAL,

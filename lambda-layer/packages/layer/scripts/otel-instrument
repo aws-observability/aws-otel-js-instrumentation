@@ -1,12 +1,30 @@
 #!/bin/bash
 export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/wrapper.js"
 export LAMBDA_RESOURCE_ATTRIBUTES="cloud.region=$AWS_REGION,cloud.provider=aws,faas.name=$AWS_LAMBDA_FUNCTION_NAME,faas.version=$AWS_LAMBDA_FUNCTION_VERSION,faas.instance=$AWS_LAMBDA_LOG_STREAM_NAME,aws.log.group.names=$AWS_LAMBDA_LOG_GROUP_NAME";
-export OTEL_NODE_ENABLED_INSTRUMENTATIONS="http,aws-lambda,aws-sdk"
+export OTEL_NODE_ENABLED_INSTRUMENTATIONS="aws-lambda,aws-sdk"
+
+# - If OTEL_EXPORTER_OTLP_PROTOCOL is not set by user, the default exporting protocol is http/protobuf.
+if [ -z "${OTEL_EXPORTER_OTLP_PROTOCOL}" ]; then
+    export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+fi
+
+# - Set the service name
+if [ -z "${OTEL_SERVICE_NAME}" ]; then
+    export OTEL_SERVICE_NAME=$AWS_LAMBDA_FUNCTION_NAME;
+fi
+
+# - Set the propagators
+if [[ -z "$OTEL_PROPAGATORS" ]]; then
+  export OTEL_PROPAGATORS="tracecontext,baggage,xray"
+fi
 
 # - Set Application Signals configuration
-if [ "${OTEL_AWS_APPLICATION_SIGNALS_ENABLED}" = "true" ]; then
+if [ -z "${OTEL_AWS_APPLICATION_SIGNALS_ENABLED}" ]; then
+    export OTEL_AWS_APPLICATION_SIGNALS_ENABLED="true";
+fi
+
+if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
     export OTEL_METRICS_EXPORTER="none";
-    export OTEL_LOGS_EXPORTER="none";
 fi
 
 # - Append Lambda Resource Attributes to OTel Resource Attribute List
@@ -16,10 +34,6 @@ else
     export OTEL_RESOURCE_ATTRIBUTES="$LAMBDA_RESOURCE_ATTRIBUTES,$OTEL_RESOURCE_ATTRIBUTES";
 fi
 
-# - Set the service name
-if [ -z "${OTEL_SERVICE_NAME}" ]; then
-    export OTEL_SERVICE_NAME=$AWS_LAMBDA_FUNCTION_NAME;
-fi
 if [[ $OTEL_RESOURCE_ATTRIBUTES != *"service.name="* ]]; then
   export OTEL_RESOURCE_ATTRIBUTES="service.name=${AWS_LAMBDA_FUNCTION_NAME},${OTEL_RESOURCE_ATTRIBUTES}"
 fi

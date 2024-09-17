@@ -18,6 +18,7 @@ import {
 } from '@opentelemetry/semantic-conventions';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import * as SQL_DIALECT_KEYWORDS_JSON from './configuration/sql_dialect_keywords.json';
+import { AWS_LAMBDA_FUNCTION_NAME_CONFIG, isLambdaEnvironment } from './aws-opentelemetry-configurator';
 
 /** Utility class designed to support shared logic across AWS Span Processors. */
 export class AwsSpanProcessingUtil {
@@ -50,6 +51,9 @@ export class AwsSpanProcessingUtil {
     let operation: string = span.name;
     if (AwsSpanProcessingUtil.shouldUseInternalOperation(span)) {
       operation = AwsSpanProcessingUtil.INTERNAL_OPERATION;
+    }
+    if (isLambdaEnvironment()) {
+      operation = process.env[AWS_LAMBDA_FUNCTION_NAME_CONFIG] + '/Handler';
     } else if (!AwsSpanProcessingUtil.isValidOperation(span, operation)) {
       operation = AwsSpanProcessingUtil.generateIngressOperation(span);
     }

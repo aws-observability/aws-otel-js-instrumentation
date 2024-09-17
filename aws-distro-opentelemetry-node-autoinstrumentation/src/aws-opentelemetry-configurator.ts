@@ -65,10 +65,13 @@ const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
 const METRIC_EXPORT_INTERVAL_CONFIG: string = 'OTEL_METRIC_EXPORT_INTERVAL';
 const DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS: number = 60000;
-const AWS_LAMBDA_FUNCTION_NAME_CONFIG: string = 'AWS_LAMBDA_FUNCTION_NAME';
+export const AWS_LAMBDA_FUNCTION_NAME_CONFIG: string = 'AWS_LAMBDA_FUNCTION_NAME';
 const AWS_XRAY_DAEMON_ADDRESS_CONFIG: string = 'AWS_XRAY_DAEMON_ADDRESS';
 const FORMAT_OTEL_SAMPLED_TRACES_BINARY_PREFIX = 'T1S';
 const FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX = 'T1U';
+// Follow Python SDK Impl to set the max span batch size
+// which will reduce the chance of UDP package size is larger than 64KB
+const LAMBDA_SPAN_EXPORT_BATCH_SIZE = 10;
 /**
  * Aws Application Signals Config Provider creates a configuration object that can be provided to
  * the OTel NodeJS SDK for Auto Instrumentation with Application Signals Functionality.
@@ -128,6 +131,9 @@ export class AwsOpentelemetryConfigurator {
       if (!resourceDetectorsFromEnv.includes('aws')) {
         defaultDetectors.push(awsEc2Detector, awsEcsDetector, awsEksDetector);
       }
+    } else if (isLambdaEnvironment()) {
+      // If in Lambda environment, only keep env detector as default
+      defaultDetectors.push(envDetectorSync);
     } else {
       /*
        * envDetectorSync is used as opposed to envDetector (async), so it is guaranteed that the
@@ -227,17 +233,6 @@ export class AwsOpentelemetryConfigurator {
 
     diag.info('AWS Application Signals enabled.');
 
-    // Register BatchUnsampledSpanProcessor to export unsampled traces in Lambda
-    // when Application Signals enabled
-    if (isLambdaEnvironment()) {
-      spanProcessors.push(
-        new AwsBatchUnsampledSpanProcessor(
-          new OTLPUdpSpanExporter(getXrayDaemonEndpoint(), FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX)
-        )
-      );
-      diag.info('Enabled batch unsampled span processor for Lambda environment.');
-    }
-
     let exportIntervalMillis: number = Number(process.env[METRIC_EXPORT_INTERVAL_CONFIG]);
     diag.debug(`AWS Application Signals Metrics export interval: ${exportIntervalMillis}`);
 
@@ -254,12 +249,30 @@ export class AwsOpentelemetryConfigurator {
       exporter: applicationSignalsMetricExporter,
       exportIntervalMillis: exportIntervalMillis,
     });
-    const meterProvider: MeterProvider = new MeterProvider({
-      /** Resource associated with metric telemetry  */
-      resource: resource,
-      readers: [periodicExportingMetricReader],
-    });
-    spanProcessors.push(AwsSpanMetricsProcessorBuilder.create(meterProvider, resource).build());
+
+    // Register BatchUnsampledSpanProcessor to export unsampled traces in Lambda
+    // when Application Signals enabled
+    if (isLambdaEnvironment()) {
+      spanProcessors.push(
+        new AwsBatchUnsampledSpanProcessor(
+          new OTLPUdpSpanExporter(getXrayDaemonEndpoint(), FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX),
+          {
+            maxExportBatchSize: getSpanExportBatchSize(),
+          }
+        )
+      );
+      diag.info('Enabled batch unsampled span processor for Lambda environment.');
+    }
+
+    // Disable Application Metrics for Lambda environment
+    if (!isLambdaEnvironment()) {
+      const meterProvider: MeterProvider = new MeterProvider({
+        /** Resource associated with metric telemetry  */
+        resource: resource,
+        readers: [periodicExportingMetricReader],
+      });
+      spanProcessors.push(AwsSpanMetricsProcessorBuilder.create(meterProvider, resource).build());
+    }
   }
 
   static customizeSampler(sampler: Sampler): Sampler {
@@ -413,7 +426,11 @@ export class AwsSpanProcessorProvider {
     // eslint-disable-next-line @typescript-eslint/typedef
     let protocol = this.getOtlpProtocol();
 
-    if (AwsOpentelemetryConfigurator.isApplicationSignalsEnabled() && isLambdaEnvironment()) {
+    // If `isLambdaEnvironment` is true, we will default to exporting OTel spans via `udp_exporter` to Fluxpump,
+    // regardless of whether `AppSignals` is true or false.
+    // However, if the customer has explicitly set the `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
+    // we will continue using the `otlp_exporter` to send OTel traces to the specified endpoint.
+    if (!hasCustomOtlpTraceEndpoint() && isLambdaEnvironment()) {
       protocol = 'udp';
     }
     switch (protocol) {
@@ -519,7 +536,9 @@ export class AwsSpanProcessorProvider {
       if (exporter instanceof ConsoleSpanExporter) {
         return new SimpleSpanProcessor(configuredExporter);
       } else {
-        return new BatchSpanProcessor(configuredExporter);
+        return new BatchSpanProcessor(configuredExporter, {
+          maxExportBatchSize: getSpanExportBatchSize(),
+        });
       }
     });
   }
@@ -614,9 +633,20 @@ function getSamplerProbabilityFromEnv(environment: Required<ENVIRONMENT>): numbe
   return probability;
 }
 
-function isLambdaEnvironment() {
+function getSpanExportBatchSize() {
+  if (isLambdaEnvironment()) {
+    return LAMBDA_SPAN_EXPORT_BATCH_SIZE;
+  }
+  return undefined;
+}
+
+export function isLambdaEnvironment() {
   // detect if running in AWS Lambda environment
   return process.env[AWS_LAMBDA_FUNCTION_NAME_CONFIG] !== undefined;
+}
+
+function hasCustomOtlpTraceEndpoint() {
+  return process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] !== undefined;
 }
 
 function getXrayDaemonEndpoint() {

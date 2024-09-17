@@ -7,6 +7,30 @@ import { AWS_ATTRIBUTE_KEYS } from '../aws-attribute-keys';
 import { RequestMetadata } from '../third-party/otel/aws/services/ServiceExtension';
 import { KinesisServiceExtension } from './aws/services/kinesis';
 import { S3ServiceExtension } from './aws/services/s3';
+import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
+import {
+  Context as OtelContext,
+  context as otelContext,
+  trace,
+  propagation,
+  TextMapGetter,
+  isSpanContextValid,
+  ROOT_CONTEXT,
+  diag,
+} from '@opentelemetry/api';
+import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
+import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
+
+export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
+const awsPropagator = new AWSXRayPropagator();
+const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
+  keys(carrier): string[] {
+    return Object.keys(carrier);
+  },
+  get(carrier, key: string) {
+    return carrier[key];
+  },
+};
 
 export function applyInstrumentationPatches(instrumentations: Instrumentation[]): void {
   /*
@@ -18,7 +42,7 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
 
   Where possible, automated testing should be run to catch upstream changes resulting in broken patches
   */
-  instrumentations.forEach(instrumentation => {
+  instrumentations.forEach((instrumentation, index) => {
     if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-sdk') {
       // Access private property servicesExtensions of AwsInstrumentation
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -29,9 +53,47 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
         services.set('Kinesis', new KinesisServiceExtension());
         patchSqsServiceExtension(services.get('SQS'));
       }
+    } else if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-lambda') {
+      diag.debug('Overriding aws lambda instrumentation');
+      const lambdaInstrumentation = new AwsLambdaInstrumentation({
+        eventContextExtractor: customExtractor,
+        disableAwsContextPropagation: true,
+      });
+      instrumentations[index] = lambdaInstrumentation;
     }
   });
 }
+
+/*
+ * This function `customExtractor` is used to extract SpanContext for AWS Lambda functions.
+ * It first attempts to extract the trace context from the AWS X-Ray header, which is stored in the Lambda environment variables.
+ * If a valid span context is extracted from the environment, it uses this as the parent context for the function's tracing.
+ * If the X-Ray header is missing or invalid, it falls back to extracting trace context from the Lambda handler's event headers.
+ * If neither approach succeeds, it defaults to using the root Otel context, ensuring the function is still instrumented for tracing.
+ */
+export const customExtractor = (event: any, _handlerContext: Context): OtelContext => {
+  let parent: OtelContext | undefined = undefined;
+  const lambdaTraceHeader = process.env[traceContextEnvironmentKey];
+  if (lambdaTraceHeader) {
+    parent = awsPropagator.extract(
+      otelContext.active(),
+      { [AWSXRAY_TRACE_ID_HEADER]: lambdaTraceHeader },
+      headerGetter
+    );
+  }
+  if (parent) {
+    const spanContext = trace.getSpan(parent)?.spanContext();
+    if (spanContext && isSpanContextValid(spanContext)) {
+      return parent;
+    }
+  }
+  const httpHeaders = event.headers || {};
+  const extractedContext = propagation.extract(otelContext.active(), httpHeaders, headerGetter);
+  if (trace.getSpan(extractedContext)?.spanContext()) {
+    return extractedContext;
+  }
+  return ROOT_CONTEXT;
+};
 
 /*
  * This patch extends the existing upstream extension for SQS. Extensions allow for custom logic for adding

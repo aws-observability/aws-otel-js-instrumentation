@@ -368,6 +368,15 @@ describe('AwsSpanProcessingUtilTest', () => {
       expect(AwsSpanProcessingUtil.MAX_KEYWORD_LENGTH).toBeGreaterThanOrEqual(keyword.length);
     });
   });
+
+  it('testGetIngressOperationForLambda', () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+    const validName: string = 'ValidName';
+    (spanDataMock as any).name = validName;
+    (spanDataMock as any).kind = SpanKind.SERVER;
+    const actualOperation: string = AwsSpanProcessingUtil.getIngressOperation(spanDataMock);
+    expect(actualOperation).toEqual('TestFunction/Handler');
+  });
 });
 
 function createMockSpanContext(): SpanContext {

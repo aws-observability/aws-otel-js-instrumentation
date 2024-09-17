@@ -27,11 +27,12 @@ import {
   customBuildSamplerFromEnv,
 } from '../src/aws-opentelemetry-configurator';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
-import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
 import { setAwsDefaultEnvironmentVariables } from '../src/register';
 import { AwsXRayRemoteSampler } from '../src/sampler/aws-xray-remote-sampler';
 import { AwsXraySamplingClient } from '../src/sampler/aws-xray-sampling-client';
 import { GetSamplingRulesResponse } from '../src/sampler/remote-sampler.types';
+import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
+import { AwsBatchUnsampledSpanProcessor } from '../src/aws-batch-unsampled-span-processor';
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -368,6 +369,34 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     delete process.env.AWS_LAMBDA_FUNCTION_NAME;
     delete process.env.OTEL_TRACES_EXPORTER;
     delete process.env.AWS_XRAY_DAEMON_ADDRESS;
+  });
+
+  it('tests configureOTLP on Lambda with ApplicationSignals False', () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'False';
+    process.env.OTEL_TRACES_EXPORTER = 'otlp';
+    process.env.AWS_XRAY_DAEMON_ADDRESS = 'www.test.com:2222';
+    const spanExporter: SpanExporter = AwsSpanProcessorProvider.configureOtlp();
+    expect(spanExporter).toBeInstanceOf(OTLPUdpSpanExporter);
+    expect((spanExporter as OTLPUdpSpanExporter)['_endpoint']).toBe('www.test.com:2222');
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    delete process.env.OTEL_TRACES_EXPORTER;
+    delete process.env.AWS_XRAY_DAEMON_ADDRESS;
+  });
+
+  it('Test CustomizeSpanProcessors for Lambda', () => {
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+    const spanProcessors: SpanProcessor[] = [];
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+    expect(spanProcessors.length).toEqual(2);
+    const firstProcessor: SpanProcessor = spanProcessors[0];
+    expect(firstProcessor).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    const secondProcessor: SpanProcessor = spanProcessors[1];
+    expect(secondProcessor).toBeInstanceOf(AwsBatchUnsampledSpanProcessor);
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
   });
 
   function validateConfiguratorEnviron() {

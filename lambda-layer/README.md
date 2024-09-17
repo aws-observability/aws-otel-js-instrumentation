@@ -28,10 +28,8 @@ anymore.
 
 ## Steps to Deploy this Lambda function
 
-Go to `${root}/lambda-layer/sample-apps/aws-sdk` director,
-
-1. run `npm install`.
-2. run `terraform init` and `terraform apply`.
+1. Go to `${root}/lambda-layer/sample-apps/aws-sdk` director, run `npm install`.
+2. Go to `${root}/lambda-layer/terraform/lambda`, run `terraform init` and `terraform apply`.
 
 The lambda function(`aws-opentelemetry-distro-nodejs`) will be initialized and the URL for an API Gateway invoking the Lambda
 will be displayed at the end. Send a request to the URL in a browser or using curl to execute the function. Then,

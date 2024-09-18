@@ -122,11 +122,11 @@ export class AwsOpentelemetryConfigurator {
       defaultDetectors = getResourceDetectorsFromEnv();
       // Add Env/AWS Resource Detectors if not present
       const resourceDetectorsFromEnv: string[] = process.env.OTEL_NODE_RESOURCE_DETECTORS.split(',');
-      if (!resourceDetectorsFromEnv.includes('env')) {
-        defaultDetectors.push(envDetectorSync);
-      }
       if (!resourceDetectorsFromEnv.includes('aws')) {
         defaultDetectors.push(awsEc2Detector, awsEcsDetector, awsEksDetector);
+      }
+      if (!resourceDetectorsFromEnv.includes('env')) {
+        defaultDetectors.push(envDetectorSync);
       }
     } else {
       /*

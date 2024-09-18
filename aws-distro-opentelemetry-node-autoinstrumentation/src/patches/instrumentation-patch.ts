@@ -25,7 +25,7 @@ export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 const awsPropagator = new AWSXRayPropagator();
 export const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
   keys(carrier: any): string[] {
-    return Object.keys(gcarrier);
+    return Object.keys(carrier);
   },
   get(carrier: any, key: string) {
     return carrier[key];

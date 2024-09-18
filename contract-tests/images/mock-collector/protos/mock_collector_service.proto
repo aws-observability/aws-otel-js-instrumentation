@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+// Service definition for mock collector
+service MockCollectorService {
+  // Clears all traces and metrics captured by  mock collector, so it can be used for multiple tests.
+  rpc clear (ClearRequest) returns (ClearResponse) {}
+
+  // Returns traces exported to mock collector
+  rpc get_traces (GetTracesRequest) returns (GetTracesResponse) {}
+
+  // Returns metrics exported to mock collector
+  rpc get_metrics (GetMetricsRequest) returns (GetMetricsResponse) {}
+}
+
+// Empty request for clear rpc.
+message ClearRequest {}
+
+// Empty response for clear rpc.
+message ClearResponse {}
+
+// Empty request for get traces rpc.
+message GetTracesRequest {}
+
+// Response for get traces rpc - all traces in byte form.
+message GetTracesResponse{
+  repeated bytes traces = 1;
+}
+
+// Empty request for get metrics rpc.
+message GetMetricsRequest {}
+
+// Response for get metrics rpc - all metrics in byte form.
+message GetMetricsResponse {
+  repeated bytes metrics = 1;
+}

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Fail fast
-set -e
+set -ex
 
 # Check script is running in scripts
 current_path=`pwd`
@@ -16,4 +16,11 @@ fi
 # Install dependencies and compile all projects in this repostory
 npm install
 npm run compile
+
+cd aws-distro-opentelemetry-node-autoinstrumentation
+npm pack
+cd ..
+
+mkdir -p dist
+mv aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-*.tgz dist/
 

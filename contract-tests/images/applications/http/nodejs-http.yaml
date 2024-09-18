@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-nodejs-deployment
+  labels:
+    app: http-nodejs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: http-nodejs
+  template:
+    metadata:
+      labels:
+        app: http-nodejs
+      annotations:
+        instrumentation.opentelemetry.io/inject-nodejs: "true"
+    spec:
+      containers:
+        - name: http-nodejs
+          image: public.ecr.aws/e8l6r3w7/nodejs-http:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NODE_ENV
+              value: "production"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-nodejs-service
+spec:
+  selector:
+    app: http-nodejs  # Corrected selector to match the app label
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: LoadBalancer

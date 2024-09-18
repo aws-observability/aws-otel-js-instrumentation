@@ -24,10 +24,10 @@ import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propa
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 const awsPropagator = new AWSXRayPropagator();
 export const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
-  keys(carrier): string[] {
-    return Object.keys(carrier);
+  keys(carrier: any): string[] {
+    return Object.keys(gcarrier);
   },
-  get(carrier, key: string) {
+  get(carrier: any, key: string) {
     return carrier[key];
   },
 };

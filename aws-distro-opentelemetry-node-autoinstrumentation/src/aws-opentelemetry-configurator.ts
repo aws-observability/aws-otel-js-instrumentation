@@ -478,7 +478,7 @@ export class AwsSpanProcessorProvider {
     }
   }
 
-  protected static _registeredExporters = new Map<string, () => SpanExporter>([
+  protected static _registeredExporters: Map<string, () => SpanExporter> = new Map<string, () => SpanExporter>([
     ['otlp', () => this.configureOtlp()],
     ['zipkin', () => new ZipkinExporter()],
     ['jaeger', () => this.configureJaeger()],

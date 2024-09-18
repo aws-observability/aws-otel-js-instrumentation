@@ -27,11 +27,11 @@ import {
   customBuildSamplerFromEnv,
 } from '../src/aws-opentelemetry-configurator';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
+import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
 import { setAwsDefaultEnvironmentVariables } from '../src/register';
 import { AwsXRayRemoteSampler } from '../src/sampler/aws-xray-remote-sampler';
 import { AwsXraySamplingClient } from '../src/sampler/aws-xray-sampling-client';
 import { GetSamplingRulesResponse } from '../src/sampler/remote-sampler.types';
-import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -117,8 +117,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     const sampler = customBuildSamplerFromEnv(Resource.empty());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
-    expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('http://localhost:2000');
-    expect((sampler as AwsXRayRemoteSampler).getRulePollingIntervalMillis()).toEqual(300000); // ms
+    expect((sampler as any).awsProxyEndpoint).toEqual('http://localhost:2000');
+    expect((sampler as any).rulePollingIntervalMillis).toEqual(300000); // ms
 
     clearInterval((sampler as any).rulePoller);
     clearInterval((sampler as any).targetPoller);
@@ -132,12 +132,12 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     const sampler = customBuildSamplerFromEnv(Resource.empty());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
-    expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('http://asdfghjkl:2000');
-    expect((sampler as AwsXRayRemoteSampler).getRulePollingIntervalMillis()).toEqual(600000); // ms
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual(
+    expect((sampler as any).awsProxyEndpoint).toEqual('http://asdfghjkl:2000');
+    expect((sampler as any).rulePollingIntervalMillis).toEqual(600000); // ms
+    expect(((sampler as any).samplingClient as any).getSamplingRulesEndpoint).toEqual(
       'http://asdfghjkl:2000/GetSamplingRules'
     );
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual(
+    expect(((sampler as any).samplingClient as any).samplingTargetsEndpoint).toEqual(
       'http://asdfghjkl:2000/SamplingTargets'
     );
 
@@ -155,12 +155,12 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     const sampler = customBuildSamplerFromEnv(Resource.empty());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
-    expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('http://asdfghjkl:2000');
-    expect((sampler as AwsXRayRemoteSampler).getRulePollingIntervalMillis()).toEqual(300000); // default value
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual(
+    expect((sampler as any).awsProxyEndpoint).toEqual('http://asdfghjkl:2000');
+    expect((sampler as any).rulePollingIntervalMillis).toEqual(300000); // default value
+    expect(((sampler as any).samplingClient as any).getSamplingRulesEndpoint).toEqual(
       'http://asdfghjkl:2000/GetSamplingRules'
     );
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual(
+    expect(((sampler as any).samplingClient as any).samplingTargetsEndpoint).toEqual(
       'http://asdfghjkl:2000/SamplingTargets'
     );
 
@@ -187,12 +187,12 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     let sampler = customBuildSamplerFromEnv(Resource.empty());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
-    expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('http://lo=cal=host=:2000');
-    expect((sampler as AwsXRayRemoteSampler).getRulePollingIntervalMillis()).toEqual(600000);
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual(
+    expect((sampler as any).awsProxyEndpoint).toEqual('http://lo=cal=host=:2000');
+    expect((sampler as any).rulePollingIntervalMillis).toEqual(600000);
+    expect(((sampler as any).samplingClient as any).getSamplingRulesEndpoint).toEqual(
       'http://lo=cal=host=:2000/GetSamplingRules'
     );
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual(
+    expect(((sampler as any).samplingClient as any).samplingTargetsEndpoint).toEqual(
       'http://lo=cal=host=:2000/SamplingTargets'
     );
 
@@ -201,12 +201,12 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     sampler = customBuildSamplerFromEnv(Resource.empty());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
-    expect((sampler as AwsXRayRemoteSampler).getAwsProxyEndpoint()).toEqual('http://localhost:2000');
-    expect((sampler as AwsXRayRemoteSampler).getRulePollingIntervalMillis()).toEqual(550000);
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).getSamplingRulesEndpoint).toEqual(
+    expect((sampler as any).awsProxyEndpoint).toEqual('http://localhost:2000');
+    expect((sampler as any).rulePollingIntervalMillis).toEqual(550000);
+    expect(((sampler as any).samplingClient as any).getSamplingRulesEndpoint).toEqual(
       'http://localhost:2000/GetSamplingRules'
     );
-    expect(((sampler as AwsXRayRemoteSampler).getSamplingClient() as any).samplingTargetsEndpoint).toEqual(
+    expect(((sampler as any).samplingClient as any).samplingTargetsEndpoint).toEqual(
       'http://localhost:2000/SamplingTargets'
     );
 

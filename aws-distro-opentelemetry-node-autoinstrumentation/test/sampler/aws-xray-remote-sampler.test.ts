@@ -21,11 +21,11 @@ describe('AwsXrayRemoteSampler', () => {
   it('testCreateRemoteSamplerWithEmptyResource', () => {
     const sampler: AwsXRayRemoteSampler = new AwsXRayRemoteSampler({ resource: Resource.EMPTY });
 
-    expect(sampler.getRulePoller()).not.toBeFalsy();
-    expect(sampler.getRulePollingIntervalMillis()).toEqual(300 * 1000);
-    expect(sampler.getSamplingClient()).not.toBeFalsy();
-    expect(sampler.getRuleCache()).not.toBeFalsy();
-    expect(sampler.getClientId()).toMatch(/[a-f0-9]{24}/);
+    expect((sampler as any).rulePoller).not.toBeFalsy();
+    expect((sampler as any).rulePollingIntervalMillis).toEqual(300 * 1000);
+    expect((sampler as any).samplingClient).not.toBeFalsy();
+    expect((sampler as any).ruleCache).not.toBeFalsy();
+    expect((sampler as any).clientId).toMatch(/[a-f0-9]{24}/);
   });
 
   it('testCreateRemoteSamplerWithPopulatedResource', () => {
@@ -35,12 +35,12 @@ describe('AwsXrayRemoteSampler', () => {
     });
     const sampler = new AwsXRayRemoteSampler({ resource: resource });
 
-    expect(sampler.getRulePoller()).not.toBeFalsy();
-    expect(sampler.getRulePollingIntervalMillis()).toEqual(300 * 1000);
-    expect(sampler.getSamplingClient()).not.toBeFalsy();
-    expect(sampler.getRuleCache()).not.toBeFalsy();
-    expect(sampler.getRuleCache().getSamplerResource().attributes).toEqual(resource.attributes);
-    expect(sampler.getClientId()).toMatch(/[a-f0-9]{24}/);
+    expect((sampler as any).rulePoller).not.toBeFalsy();
+    expect((sampler as any).rulePollingIntervalMillis).toEqual(300 * 1000);
+    expect((sampler as any).samplingClient).not.toBeFalsy();
+    expect((sampler as any).ruleCache).not.toBeFalsy();
+    expect(((sampler as any).ruleCache as any).samplerResource.attributes).toEqual(resource.attributes);
+    expect((sampler as any).clientId).toMatch(/[a-f0-9]{24}/);
   });
 
   it('testCreateRemoteSamplerWithAllFieldsPopulated', () => {
@@ -54,13 +54,13 @@ describe('AwsXrayRemoteSampler', () => {
       pollingInterval: 120, // seconds
     });
 
-    expect(sampler.getRulePoller()).not.toBeFalsy();
-    expect(sampler.getRulePollingIntervalMillis()).toEqual(120 * 1000);
-    expect(sampler.getSamplingClient()).not.toBeFalsy();
-    expect(sampler.getRuleCache()).not.toBeFalsy();
-    expect(sampler.getRuleCache().getSamplerResource().attributes).toEqual(resource.attributes);
-    expect(sampler.getAwsProxyEndpoint()).toEqual('http://abc.com');
-    expect(sampler.getClientId()).toMatch(/[a-f0-9]{24}/);
+    expect((sampler as any).rulePoller).not.toBeFalsy();
+    expect((sampler as any).rulePollingIntervalMillis).toEqual(120 * 1000);
+    expect((sampler as any).samplingClient).not.toBeFalsy();
+    expect((sampler as any).ruleCache).not.toBeFalsy();
+    expect(((sampler as any).ruleCache as any).samplerResource.attributes).toEqual(resource.attributes);
+    expect((sampler as any).awsProxyEndpoint).toEqual('http://abc.com');
+    expect((sampler as any).clientId).toMatch(/[a-f0-9]{24}/);
   });
 
   it('testUpdateSamplingRulesAndTargetsWithPollersAndShouldSampled', done => {
@@ -81,7 +81,7 @@ describe('AwsXrayRemoteSampler', () => {
     });
 
     setTimeout(() => {
-      expect(sampler.getRuleCache().getRuleAppliers()[0].samplingRule.RuleName).toEqual('test');
+      expect(((sampler as any).ruleCache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('test');
       expect(
         sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
       ).toEqual(SamplingDecision.NOT_RECORD);
@@ -123,7 +123,7 @@ describe('AwsXrayRemoteSampler', () => {
     });
 
     setTimeout(() => {
-      expect(sampler.getRuleCache().getRuleAppliers()[0].samplingRule.RuleName).toEqual('test');
+      expect(((sampler as any).ruleCache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('test');
       expect(sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, attributes, []).decision).toEqual(
         SamplingDecision.NOT_RECORD
       );
@@ -138,7 +138,9 @@ describe('AwsXrayRemoteSampler', () => {
             sampled++;
           }
         }
-        expect((sampler.getRuleCache().getRuleAppliers()[0] as any).reservoirSampler._root.quota).toEqual(100000);
+        expect((((sampler as any).ruleCache as any).ruleAppliers[0] as any).reservoirSampler._root.quota).toEqual(
+          100000
+        );
         expect(sampled).toEqual(100000);
         // reset function
         (AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = tmp;
@@ -166,7 +168,7 @@ describe('AwsXrayRemoteSampler', () => {
     });
 
     setTimeout(() => {
-      expect(sampler.getRuleCache().getRuleAppliers()[0].samplingRule.RuleName).toEqual('test');
+      expect(((sampler as any).ruleCache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('test');
       expect(sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, attributes, []).decision).toEqual(
         SamplingDecision.NOT_RECORD
       );

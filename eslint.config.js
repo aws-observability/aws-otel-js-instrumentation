@@ -41,8 +41,12 @@ module.exports = {
         ],
         "@typescript-eslint/no-var-requires": "off",
         "@typescript-eslint/no-inferrable-types": 0,
-        "@typescript-eslint/typedef": ["warn", {
-          "variableDeclaration": true
+        "@typescript-eslint/typedef": ["error", {
+          "variableDeclaration": false,
+          "parameter": true,
+          "propertyDeclaration": true,
+          "memberVariableDeclaration": true,
+          "variableDeclarationIgnoreFunction": true
         }],
         "@typescript-eslint/no-empty-function": ["off"],
         "@typescript-eslint/ban-types": ["warn", {

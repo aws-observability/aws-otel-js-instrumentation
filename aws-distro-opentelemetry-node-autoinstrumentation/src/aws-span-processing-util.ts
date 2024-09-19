@@ -17,8 +17,8 @@ import {
   SEMATTRS_RPC_SYSTEM,
 } from '@opentelemetry/semantic-conventions';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
-import * as SQL_DIALECT_KEYWORDS_JSON from './configuration/sql_dialect_keywords.json';
 import { AWS_LAMBDA_FUNCTION_NAME_CONFIG, isLambdaEnvironment } from './aws-opentelemetry-configurator';
+import * as SQL_DIALECT_KEYWORDS_JSON from './configuration/sql_dialect_keywords.json';
 
 /** Utility class designed to support shared logic across AWS Span Processors. */
 export class AwsSpanProcessingUtil {
@@ -124,23 +124,6 @@ export class AwsSpanProcessingUtil {
   }
 
   static shouldGenerateDependencyMetricAttributes(span: ReadableSpan): boolean {
-    // Divergence from Java/Python
-    // In OTel JS, the AWS SDK instrumentation creates two Client Spans, one for AWS SDK,
-    // and another for the underlying HTTP Client used by the SDK. The following code block
-    // ensures that dependency metrics are not generated for direct descendent of AWS SDK Spans.
-    const isAwsSdkDescendent: AttributeValue | undefined = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SDK_DESCENDANT];
-    if (isAwsSdkDescendent !== undefined && isAwsSdkDescendent === 'true') {
-      return false;
-    }
-
-    // TODO:
-    // Telemetry improvements:
-    // - return false for dns instrumentation client spans
-    //   (suppress metrics for spans with name: `dns.lookup`)
-    // - return false for mongoose instrumentation client spans in
-    //   favor of lower level mongodb instrumentation client spans
-    //   (suppress metrics for spans attribute 'db.system': 'mongoose')
-
     return (
       SpanKind.CLIENT === span.kind ||
       SpanKind.PRODUCER === span.kind ||

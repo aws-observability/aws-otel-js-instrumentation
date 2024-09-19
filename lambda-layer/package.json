@@ -1,0 +1,36 @@
+{
+  "name": "@aws/aws-distro-opentelemetry-node-autoinstrumentatio-sdk-layer",
+  "version": "0.0.1",
+  "description": "Lambda Layer including AWS Distro OpenTelemetry SDK for supporting Amazon Application Signals",
+  "repository": "aws-observability/aws-otel-js-instrumentation",
+  "author": {
+    "name": "Amazon Web Services",
+    "url": "http://aws.amazon.com"
+  },
+  "homepage": "https://github.com/aws-observability/aws-otel-js-instrumentation/tree/main/aws-distro-opentelemetry-node-autoinstrumentation#readme",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=16"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "rimraf build/*",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix"
+  },
+  "keywords": [
+    "awsdistroopentelemetry",
+    "opentelemetry",
+    "awslambda",
+    "nodejs",
+    "tracing",
+    "profiling",
+    "instrumentation"
+  ],
+  "devDependencies": {
+    "copyfiles": "^2.4.1",
+    "bestzip": "2.2.0"
+  }
+}

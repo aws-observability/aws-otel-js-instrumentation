@@ -1,11 +1,16 @@
 #!/bin/bash
 export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/wrapper.js"
 export LAMBDA_RESOURCE_ATTRIBUTES="cloud.region=$AWS_REGION,cloud.provider=aws,faas.name=$AWS_LAMBDA_FUNCTION_NAME,faas.version=$AWS_LAMBDA_FUNCTION_VERSION,faas.instance=$AWS_LAMBDA_LOG_STREAM_NAME,aws.log.group.names=$AWS_LAMBDA_LOG_GROUP_NAME";
-export OTEL_NODE_ENABLED_INSTRUMENTATIONS="aws-lambda,aws-sdk"
+
 
 # - If OTEL_EXPORTER_OTLP_PROTOCOL is not set by user, the default exporting protocol is http/protobuf.
 if [ -z "${OTEL_EXPORTER_OTLP_PROTOCOL}" ]; then
     export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+fi
+
+# - If OTEL_NODE_ENABLED_INSTRUMENTATIONS is not set by user, use default instrumentation
+if [ -z "${OTEL_NODE_ENABLED_INSTRUMENTATIONS}" ]; then
+    export OTEL_NODE_ENABLED_INSTRUMENTATIONS="aws-lambda,aws-sdk"
 fi
 
 # - Set the service name

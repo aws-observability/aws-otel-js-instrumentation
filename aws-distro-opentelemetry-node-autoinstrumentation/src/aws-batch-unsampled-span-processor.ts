@@ -20,7 +20,7 @@ import { BatchSpanProcessorBase } from '@opentelemetry/sdk-trace-base/build/src/
  * In particular, the following methods are modified:
  *
  * 1. `onStart`: This method is modified to detect unsampled spans and add an
- *    AWS-specific attribute (`AWS_TRACE_FLAG_UNSAMPLED`) to denote that the span
+ *    AWS-specific attribute (`AWS_TRACE_FLAG_SAMPLED`) to denote that the span
  *    is unsampled. This is done by checking the `traceFlags` of the span.
  *
  * 2. `onEnd`: The logic here is changed to handle unsampled spans. While the
@@ -37,7 +37,7 @@ import { BatchSpanProcessorBase } from '@opentelemetry/sdk-trace-base/build/src/
 export class AwsBatchUnsampledSpanProcessor extends BatchSpanProcessorBase<BufferConfig> {
   override onStart(span: Span, _parentContext: Context): void {
     if ((span.spanContext().traceFlags & TraceFlags.SAMPLED) === 0) {
-      span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_TRACE_FLAG_UNSAMPLED, true);
+      span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_TRACE_FLAG_SAMPLED, false);
       return;
     }
   }

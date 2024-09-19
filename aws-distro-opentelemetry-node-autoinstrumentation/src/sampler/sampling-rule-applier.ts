@@ -10,6 +10,11 @@ import {
   TraceIdRatioBasedSampler,
 } from '@opentelemetry/sdk-trace-base';
 import {
+  ATTR_CLIENT_ADDRESS,
+  ATTR_HTTP_REQUEST_METHOD,
+  ATTR_SERVER_ADDRESS,
+  ATTR_URL_FULL,
+  ATTR_URL_PATH,
   CLOUDPLATFORMVALUES_AWS_LAMBDA,
   SEMATTRS_AWS_LAMBDA_INVOKED_ARN,
   SEMATTRS_HTTP_HOST,
@@ -85,12 +90,11 @@ export class SamplingRuleApplier {
     let httpHost: AttributeValue | undefined = undefined;
     let serviceName: AttributeValue | undefined = undefined;
 
-    // Unlike in Python, `URL_PATH/URL_FULL/HTTP_REQUEST_METHOD/SERVER_ADDRESS` are not available in Semantic Attributes
     if (attributes) {
-      httpTarget = attributes[SEMATTRS_HTTP_TARGET];
-      httpUrl = attributes[SEMATTRS_HTTP_URL];
-      httpMethod = attributes[SEMATTRS_HTTP_METHOD];
-      httpHost = attributes[SEMATTRS_HTTP_HOST];
+      httpTarget = attributes[SEMATTRS_HTTP_TARGET] ?? attributes[ATTR_URL_PATH];
+      httpUrl = attributes[SEMATTRS_HTTP_URL] ?? attributes[ATTR_URL_FULL];
+      httpMethod = attributes[SEMATTRS_HTTP_METHOD] ?? attributes[ATTR_HTTP_REQUEST_METHOD];
+      httpHost = attributes[SEMATTRS_HTTP_HOST] ?? attributes[ATTR_SERVER_ADDRESS] ?? attributes[ATTR_CLIENT_ADDRESS];
     }
 
     let serviceType: AttributeValue | undefined = undefined;

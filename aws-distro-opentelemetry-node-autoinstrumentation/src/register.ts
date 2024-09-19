@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
-import { DiagConsoleLogger, diag } from '@opentelemetry/api';
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { diag, DiagConsoleLogger } from '@opentelemetry/api';
+import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
@@ -43,7 +43,15 @@ export function setAwsDefaultEnvironmentVariables(): void {
 }
 setAwsDefaultEnvironmentVariables();
 
-const instrumentations: Instrumentation[] = getNodeAutoInstrumentations();
+const instrumentationConfigs: InstrumentationConfigMap = {
+  '@opentelemetry/instrumentation-aws-sdk': {
+    suppressInternalInstrumentation: true,
+  },
+  '@opentelemetry/instrumentation-mongoose': {
+    suppressInternalInstrumentation: true,
+  },
+};
+const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
 // Apply instrumentation patches
 applyInstrumentationPatches(instrumentations);

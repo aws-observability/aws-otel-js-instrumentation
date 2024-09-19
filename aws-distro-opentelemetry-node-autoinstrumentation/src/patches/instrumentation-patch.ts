@@ -1,25 +1,25 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import {
+  diag,
+  isSpanContextValid,
+  Context as OtelContext,
+  context as otelContext,
+  propagation,
+  ROOT_CONTEXT,
+  TextMapGetter,
+  trace,
+} from '@opentelemetry/api';
 import { Instrumentation } from '@opentelemetry/instrumentation';
+import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import { AwsSdkInstrumentationConfig, NormalizedRequest } from '@opentelemetry/instrumentation-aws-sdk';
+import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
+import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
 import { AWS_ATTRIBUTE_KEYS } from '../aws-attribute-keys';
 import { RequestMetadata } from '../third-party/otel/aws/services/ServiceExtension';
 import { KinesisServiceExtension } from './aws/services/kinesis';
 import { S3ServiceExtension } from './aws/services/s3';
-import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
-import {
-  Context as OtelContext,
-  context as otelContext,
-  trace,
-  propagation,
-  TextMapGetter,
-  isSpanContextValid,
-  ROOT_CONTEXT,
-  diag,
-} from '@opentelemetry/api';
-import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
-import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 const awsPropagator = new AWSXRayPropagator();

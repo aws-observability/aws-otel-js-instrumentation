@@ -18,6 +18,7 @@ import {
 import { Resource, ResourceAttributes } from '@opentelemetry/resources';
 import { AwsBatchUnsampledSpanProcessor } from '../src/aws-batch-unsampled-span-processor';
 import { AlwaysRecordSampler } from '../src/always-record-sampler';
+import { AWS_ATTRIBUTE_KEYS } from '../src/aws-attribute-keys';
 
 /**
  * This test file is a modified version of `BatchSpanProcessorBase.test.ts`.
@@ -131,6 +132,7 @@ describe('AwsBatchUnsampledSpanProcessor', () => {
 
       processor.onStart(span, ROOT_CONTEXT);
       processor.onEnd(span);
+      assert.strictEqual(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_TRACE_FLAG_SAMPLED], false);
 
       await processor.forceFlush();
       // _finishedSpans should be empty after forceFlush

@@ -18,10 +18,7 @@
   "scripts": {
     "clean": "rimraf build/*",
     "lint": "eslint . --ext .ts",
-    "lint:fix": "eslint . --ext .ts --fix",
-    "prepare": "npm run compile",
-    "compile": "tsc -p .",
-    "postcompile": "copyfiles -F 'node_modules/**' build/workspace/nodejs && copyfiles -f 'scripts/*' build/workspace && copyfiles -f 'build/src/*' build/workspace && cd build/workspace && bestzip ../layer.zip *"
+    "lint:fix": "eslint . --ext .ts --fix"
   },
   "keywords": [
     "awsdistroopentelemetry",
@@ -32,7 +29,8 @@
     "profiling",
     "instrumentation"
   ],
-  "dependencies": {
-    "@aws/aws-distro-opentelemetry-node-autoinstrumentation": "file:../../../aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-0.1.0-dev0.tgz"
+  "devDependencies": {
+    "copyfiles": "^2.4.1",
+    "bestzip": "2.2.0"
   }
 }

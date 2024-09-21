@@ -6,12 +6,14 @@ import { Resource } from '@opentelemetry/resources';
 import { AwsMetricAttributeGenerator } from './aws-metric-attribute-generator';
 import { AwsSpanMetricsProcessor } from './aws-span-metrics-processor';
 import { MetricAttributeGenerator } from './metric-attribute-generator';
+import { ForceFlushFunction } from "./aws-span-processing-util";
 
 // Metric instrument configuration constants
 const ERROR: string = 'Error';
 const FAULT: string = 'Fault';
 const LATENCY: string = 'Latency';
 const LATENCY_UNITS: string = 'Milliseconds';
+
 
 /** A builder for {@link AwsSpanMetricsProcessor} */
 export class AwsSpanMetricsProcessorBuilder {
@@ -22,18 +24,20 @@ export class AwsSpanMetricsProcessorBuilder {
   // Required builder elements
   private meterProvider: MeterProvider;
   private resource: Resource;
+  private forceFlushFunction: ForceFlushFunction;
 
   // Optional builder elements
   private generator: MetricAttributeGenerator = AwsSpanMetricsProcessorBuilder.DEFAULT_GENERATOR;
   private scopeName: string = AwsSpanMetricsProcessorBuilder.DEFAULT_SCOPE_NAME;
 
-  public static create(meterProvider: MeterProvider, resource: Resource): AwsSpanMetricsProcessorBuilder {
-    return new AwsSpanMetricsProcessorBuilder(meterProvider, resource);
+  public static create(meterProvider: MeterProvider, resource: Resource, meterProviderForceFlusher: ForceFlushFunction): AwsSpanMetricsProcessorBuilder {
+    return new AwsSpanMetricsProcessorBuilder(meterProvider, resource, meterProviderForceFlusher);
   }
 
-  private constructor(meterProvider: MeterProvider, resource: Resource) {
+  private constructor(meterProvider: MeterProvider, resource: Resource, meterProviderForceFlusher: ForceFlushFunction) {
     this.meterProvider = meterProvider;
     this.resource = resource;
+    this.forceFlushFunction = meterProviderForceFlusher;
   }
 
   /**
@@ -72,7 +76,8 @@ export class AwsSpanMetricsProcessorBuilder {
       faultHistogram,
       latencyHistogram,
       this.generator,
-      this.resource
+      this.resource,
+      this.forceFlushFunction
     );
   }
 }

@@ -273,7 +273,7 @@ export class AwsOpentelemetryConfigurator {
         resource: resource,
         readers: [periodicExportingMetricReader],
       });
-      spanProcessors.push(AwsSpanMetricsProcessorBuilder.create(meterProvider, resource).build());
+      spanProcessors.push(AwsSpanMetricsProcessorBuilder.create(meterProvider, resource, meterProvider.forceFlush.bind(meterProvider)).build());
     }
   }
 

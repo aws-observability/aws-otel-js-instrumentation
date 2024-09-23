@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
-import { diag, DiagConsoleLogger } from '@opentelemetry/api';
+import { DiagConsoleLogger, diag, trace } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
@@ -67,6 +67,11 @@ const sdk: opentelemetry.NodeSDK = new opentelemetry.NodeSDK(configuration);
 // we wish to make contributions to upstream to improve customizability of the Node auto-instrumentation.
 try {
   sdk.start();
+  for (const instrumentation of instrumentations) {
+    diag.info('Set TraceProvider for instrumentations at the end of initialization');
+    instrumentation.setTracerProvider(trace.getTracerProvider());
+  }
+
   diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
   diag.debug(`Environment variable OTEL_PROPAGATORS is set to '${process.env.OTEL_PROPAGATORS}'`);
   diag.debug(`Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to '${process.env.OTEL_EXPORTER_OTLP_PROTOCOL}'`);

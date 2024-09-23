@@ -6,14 +6,13 @@ import { Resource } from '@opentelemetry/resources';
 import { AwsMetricAttributeGenerator } from './aws-metric-attribute-generator';
 import { AwsSpanMetricsProcessor } from './aws-span-metrics-processor';
 import { MetricAttributeGenerator } from './metric-attribute-generator';
-import { ForceFlushFunction } from "./aws-span-processing-util";
+import { ForceFlushFunction } from './aws-span-processing-util';
 
 // Metric instrument configuration constants
 const ERROR: string = 'Error';
 const FAULT: string = 'Fault';
 const LATENCY: string = 'Latency';
 const LATENCY_UNITS: string = 'Milliseconds';
-
 
 /** A builder for {@link AwsSpanMetricsProcessor} */
 export class AwsSpanMetricsProcessorBuilder {
@@ -30,7 +29,11 @@ export class AwsSpanMetricsProcessorBuilder {
   private generator: MetricAttributeGenerator = AwsSpanMetricsProcessorBuilder.DEFAULT_GENERATOR;
   private scopeName: string = AwsSpanMetricsProcessorBuilder.DEFAULT_SCOPE_NAME;
 
-  public static create(meterProvider: MeterProvider, resource: Resource, meterProviderForceFlusher: ForceFlushFunction): AwsSpanMetricsProcessorBuilder {
+  public static create(
+    meterProvider: MeterProvider,
+    resource: Resource,
+    meterProviderForceFlusher: ForceFlushFunction
+  ): AwsSpanMetricsProcessorBuilder {
     return new AwsSpanMetricsProcessorBuilder(meterProvider, resource, meterProviderForceFlusher);
   }
 

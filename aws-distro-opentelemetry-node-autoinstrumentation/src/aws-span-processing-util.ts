@@ -20,7 +20,6 @@ import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AWS_LAMBDA_FUNCTION_NAME_CONFIG, isLambdaEnvironment } from './aws-opentelemetry-configurator';
 import * as SQL_DIALECT_KEYWORDS_JSON from './configuration/sql_dialect_keywords.json';
 
-
 export type ForceFlushFunction = (options?: any) => Promise<void>;
 
 /** Utility class designed to support shared logic across AWS Span Processors. */

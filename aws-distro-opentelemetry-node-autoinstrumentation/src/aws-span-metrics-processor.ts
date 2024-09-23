@@ -6,7 +6,7 @@ import { Resource } from '@opentelemetry/resources';
 import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
 import { AttributeMap, MetricAttributeGenerator } from './metric-attribute-generator';
-import { ForceFlushFunction } from "./aws-span-processing-util";
+import { ForceFlushFunction } from './aws-span-processing-util';
 
 /**
  * This processor will generate metrics based on span data. It depends on a
@@ -51,7 +51,14 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
     resource: Resource,
     forceFlushFunction: ForceFlushFunction
   ): AwsSpanMetricsProcessor {
-    return new AwsSpanMetricsProcessor(errorHistogram, faultHistogram, latencyHistogram, generator, resource, forceFlushFunction);
+    return new AwsSpanMetricsProcessor(
+      errorHistogram,
+      faultHistogram,
+      latencyHistogram,
+      generator,
+      resource,
+      forceFlushFunction
+    );
   }
 
   private constructor(
@@ -134,6 +141,6 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
   }
 
   public forceFlush(): Promise<void> {
-    return this.forceFlushFunction()
+    return this.forceFlushFunction();
   }
 }

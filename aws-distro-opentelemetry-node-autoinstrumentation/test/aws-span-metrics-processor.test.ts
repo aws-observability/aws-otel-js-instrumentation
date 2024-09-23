@@ -87,7 +87,9 @@ describe('AwsSpanMetricsProcessorTest', () => {
     latencyHistogramMockRecord = sinon.stub(latencyHistogramMock, 'record');
 
     generatorMock = new AwsMetricAttributeGenerator();
-    let testForceFlush: ForceFlushFunction = (option?: any) => { return Promise.resolve() };
+    const testForceFlush: ForceFlushFunction = (option?: any) => {
+      return Promise.resolve();
+    };
 
     awsSpanMetricsProcessor = AwsSpanMetricsProcessor.create(
       errorHistogramMock,

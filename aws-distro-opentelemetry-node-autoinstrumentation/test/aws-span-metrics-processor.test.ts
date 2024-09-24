@@ -24,7 +24,7 @@ import * as sinon from 'sinon';
 import { AWS_ATTRIBUTE_KEYS } from '../src/aws-attribute-keys';
 import { AwsMetricAttributeGenerator } from '../src/aws-metric-attribute-generator';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
-import { AwsSpanProcessingUtil } from '../src/aws-span-processing-util';
+import { AwsSpanProcessingUtil, ForceFlushFunction } from '../src/aws-span-processing-util';
 import {
   AttributeMap,
   DEPENDENCY_METRIC,
@@ -87,13 +87,17 @@ describe('AwsSpanMetricsProcessorTest', () => {
     latencyHistogramMockRecord = sinon.stub(latencyHistogramMock, 'record');
 
     generatorMock = new AwsMetricAttributeGenerator();
+    const testForceFlush: ForceFlushFunction = (option?: any) => {
+      return Promise.resolve();
+    };
 
     awsSpanMetricsProcessor = AwsSpanMetricsProcessor.create(
       errorHistogramMock,
       faultHistogramMock,
       latencyHistogramMock,
       generatorMock,
-      testResource
+      testResource,
+      testForceFlush
     );
   });
 

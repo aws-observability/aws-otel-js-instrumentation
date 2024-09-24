@@ -8,7 +8,7 @@ import { S3 } from '@aws-sdk/client-s3';
 
 const s3 = new S3();
 
-exports.handler = async (event: APIGatewayProxyEvent, context: Context) => {
+exports.handler = async (_event: APIGatewayProxyEvent, _context: Context) => {
   console.info('Serving lambda request.');
 
   const result = await s3.listBuckets();

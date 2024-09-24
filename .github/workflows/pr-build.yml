@@ -38,6 +38,8 @@ jobs:
         run: npm ci
       - name: Compile all NPM projects
         run: npm run compile
+      - name: Build Lambda Layer
+        run: npm run build-lambda
       - name: Unit tests (Full)
         run: npm run test:coverage
       - name: Report Coverage

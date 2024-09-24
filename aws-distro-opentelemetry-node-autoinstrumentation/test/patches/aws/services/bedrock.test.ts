@@ -42,20 +42,22 @@ describe('BedrockAgent', () => {
     it('adds no info to span', async () => {
       const dummyPromptName: string = 'dummy-prompt-name';
 
-      nock(`https://bedrock-agent.${region}.amazonaws.com`).post('/').reply(200, {});
+      nock(`https://bedrock-agent.${region}.amazonaws.com`)
+        .get(`/prompts/${dummyPromptName}`)
+        .reply(200, { promptIdentifier: dummyPromptName });
 
       await bedrock.getPrompt({ promptIdentifier: dummyPromptName }).catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const describeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+      const getPromptSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'BedrockAgent.GetPrompt';
       });
-      expect(describeSpans.length).toBe(1);
-      const creationSpan = describeSpans[0];
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
-      expect(creationSpan.kind).toBe(SpanKind.CLIENT);
+      expect(getPromptSpans.length).toBe(1);
+      const getPromptSpan = getPromptSpans[0];
+      expect(getPromptSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(getPromptSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(getPromptSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(getPromptSpan.kind).toBe(SpanKind.CLIENT);
     });
   });
 
@@ -63,20 +65,27 @@ describe('BedrockAgent', () => {
     it('adds agentId to span', async () => {
       const dummyAgentId: string = 'ABCDEFGH';
 
-      nock(`https://bedrock-agent.${region}.amazonaws.com`).post('/').reply(200, {});
+      nock(`https://bedrock-agent.${region}.amazonaws.com`)
+        .get(`/agents/${dummyAgentId}`)
+        .reply(200, {
+          agentId: dummyAgentId,
+          request: {
+            operation: 'GetAgent',
+          },
+        });
 
       await bedrock.getAgent({ agentId: dummyAgentId }).catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const describeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+      const getAgentSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'BedrockAgent.GetAgent';
       });
-      expect(describeSpans.length).toBe(1);
-      const creationSpan = describeSpans[0];
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBe(dummyAgentId);
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
-      expect(creationSpan.kind).toBe(SpanKind.CLIENT);
+      expect(getAgentSpans.length).toBe(1);
+      const getAgentSpan = getAgentSpans[0];
+      expect(getAgentSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBe(dummyAgentId);
+      expect(getAgentSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(getAgentSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(getAgentSpan.kind).toBe(SpanKind.CLIENT);
     });
   });
 
@@ -84,20 +93,24 @@ describe('BedrockAgent', () => {
     it('adds knowledgeBaseId to span', async () => {
       const dummyKnowledgeBaseId: string = 'ABCDEFGH';
 
-      nock(`https://bedrock-agent.${region}.amazonaws.com`).post('/').reply(200, {});
+      nock(`https://bedrock-agent.${region}.amazonaws.com`)
+        .get(`/knowledgebases/${dummyKnowledgeBaseId}`)
+        .reply(200, { knowledgeBaseId: dummyKnowledgeBaseId });
 
       await bedrock.getKnowledgeBase({ knowledgeBaseId: dummyKnowledgeBaseId }).catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const describeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+      const getKnowledgeBaseSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'BedrockAgent.GetKnowledgeBase';
       });
-      expect(describeSpans.length).toBe(1);
-      const creationSpan = describeSpans[0];
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBe(dummyKnowledgeBaseId);
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
-      expect(creationSpan.kind).toBe(SpanKind.CLIENT);
+      expect(getKnowledgeBaseSpans.length).toBe(1);
+      const getKnowledgeBaseSpan = getKnowledgeBaseSpans[0];
+      expect(getKnowledgeBaseSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(getKnowledgeBaseSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBe(
+        dummyKnowledgeBaseId
+      );
+      expect(getKnowledgeBaseSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(getKnowledgeBaseSpan.kind).toBe(SpanKind.CLIENT);
     });
   });
 
@@ -106,22 +119,24 @@ describe('BedrockAgent', () => {
       const dummyDataSourceId: string = 'ABCDEFGH';
       const dummyKnowledgeBaseId: string = 'HGFEDCBA';
 
-      nock(`https://bedrock-agent.${region}.amazonaws.com`).post('/').reply(200, {});
+      nock(`https://bedrock-agent.${region}.amazonaws.com`)
+        .get(`/knowledgebases/${dummyKnowledgeBaseId}/datasources/${dummyDataSourceId}`)
+        .reply(200, { dataSourceId: dummyDataSourceId, knowledgeBaseId: dummyKnowledgeBaseId });
 
       await bedrock
         .getDataSource({ dataSourceId: dummyDataSourceId, knowledgeBaseId: dummyKnowledgeBaseId })
         .catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const describeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+      const getDataSourceSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'BedrockAgent.GetDataSource';
       });
-      expect(describeSpans.length).toBe(1);
-      const creationSpan = describeSpans[0];
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBe(dummyDataSourceId);
-      expect(creationSpan.kind).toBe(SpanKind.CLIENT);
+      expect(getDataSourceSpans.length).toBe(1);
+      const getDataSourceSpan = getDataSourceSpans[0];
+      expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBe(dummyDataSourceId);
+      expect(getDataSourceSpan.kind).toBe(SpanKind.CLIENT);
     });
   });
 });
@@ -143,7 +158,12 @@ describe('BedrockAgentRuntime', () => {
       const dummyKnowledgeBaseId: string = 'ABCDEFGH';
       const dummyQuery: string = 'dummy-query';
 
-      nock(`https://bedrock-agent-runtime.${region}.amazonaws.com`).post('/').reply(200, {});
+      nock(`https://bedrock-agent-runtime.${region}.amazonaws.com`)
+        .post(`/knowledgebases/${dummyKnowledgeBaseId}/retrieve`)
+        .reply(200, {
+          knowledgeBaseId: dummyKnowledgeBaseId,
+          retrievalQuery: { text: dummyQuery },
+        });
 
       await bedrock
         .retrieve({
@@ -153,15 +173,15 @@ describe('BedrockAgentRuntime', () => {
         .catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const describeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+      const retrieveSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'BedrockAgentRuntime.Retrieve';
       });
-      expect(describeSpans.length).toBe(1);
-      const creationSpan = describeSpans[0];
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBe(dummyKnowledgeBaseId);
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
-      expect(creationSpan.kind).toBe(SpanKind.CLIENT);
+      expect(retrieveSpans.length).toBe(1);
+      const retrieveSpan = retrieveSpans[0];
+      expect(retrieveSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(retrieveSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBe(dummyKnowledgeBaseId);
+      expect(retrieveSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(retrieveSpan.kind).toBe(SpanKind.CLIENT);
     });
   });
 
@@ -171,7 +191,13 @@ describe('BedrockAgentRuntime', () => {
       const dummyAgentAliasId: string = 'HGFEDCBA';
       const dummySessionId: string = 'ABC123AB';
 
-      nock(`https://bedrock-agent-runtime.${region}.amazonaws.com`).post('/').reply(200, {});
+      nock(`https://bedrock-agent-runtime.${region}.amazonaws.com`)
+        .post(`/agents/${dummyAgentId}/agentAliases/${dummyAgentAliasId}/sessions/${dummySessionId}/text`)
+        .reply(200, {
+          agentId: dummyAgentId,
+          agentAliasId: dummyAgentAliasId,
+          sessionId: dummySessionId,
+        });
 
       await bedrock
         .invokeAgent({
@@ -182,15 +208,15 @@ describe('BedrockAgentRuntime', () => {
         .catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const describeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+      const invokeAgentSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'BedrockAgentRuntime.InvokeAgent';
       });
-      expect(describeSpans.length).toBe(1);
-      const creationSpan = describeSpans[0];
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBe(dummyAgentId);
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
-      expect(creationSpan.kind).toBe(SpanKind.CLIENT);
+      expect(invokeAgentSpans.length).toBe(1);
+      const invokeAgentSpan = invokeAgentSpans[0];
+      expect(invokeAgentSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBe(dummyAgentId);
+      expect(invokeAgentSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeAgentSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeAgentSpan.kind).toBe(SpanKind.CLIENT);
     });
   });
 });
@@ -211,7 +237,9 @@ describe('Bedrock', () => {
     it('adds guardrailId to span', async () => {
       const dummyGuardrailIdentifier: string = 'ABCDEFGH';
 
-      nock(`https://bedrock.${region}.amazonaws.com`).post('/').reply(200, {});
+      nock(`https://bedrock.${region}.amazonaws.com`).get(`/guardrails/${dummyGuardrailIdentifier}`).reply(200, {
+        guardrailId: dummyGuardrailIdentifier,
+      });
 
       await bedrock
         .getGuardrail({
@@ -220,18 +248,17 @@ describe('Bedrock', () => {
         .catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const describeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+      const getGuardrailSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'Bedrock.GetGuardrail';
       });
-      expect(describeSpans.length).toBe(1);
-      const creationSpan = describeSpans[0];
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
-      // We expect guardrailId to be populated after the responseHook is triggered, which doesn't happen here
-      // That case is covered in the instrumentation-patch.test.ts file by mocking the incoming span
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID]).toBeUndefined();
-      expect(creationSpan.kind).toBe(SpanKind.CLIENT);
+      expect(getGuardrailSpans.length).toBe(1);
+      const getGuardrailSpan = getGuardrailSpans[0];
+
+      expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID]).toBe(dummyGuardrailIdentifier);
+      expect(getGuardrailSpan.kind).toBe(SpanKind.CLIENT);
     });
   });
 });
@@ -253,7 +280,10 @@ describe('BedrockRuntime', () => {
       const dummyModelId: string = 'ABCDEFGH';
       const dummyBody: string = 'HGFEDCBA';
 
-      nock(`https://bedrock-runtime.${region}.amazonaws.com`).post('/').reply(200, {});
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`).post(`/model/${dummyModelId}/invoke`).reply(200, {
+        modelId: dummyModelId,
+        body: dummyBody,
+      });
 
       await bedrock
         .invokeModel({
@@ -263,16 +293,16 @@ describe('BedrockRuntime', () => {
         .catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const describeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+      const invokeModelSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'BedrockRuntime.InvokeModel';
       });
-      expect(describeSpans.length).toBe(1);
-      const creationSpan = describeSpans[0];
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
-      expect(creationSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(dummyModelId);
-      expect(creationSpan.kind).toBe(SpanKind.CLIENT);
+      expect(invokeModelSpans.length).toBe(1);
+      const invokeModelSpan = invokeModelSpans[0];
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(dummyModelId);
+      expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
     });
   });
 });

@@ -67,8 +67,13 @@ for (const operation of DATA_SOURCE_OPERATIONS) {
   };
 }
 
+// This class is an extension for <a
+// href="https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Operations_Agents_for_Amazon_Bedrock.html">
+// Agents for Amazon Bedrock</a>.
+// This class primarily identify three types of resource based operations: AGENT_OPERATIONS,
+// KNOWLEDGE_BASE_OPERATIONS, and DATA_SOURCE_OPERATIONS. We only support operations that are related to
+// the resource and where the context contains the resource ID.
 export class BedrockAgentServiceExtension implements ServiceExtension {
-  bedrockAgentServiceInfo: { [key: string]: string } = {};
   requestPreSpanHook(
     request: NormalizedRequest,
     config: AwsSdkInstrumentationConfig,
@@ -81,9 +86,9 @@ export class BedrockAgentServiceExtension implements ServiceExtension {
 
     const operation: string = request.commandName;
     if (operation && Object.keys(operationToBedrockAgentServiceMapping).includes(operation)) {
-      this.bedrockAgentServiceInfo = operationToBedrockAgentServiceMapping[operation];
+      const bedrockAgentServiceInfo = operationToBedrockAgentServiceMapping[operation];
       // This should only trigger once; it is the easy way to access the 0th and only entry
-      for (const serviceInfo of Object.entries(this.bedrockAgentServiceInfo)) {
+      for (const serviceInfo of Object.entries(bedrockAgentServiceInfo)) {
         const [attributeKey, requestParamKey] = serviceInfo;
         const requestParamValue = request.commandInput?.[requestParamKey];
 
@@ -102,13 +107,18 @@ export class BedrockAgentServiceExtension implements ServiceExtension {
   }
 
   responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
-    // This should only trigger once; it is the easy way to access the 0th and only entry
-    for (const serviceInfo of Object.entries(this.bedrockAgentServiceInfo)) {
-      const [attributeKey, responseParamKey] = serviceInfo;
-      const responseParamValue = response.data[responseParamKey];
+    const operation: string = response.request.commandName;
+    if (operation && Object.keys(operationToBedrockAgentServiceMapping).includes(operation)) {
+      const bedrockAgentServiceInfo = operationToBedrockAgentServiceMapping[operation];
 
-      if (responseParamValue) {
-        span.setAttribute(attributeKey, responseParamValue);
+      // This should only trigger once; it is the easy way to access the 0th and only entry
+      for (const serviceInfo of Object.entries(bedrockAgentServiceInfo)) {
+        const [attributeKey, responseParamKey] = serviceInfo;
+        const responseParamValue = response.data[responseParamKey];
+
+        if (responseParamValue) {
+          span.setAttribute(attributeKey, responseParamValue);
+        }
       }
     }
   }

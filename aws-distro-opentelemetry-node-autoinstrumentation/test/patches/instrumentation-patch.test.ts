@@ -203,6 +203,8 @@ describe('InstrumentationPatchTest', () => {
       const bedrockAttributes: Attributes = doExtractBedrockAttributes(services, 'BedrockAgent', operation);
       const [attribute_key, attribute_value] = Object.entries(attribute_tuple)[0];
       expect(bedrockAttributes[attribute_key]).toEqual(attribute_value);
+      const bedrockAgentSuccessAttributes: Attributes = doResponseHookBedrock(services, 'BedrockAgent', operation);
+      expect(bedrockAgentSuccessAttributes[attribute_key]).toEqual(attribute_value);
     }
   });
 
@@ -334,6 +336,11 @@ describe('InstrumentationPatchTest', () => {
         knowledgeBaseId: _BEDROCK_KNOWLEDGEBASE_ID,
         guardrailId: _BEDROCK_GUARDRAIL_ID,
         modelId: _GEN_AI_REQUEST_MODEL,
+      },
+      request: {
+        commandInput: {},
+        commandName: operation || 'dummy_operation',
+        serviceName: serviceName,
       },
     };
 

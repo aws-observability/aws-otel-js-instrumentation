@@ -326,12 +326,12 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    */
   private static normalizeRemoteServiceName(span: ReadableSpan, serviceName: string): string {
     if (AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
-      const aws_sdk_service_mapping: { [key: string]: string } = {
+      const awsSdkServiceMapping: { [key: string]: string } = {
         BedrockAgent: NORMALIZED_BEDROCK_SERVICE_NAME,
         BedrockAgentRuntime: NORMALIZED_BEDROCK_SERVICE_NAME,
         BedrockRuntime: NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME,
       };
-      return aws_sdk_service_mapping[serviceName] || 'AWS::' + serviceName;
+      return awsSdkServiceMapping[serviceName] || 'AWS::' + serviceName;
     }
     return serviceName;
   }

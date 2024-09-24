@@ -52,19 +52,26 @@ const KNOWLEDGE_BASE_OPERATIONS = [
 
 const DATA_SOURCE_OPERATIONS = ['DeleteDataSource', 'GetDataSource', 'UpdateDataSource'];
 
-const operationToBedrockAgentServiceMapping: { [key: string]: { [key: string]: string } } = {};
+// The following constants map the way we present the data in telemetry to how they appear in request/responses
+// e.g. we put `aws.bedrock.knowledge_base.id` into trace data by finding `knowledgeBaseId`
+const agentOperationAttributeKeyMapping = { [AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]: AGENT_ID };
+const knowledgeBaseOperationAttributeKeyMapping = {
+  [AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]: KNOWLEDGE_BASE_ID,
+};
+const dataSourceOperationAttributeKeyMapping = {
+  [AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]: DATA_SOURCE_ID,
+};
+
+// This map allows us to get all relevant attribute key mappings for a given operation
+const operationToBedrockAgentAttributesMap: { [key: string]: { [key: string]: string } } = {};
 for (const operation of AGENT_OPERATIONS) {
-  operationToBedrockAgentServiceMapping[operation] = { [AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]: AGENT_ID };
+  operationToBedrockAgentAttributesMap[operation] = agentOperationAttributeKeyMapping;
 }
 for (const operation of KNOWLEDGE_BASE_OPERATIONS) {
-  operationToBedrockAgentServiceMapping[operation] = {
-    [AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]: KNOWLEDGE_BASE_ID,
-  };
+  operationToBedrockAgentAttributesMap[operation] = knowledgeBaseOperationAttributeKeyMapping;
 }
 for (const operation of DATA_SOURCE_OPERATIONS) {
-  operationToBedrockAgentServiceMapping[operation] = {
-    [AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]: DATA_SOURCE_ID,
-  };
+  operationToBedrockAgentAttributesMap[operation] = dataSourceOperationAttributeKeyMapping;
 }
 
 // This class is an extension for <a
@@ -85,9 +92,8 @@ export class BedrockAgentServiceExtension implements ServiceExtension {
     let spanName: string | undefined;
 
     const operation: string = request.commandName;
-    if (operation && Object.keys(operationToBedrockAgentServiceMapping).includes(operation)) {
-      const bedrockAgentServiceInfo = operationToBedrockAgentServiceMapping[operation];
-      // This should only trigger once; it is the easy way to access the 0th and only entry
+    if (operation && operationToBedrockAgentAttributesMap[operation]) {
+      const bedrockAgentServiceInfo = operationToBedrockAgentAttributesMap[operation];
       for (const serviceInfo of Object.entries(bedrockAgentServiceInfo)) {
         const [attributeKey, requestParamKey] = serviceInfo;
         const requestParamValue = request.commandInput?.[requestParamKey];
@@ -108,10 +114,8 @@ export class BedrockAgentServiceExtension implements ServiceExtension {
 
   responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
     const operation: string = response.request.commandName;
-    if (operation && Object.keys(operationToBedrockAgentServiceMapping).includes(operation)) {
-      const bedrockAgentServiceInfo = operationToBedrockAgentServiceMapping[operation];
-
-      // This should only trigger once; it is the easy way to access the 0th and only entry
+    if (operation && Object.keys(operationToBedrockAgentAttributesMap).includes(operation)) {
+      const bedrockAgentServiceInfo = operationToBedrockAgentAttributesMap[operation];
       for (const serviceInfo of Object.entries(bedrockAgentServiceInfo)) {
         const [attributeKey, responseParamKey] = serviceInfo;
         const responseParamValue = response.data[responseParamKey];

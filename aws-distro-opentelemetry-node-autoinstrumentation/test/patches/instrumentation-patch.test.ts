@@ -158,8 +158,9 @@ describe('InstrumentationPatchTest', () => {
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
     const bedrockAttributes: Attributes = doExtractBedrockAttributes(services, 'Bedrock');
     // Expect no-op from attribute extraction in Bedrock
-    expect(bedrockAttributes).toEqual({});
+    expect(Object.entries(bedrockAttributes).length).toEqual(0);
     const bedrockAttributesAfterResponse: Attributes = doResponseHookBedrock(services, 'Bedrock');
+    expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(1);
     expect(bedrockAttributesAfterResponse[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID]).toEqual(_BEDROCK_GUARDRAIL_ID);
   });
 
@@ -202,8 +203,10 @@ describe('InstrumentationPatchTest', () => {
     for (const [operation, attribute_tuple] of Object.entries(operation_to_expected_attribute)) {
       const bedrockAttributes: Attributes = doExtractBedrockAttributes(services, 'BedrockAgent', operation);
       const [attribute_key, attribute_value] = Object.entries(attribute_tuple)[0];
+      expect(Object.entries(bedrockAttributes).length).toBe(1);
       expect(bedrockAttributes[attribute_key]).toEqual(attribute_value);
       const bedrockAgentSuccessAttributes: Attributes = doResponseHookBedrock(services, 'BedrockAgent', operation);
+      expect(Object.entries(bedrockAgentSuccessAttributes).length).toBe(1);
       expect(bedrockAgentSuccessAttributes[attribute_key]).toEqual(attribute_value);
     }
   });
@@ -212,16 +215,24 @@ describe('InstrumentationPatchTest', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
     const bedrockAttributes: Attributes = doExtractBedrockAttributes(services, 'BedrockAgentRuntime');
+    expect(Object.entries(bedrockAttributes).length).toBe(2);
     expect(bedrockAttributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toEqual(_BEDROCK_AGENT_ID);
     expect(bedrockAttributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toEqual(_BEDROCK_KNOWLEDGEBASE_ID);
+    const bedrockAttributesAfterResponse: Attributes = doResponseHookBedrock(services, 'BedrockAgentRuntime');
+    expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(0);
   });
 
   it('Bedrock Runtime with patching', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
     const bedrockAttributes: Attributes = doExtractBedrockAttributes(services, 'BedrockRuntime');
+
+    expect(Object.entries(bedrockAttributes).length).toBe(2);
     expect(bedrockAttributes['gen_ai.system']).toEqual(_GEN_AI_SYSTEM);
     expect(bedrockAttributes['gen_ai.request.model']).toEqual(_GEN_AI_REQUEST_MODEL);
+
+    const bedrockAttributesAfterResponse: Attributes = doResponseHookBedrock(services, 'BedrockRuntime');
+    expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(0);
   });
 
   it('Lambda with custom eventContextExtractor patching', () => {

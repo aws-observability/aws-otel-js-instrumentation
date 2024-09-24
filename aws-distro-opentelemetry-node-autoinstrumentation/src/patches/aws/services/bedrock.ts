@@ -114,7 +114,7 @@ export class BedrockAgentServiceExtension implements ServiceExtension {
 
   responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
     const operation: string = response.request.commandName;
-    if (operation && Object.keys(operationToBedrockAgentAttributesMap).includes(operation)) {
+    if (operation && operationToBedrockAgentAttributesMap[operation]) {
       const bedrockAgentServiceInfo = operationToBedrockAgentAttributesMap[operation];
       for (const serviceInfo of Object.entries(bedrockAgentServiceInfo)) {
         const [attributeKey, responseParamKey] = serviceInfo;

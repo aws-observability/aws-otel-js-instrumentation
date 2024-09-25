@@ -50,21 +50,43 @@ class DatabaseContractTestBase(ContractTestBase):
             "DB_NAME": DATABASE_NAME,
         }
 
+    # define tests for SQL database
     def assert_drop_table_succeeds(self) -> None:
         self.mock_collector_client.clear_signals()
-        self.do_test_requests("drop_table", "GET", 200, 0, 0, sql_command="DROP TABLE")
+        self.do_test_requests("drop_table", "GET", 200, 0, 0, sql_command="DROP TABLE", local_operation="GET /drop_table", span_name="DROP")
 
     def assert_create_database_succeeds(self) -> None:
         self.mock_collector_client.clear_signals()
-        self.do_test_requests("create_database", "GET", 200, 0, 0, sql_command="CREATE DATABASE")
+        self.do_test_requests("create_database", "GET", 200, 0, 0, sql_command="CREATE DATABASE", local_operation="GET /create_database", span_name="CREATE")
 
     def assert_select_succeeds(self) -> None:
         self.mock_collector_client.clear_signals()
-        self.do_test_requests("select", "GET", 200, 0, 0, sql_command="SELECT")
+        self.do_test_requests("select", "GET", 200, 0, 0, sql_command="SELECT", local_operation="GET /select", span_name="SELECT")
 
     def assert_fault(self) -> None:
         self.mock_collector_client.clear_signals()
-        self.do_test_requests("fault", "GET", 500, 0, 1, sql_command="SELECT DISTINCT")
+        self.do_test_requests("fault", "GET", 500, 0, 1, sql_command="SELECT DISTINCT", local_operation="GET /fault", span_name="SELECT")
+
+    # define tests for MongoDB database
+    def assert_delete_document_succeeds(self, **kwargs) -> None:
+        self.mock_collector_client.clear_signals()
+        self.do_test_requests("delete_document", "GET", 200, 0, 0, **kwargs)
+
+    def assert_insert_document_succeeds(self, **kwargs) -> None:
+        self.mock_collector_client.clear_signals()
+        self.do_test_requests("insert_document", "GET", 200, 0, 0, **kwargs)
+
+    def assert_update_document_succeeds(self, **kwargs) -> None:
+        self.mock_collector_client.clear_signals()
+        self.do_test_requests("update_document", "GET", 200, 0, 0, **kwargs)
+
+    def assert_find_document_succeeds(self, **kwargs) -> None:
+        self.mock_collector_client.clear_signals()
+        self.do_test_requests("find", "GET", 200, 0, 0, **kwargs)
+
+    def assert_fault_non_sql(self, **kwargs) -> None:
+        self.mock_collector_client.clear_signals()
+        self.do_test_requests("fault", "GET", 500, 0, 1, **kwargs)
 
     @override
     def _assert_aws_span_attributes(self, resource_scope_spans: List[ResourceScopeSpan], path: str, **kwargs) -> None:
@@ -89,16 +111,17 @@ class DatabaseContractTestBase(ContractTestBase):
             if resource_scope_span.span.kind == Span.SPAN_KIND_CLIENT:
                 target_spans.append(resource_scope_span.span)
 
-        self.assertEqual(target_spans[0].name, kwargs.get("sql_command").split()[0])
+        self.assertEqual(target_spans[0].name, kwargs.get("span_name"))
         if status_code == 200:
             self.assertEqual(target_spans[0].status.code, StatusCode.UNSET.value)
         else:
             self.assertEqual(target_spans[0].status.code, StatusCode.ERROR.value)
 
-        self._assert_semantic_conventions_attributes(target_spans[0].attributes, kwargs.get("sql_command"))
+        self._assert_semantic_conventions_attributes(target_spans[0].attributes, **kwargs)
 
-    def _assert_semantic_conventions_attributes(self, attributes_list: List[KeyValue], command: str) -> None:
+    def _assert_semantic_conventions_attributes(self, attributes_list: List[KeyValue], **kwargs) -> None:
         attributes_dict: Dict[str, AnyValue] = self._get_attributes_dict(attributes_list)
+        command = kwargs.get("db_operation") or kwargs.get("sql_command")
         self.assertTrue(attributes_dict.get("db.statement").string_value.startswith(command))
         self._assert_str_attribute(attributes_dict, "db.system", self.get_remote_service())
         self._assert_str_attribute(attributes_dict, "db.name", DATABASE_NAME)
@@ -110,13 +133,11 @@ class DatabaseContractTestBase(ContractTestBase):
 
     @override
     def _assert_aws_attributes(
-        self, attributes_list: List[KeyValue], expected_span_kind: str = SPAN_KIND_LOCAL_ROOT, **kwargs
+        self, attributes_list: List[KeyValue], expected_span_kind: str = SPAN_KIND_CLIENT, **kwargs
     ) -> None:
         attributes_dict: Dict[str, AnyValue] = self._get_attributes_dict(attributes_list)
         self._assert_str_attribute(attributes_dict, AWS_LOCAL_SERVICE, self.get_application_otel_service_name())
-        # InternalOperation as OTEL does not instrument the basic server we are using, so the client span is a local
-        # root.
-        self._assert_str_attribute(attributes_dict, AWS_LOCAL_OPERATION, "InternalOperation")
+        self._assert_str_attribute(attributes_dict, AWS_LOCAL_OPERATION, kwargs.get("local_operation"))
         self._assert_str_attribute(attributes_dict, AWS_REMOTE_SERVICE, self.get_remote_service())
         self._assert_str_attribute(attributes_dict, AWS_REMOTE_OPERATION, kwargs.get("sql_command"))
         self._assert_str_attribute(attributes_dict, AWS_REMOTE_RESOURCE_TYPE, "DB::Connection")
@@ -124,7 +145,6 @@ class DatabaseContractTestBase(ContractTestBase):
         self._assert_str_attribute(
             attributes_dict, AWS_REMOTE_RESOURCE_IDENTIFIER, self.get_remote_resource_identifier()
         )
-        # See comment above AWS_LOCAL_OPERATION
         self._assert_str_attribute(attributes_dict, AWS_SPAN_KIND, expected_span_kind)
 
     @override
@@ -153,7 +173,6 @@ class DatabaseContractTestBase(ContractTestBase):
         self.check_sum(metric_name, dependency_dp.sum, expected_sum)
 
         attribute_dict: Dict[str, AnyValue] = self._get_attributes_dict(service_dp.attributes)
-        # See comment on AWS_LOCAL_OPERATION in _assert_aws_attributes
-        self._assert_str_attribute(attribute_dict, AWS_LOCAL_OPERATION, "InternalOperation")
+        self._assert_str_attribute(attribute_dict, AWS_LOCAL_OPERATION,kwargs.get("local_operation"))
         self._assert_str_attribute(attribute_dict, AWS_SPAN_KIND, SPAN_KIND_LOCAL_ROOT)
         self.check_sum(metric_name, service_dp.sum, expected_sum)

@@ -71,7 +71,7 @@ class HttpTest(ContractTestBase):
                 target_spans.append(resource_scope_span.span)
 
         self.assertEqual(len(target_spans), 1)
-        _logger.info(target_spans[0].attributes)
+        # _logger.info(target_spans[0].attributes)
         self._assert_aws_attributes(target_spans[0].attributes, kwargs.get("request_method"), kwargs.get("path_suffix"))
 
     def _assert_aws_attributes(self, attributes_list: List[KeyValue], method: str, endpoint: str) -> None:
@@ -134,8 +134,6 @@ class HttpTest(ContractTestBase):
         remaining_dps = [dp for dp in dp_list if dp != dependency_dp]
         service_dp, other_dp = remaining_dps[0], remaining_dps[1]
 
-
-        _logger.info("DEBUG: data point 1")
         attribute_dict: Dict[str, AnyValue] = self._get_attributes_dict(dependency_dp.attributes)
         method: str = kwargs.get("request_method")
         path_suffix: str = kwargs.get("path_suffix")

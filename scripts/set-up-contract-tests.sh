@@ -23,6 +23,7 @@ python3 -m pip install pymysql
 python3 -m pip install cryptography
 python3 -m pip install mysql-connector-python
 python3 -m pip install build
+python3 -m pip install pymongo
 
 # To be clear, install binary for psycopg2 have no negative influence on otel here
 # since Otel-Instrumentation running in container that install psycopg2 from source
@@ -49,10 +50,6 @@ cd ..
 for dir in contract-tests/images/applications/*
 do
   application="${dir##*/}"
-  if [ $application = "requests" ]; then
-    # docker build . --progress=plain --no-cache -t aws-application-signals-tests-${application}-app -f ${dir}/Dockerfile --build-arg="DISTRO=aws_opentelemetry_distro-0.5.0.dev0-py3-none-any.whl"
-    break
-  fi
   docker build . --progress=plain --no-cache -t aws-application-signals-tests-${application}-app -f ${dir}/Dockerfile --build-arg="DISTRO=${DISTRO}"
   if [ $? = 1 ]; then
     echo "Docker build for ${application} application failed"

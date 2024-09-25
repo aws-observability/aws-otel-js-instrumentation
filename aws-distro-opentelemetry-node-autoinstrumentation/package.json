@@ -38,6 +38,10 @@
     "url": "https://github.com/aws-observability/aws-otel-js-instrumentation/issues"
   },
   "devDependencies": {
+    "@aws-sdk/client-bedrock": "3.632.0",
+    "@aws-sdk/client-bedrock-agent": "3.632.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "3.632.0",
+    "@aws-sdk/client-bedrock-runtime": "3.632.0",
     "@aws-sdk/client-kinesis": "3.632.0",
     "@aws-sdk/client-s3": "3.632.0",
     "@aws-sdk/client-sqs": "3.632.0",

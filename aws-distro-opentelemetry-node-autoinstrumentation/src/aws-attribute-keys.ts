@@ -31,4 +31,8 @@ export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   AWS_SQS_QUEUE_NAME: 'aws.sqs.queue.name',
   AWS_KINESIS_STREAM_NAME: 'aws.kinesis.stream.name',
   AWS_DYNAMODB_TABLE_NAMES: SEMATTRS_AWS_DYNAMODB_TABLE_NAMES,
+  AWS_BEDROCK_DATA_SOURCE_ID: 'aws.bedrock.data_source.id',
+  AWS_BEDROCK_KNOWLEDGE_BASE_ID: 'aws.bedrock.knowledge_base.id',
+  AWS_BEDROCK_AGENT_ID: 'aws.bedrock.agent.id',
+  AWS_BEDROCK_GUARDRAIL_ID: 'aws.bedrock.guardrail.id',
 };

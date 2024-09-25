@@ -40,6 +40,10 @@ export class AwsSpanProcessingUtil {
   static MAX_KEYWORD_LENGTH: number = 27;
   static SQL_DIALECT_PATTERN: string = '^(?:' + AwsSpanProcessingUtil.getDialectKeywords().join('|') + ')\\b';
 
+  // TODO: Use Semantic Conventions once upgraded
+  static GEN_AI_REQUEST_MODEL: string = 'gen_ai.request.model';
+  static GEN_AI_SYSTEM: string = 'gen_ai.system';
+
   static getDialectKeywords(): string[] {
     return SQL_DIALECT_KEYWORDS_JSON.keywords;
   }

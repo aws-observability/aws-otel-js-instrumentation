@@ -22,12 +22,35 @@ const DEFAULT_RULES_POLLING_INTERVAL_SECONDS: number = 5 * 60;
 // Default endpoint for awsproxy : https://aws-otel.github.io/docs/getting-started/remote-sampling#enable-awsproxy-extension
 const DEFAULT_AWS_PROXY_ENDPOINT: string = 'http://localhost:2000';
 
+// Wrapper class to ensure that all XRay Sampler Functionality in _AwsXRayRemoteSampler
+// uses ParentBased logic to respect the parent span's sampling decision
 export class AwsXRayRemoteSampler implements Sampler {
+  private _root: ParentBasedSampler;
+  constructor(samplerConfig: AwsXRayRemoteSamplerConfig) {
+    this._root = new ParentBasedSampler({ root: new _AwsXRayRemoteSampler(samplerConfig) });
+  }
+  public shouldSample(
+    context: Context,
+    traceId: string,
+    spanName: string,
+    spanKind: SpanKind,
+    attributes: Attributes,
+    links: Link[]
+  ): SamplingResult {
+    return this._root.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+  }
+
+  public toString(): string {
+    return `AwsXRayRemoteSampler{root=${this._root.toString()}`;
+  }
+}
+
+export class _AwsXRayRemoteSampler implements Sampler {
   private rulePollingIntervalMillis: number;
   private targetPollingInterval: number;
   private awsProxyEndpoint: string;
   private ruleCache: RuleCache;
-  private fallbackSampler: ParentBasedSampler;
+  private fallbackSampler: FallbackSampler;
   private samplerDiag: DiagLogger;
   private rulePoller: NodeJS.Timer | undefined;
   private targetPoller: NodeJS.Timer | undefined;
@@ -53,8 +76,8 @@ export class AwsXRayRemoteSampler implements Sampler {
     this.targetPollingJitterMillis = (Math.random() / 10) * 1000;
 
     this.awsProxyEndpoint = samplerConfig.endpoint ? samplerConfig.endpoint : DEFAULT_AWS_PROXY_ENDPOINT;
-    this.fallbackSampler = new ParentBasedSampler({ root: new FallbackSampler() });
-    this.clientId = AwsXRayRemoteSampler.generateClientId();
+    this.fallbackSampler = new FallbackSampler();
+    this.clientId = _AwsXRayRemoteSampler.generateClientId();
     this.ruleCache = new RuleCache(samplerConfig.resource);
 
     this.samplingClient = new AwsXraySamplingClient(this.awsProxyEndpoint, this.samplerDiag);
@@ -95,7 +118,9 @@ export class AwsXRayRemoteSampler implements Sampler {
   }
 
   public toString(): string {
-    return 'AwsXRayRemoteSampler{remote sampling with AWS X-Ray}';
+    return `_AwsXRayRemoteSampler{awsProxyEndpoint=${
+      this.awsProxyEndpoint
+    }, rulePollingIntervalMillis=${this.rulePollingIntervalMillis.toString()}}`;
   }
 
   private startSamplingRulesPoller(): void {

@@ -7,10 +7,10 @@ inputs:
     required: true
     description: "The node version used in actions"
   package_name:
-    required: false
+    required: true
     description: "The package name"
   os:
-    required: false
+    required: true
     description: "The os"
   run_unit_tests:
     required: true

@@ -1,7 +1,7 @@
 name: Build and Push Staging AWSOpenTelemetryDistroJs Layer
 description: |
-  This action assumes that the repo was checked out. Builds and pushes/loads tarball and image files. Also performs scan
-  of the resultant image.
+  This action assumes that the repo was checked out. Builds and push Lambda Layer and sample app to S3 bucket for 
+  the further end 2 end tests.
 
 inputs:
   aws-region:
@@ -10,64 +10,43 @@ inputs:
   node_version:
     required: true
     description: 'The node version used in actions'
-  iam-role:
-    required: true
-    description: 'The role use to publish lambda layer'
   layer_directory:
-    required: true
-    description: 'The role use to publish lambda layer'
-  terraform_directory:
-    required: true
-    description: 'The role use to publish lambda layer'
-  sample_app_directory:
     required: true
     description: 'The role use to publish lambda layer'
   staging_s3_bucket:
     required: true
     description: 'S3 bucket holds SDK artifact tarball'
+  staging_tarball:
+    required: true
+    description: 'tarball file for building'
 
 runs:
   using: 'composite'
   steps:
-    - name: Download SDK Tarball from S3
-      shell: bash
-      run: |
-        aws s3 cp s3://${{ inputs.staging_s3_bucket }} ./aws-distro-opentelemetry-node-autoinstrumentation/
-    - name: Build layers
+    - name: Download Tarball to GitHub Actions
+      uses: actions/download-artifact@v3
+      with:
+        name: ${{ inputs.staging_tarball}}
+        path: ./aws-distro-opentelemetry-node-autoinstrumentation/
+    - name: Setup Layer Tools
       shell: bash
       run: npm install
       working-directory: ${{ inputs.layer_directory }}
-    - name: Build lambda sample app
+    - name: Build Lambda Layer
       shell: bash
       run: npm install
-      working-directory: ${{ inputs.lambda-layer/sample-apps/aws-sdk }}
-    - name: Get terraform directory
+      working-directory: ${{ inputs.layer_directory }}/packages/layer
+    - name: Build Lambda Sample App
+      shell: bash
+      run: npm install
+      working-directory: ${{ inputs.layer_directory }}/sample-apps/aws-sdk
+    - name: Upload Layer to S3
       shell: bash
       run: |
-        echo TERRAFORM_DIRECTORY=lambda-layer/terraform/lambda |
-        tee --append $GITHUB_ENV
-    - uses: hashicorp/setup-terraform@v2
-    - name: Initialize terraform
-      shell: bash
-      run: terraform init
-      working-directory: ${{ inputs.terraform_directory }}
-    - name: Get terraform Lambda function name
+        aws s3 cp ./build/layer.zip s3://${{ env.STAGING_S3_BUCKET }}/layer-${{ github.run_id }}.zip
+      working-directory: ${{ inputs.layer_directory }}/packages/layer
+    - name: Upload Sample App to S3
       shell: bash
       run: |
-        echo TERRAFORM_LAMBDA_FUNCTION_NAME=AdotLambdaNodeJsSampleApp-${{ github.sha }}|
-        tee --append $GITHUB_ENV
-    - name: Apply terraform
-      shell: bash
-      run: terraform apply -auto-approve
-      working-directory: ${{ inputs.terraform_directory }}
-      env:
-        TF_VAR_sdk_layer_name: AWSOpenTelemetryDistroJs-${{ github.run_id }}
-        TF_VAR_function_name: ${{ env.TERRAFORM_LAMBDA_FUNCTION_NAME }}
-        TF_VAR_architecture: ${{ env.LAMBDA_FUNCTION_ARCH }}
-        TF_VAR_configuration_source: ${{ matrix.confmap }}
-        TF_VAR_runtime: ${{ matrix.runtime }}
-    - name: Extract endpoint
-      id: extract-endpoint
-      shell: bash
-      run: terraform output -raw api-gateway-url
-      working-directory: ${{ inputs.terraform_directory }}
+        aws s3 cp ./build/function.zip s3://${{ env.STAGING_S3_BUCKET }}/function-${{ github.run_id }}.zip
+      working-directory: ${{ inputs.layer_directory }}/sample-apps/aws-sdk

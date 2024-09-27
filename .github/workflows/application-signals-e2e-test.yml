@@ -1,0 +1,84 @@
+## Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+## SPDX-License-Identifier: Apache-2.0
+
+# This is a reusable workflow for running the E2E test for Application Signals.
+# It is meant to be called from another workflow.
+# Read more about reusable workflows: https://docs.github.com/en/actions/using-workflows/reusing-workflows#overview
+name: E2E Testing
+on:
+  workflow_call:
+    inputs:
+      staging-instrumentation-name:
+        required: true
+        type: string
+      adot-image-name:
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ inputs.aws-region }}'
+  cancel-in-progress: false
+
+
+jobs:
+  upload-main-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+         # role-to-assume: arn:aws:iam::252610625673:role/${{ secrets.STAGING_ARTIFACTS_ACCESS_ROLE_NAME }}
+          role-to-assume: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
+          aws-region: us-west-1
+
+      - uses: actions/download-artifact@v3
+        with:
+          name: ${{ inputs.staging-instrumentation-name }}
+
+      - name: Upload main-build instrumentation to S3
+        run: aws s3 cp ${{ inputs.staging-instrumentation-name }} s3://adot-autoinstrumentation-node-staging-min-sfo/${{ inputs.staging-instrumentation-name }}
+
+#  ec2-default:
+#    needs: [ upload-main-build ]
+#    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-default-test.yml@main
+#    secrets: inherit
+#    with:
+#      aws-region: us-east-1
+#      staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
+#      caller-workflow-name: 'main-build'
+#
+#  ec2-asg:
+#    needs: [ upload-main-build ]
+#    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-asg-test.yml@main
+#    secrets: inherit
+#    with:
+#      aws-region: us-east-1
+#      staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
+#      caller-workflow-name: 'main-build'
+#
+#  eks:
+#    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-eks-test.yml@main
+#    secrets: inherit
+#    with:
+#      aws-region: us-east-1
+#      test-cluster-name: 'e2e-node-adot-test'
+#      adot-image-name: ${{ inputs.adot-image-name }}
+#      caller-workflow-name: 'main-build'
+#
+#  k8s:
+#    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-k8s-test.yml@main
+#    secrets: inherit
+#    with:
+#      aws-region: us-east-1
+#      adot-image-name: ${{ inputs.adot-image-name }}
+#      caller-workflow-name: 'main-build'
+
+  lambda:
+    uses: mxiamxia/aws-application-signals-test-framework/.github/workflows/node-lambda-test.yml@main
+    with:
+      aws-region: us-west-1
+      caller-workflow-name: 'main-build'

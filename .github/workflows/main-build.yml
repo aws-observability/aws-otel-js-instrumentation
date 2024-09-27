@@ -6,7 +6,10 @@ on:
       - main
       - "release/v*"
       - e2e-parallel
+      - ci-workflow
+  workflow_dispatch:
 
+# TODO: move the following into secrets, not expose any account id
 env:
   AWS_DEFAULT_REGION: us-east-1
   STAGING_ECR_REGISTRY: 637423224110.dkr.ecr.us-east-1.amazonaws.com
@@ -62,6 +65,17 @@ jobs:
           package_name: aws-distro-opentelemetry-node-autoinstrumentation
           os: ubuntu-latest
 
+      - name: Build and Publish Lambda Staging Layer
+        uses: ./.github/actions/lambda_artifacts_build
+        with:
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+          node_version: "20"
+          iam-role: "abc"
+          layer_directory: lambda-layer/packages/layer
+          terraform_directory: lambda-layer/terraform/lambda
+          sample_app_directory: lambda-layer/sample-apps/aws-sdk
+          staging_s3_bucket: ${{ env.STAGING_S3_BUCKET }}
+
       - name: Output Tarball File Name
         id: staging_tarball_output
         run: |
@@ -96,3 +110,29 @@ jobs:
   #   with:
   #     staging-wheel-name: ${{ needs.build.outputs.staging_wheel_file }}
   #     adot-image-name: ${{ needs.build.outputs.staging_registry }}/aws-observability/adot-autoinstrumentation-python-staging:${{ needs.build.outputs.python_image_tag }}
+
+  # build-lambda-function-and-layer:
+  #   runs-on: ubuntu-latest
+  #   needs: [ build ]
+  #   outputs:
+  #     aws_default_region: ${{ steps.node_output.outputs.awsDefaultRegion}}
+  #   steps:
+  #     - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
+  #       uses: actions/checkout@v4
+
+  #     - name: Get Node Distro Output
+  #       id: node_output
+  #       run: |
+  #         pkg_version=$(jq -r '.version' ./package.json)
+  #         echo "ADOT_NODE_VERSION=$pkg_version" >> $GITHUB_OUTPUT
+  #         shortsha="$(git rev-parse --short HEAD)"
+  #         echo "SHORT_SHA=$shortsha" >> $GITHUB_ENV
+  #         node_distro_tag=$pkg_version-$shortsha
+  #         echo "awsDefaultRegion=${{ env.AWS_DEFAULT_REGION }}" >> $GITHUB_OUTPUT
+  #         echo "node_image_tag=$node_distro_tag" >> $GITHUB_OUTPUT
+  #         echo "stagingRegistry=${{ env.STAGING_ECR_REGISTRY }}" >> $GITHUB_OUTPUT
+  #         echo "stagingRepository=${{ env.STAGING_ECR_REPOSITORY }}" >> $GITHUB_OUTPUT
+  #         echo "stagingImage=${{ env.STAGING_ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}:$node_distro_tag" >> $GITHUB_OUTPUT
+  #     - name: Build Layer Artifact
+  #     - name: Build Lambda Function Artifact
+  #     - name: update to S3

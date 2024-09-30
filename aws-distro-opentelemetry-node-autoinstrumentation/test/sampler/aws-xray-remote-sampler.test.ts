@@ -87,6 +87,9 @@ describe('AwsXrayRemoteSampler', () => {
       ).toEqual(SamplingDecision.NOT_RECORD);
 
       setTimeout(() => {
+        // restore function
+        (AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = tmp;
+
         expect(
           sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
         ).toEqual(SamplingDecision.RECORD_AND_SAMPLED);
@@ -97,8 +100,6 @@ describe('AwsXrayRemoteSampler', () => {
           sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
         ).toEqual(SamplingDecision.RECORD_AND_SAMPLED);
 
-        // reset function
-        (AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = tmp;
         done();
       }, 300);
     }, 10);
@@ -138,12 +139,14 @@ describe('AwsXrayRemoteSampler', () => {
             sampled++;
           }
         }
+
+        // restore function
+        (AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = tmp;
+
         expect((((sampler as any).ruleCache as any).ruleAppliers[0] as any).reservoirSampler._root.quota).toEqual(
           100000
         );
         expect(sampled).toEqual(100000);
-        // reset function
-        (AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = tmp;
         done();
       }, 2000);
     }, 100);
@@ -185,13 +188,13 @@ describe('AwsXrayRemoteSampler', () => {
             sampled++;
           }
         }
-        expect(sampled).toEqual(100);
-        // reset function
-        (AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = tmp;
         clock.restore();
+        // restore function
+        (AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = tmp;
+        expect(sampled).toEqual(100);
         done();
       }, 2000);
-    }, 100);
+    }, 300);
   });
 
   it('generates valid ClientId', () => {

@@ -457,6 +457,7 @@ describe('AwsBatchUnsampledSpanProcessor', () => {
       const processor = new AwsBatchUnsampledSpanProcessor(exporter, {
         maxExportBatchSize: 5,
         maxQueueSize: 6,
+        exportTimeoutMillis: 1000,
       });
       const totalSpans = 50;
       for (let i = 0; i < totalSpans; i++) {

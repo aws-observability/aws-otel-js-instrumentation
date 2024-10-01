@@ -45,6 +45,9 @@ export class AwsXRayRemoteSampler implements Sampler {
   }
 }
 
+// _AwsXRayRemoteSampler contains all core XRay Sampler Functionality,
+// however it is NOT Parent-based (e.g. Sample logic runs for each span)
+// Not intended for external use, use Parent-based `AwsXRayRemoteSampler` instead.
 export class _AwsXRayRemoteSampler implements Sampler {
   private rulePollingIntervalMillis: number;
   private targetPollingInterval: number;

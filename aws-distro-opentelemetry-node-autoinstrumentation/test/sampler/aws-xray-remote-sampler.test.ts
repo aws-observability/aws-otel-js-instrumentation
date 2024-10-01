@@ -220,6 +220,9 @@ describe('AwsXrayRemoteSampler', () => {
         span2.end();
         span1.end();
         span0.end();
+
+        // span1 and span2 are child spans of root span0
+        // For AwsXRayRemoteSampler (ParentBased), expect only span0 to update statistics
         expect((sampler as any)._root._root.ruleCache.ruleAppliers[0].statistics.RequestCount).toBe(1);
         expect((sampler as any)._root._root.ruleCache.ruleAppliers[0].statistics.SampleCount).toBe(1);
         done();
@@ -242,6 +245,9 @@ describe('AwsXrayRemoteSampler', () => {
         span2.end();
         span1.end();
         span0.end();
+
+        // span1 and span2 are child spans of root span0
+        // For _AwsXRayRemoteSampler (Non-ParentBased), expect all 3 spans to update statistics
         expect((sampler as any).ruleCache.ruleAppliers[0].statistics.RequestCount).toBe(3);
         expect((sampler as any).ruleCache.ruleAppliers[0].statistics.SampleCount).toBe(3);
         done();

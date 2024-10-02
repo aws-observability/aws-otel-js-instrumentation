@@ -2,7 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
-import { DiagConsoleLogger, diag, trace } from '@opentelemetry/api';
+// Short-term workaround to avoid Upsteam OTel emitting logs such as:
+// - `OTEL_TRACES_SAMPLER value "xray invalid, defaulting to always_on".`
+// OTel dependencies will always load a default Sampler configuration. Although unused, that
+// load process will read the `OTEL_TRACES_SAMPLER` value and may emit the above log, which is
+// unwanted for `xray` value. Thus we temporarily remove this env var to avoid the unwanted log.
+let useXraySampler = false;
+if (process.env.OTEL_TRACES_SAMPLER === 'xray') {
+  delete process.env.OTEL_TRACES_SAMPLER;
+  useXraySampler = true;
+}
+
+import { diag, DiagConsoleLogger, trace } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
@@ -56,7 +67,7 @@ const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrume
 // Apply instrumentation patches
 applyInstrumentationPatches(instrumentations);
 
-const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator(instrumentations);
+const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator(instrumentations, useXraySampler);
 const configuration: Partial<opentelemetry.NodeSDKConfiguration> = configurator.configure();
 
 const sdk: opentelemetry.NodeSDK = new opentelemetry.NodeSDK(configuration);
@@ -67,14 +78,15 @@ const sdk: opentelemetry.NodeSDK = new opentelemetry.NodeSDK(configuration);
 // we wish to make contributions to upstream to improve customizability of the Node auto-instrumentation.
 try {
   sdk.start();
+
+  diag.info('Setting TraceProvider for instrumentations at the end of initialization');
   for (const instrumentation of instrumentations) {
-    diag.info('Set TraceProvider for instrumentations at the end of initialization');
     instrumentation.setTracerProvider(trace.getTracerProvider());
   }
 
-  diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
   diag.debug(`Environment variable OTEL_PROPAGATORS is set to '${process.env.OTEL_PROPAGATORS}'`);
   diag.debug(`Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to '${process.env.OTEL_EXPORTER_OTLP_PROTOCOL}'`);
+  diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
 } catch (error) {
   diag.error(
     'Error initializing AWS Distro of OpenTelemetry SDK. Your application is not instrumented and will not produce telemetry',
@@ -90,3 +102,8 @@ process.on('SIGTERM', () => {
 });
 
 // END The OpenTelemetry Authors code
+
+// Respect original `OTEL_TRACES_SAMPLER` as we previously deleted it temporarily for value `xray`
+if (useXraySampler) {
+  process.env.OTEL_TRACES_SAMPLER = 'xray';
+}

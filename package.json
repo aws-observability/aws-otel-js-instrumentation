@@ -1,6 +1,6 @@
 {
   "name": "aws-otel-js-instrumentation",
-  "version": "0.1.0-dev0",
+  "version": "0.2.0-dev0",
   "description": "This is a repository for AWS Distro of OpenTelemetry JavaScript SDK.",
   "repository": {
     "type": "git",

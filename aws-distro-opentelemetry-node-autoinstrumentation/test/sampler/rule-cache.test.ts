@@ -121,11 +121,11 @@ describe('RuleCache', () => {
     const cache = new RuleCache(new Resource({}));
     cache.updateRules([rule1, rule2]);
 
-    expect(((cache as any).ruleAppliers[0] as any).reservoirSampler._root.quota).toEqual(1);
-    expect(((cache as any).ruleAppliers[0] as any).fixedRateSampler._root._ratio).toEqual(rule2.samplingRule.FixedRate);
+    expect(((cache as any).ruleAppliers[0] as any).reservoirSampler.quota).toEqual(1);
+    expect(((cache as any).ruleAppliers[0] as any).fixedRateSampler._ratio).toEqual(rule2.samplingRule.FixedRate);
 
-    expect(((cache as any).ruleAppliers[1] as any).reservoirSampler._root.quota).toEqual(1);
-    expect(((cache as any).ruleAppliers[1] as any).fixedRateSampler._root._ratio).toEqual(rule1.samplingRule.FixedRate);
+    expect(((cache as any).ruleAppliers[1] as any).reservoirSampler.quota).toEqual(1);
+    expect(((cache as any).ruleAppliers[1] as any).fixedRateSampler._ratio).toEqual(rule1.samplingRule.FixedRate);
 
     const time = Date.now() / 1000;
     const target1 = {
@@ -158,10 +158,10 @@ describe('RuleCache', () => {
     // Ensure cache is still of length 2
     expect((cache as any).ruleAppliers.length).toEqual(2);
 
-    expect(((cache as any).ruleAppliers[0] as any).reservoirSampler._root.quota).toEqual(target2.ReservoirQuota);
-    expect(((cache as any).ruleAppliers[0] as any).fixedRateSampler._root._ratio).toEqual(target2.FixedRate);
-    expect(((cache as any).ruleAppliers[1] as any).reservoirSampler._root.quota).toEqual(target1.ReservoirQuota);
-    expect(((cache as any).ruleAppliers[1] as any).fixedRateSampler._root._ratio).toEqual(target1.FixedRate);
+    expect(((cache as any).ruleAppliers[0] as any).reservoirSampler.quota).toEqual(target2.ReservoirQuota);
+    expect(((cache as any).ruleAppliers[0] as any).fixedRateSampler._ratio).toEqual(target2.FixedRate);
+    expect(((cache as any).ruleAppliers[1] as any).reservoirSampler.quota).toEqual(target1.ReservoirQuota);
+    expect(((cache as any).ruleAppliers[1] as any).fixedRateSampler._ratio).toEqual(target1.FixedRate);
 
     const [refreshSamplingRulesAfter, _] = cache.updateTargets(targetMap, time + 1);
     expect(refreshSamplingRulesAfter).toBe(true);

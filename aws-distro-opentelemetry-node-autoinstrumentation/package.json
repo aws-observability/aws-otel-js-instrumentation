@@ -37,6 +37,27 @@
   "bugs": {
     "url": "https://github.com/aws-observability/aws-otel-js-instrumentation/issues"
   },
+  "keywords": [
+    "aws",
+    "amazon",
+    "adot",
+    "adotjs",
+    "adot-js",
+    "adot js",
+    "xray",
+    "x-ray",
+    "x ray",
+    "awsxray",
+    "awsdistroopentelemetry",
+    "opentelemetry",
+    "otel",
+    "awslambda",
+    "nodejs",
+    "trace",
+    "tracing",
+    "profiling",
+    "instrumentation"
+  ],
   "devDependencies": {
     "@aws-sdk/client-bedrock": "3.632.0",
     "@aws-sdk/client-bedrock-agent": "3.632.0",

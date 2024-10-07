@@ -1,0 +1,52 @@
+name: Build and Push Staging AWSOpenTelemetryDistroJs Layer
+description: |
+  This action assumes that the repo was checked out. Builds and push Lambda Layer and sample app to S3 bucket for 
+  the further end to end tests.
+
+inputs:
+  aws-region:
+    required: false
+    description: 'AWS Region, required only if push_image is true'
+  node_version:
+    required: true
+    description: 'The node version used in actions'
+  layer_directory:
+    required: true
+    description: 'The role use to publish lambda layer'
+  staging_s3_bucket:
+    required: true
+    description: 'S3 bucket holds SDK artifact tarball'
+  staging_tarball:
+    required: true
+    description: 'tarball file for building'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download Tarball to GitHub Actions
+      uses: actions/download-artifact@v3
+      with:
+        name: ${{ inputs.staging_tarball}}
+        path: ./aws-distro-opentelemetry-node-autoinstrumentation/
+    - name: Setup Layer Tools
+      shell: bash
+      run: npm install
+      working-directory: ${{ inputs.layer_directory }}
+    - name: Build Lambda Layer
+      shell: bash
+      run: npm install
+      working-directory: ${{ inputs.layer_directory }}/packages/layer
+    - name: Build Lambda Sample App
+      shell: bash
+      run: npm install
+      working-directory: ${{ inputs.layer_directory }}/sample-apps/aws-sdk
+    - name: Upload Layer to S3
+      shell: bash
+      run: |
+        aws s3 cp ./build/layer.zip s3://${{ env.STAGING_S3_BUCKET }}/layer-${{ github.run_id }}.zip
+      working-directory: ${{ inputs.layer_directory }}/packages/layer
+    - name: Upload Sample App to S3
+      shell: bash
+      run: |
+        aws s3 cp ./build/function.zip s3://${{ env.STAGING_S3_BUCKET }}/function-${{ github.run_id }}.zip
+      working-directory: ${{ inputs.layer_directory }}/sample-apps/aws-sdk

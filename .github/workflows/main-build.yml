@@ -76,6 +76,15 @@ jobs:
         with:
           name: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
           path: aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
+
+      - name: Build and Publish Lambda Staging Layer
+        uses: ./.github/actions/lambda_artifacts_build
+        with:
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+          node_version: "20"
+          layer_directory: lambda-layer
+          staging_s3_bucket: ${{ env.STAGING_S3_BUCKET }}
+          staging_tarball: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
       # TODO - implement contract tests in NodeJS
       # - name: Set up and run contract tests with pytest
       #   run: |

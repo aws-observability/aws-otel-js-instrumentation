@@ -15,6 +15,7 @@
     "version:update": "lerna run version:update",
     "lint:readme": "lerna run lint:readme",
     "compile": "lerna run compile",
+    "build-lambda": "./lambda-layer/build.sh",
     "prewatch": "npm run precompile",
     "test": "lerna run test",
     "test:coverage": "lerna run test:coverage",

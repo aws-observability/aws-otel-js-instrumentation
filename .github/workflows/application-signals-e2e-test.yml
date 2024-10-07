@@ -75,3 +75,9 @@ jobs:
       aws-region: us-east-1
       adot-image-name: ${{ inputs.adot-image-name }}
       caller-workflow-name: 'main-build'
+
+  lambda:
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-lambda-test.yml@main
+    with:
+      aws-region: us-east-1
+      caller-workflow-name: 'main-build'

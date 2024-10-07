@@ -8,7 +8,7 @@ import { S3 } from '@aws-sdk/client-s3';
 
 const s3 = new S3();
 
-exports.handler = async (event: APIGatewayProxyEvent, context: Context) => {
+exports.handler = async (_event: APIGatewayProxyEvent, _context: Context) => {
   console.info('Serving lambda request.');
 
   const result = await s3.listBuckets();
@@ -18,7 +18,7 @@ exports.handler = async (event: APIGatewayProxyEvent, context: Context) => {
 
   const response: APIGatewayProxyResult = {
     statusCode: 200,
-    body: `Hello lambda - found ${result.Buckets?.length || 0} buckets`,
+    body: `Hello lambda - found ${result.Buckets?.length || 0} buckets. X-Ray Trace ID: ${process.env['_X_AMZN_TRACE_ID'] || 'Not available'}`,
   };
   return response;
 };

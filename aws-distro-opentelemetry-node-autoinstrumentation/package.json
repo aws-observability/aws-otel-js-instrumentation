@@ -1,6 +1,6 @@
 {
   "name": "@aws/aws-distro-opentelemetry-node-autoinstrumentation",
-  "version": "0.1.0-dev0",
+  "version": "0.2.0-dev0",
   "description": "This package provides Amazon Web Services distribution of the OpenTelemetry Node Instrumentation, which allows for auto-instrumentation of NodeJS applications.",
   "author": {
     "name": "Amazon Web Services",
@@ -37,6 +37,27 @@
   "bugs": {
     "url": "https://github.com/aws-observability/aws-otel-js-instrumentation/issues"
   },
+  "keywords": [
+    "aws",
+    "amazon",
+    "adot",
+    "adotjs",
+    "adot-js",
+    "adot js",
+    "xray",
+    "x-ray",
+    "x ray",
+    "awsxray",
+    "awsdistroopentelemetry",
+    "opentelemetry",
+    "otel",
+    "awslambda",
+    "nodejs",
+    "trace",
+    "tracing",
+    "profiling",
+    "instrumentation"
+  ],
   "devDependencies": {
     "@aws-sdk/client-bedrock": "3.632.0",
     "@aws-sdk/client-bedrock-agent": "3.632.0",

@@ -1,7 +1,7 @@
 name: Build and Push Staging AWSOpenTelemetryDistroJs Layer
 description: |
   This action assumes that the repo was checked out. Builds and push Lambda Layer and sample app to S3 bucket for 
-  the further end 2 end tests.
+  the further end to end tests.
 
 inputs:
   aws-region:

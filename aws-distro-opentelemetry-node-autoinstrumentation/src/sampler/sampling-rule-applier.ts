@@ -3,12 +3,7 @@
 
 import { AttributeValue, Attributes, Context, Link, SpanKind } from '@opentelemetry/api';
 import { Resource } from '@opentelemetry/resources';
-import {
-  ParentBasedSampler,
-  SamplingDecision,
-  SamplingResult,
-  TraceIdRatioBasedSampler,
-} from '@opentelemetry/sdk-trace-base';
+import { SamplingDecision, SamplingResult, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
 import {
   ATTR_CLIENT_ADDRESS,
   ATTR_HTTP_REQUEST_METHOD,
@@ -39,8 +34,8 @@ const MAX_DATE_TIME_MILLIS: number = new Date(8_640_000_000_000_000).getTime();
 
 export class SamplingRuleApplier {
   public samplingRule: SamplingRule;
-  private reservoirSampler: ParentBasedSampler;
-  private fixedRateSampler: ParentBasedSampler;
+  private reservoirSampler: RateLimitingSampler;
+  private fixedRateSampler: TraceIdRatioBasedSampler;
   private statistics: Statistics;
   private borrowingEnabled: boolean;
   private reservoirExpiryTimeInMillis: number;
@@ -48,11 +43,11 @@ export class SamplingRuleApplier {
   constructor(samplingRule: ISamplingRule, statistics: Statistics = new Statistics(), target?: SamplingTargetDocument) {
     this.samplingRule = new SamplingRule(samplingRule);
 
-    this.fixedRateSampler = new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(this.samplingRule.FixedRate) });
+    this.fixedRateSampler = new TraceIdRatioBasedSampler(this.samplingRule.FixedRate);
     if (samplingRule.ReservoirSize > 0) {
-      this.reservoirSampler = new ParentBasedSampler({ root: new RateLimitingSampler(1) });
+      this.reservoirSampler = new RateLimitingSampler(1);
     } else {
-      this.reservoirSampler = new ParentBasedSampler({ root: new RateLimitingSampler(0) });
+      this.reservoirSampler = new RateLimitingSampler(0);
     }
 
     this.reservoirExpiryTimeInMillis = MAX_DATE_TIME_MILLIS;
@@ -63,7 +58,7 @@ export class SamplingRuleApplier {
     if (target) {
       this.borrowingEnabled = false;
       if (target.ReservoirQuota) {
-        this.reservoirSampler = new ParentBasedSampler({ root: new RateLimitingSampler(target.ReservoirQuota) });
+        this.reservoirSampler = new RateLimitingSampler(target.ReservoirQuota);
       }
 
       if (target.ReservoirQuotaTTL) {
@@ -73,7 +68,7 @@ export class SamplingRuleApplier {
       }
 
       if (target.FixedRate) {
-        this.fixedRateSampler = new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(target.FixedRate) });
+        this.fixedRateSampler = new TraceIdRatioBasedSampler(target.FixedRate);
       }
     }
   }
@@ -156,7 +151,7 @@ export class SamplingRuleApplier {
     }
 
     if (result.decision === SamplingDecision.NOT_RECORD) {
-      result = this.fixedRateSampler.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+      result = this.fixedRateSampler.shouldSample(context, traceId);
     }
 
     this.statistics.SampleCount += result.decision !== SamplingDecision.NOT_RECORD ? 1 : 0;

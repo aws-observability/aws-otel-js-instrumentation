@@ -6,6 +6,7 @@ import { Resource } from '@opentelemetry/resources';
 import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
 import { AttributeMap, MetricAttributeGenerator } from './metric-attribute-generator';
+import { ForceFlushFunction } from './aws-span-processing-util';
 
 /**
  * This processor will generate metrics based on span data. It depends on a
@@ -39,6 +40,7 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
 
   private generator: MetricAttributeGenerator;
   private resource: Resource;
+  private forceFlushFunction: ForceFlushFunction;
 
   /** Use {@link AwsSpanMetricsProcessorBuilder} to construct this processor. */
   static create(
@@ -46,9 +48,17 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
     faultHistogram: Histogram,
     latencyHistogram: Histogram,
     generator: MetricAttributeGenerator,
-    resource: Resource
+    resource: Resource,
+    forceFlushFunction: ForceFlushFunction
   ): AwsSpanMetricsProcessor {
-    return new AwsSpanMetricsProcessor(errorHistogram, faultHistogram, latencyHistogram, generator, resource);
+    return new AwsSpanMetricsProcessor(
+      errorHistogram,
+      faultHistogram,
+      latencyHistogram,
+      generator,
+      resource,
+      forceFlushFunction
+    );
   }
 
   private constructor(
@@ -56,13 +66,15 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
     faultHistogram: Histogram,
     latencyHistogram: Histogram,
     generator: MetricAttributeGenerator,
-    resource: Resource
+    resource: Resource,
+    forceFlushFunction: ForceFlushFunction
   ) {
     this.errorHistogram = errorHistogram;
     this.faultHistogram = faultHistogram;
     this.latencyHistogram = latencyHistogram;
     this.generator = generator;
     this.resource = resource;
+    this.forceFlushFunction = forceFlushFunction;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -129,6 +141,6 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
   }
 
   public forceFlush(): Promise<void> {
-    return Promise.resolve();
+    return this.forceFlushFunction();
   }
 }

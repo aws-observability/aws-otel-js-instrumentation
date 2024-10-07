@@ -104,7 +104,7 @@ export class AwsOpentelemetryConfigurator {
    * @constructor
    * @param {Instrumentation[]} instrumentations - Auto-Instrumentations to be added to the ADOT Config
    */
-  public constructor(instrumentations: Instrumentation[]) {
+  public constructor(instrumentations: Instrumentation[], useXraySampler: boolean = false) {
     /*
      * Set and Detect Resources via Resource Detectors
      *
@@ -167,7 +167,9 @@ export class AwsOpentelemetryConfigurator {
     // https://github.com/aws-observability/aws-otel-java-instrumentation/blob/a011b8cc29ee32b7f668c04ccfdf64cd30de467c/awsagentprovider/src/main/java/software/amazon/opentelemetry/javaagent/providers/AwsTracerCustomizerProvider.java#L36
     this.idGenerator = new AWSXRayIdGenerator();
 
-    this.sampler = AwsOpentelemetryConfigurator.customizeSampler(customBuildSamplerFromEnv(this.resource));
+    this.sampler = AwsOpentelemetryConfigurator.customizeSampler(
+      customBuildSamplerFromEnv(this.resource, useXraySampler)
+    );
 
     // default SpanProcessors with Span Exporters wrapped inside AwsMetricAttributesSpanExporter
     const awsSpanProcessorProvider: AwsSpanProcessorProvider = new AwsSpanProcessorProvider(this.resource);
@@ -273,7 +275,13 @@ export class AwsOpentelemetryConfigurator {
         resource: resource,
         readers: [periodicExportingMetricReader],
       });
-      spanProcessors.push(AwsSpanMetricsProcessorBuilder.create(meterProvider, resource).build());
+      spanProcessors.push(
+        AwsSpanMetricsProcessorBuilder.create(
+          meterProvider,
+          resource,
+          meterProvider.forceFlush.bind(meterProvider)
+        ).build()
+      );
     }
   }
 
@@ -285,37 +293,36 @@ export class AwsOpentelemetryConfigurator {
   }
 }
 
-export function customBuildSamplerFromEnv(resource: Resource): Sampler {
-  switch (process.env.OTEL_TRACES_SAMPLER) {
-    case 'xray': {
-      const samplerArgumentEnv: string | undefined = process.env.OTEL_TRACES_SAMPLER_ARG;
-      let endpoint: string | undefined = undefined;
-      let pollingInterval: number | undefined = undefined;
+export function customBuildSamplerFromEnv(resource: Resource, useXraySampler: boolean = false): Sampler {
+  if (useXraySampler || process.env.OTEL_TRACES_SAMPLER === 'xray') {
+    const samplerArgumentEnv: string | undefined = process.env.OTEL_TRACES_SAMPLER_ARG;
+    let endpoint: string | undefined = undefined;
+    let pollingInterval: number | undefined = undefined;
 
-      if (samplerArgumentEnv !== undefined) {
-        const args: string[] = samplerArgumentEnv.split(',');
-        for (const arg of args) {
-          const equalIndex: number = arg.indexOf('=');
-          if (equalIndex === -1) {
-            continue;
-          }
-          const keyValue: string[] = [arg.substring(0, equalIndex), arg.substring(equalIndex + 1)];
-          if (keyValue[0] === 'endpoint') {
-            endpoint = keyValue[1];
-          } else if (keyValue[0] === 'polling_interval') {
-            pollingInterval = Number(keyValue[1]);
-            if (isNaN(pollingInterval)) {
-              pollingInterval = undefined;
-              diag.error('polling_interval in OTEL_TRACES_SAMPLER_ARG must be a valid number');
-            }
+    if (samplerArgumentEnv !== undefined) {
+      const args: string[] = samplerArgumentEnv.split(',');
+      for (const arg of args) {
+        const equalIndex: number = arg.indexOf('=');
+        if (equalIndex === -1) {
+          continue;
+        }
+        const keyValue: string[] = [arg.substring(0, equalIndex), arg.substring(equalIndex + 1)];
+        if (keyValue[0] === 'endpoint') {
+          endpoint = keyValue[1];
+        } else if (keyValue[0] === 'polling_interval') {
+          pollingInterval = Number(keyValue[1]);
+          if (isNaN(pollingInterval)) {
+            pollingInterval = undefined;
+            diag.error('polling_interval in OTEL_TRACES_SAMPLER_ARG must be a valid number');
           }
         }
       }
-
-      diag.debug(`XRay Sampler Endpoint: ${endpoint}`);
-      diag.debug(`XRay Sampler Polling Interval: ${pollingInterval}`);
-      return new AwsXRayRemoteSampler({ resource: resource, endpoint: endpoint, pollingInterval: pollingInterval });
     }
+
+    diag.info('AWS XRay Sampler enabled');
+    diag.debug(`XRay Sampler Endpoint: ${endpoint}`);
+    diag.debug(`XRay Sampler Polling Interval: ${pollingInterval}`);
+    return new AwsXRayRemoteSampler({ resource: resource, endpoint: endpoint, pollingInterval: pollingInterval });
   }
 
   return buildSamplerFromEnv();

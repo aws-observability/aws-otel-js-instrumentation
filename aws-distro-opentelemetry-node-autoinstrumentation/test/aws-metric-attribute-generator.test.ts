@@ -33,6 +33,7 @@ import { expect } from 'expect';
 import { AWS_ATTRIBUTE_KEYS } from '../src/aws-attribute-keys';
 import { AwsMetricAttributeGenerator } from '../src/aws-metric-attribute-generator';
 import { AttributeMap, DEPENDENCY_METRIC, SERVICE_METRIC } from '../src/metric-attribute-generator';
+import { AwsSpanProcessingUtil } from '../src/aws-span-processing-util';
 
 // Does not exist in @opentelemetry/semantic-conventions
 const _SERVER_SOCKET_ADDRESS: string = 'server.socket.address';
@@ -784,6 +785,56 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, ['aws_table^name']);
     validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'aws_table^^name');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
+
+    // Validate behaviour of AWS_BEDROCK_AGENT_ID attribute, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID, 'test_agent_id');
+    validateRemoteResourceAttributes('AWS::Bedrock::Agent', 'test_agent_id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
+
+    // Validate behaviour of AWS_BEDROCK_AGENT_ID attribute with special chars(^), then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID, 'test_agent_^id');
+    validateRemoteResourceAttributes('AWS::Bedrock::Agent', 'test_agent_^^id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID, undefined);
+
+    // Validate behaviour of AWS_BEDROCK_DATA_SOURCE_ID attribute, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID, 'test_datasource_id');
+    validateRemoteResourceAttributes('AWS::Bedrock::DataSource', 'test_datasource_id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID, undefined);
+
+    // Validate behaviour of AWS_BEDROCK_DATA_SOURCE_ID attribute with special chars(^), then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID, 'test_datasource_^id');
+    validateRemoteResourceAttributes('AWS::Bedrock::DataSource', 'test_datasource_^^id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID, undefined);
+
+    // Validate behaviour of AWS_BEDROCK_GUARDRAIL_ID attribute, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, 'test_guardrail_id');
+    validateRemoteResourceAttributes('AWS::Bedrock::Guardrail', 'test_guardrail_id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, undefined);
+
+    // Validate behaviour of AWS_BEDROCK_GUARDRAIL_ID attribute with special chars(^), then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, 'test_guardrail_^id');
+    validateRemoteResourceAttributes('AWS::Bedrock::Guardrail', 'test_guardrail_^^id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, undefined);
+
+    // Validate behaviour of AWS_BEDROCK_KNOWLEDGE_BASE_ID attribute, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, 'test_knowledgeBase_id');
+    validateRemoteResourceAttributes('AWS::Bedrock::KnowledgeBase', 'test_knowledgeBase_id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, undefined);
+
+    // Validate behaviour of AWS_BEDROCK_KNOWLEDGE_BASE_ID attribute with special chars(^), then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, 'test_knowledgeBase_^id');
+    validateRemoteResourceAttributes('AWS::Bedrock::KnowledgeBase', 'test_knowledgeBase_^^id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, undefined);
+
+    // Validate behaviour of GEN_AI_REQUEST_MODEL attribute, then remove it.
+    mockAttribute(AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL, 'test.service_id');
+    validateRemoteResourceAttributes('AWS::Bedrock::Model', 'test.service_id');
+    mockAttribute(AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL, undefined);
+
+    // Validate behaviour of GEN_AI_REQUEST_MODEL attribute with special chars(^), then remove it.
+    mockAttribute(AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL, 'test.service_^id');
+    validateRemoteResourceAttributes('AWS::Bedrock::Model', 'test.service_^^id');
+    mockAttribute(AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL, undefined);
   });
 
   it('testDBClientSpanWithRemoteResourceAttributes', () => {
@@ -1116,6 +1167,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     testAwsSdkServiceNormalization('Kinesis', 'AWS::Kinesis');
     testAwsSdkServiceNormalization('S3', 'AWS::S3');
     testAwsSdkServiceNormalization('SQS', 'AWS::SQS');
+    testAwsSdkServiceNormalization('Bedrock', 'AWS::Bedrock');
+    testAwsSdkServiceNormalization('BedrockAgent', 'AWS::Bedrock');
+    testAwsSdkServiceNormalization('BedrockAgentRuntime', 'AWS::Bedrock');
+    testAwsSdkServiceNormalization('BedrockRuntime', 'AWS::BedrockRuntime');
   });
 
   function testAwsSdkServiceNormalization(serviceName: string, expectedRemoteService: string): void {

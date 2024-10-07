@@ -17,7 +17,8 @@ describe('AwsSpanMetricsProcessorBuilderTest', () => {
     const meterProvider: MeterProvider = new MeterProvider({});
     const builder: AwsSpanMetricsProcessorBuilder = AwsSpanMetricsProcessorBuilder.create(
       meterProvider,
-      sinon.createStubInstance(Resource)
+      sinon.createStubInstance(Resource),
+      meterProvider.forceFlush
     );
     const generatorMock: MetricAttributeGenerator = sinon.createStubInstance(AwsMetricAttributeGenerator);
     expect(builder.setGenerator(generatorMock)).toBe(builder);

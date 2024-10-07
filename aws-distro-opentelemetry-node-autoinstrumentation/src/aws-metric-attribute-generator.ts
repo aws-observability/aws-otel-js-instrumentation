@@ -55,6 +55,8 @@ const NORMALIZED_DYNAMO_DB_SERVICE_NAME: string = 'AWS::DynamoDB';
 const NORMALIZED_KINESIS_SERVICE_NAME: string = 'AWS::Kinesis';
 const NORMALIZED_S3_SERVICE_NAME: string = 'AWS::S3';
 const NORMALIZED_SQS_SERVICE_NAME: string = 'AWS::SQS';
+const NORMALIZED_BEDROCK_SERVICE_NAME: string = 'AWS::Bedrock';
+const NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME: string = 'AWS::BedrockRuntime';
 
 const DB_CONNECTION_RESOURCE_TYPE: string = 'DB::Connection';
 // As per https://opentelemetry.io/docs/specs/semconv/resource/#service, if service name is not specified, SDK defaults
@@ -317,10 +319,19 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * Cloud Control resource format</a> as much as possible, with special attention to services we
    * can detect remote resource information for. Long term, we would like to normalize service name
    * in the upstream.
+   *
+   * For Bedrock, Bedrock Agent, and Bedrock Agent Runtime, we can align with AWS Cloud Control and use
+   * AWS::Bedrock for RemoteService. For BedrockRuntime, we are using AWS::BedrockRuntime
+   * as the associated remote resource (Model) is not listed in Cloud Control.
    */
   private static normalizeRemoteServiceName(span: ReadableSpan, serviceName: string): string {
     if (AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
-      return 'AWS::' + serviceName;
+      const awsSdkServiceMapping: { [key: string]: string } = {
+        BedrockAgent: NORMALIZED_BEDROCK_SERVICE_NAME,
+        BedrockAgentRuntime: NORMALIZED_BEDROCK_SERVICE_NAME,
+        BedrockRuntime: NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME,
+      };
+      return awsSdkServiceMapping[serviceName] || 'AWS::' + serviceName;
     }
     return serviceName;
   }
@@ -368,6 +379,31 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteResourceType = NORMALIZED_SQS_SERVICE_NAME + '::Queue';
         remoteResourceIdentifier = SqsUrlParser.getQueueName(
           AwsMetricAttributeGenerator.escapeDelimiters(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL])
+        );
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID)) {
+        remoteResourceType = NORMALIZED_BEDROCK_SERVICE_NAME + '::Agent';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]
+        );
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID)) {
+        remoteResourceType = NORMALIZED_BEDROCK_SERVICE_NAME + '::DataSource';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]
+        );
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID)) {
+        remoteResourceType = NORMALIZED_BEDROCK_SERVICE_NAME + '::Guardrail';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID]
+        );
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID)) {
+        remoteResourceType = NORMALIZED_BEDROCK_SERVICE_NAME + '::KnowledgeBase';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]
+        );
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL)) {
+        remoteResourceType = NORMALIZED_BEDROCK_SERVICE_NAME + '::Model';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]
         );
       }
     } else if (AwsSpanProcessingUtil.isDBSpan(span)) {

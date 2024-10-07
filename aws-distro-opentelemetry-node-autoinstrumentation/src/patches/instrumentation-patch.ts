@@ -18,6 +18,12 @@ import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propa
 import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
 import { AWS_ATTRIBUTE_KEYS } from '../aws-attribute-keys';
 import { RequestMetadata } from '../third-party/otel/aws/services/ServiceExtension';
+import {
+  BedrockAgentRuntimeServiceExtension,
+  BedrockAgentServiceExtension,
+  BedrockRuntimeServiceExtension,
+  BedrockServiceExtension,
+} from './aws/services/bedrock';
 import { KinesisServiceExtension } from './aws/services/kinesis';
 import { S3ServiceExtension } from './aws/services/s3';
 
@@ -51,6 +57,10 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
       if (services) {
         services.set('S3', new S3ServiceExtension());
         services.set('Kinesis', new KinesisServiceExtension());
+        services.set('Bedrock', new BedrockServiceExtension());
+        services.set('BedrockAgent', new BedrockAgentServiceExtension());
+        services.set('BedrockAgentRuntime', new BedrockAgentRuntimeServiceExtension());
+        services.set('BedrockRuntime', new BedrockRuntimeServiceExtension());
         patchSqsServiceExtension(services.get('SQS'));
       }
     } else if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-lambda') {

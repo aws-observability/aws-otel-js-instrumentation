@@ -20,6 +20,8 @@ import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AWS_LAMBDA_FUNCTION_NAME_CONFIG, isLambdaEnvironment } from './aws-opentelemetry-configurator';
 import * as SQL_DIALECT_KEYWORDS_JSON from './configuration/sql_dialect_keywords.json';
 
+export type ForceFlushFunction = (options?: any) => Promise<void>;
+
 /** Utility class designed to support shared logic across AWS Span Processors. */
 export class AwsSpanProcessingUtil {
   // Default attribute values if no valid span attribute value is identified
@@ -37,6 +39,10 @@ export class AwsSpanProcessingUtil {
   // If we add a longer keyword to the sql dialect keyword list, need to update the constant below.
   static MAX_KEYWORD_LENGTH: number = 27;
   static SQL_DIALECT_PATTERN: string = '^(?:' + AwsSpanProcessingUtil.getDialectKeywords().join('|') + ')\\b';
+
+  // TODO: Use Semantic Conventions once upgraded
+  static GEN_AI_REQUEST_MODEL: string = 'gen_ai.request.model';
+  static GEN_AI_SYSTEM: string = 'gen_ai.system';
 
   static getDialectKeywords(): string[] {
     return SQL_DIALECT_KEYWORDS_JSON.keywords;

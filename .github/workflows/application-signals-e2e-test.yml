@@ -78,6 +78,7 @@ jobs:
 
   lambda:
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-lambda-test.yml@main
+    secrets: inherit
     with:
       aws-region: us-east-1
       caller-workflow-name: 'main-build'

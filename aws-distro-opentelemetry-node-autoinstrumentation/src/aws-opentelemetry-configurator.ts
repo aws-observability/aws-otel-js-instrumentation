@@ -257,7 +257,10 @@ export class AwsOpentelemetryConfigurator {
     // Register BatchUnsampledSpanProcessor to export unsampled traces in Lambda
     // when Application Signals enabled
     if (isLambdaEnvironment() && !hasCustomOtlpTraceEndpoint()) {
-      const udpSpanExporter = new OTLPUdpSpanExporter(getXrayDaemonEndpoint(), FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX);
+      const udpSpanExporter = new OTLPUdpSpanExporter(
+        getXrayDaemonEndpoint(),
+        FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX
+      );
       const configuredExporter = AwsMetricAttributesSpanExporterBuilder.create(udpSpanExporter, resource).build();
       spanProcessors.push(
         new AwsBatchUnsampledSpanProcessor(configuredExporter, {

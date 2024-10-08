@@ -186,16 +186,6 @@ jobs:
         with:
           name: layer.tf
           path: layer.tf
-  update-layer:
-    runs-on: ubuntu-latest
-    needs: generate-release-note
-    steps:
-      - name: Checkout Repo @ SHA - ${{ github.sha }}
-        uses: actions/checkout@v4
-      - name: download layer.tf
-        uses: actions/download-artifact@v3
-        with:
-          name: layer.tf
       - name: Commit changes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -206,3 +196,35 @@ jobs:
           git add lambda-layer/terraform/lambda/layer.tf
           git commit -m "Update Lambda layer ARNs for releasing" || echo "No changes to commit"
           git push
+  create-release:
+    runs-on: ubuntu-latest
+    needs: generate-release-note
+    steps:
+      - name: Checkout Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@v4
+      - name: Get latest commit SHA
+        run: |
+          echo "COMMIT_SHA=${GITHUB_SHA}" >> $GITHUB_ENV
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
+      - name: Create Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          TAG_NAME="lambda-${SHORT_SHA}"
+          git tag -a "$TAG_NAME" -m "Release Lambda layer based on commit $TAG_NAME"
+          git push origin "$TAG_NAME"
+          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          release_name: "Release AWSOpenTelemetryDistroPython Lambda Layer"
+          body_path: lambda-layer/terraform/lambda/layer.tf
+          draft: true
+          prerelease: false

@@ -1,5 +1,5 @@
 # Stage 1: Install ADOT nodejs instrumentation in the /operator-build folder
-FROM node:20 AS build
+FROM public.ecr.aws/docker/library/node:20 AS build
 
 # Build the ADOT JS SDK Tarball: aws-aws-distro-opentelemetry-node-autoinstrumentation-x.y.z.tgz
 WORKDIR /adot-js-build
@@ -18,7 +18,7 @@ RUN npm install aws-aws-distro-opentelemetry-node-autoinstrumentation-$(node -p 
 RUN npm install
 
 # Stage 2: Build the cp-utility binary
-FROM rust:1.75 as builder
+FROM public.ecr.aws/docker/library/rust:1.75 as builder
 
 WORKDIR /usr/src/cp-utility
 COPY ./tools/cp-utility .

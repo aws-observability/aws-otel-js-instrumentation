@@ -1,5 +1,5 @@
 # # Stage 1: Install ADOT nodejs instrumentation in the /operator-build folder
-FROM node:20 AS build
+FROM public.ecr.aws/docker/library/node:20 AS build
 
 # In the future, when ADOT JS is uploaded to NPM, the source code can be obtained from there
 # and this Dockerfile will not need to copy the source code anymore as a workaround.
@@ -18,7 +18,7 @@ COPY docker-utils/package.json ./package.json
 RUN npm install
 
 # Stage 2: Build the cp-utility binary
-FROM rust:1.75 as builder
+FROM public.ecr.aws/docker/library/rust:1.75 as builder
 
 WORKDIR /usr/src/cp-utility
 COPY ./tools/cp-utility .

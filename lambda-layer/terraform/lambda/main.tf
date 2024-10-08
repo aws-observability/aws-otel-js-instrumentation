@@ -4,7 +4,7 @@ locals {
 resource "aws_lambda_layer_version" "sdk_layer" {
   layer_name          = var.sdk_layer_name
   filename            = "${path.module}/../../packages/layer/build/layer.zip"
-  compatible_runtimes = ["nodejs14.x", "nodejs16.x", "nodejs18.x"]
+  compatible_runtimes = ["nodejs18.x", "nodejs20.x"]
   license_info        = "Apache-2.0"
   source_code_hash    = filebase64sha256("${path.module}/../../packages/layer/build/layer.zip")
 }

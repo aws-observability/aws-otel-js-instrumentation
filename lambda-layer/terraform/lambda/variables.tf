@@ -19,7 +19,7 @@ variable "tracing_mode" {
 variable "runtime" {
   type        = string
   description = "NodeJS runtime version used for sample Lambda Function"
-  default     = "nodejs16.x"
+  default     = "nodejs20.x"
 }
 
 variable "architecture" {

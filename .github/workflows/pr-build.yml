@@ -48,6 +48,17 @@ jobs:
         with:
           verbose: true
 
+  contract-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: run contract tests
+        run: |
+          bash ./scripts/build_and_install_distro.sh
+          bash scripts/set-up-contract-tests.sh
+          pip install pytest
+          pytest contract-tests/tests
+
   lint:
     runs-on: ubuntu-latest
     steps:

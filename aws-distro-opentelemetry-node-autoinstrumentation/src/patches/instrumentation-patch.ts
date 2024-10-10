@@ -12,7 +12,6 @@ import {
   trace,
 } from '@opentelemetry/api';
 import { Instrumentation } from '@opentelemetry/instrumentation';
-import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import { AwsSdkInstrumentationConfig, NormalizedRequest } from '@opentelemetry/instrumentation-aws-sdk';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
@@ -26,6 +25,7 @@ import {
 } from './aws/services/bedrock';
 import { KinesisServiceExtension } from './aws/services/kinesis';
 import { S3ServiceExtension } from './aws/services/s3';
+import { AwsLambdaInstrumentationPatch } from './aws/services/aws-lambda';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 const awsPropagator = new AWSXRayPropagator();
@@ -65,7 +65,7 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
       }
     } else if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-lambda') {
       diag.debug('Overriding aws lambda instrumentation');
-      const lambdaInstrumentation = new AwsLambdaInstrumentation({
+      const lambdaInstrumentation = new AwsLambdaInstrumentationPatch({
         eventContextExtractor: customExtractor,
         disableAwsContextPropagation: true,
       });

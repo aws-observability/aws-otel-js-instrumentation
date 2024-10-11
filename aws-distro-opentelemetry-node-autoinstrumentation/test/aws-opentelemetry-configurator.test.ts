@@ -4,9 +4,12 @@
 import { Span, TraceFlags, Tracer } from '@opentelemetry/api';
 import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import { OTLPMetricExporter as OTLPHttpOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
+import { OTLPTraceExporter as OTLPGrpcTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
+import { OTLPTraceExporter as OTLPHttpTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { Resource } from '@opentelemetry/resources';
 import { PushMetricExporter } from '@opentelemetry/sdk-metrics';
-import { ReadableSpan, SpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { AlwaysOffSampler, ReadableSpan, SpanProcessor, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
 import {
   AlwaysOnSampler,
   NodeTracerProvider,
@@ -222,6 +225,16 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'False';
     expect(AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()).toBeFalsy();
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'abcdefg';
+    expect(AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()).toBeFalsy();
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True_abcdefg';
+    expect(AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()).toBeFalsy();
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'abcdefg_True';
+    expect(AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()).toBeFalsy();
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = '0';
+    expect(AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()).toBeFalsy();
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = '1';
+    expect(AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()).toBeFalsy();
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     expect(AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()).toBeFalsy();
   });
@@ -294,6 +307,9 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   });
 
   it('ApplicationSignalsExporterProviderTest', () => {
+    const DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL = process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
+    delete process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL;
+
     // Check default protocol - HTTP, as specified by aws-distro-opentelemetry-node-autoinstrumentation's register.ts.
     let exporter: PushMetricExporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
@@ -310,6 +326,61 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
     expect('http://localhost:4316/v1/metrics').toEqual((exporter as any)._otlpExporter.url);
+
+    // If for some reason, the env var is undefined (it shouldn't), overwrite protocol to gRPC.
+    delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
+    exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
+    expect(exporter).toBeInstanceOf(OTLPGrpcOTLPMetricExporter);
+    expect('localhost:4315').toEqual((exporter as any)._otlpExporter.url);
+
+    // Expect invalid protocol to throw error.
+    process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'invalid_protocol';
+    expect(() => ApplicationSignalsExporterProvider.Instance.createExporter()).toThrow();
+
+    // Cleanup
+    process.env.OTEL_EXPORTER_OTLP_PROTOCOL = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL;
+
+    // Repeat tests using OTEL_EXPORTER_OTLP_METRICS_PROTOCOL environment variable instead
+
+    // Check default protocol - HTTP, as specified by aws-distro-opentelemetry-node-autoinstrumentation's register.ts.
+    exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
+    expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
+    expect('http://localhost:4316/v1/metrics').toEqual((exporter as any)._otlpExporter.url);
+
+    // Overwrite protocol to gRPC.
+    process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'grpc';
+    exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
+    expect(exporter).toBeInstanceOf(OTLPGrpcOTLPMetricExporter);
+    expect('localhost:4315').toEqual((exporter as any)._otlpExporter.url);
+
+    // Overwrite protocol back to HTTP.
+    process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'http/protobuf';
+    exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
+    expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
+    expect('http://localhost:4316/v1/metrics').toEqual((exporter as any)._otlpExporter.url);
+
+    // Expect invalid protocol to throw error.
+    process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'invalid_protocol';
+    expect(() => ApplicationSignalsExporterProvider.Instance.createExporter()).toThrow();
+
+    // Test custom URLs via OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT = 'my_custom_endpoint';
+
+    // Overwrite protocol to gRPC, export to url "my_custom_endpoint"
+    process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'grpc';
+    exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
+    expect(exporter).toBeInstanceOf(OTLPGrpcOTLPMetricExporter);
+    expect('my_custom_endpoint').toEqual((exporter as any)._otlpExporter.url);
+
+    // Overwrite protocol back to HTTP, export to url "my_custom_endpoint"
+    process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'http/protobuf';
+    exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
+    expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
+    expect('my_custom_endpoint').toEqual((exporter as any)._otlpExporter.url);
+
+    // Cleanup
+    delete process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL;
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT;
   });
 
   it('tests getSamplerProbabilityFromEnv() ratio out of bounds', () => {
@@ -411,4 +482,157 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(undefined).toEqual(process.env.OTEL_TRACES_EXPORTER);
     expect(undefined).toEqual(process.env.OTEL_METRICS_EXPORTER);
   }
+
+  it('OtelTracesSamplerInputValidationTest', () => {
+    let config;
+
+    // Test that the samplers that should exist, do exist
+    process.env.OTEL_TRACES_SAMPLER = 'always_off';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.sampler).toBeInstanceOf(AlwaysOffSampler);
+
+    process.env.OTEL_TRACES_SAMPLER = 'always_on';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.sampler).toBeInstanceOf(AlwaysOnSampler);
+
+    process.env.OTEL_TRACES_SAMPLER = 'parentbased_always_off';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.sampler).toBeInstanceOf(ParentBasedSampler);
+
+    process.env.OTEL_TRACES_SAMPLER = 'parentbased_always_on';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.sampler).toBeInstanceOf(ParentBasedSampler);
+
+    process.env.OTEL_TRACES_SAMPLER = 'parentbased_traceidratio';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.sampler).toBeInstanceOf(ParentBasedSampler);
+
+    // Test invalid and out-of-bound cases for traceidratio sampler
+    process.env.OTEL_TRACES_SAMPLER = 'traceidratio';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.sampler).toBeInstanceOf(TraceIdRatioBasedSampler);
+    process.env.OTEL_TRACES_SAMPLER_ARG = '0.5';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect((config.sampler as any)._ratio).toEqual(0.5);
+    process.env.OTEL_TRACES_SAMPLER_ARG = '2';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect((config.sampler as any)._ratio).toEqual(1);
+    process.env.OTEL_TRACES_SAMPLER_ARG = '-3';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect((config.sampler as any)._ratio).toEqual(1);
+    process.env.OTEL_TRACES_SAMPLER_ARG = 'abc';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect((config.sampler as any)._ratio).toEqual(1);
+
+    // In-depth testing for 'xray' sampler arguments can be found in test case 'ImportXRaySamplerWhenSamplerArgsSet'
+    process.env.OTEL_TRACES_SAMPLER = 'xray';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.sampler).toBeInstanceOf(AwsXRayRemoteSampler);
+
+    // Invalid sampler cases
+    process.env.OTEL_TRACES_SAMPLER = 'invalid_sampler';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.sampler).toBeInstanceOf(AlwaysOnSampler);
+
+    process.env.OTEL_TRACES_SAMPLER = '123';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.sampler).toBeInstanceOf(AlwaysOnSampler);
+
+    // Cleanup
+    delete process.env.OTEL_TRACES_SAMPLER;
+  });
+
+  it('OtelTraceExporterInputValidationTest', () => {
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'true';
+    let config;
+
+    // Default scenario where no trace exporter is specified
+    process.env.OTEL_TRACES_EXPORTER = 'none';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect((config.spanProcessors as any)[0]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect((config.spanProcessors as any)[1]).toBeInstanceOf(AwsSpanMetricsProcessor);
+    expect(config.spanProcessors?.length).toEqual(2);
+
+    // Scenario where otlp trace exporter is specified, adds one more exporter compared to default case
+    process.env.OTEL_TRACES_EXPORTER = 'otlp';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect((config.spanProcessors as any)[0]._exporter.delegate).toBeInstanceOf(OTLPProtoTraceExporter);
+    expect((config.spanProcessors as any)[1]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect((config.spanProcessors as any)[2]).toBeInstanceOf(AwsSpanMetricsProcessor);
+    expect(config.spanProcessors?.length).toEqual(3);
+
+    // Specify invalid exporter, same result as default scenario where no trace exporter is specified
+    process.env.OTEL_TRACES_EXPORTER = 'invalid_exporter_name';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect((config.spanProcessors as any)[0]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect((config.spanProcessors as any)[1]).toBeInstanceOf(AwsSpanMetricsProcessor);
+    expect(config.spanProcessors?.length).toEqual(2);
+
+    // Cleanup
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+    delete process.env.OTEL_TRACES_EXPORTER;
+  });
+
+  it('ResourceDetectorInputValidationTest', () => {
+    let config;
+    process.env.OTEL_SERVICE_NAME = 'test_service_name';
+
+    // Default 2 attributes detected in test environment
+    process.env.OTEL_NODE_RESOURCE_DETECTORS = 'container';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(Object.keys((config.resource as any).attributes).length).toEqual(2);
+    expect((config.resource as any).attributes['service.name']).toEqual('test_service_name');
+    expect((config.resource as any).attributes['telemetry.auto.version'].endsWith('-aws')).toBeTruthy();
+
+    // Still default 2 attributes detected given invalid resource detectors
+    process.env.OTEL_NODE_RESOURCE_DETECTORS = 'invalid_detector_1,invalid_detector_2';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(Object.keys((config.resource as any).attributes).length).toEqual(2);
+    expect((config.resource as any).attributes['service.name']).toEqual('test_service_name');
+    expect((config.resource as any).attributes['telemetry.auto.version'].endsWith('-aws')).toBeTruthy();
+
+    // Still default 2 attributes detected given mix of valid and invalid resource detectors
+    process.env.OTEL_NODE_RESOURCE_DETECTORS = 'container,invalid_detector_1,invalid_detector_2';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(Object.keys((config.resource as any).attributes).length).toEqual(2);
+    expect((config.resource as any).attributes['service.name']).toEqual('test_service_name');
+    expect((config.resource as any).attributes['telemetry.auto.version'].endsWith('-aws')).toBeTruthy();
+
+    // Cleanup
+    delete process.env.OTEL_SERVICE_NAME;
+    delete process.env.OTEL_NODE_RESOURCE_DETECTORS;
+  });
+
+  it('AwsSpanProcessorProviderTest', () => {
+    let spanExporter;
+
+    // Test span exporter configurations via valid environment variables
+    delete process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL;
+    spanExporter = AwsSpanProcessorProvider.configureOtlp();
+    expect(spanExporter).toBeInstanceOf(OTLPProtoTraceExporter);
+
+    process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'grpc';
+    spanExporter = AwsSpanProcessorProvider.configureOtlp();
+    expect(spanExporter).toBeInstanceOf(OTLPGrpcTraceExporter);
+
+    process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'http/json';
+    spanExporter = AwsSpanProcessorProvider.configureOtlp();
+    expect(spanExporter).toBeInstanceOf(OTLPHttpTraceExporter);
+
+    process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'http/protobuf';
+    spanExporter = AwsSpanProcessorProvider.configureOtlp();
+    expect(spanExporter).toBeInstanceOf(OTLPProtoTraceExporter);
+
+    process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'udp';
+    spanExporter = AwsSpanProcessorProvider.configureOtlp();
+    expect(spanExporter).toBeInstanceOf(OTLPUdpSpanExporter);
+
+    // Test that a default span exporter is configured via invalid environment variable
+    process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'invalid_protocol';
+    spanExporter = AwsSpanProcessorProvider.configureOtlp();
+    expect(spanExporter).toBeInstanceOf(OTLPProtoTraceExporter);
+
+    // Cleanup
+    delete process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL;
+  });
 });

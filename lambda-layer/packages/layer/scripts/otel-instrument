@@ -1,5 +1,5 @@
 #!/bin/bash
-isESMScript() {
+_is_esm_handler() {
   # Lambda function root directory
   TASK_DIR="/var/task"
 
@@ -28,7 +28,7 @@ isESMScript() {
   fi
 }
 
-if isESMScript; then
+if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]]; then
   export NODE_OPTIONS="${NODE_OPTIONS} --import @aws/aws-distro-opentelemetry-node-autoinstrumentation/register --experimental-loader=@opentelemetry/instrumentation/hook.mjs"
   export HANDLER_IS_ESM=true
 else

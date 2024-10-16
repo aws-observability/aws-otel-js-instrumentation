@@ -5,6 +5,7 @@ import { Span as APISpan, AttributeValue, Context, SpanKind, trace } from '@open
 import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsSpanProcessingUtil } from './aws-span-processing-util';
+import { SEMRESATTRS_FAAS_ID } from '@opentelemetry/semantic-conventions';
 
 /**
  * AttributePropagatingSpanProcessor handles the propagation of attributes from parent spans to
@@ -84,6 +85,18 @@ export class AttributePropagatingSpanProcessor implements SpanProcessor {
       // both CONSUMER then check later if a metric should be generated.
       if (this.isConsumerKind(span) && this.isConsumerKind(parentReadableSpan)) {
         span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_CONSUMER_PARENT_SPAN_KIND, SpanKind[parentReadableSpan.kind]);
+      }
+
+      // If parent span contains "cloud.resource_id" or "faas.id" but not in child span, child span will be
+      // propagated with one of these attribute from parent. "cloud.resource_id" takes priority if it exists
+      const parentResourceId = AwsSpanProcessingUtil.getResourceId(parentSpan);
+      const resourceId = AwsSpanProcessingUtil.getResourceId(span);
+      if (!resourceId && parentResourceId) {
+        if (AwsSpanProcessingUtil.isKeyPresent(parentSpan, AwsSpanProcessingUtil.CLOUD_RESOURCE_ID)) {
+          span.setAttribute(AwsSpanProcessingUtil.CLOUD_RESOURCE_ID, parentResourceId);
+        } else {
+          span.setAttribute(SEMRESATTRS_FAAS_ID, parentResourceId);
+        }
       }
     }
 

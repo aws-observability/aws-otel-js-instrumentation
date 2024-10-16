@@ -377,6 +377,36 @@ describe('AwsSpanProcessingUtilTest', () => {
     const actualOperation: string = AwsSpanProcessingUtil.getIngressOperation(spanDataMock);
     expect(actualOperation).toEqual('TestFunction/Handler');
   });
+
+  it('should return cloud.resource_id when present', () => {
+    spanDataMock.attributes[AwsSpanProcessingUtil.CLOUD_RESOURCE_ID] = 'cloud-123';
+    const result = AwsSpanProcessingUtil.getResourceId(spanDataMock);
+    expect(result).toBe('cloud-123');
+  });
+
+  it('should return faas.id when cloud.resource_id is not present', () => {
+    spanDataMock.attributes['faas.id'] = 'faas-123';
+    const result = AwsSpanProcessingUtil.getResourceId(spanDataMock);
+    expect(result).toBe('faas-123');
+  });
+
+  it('should return cloud.resource_id when both cloud.resource_id and faas.id are present', () => {
+    spanDataMock.attributes[AwsSpanProcessingUtil.CLOUD_RESOURCE_ID] = 'cloud-123';
+    spanDataMock.attributes['faas.id'] = 'faas-123';
+    const result = AwsSpanProcessingUtil.getResourceId(spanDataMock);
+    expect(result).toBe('cloud-123');
+  });
+
+  it('should return undefined when neither cloud.resource_id nor faas.id are present', () => {
+    const result = AwsSpanProcessingUtil.getResourceId(spanDataMock);
+    expect(result).toBeUndefined();
+  });
+
+  it('should return undefined if cloud.resource_id is not a string', () => {
+    spanDataMock.attributes[AwsSpanProcessingUtil.CLOUD_RESOURCE_ID] = 123; // Incorrect type
+    const result = AwsSpanProcessingUtil.getResourceId(spanDataMock);
+    expect(result).toBeUndefined();
+  });
 });
 
 function createMockSpanContext(): SpanContext {

@@ -240,6 +240,44 @@ describe('AttributePropagatingSpanProcessorTest', () => {
     );
   });
 
+  it('testLambdaResourceIdAttributeExist', () => {
+    const parentSpan: APISpan = tracer.startSpan('parent', { kind: SpanKind.SERVER });
+
+    parentSpan.setAttribute(AwsSpanProcessingUtil.CLOUD_RESOURCE_ID, 'resource-123');
+
+    const childSpan: APISpan = createNestedSpan(parentSpan, 1);
+    expect((childSpan as any).attributes[AwsSpanProcessingUtil.CLOUD_RESOURCE_ID]).not.toBeUndefined();
+    expect((childSpan as any).attributes[AwsSpanProcessingUtil.CLOUD_RESOURCE_ID]).toEqual('resource-123');
+  });
+
+  it('testLambdaFaasIdAttributeExist', () => {
+    const parentSpan: APISpan = tracer.startSpan('parent', { kind: SpanKind.SERVER });
+
+    parentSpan.setAttribute('faas.id', 'faas-123');
+
+    const childSpan: APISpan = createNestedSpan(parentSpan, 1);
+    expect((childSpan as any).attributes['faas.id']).not.toBeUndefined();
+    expect((childSpan as any).attributes['faas.id']).toEqual('faas-123');
+  });
+
+  it('testBothLambdaFaasIdAndResourceIdAttributesExist', () => {
+    const parentSpan: APISpan = tracer.startSpan('parent', { kind: SpanKind.SERVER });
+
+    parentSpan.setAttribute('faas.id', 'faas-123');
+    parentSpan.setAttribute(AwsSpanProcessingUtil.CLOUD_RESOURCE_ID, 'resource-123');
+
+    const childSpan: APISpan = createNestedSpan(parentSpan, 1);
+    expect((childSpan as any).attributes[AwsSpanProcessingUtil.CLOUD_RESOURCE_ID]).not.toBeUndefined();
+    expect((childSpan as any).attributes[AwsSpanProcessingUtil.CLOUD_RESOURCE_ID]).toEqual('resource-123');
+  });
+
+  it('testLambdaNoneResourceAttributesExist', () => {
+    const parentSpan: APISpan = tracer.startSpan('parent', { kind: SpanKind.SERVER });
+
+    const childSpan: APISpan = createNestedSpan(parentSpan, 1);
+    expect((childSpan as any).attributes[AwsSpanProcessingUtil.CLOUD_RESOURCE_ID]).toBeUndefined();
+  });
+
   function createNestedSpan(parentSpan: APISpan, depth: number): APISpan {
     if (depth === 0) {
       return parentSpan;

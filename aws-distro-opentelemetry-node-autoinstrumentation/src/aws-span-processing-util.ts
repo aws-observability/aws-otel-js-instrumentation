@@ -15,6 +15,7 @@ import {
   SEMATTRS_HTTP_URL,
   SEMATTRS_MESSAGING_OPERATION,
   SEMATTRS_RPC_SYSTEM,
+  SEMRESATTRS_FAAS_ID,
 } from '@opentelemetry/semantic-conventions';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AWS_LAMBDA_FUNCTION_NAME_CONFIG, isLambdaEnvironment } from './aws-opentelemetry-configurator';
@@ -33,6 +34,9 @@ export class AwsSpanProcessingUtil {
   static LOCAL_ROOT: string = 'LOCAL_ROOT';
   static SQS_RECEIVE_MESSAGE_SPAN_NAME: string = 'Sqs.ReceiveMessage';
   static AWS_SDK_INSTRUMENTATION_SCOPE_PREFIX: string = '@opentelemetry/instrumentation-aws-sdk';
+  // "cloud.resource_id" is defined in semconv which has not yet picked up by OTel JS
+  // https://opentelemetry.io/docs/specs/semconv/attributes-registry/cloud/
+  static CLOUD_RESOURCE_ID: string = 'cloud.resource_id';
 
   // Max keyword length supported by parsing into remote_operation from DB_STATEMENT.
   // The current longest command word is DATETIME_INTERVAL_PRECISION at 27 characters.
@@ -272,5 +276,16 @@ export class AwsSpanProcessingUtil {
 
     const isLocalRoot: boolean = span.parentSpanId === undefined || !isParentSpanContextValid || isParentSpanRemote;
     span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_IS_LOCAL_ROOT, isLocalRoot);
+  }
+
+  static getResourceId(span: ReadableSpan): string | undefined {
+    let resourceId: AttributeValue | undefined = undefined;
+    if (AwsSpanProcessingUtil.isKeyPresent(span, AwsSpanProcessingUtil.CLOUD_RESOURCE_ID)) {
+      resourceId = span.attributes[AwsSpanProcessingUtil.CLOUD_RESOURCE_ID];
+    } else if (AwsSpanProcessingUtil.isKeyPresent(span, SEMRESATTRS_FAAS_ID)) {
+      resourceId = span.attributes[SEMRESATTRS_FAAS_ID];
+    }
+
+    return typeof resourceId === 'string' ? resourceId : undefined;
   }
 }

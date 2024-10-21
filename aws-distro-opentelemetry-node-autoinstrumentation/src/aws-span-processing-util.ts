@@ -63,7 +63,7 @@ export class AwsSpanProcessingUtil {
       operation = AwsSpanProcessingUtil.INTERNAL_OPERATION;
     }
     if (isLambdaEnvironment()) {
-      operation = process.env[AWS_LAMBDA_FUNCTION_NAME_CONFIG] + '/Handler';
+      operation = process.env[AWS_LAMBDA_FUNCTION_NAME_CONFIG] + '/FunctionHandler';
     } else if (!AwsSpanProcessingUtil.isValidOperation(span, operation)) {
       operation = AwsSpanProcessingUtil.generateIngressOperation(span);
     }

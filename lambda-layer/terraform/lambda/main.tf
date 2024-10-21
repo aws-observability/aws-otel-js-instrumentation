@@ -64,5 +64,5 @@ resource "aws_iam_role_policy_attachment" "hello-lambda-cloudwatch" {
 
 resource "aws_iam_role_policy_attachment" "test_xray" {
   role       = module.hello-lambda-function.lambda_function_name
-  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchLambdaApplicationSignalsExecutionRolePolicy"
 }

@@ -375,7 +375,7 @@ describe('AwsSpanProcessingUtilTest', () => {
     (spanDataMock as any).name = validName;
     (spanDataMock as any).kind = SpanKind.SERVER;
     const actualOperation: string = AwsSpanProcessingUtil.getIngressOperation(spanDataMock);
-    expect(actualOperation).toEqual('TestFunction/Handler');
+    expect(actualOperation).toEqual('TestFunction/FunctionHandler');
   });
 
   it('should return cloud.resource_id when present', () => {

@@ -11,6 +11,11 @@ const { DynamoDBClient, CreateTableCommand, PutItemCommand } = require('@aws-sdk
 const { SQSClient, CreateQueueCommand, SendMessageCommand, ReceiveMessageCommand } = require('@aws-sdk/client-sqs');
 const { KinesisClient, CreateStreamCommand, PutRecordCommand } = require('@aws-sdk/client-kinesis');
 const fetch = require('node-fetch');
+const { BedrockClient, GetGuardrailCommand } = require('@aws-sdk/client-bedrock');
+const { BedrockAgentClient, GetKnowledgeBaseCommand, GetDataSourceCommand, GetAgentCommand } = require('@aws-sdk/client-bedrock-agent');
+const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
+const { BedrockAgentRuntimeClient, InvokeAgentCommand, RetrieveCommand } = require('@aws-sdk/client-bedrock-agent-runtime');
+
 
 const _PORT = 8080;
 const _ERROR = 'error';
@@ -141,6 +146,8 @@ async function handleGetRequest(req, res, path) {
     await handleSqsRequest(req, res, path);
   } else if (path.includes('kinesis')) {
     await handleKinesisRequest(req, res, path);
+  } else if (path.includes('bedrock')) {
+    await handleBedrockRequest(req, res, path);
   } else {
     res.writeHead(404);
     res.end();
@@ -484,6 +491,132 @@ async function handleKinesisRequest(req, res, path) {
     res.end();
   }
 }
+
+async function handleBedrockRequest(req, res, path) {
+  const bedrockClient = new BedrockClient({ endpoint: _AWS_SDK_ENDPOINT, region: _AWS_REGION });
+  const bedrockAgentClient = new BedrockAgentClient({ endpoint: _AWS_SDK_ENDPOINT, region: _AWS_REGION });
+  const bedrockRuntimeClient = new BedrockRuntimeClient({ endpoint: _AWS_SDK_ENDPOINT, region: _AWS_REGION });
+  const bedrockAgentRuntimeClient = new BedrockAgentRuntimeClient({ endpoint: _AWS_SDK_ENDPOINT, region: _AWS_REGION });
+
+  try {
+    if (path.includes('getknowledgebase/get_knowledge_base')) {
+      await withInjected200Success(bedrockAgentClient, ['GetKnowledgeBaseCommand'], {}, async () => {
+        await bedrockAgentClient.send(new GetKnowledgeBaseCommand({ knowledgeBaseId: 'invalid-knowledge-base-id' }));
+      });
+      res.statusCode = 200;
+    } else if (path.includes('getdatasource/get_data_source')) {
+      await withInjected200Success(bedrockAgentClient, ['GetDataSourceCommand'], {}, async () => {
+        await bedrockAgentClient.send(new GetDataSourceCommand({ knowledgeBaseId: 'TESTKBSEID', dataSourceId: 'DATASURCID' }));
+      });
+      res.statusCode = 200;
+    } else if (path.includes('getagent/get-agent')) {
+      await withInjected200Success(bedrockAgentClient, ['GetAgentCommand'], {}, async () => {
+        await bedrockAgentClient.send(new GetAgentCommand({ agentId: 'TESTAGENTID' }));
+      });
+      res.statusCode = 200;
+    } else if (path.includes('getguardrail/get-guardrail')) {
+      await withInjected200Success(
+        bedrockClient,
+        ['GetGuardrailCommand'],
+        { guardrailId: 'bt4o77i015cu' },
+        async () => {
+          await bedrockClient.send(
+            new GetGuardrailCommand({
+              guardrailIdentifier: 'arn:aws:bedrock:us-east-1:000000000000:guardrail/bt4o77i015cu',
+            })
+          );
+        }
+      );
+      res.statusCode = 200;
+    } else if (path.includes('invokeagent/invoke_agent')) {
+      await withInjected200Success(bedrockAgentRuntimeClient, ['InvokeAgentCommand'], {}, async () => {
+        await bedrockAgentRuntimeClient.send(
+          new InvokeAgentCommand({
+            agentId: 'Q08WFRPHVL',
+            agentAliasId: 'testAlias',
+            sessionId: 'testSessionId',
+            inputText: 'Invoke agent sample input text',
+          })
+        );
+      });
+      res.statusCode = 200;
+    } else if (path.includes('retrieve/retrieve')) {
+      await withInjected200Success(bedrockAgentRuntimeClient, ['RetrieveCommand'], {}, async () => {
+        await bedrockAgentRuntimeClient.send(
+          new RetrieveCommand({
+            knowledgeBaseId: 'test-knowledge-base-id',
+            retrievalQuery: {
+              text: 'an example of retrieve query',
+            },
+          })
+        );
+      });
+      res.statusCode = 200;
+    } else if (path.includes('invokemodel/invoke-model')) {
+      await withInjected200Success(bedrockRuntimeClient, ['InvokeModelCommand'], {}, async () => {
+        const modelId = 'amazon.titan-text-premier-v1:0';
+        const userMessage = "Describe the purpose of a 'hello world' program in one line.";
+        const prompt = `<s>[INST] ${userMessage} [/INST]`;
+
+        const body = JSON.stringify({
+          inputText: prompt,
+          textGenerationConfig: {
+            maxTokenCount: 3072,
+            stopSequences: [],
+            temperature: 0.7,
+            topP: 0.9,
+          },
+        });
+
+        await bedrockRuntimeClient.send(
+          new InvokeModelCommand({
+            body: body,
+            modelId: modelId,
+            accept: 'application/json',
+            contentType: 'application/json',
+          })
+        );
+      });
+      res.statusCode = 200;
+    } else {
+      res.statusCode = 404;
+    }
+  } catch (error) {
+    console.error('An error occurred:', error);
+    res.statusCode = 500;
+  }
+
+  res.end();
+}
+
+function inject200Success(client, commandNames, additionalResponse = {}, middlewareName = 'inject200SuccessMiddleware') {
+  const middleware = (next, context) => async (args) => {
+    const { commandName } = context;
+    if (commandNames.includes(commandName)) {
+      const response = {
+        $metadata: {
+          httpStatusCode: 200,
+          requestId: 'mock-request-id',
+        },
+        Message: 'Request succeeded',
+        ...additionalResponse,
+      };
+      return { output: response };
+    }
+    return next(args);
+  };
+  // this middleware intercept the request and inject the response
+  client.middlewareStack.add(middleware, { step: 'build', name: middlewareName, priority: 'high' });
+}
+
+async function withInjected200Success(client, commandNames, additionalResponse, apiCall) {
+  const middlewareName = 'inject200SuccessMiddleware';
+  inject200Success(client, commandNames, additionalResponse, middlewareName);
+  await apiCall();
+  client.middlewareStack.remove(middlewareName);
+}
+
+
 
 prepareAwsServer().then(() => {
   server.listen(_PORT, '0.0.0.0', () => {

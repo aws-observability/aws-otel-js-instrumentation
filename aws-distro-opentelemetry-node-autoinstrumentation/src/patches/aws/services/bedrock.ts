@@ -211,6 +211,71 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
       spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL] = modelId;
     }
 
+    if (request.commandInput?.body) {
+      const requestBody = JSON.parse(request.commandInput.body);
+      if (modelId.includes("amazon.titan")) {
+        if (requestBody.textGenerationConfig) {
+          const config = requestBody.textGenerationConfig;
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = config.temperature;
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = config.topP;
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = config.maxTokenCount;
+        }
+      } else if (modelId.includes("anthropic.claude")) {
+        if (requestBody.max_tokens) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
+        }
+        if (requestBody.temperature) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
+        }
+        if (requestBody.top_p) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
+        }
+      } else if (modelId.includes("meta.llama")) {
+        if (requestBody.max_gen_len) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_gen_len;
+        }
+        if (requestBody.temperature) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
+        }
+        if (requestBody.top_p) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
+        }
+      } else if (modelId.includes("cohere.command")) {
+        if (requestBody.max_tokens) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
+        }
+        if (requestBody.temperature) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
+        }
+        if (requestBody.p) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.p;
+        } 
+      } else if (modelId.includes("ai21.jamba")) {
+        if (requestBody.max_tokens) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
+        }
+        if (requestBody.temperature) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
+        }
+        if (requestBody.top_p) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
+        }
+      } else if (modelId.includes("mistral.mistral")) {
+        if (requestBody.prompt) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS] = Math.ceil(requestBody.prompt.length / 6);
+        }
+        if (requestBody.max_tokens) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
+        }
+        if (requestBody.temperature) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
+        }
+        if (requestBody.top_p) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
+        }
+      }
+    } 
+
     return {
       isIncoming,
       spanAttributes,
@@ -218,4 +283,76 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
       spanName,
     };
   }
+
+  responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
+    const currentModelId = response.request.commandInput?.modelId;
+    if (response.data?.body) {
+      const decodedResponseBody = new TextDecoder().decode(response.data.body);
+      const responseBody = JSON.parse(decodedResponseBody);
+      if (currentModelId.includes("amazon.titan")) {
+        if (responseBody.inputTextTokenCount) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.inputTextTokenCount);
+        }
+        if (responseBody.results?.[0]?.tokenCount) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.results[0].tokenCount);
+        }
+        if (responseBody.results?.[0]?.completionReason) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.results[0].completionReason]);
+        }
+      } else if (currentModelId.includes("anthropic.claude")) {
+        if (responseBody.usage?.input_tokens) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.input_tokens);
+        }
+        if (responseBody.usage?.output_tokens) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.usage.output_tokens);
+        }
+        if (responseBody.stop_reason) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.stop_reason]);
+        }
+      } else if (currentModelId.includes("meta.llama")) {
+        if (responseBody.prompt_token_count) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.prompt_token_count);
+        }
+        if (responseBody.generation_token_count) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.generation_token_count);
+        }
+        if (responseBody.stop_reason) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.stop_reason]);
+        }
+      } else if (currentModelId.includes("cohere.command")) {
+        if (responseBody.prompt) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, Math.ceil(responseBody.prompt.length / 6));
+        }
+        if (responseBody.generations?.[0]?.text) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, Math.ceil(responseBody.generations[0].text.length / 6));
+        }
+        if (responseBody.generations?.[0]?.finish_reason) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.generations[0].finish_reason]);
+        }
+      } else if (currentModelId.includes("ai21.jamba")) {
+        if (responseBody.usage?.prompt_tokens) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.prompt_tokens);
+        }
+        if (responseBody.usage?.completion_tokens) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.usage.completion_tokens);
+        }
+        if (responseBody.choices?.[0]?.finish_reason) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.choices[0].finish_reason]);
+        }
+      } else if (currentModelId.includes("mistral.mistral")) {
+        if (responseBody.outputs?.[0]?.text) {
+          span.setAttribute(
+            AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, 
+            Math.ceil(responseBody.outputs[0].text.length / 6)
+          );
+        }
+        if (responseBody.outputs?.[0]?.stop_reason) {
+          span.setAttribute(
+            AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS,
+            responseBody.outputs[0].stop_reason
+          );
+        }
+      }
+    } 
+  } 
 }

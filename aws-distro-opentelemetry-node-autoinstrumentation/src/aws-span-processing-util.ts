@@ -47,6 +47,12 @@ export class AwsSpanProcessingUtil {
   // TODO: Use Semantic Conventions once upgraded
   static GEN_AI_REQUEST_MODEL: string = 'gen_ai.request.model';
   static GEN_AI_SYSTEM: string = 'gen_ai.system';
+  static GEN_AI_REQUEST_MAX_TOKENS = "gen_ai.request.max_tokens"
+  static GEN_AI_REQUEST_TEMPERATURE = "gen_ai.request.temperature"
+  static GEN_AI_REQUEST_TOP_P = "gen_ai.request.top_p"
+  static GEN_AI_RESPONSE_FINISH_REASONS = "gen_ai.response.finish_reasons"
+  static GEN_AI_USAGE_INPUT_TOKENS = "gen_ai.usage.input_tokens"
+  static GEN_AI_USAGE_OUTPUT_TOKENS = "gen_ai.usage.output_tokens"
 
   static getDialectKeywords(): string[] {
     return SQL_DIALECT_KEYWORDS_JSON.keywords;

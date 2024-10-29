@@ -213,14 +213,14 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
 
     if (request.commandInput?.body) {
       const requestBody = JSON.parse(request.commandInput.body);
-      if (modelId.includes("amazon.titan")) {
+      if (modelId.includes('amazon.titan')) {
         if (requestBody.textGenerationConfig) {
           const config = requestBody.textGenerationConfig;
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = config.temperature;
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = config.topP;
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = config.maxTokenCount;
         }
-      } else if (modelId.includes("anthropic.claude")) {
+      } else if (modelId.includes('anthropic.claude')) {
         if (requestBody.max_tokens) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
         }
@@ -230,7 +230,7 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (requestBody.top_p) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
         }
-      } else if (modelId.includes("meta.llama")) {
+      } else if (modelId.includes('meta.llama')) {
         if (requestBody.max_gen_len) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_gen_len;
         }
@@ -240,7 +240,7 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (requestBody.top_p) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
         }
-      } else if (modelId.includes("cohere.command")) {
+      } else if (modelId.includes('cohere.command')) {
         if (requestBody.max_tokens) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
         }
@@ -249,8 +249,8 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         }
         if (requestBody.p) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.p;
-        } 
-      } else if (modelId.includes("ai21.jamba")) {
+        }
+      } else if (modelId.includes('ai21.jamba')) {
         if (requestBody.max_tokens) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
         }
@@ -260,7 +260,7 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (requestBody.top_p) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
         }
-      } else if (modelId.includes("mistral.mistral")) {
+      } else if (modelId.includes('mistral.mistral')) {
         if (requestBody.prompt) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS] = Math.ceil(requestBody.prompt.length / 6);
         }
@@ -274,7 +274,7 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
         }
       }
-    } 
+    }
 
     return {
       isIncoming,
@@ -289,7 +289,7 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
     if (response.data?.body) {
       const decodedResponseBody = new TextDecoder().decode(response.data.body);
       const responseBody = JSON.parse(decodedResponseBody);
-      if (currentModelId.includes("amazon.titan")) {
+      if (currentModelId.includes('amazon.titan')) {
         if (responseBody.inputTextTokenCount) {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.inputTextTokenCount);
         }
@@ -297,9 +297,11 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.results[0].tokenCount);
         }
         if (responseBody.results?.[0]?.completionReason) {
-          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.results[0].completionReason]);
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
+            responseBody.results[0].completionReason,
+          ]);
         }
-      } else if (currentModelId.includes("anthropic.claude")) {
+      } else if (currentModelId.includes('anthropic.claude')) {
         if (responseBody.usage?.input_tokens) {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.input_tokens);
         }
@@ -309,7 +311,7 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (responseBody.stop_reason) {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.stop_reason]);
         }
-      } else if (currentModelId.includes("meta.llama")) {
+      } else if (currentModelId.includes('meta.llama')) {
         if (responseBody.prompt_token_count) {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.prompt_token_count);
         }
@@ -319,17 +321,22 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (responseBody.stop_reason) {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.stop_reason]);
         }
-      } else if (currentModelId.includes("cohere.command")) {
+      } else if (currentModelId.includes('cohere.command')) {
         if (responseBody.prompt) {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, Math.ceil(responseBody.prompt.length / 6));
         }
         if (responseBody.generations?.[0]?.text) {
-          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, Math.ceil(responseBody.generations[0].text.length / 6));
+          span.setAttribute(
+            AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS,
+            Math.ceil(responseBody.generations[0].text.length / 6)
+          );
         }
         if (responseBody.generations?.[0]?.finish_reason) {
-          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.generations[0].finish_reason]);
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
+            responseBody.generations[0].finish_reason,
+          ]);
         }
-      } else if (currentModelId.includes("ai21.jamba")) {
+      } else if (currentModelId.includes('ai21.jamba')) {
         if (responseBody.usage?.prompt_tokens) {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.prompt_tokens);
         }
@@ -337,22 +344,21 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.usage.completion_tokens);
         }
         if (responseBody.choices?.[0]?.finish_reason) {
-          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.choices[0].finish_reason]);
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
+            responseBody.choices[0].finish_reason,
+          ]);
         }
-      } else if (currentModelId.includes("mistral.mistral")) {
+      } else if (currentModelId.includes('mistral.mistral')) {
         if (responseBody.outputs?.[0]?.text) {
           span.setAttribute(
-            AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, 
+            AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS,
             Math.ceil(responseBody.outputs[0].text.length / 6)
           );
         }
         if (responseBody.outputs?.[0]?.stop_reason) {
-          span.setAttribute(
-            AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS,
-            responseBody.outputs[0].stop_reason
-          );
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, responseBody.outputs[0].stop_reason);
         }
       }
-    } 
-  } 
+    }
+  }
 }

@@ -356,7 +356,9 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
           );
         }
         if (responseBody.outputs?.[0]?.stop_reason) {
-          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, responseBody.outputs[0].stop_reason);
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
+            responseBody.outputs[0].stop_reason,
+          ]);
         }
       }
     }

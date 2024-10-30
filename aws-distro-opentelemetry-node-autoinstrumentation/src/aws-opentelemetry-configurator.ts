@@ -17,7 +17,7 @@ import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/expo
 import { ZipkinExporter } from '@opentelemetry/exporter-zipkin';
 import { AWSXRayIdGenerator } from '@opentelemetry/id-generator-aws-xray';
 import { Instrumentation } from '@opentelemetry/instrumentation';
-import { awsEc2Detector, awsEcsDetector, awsEksDetector } from '@opentelemetry/resource-detector-aws';
+import { awsEc2DetectorSync, awsEcsDetectorSync, awsEksDetectorSync } from '@opentelemetry/resource-detector-aws';
 import {
   Detector,
   DetectorSync,
@@ -126,7 +126,7 @@ export class AwsOpentelemetryConfigurator {
       // Add Env/AWS Resource Detectors if not present
       const resourceDetectorsFromEnv: string[] = process.env.OTEL_NODE_RESOURCE_DETECTORS.split(',');
       if (!resourceDetectorsFromEnv.includes('aws')) {
-        defaultDetectors.push(awsEc2Detector, awsEcsDetector, awsEksDetector);
+        defaultDetectors.push(awsEc2DetectorSync, awsEcsDetectorSync, awsEksDetectorSync);
       }
       if (!resourceDetectorsFromEnv.includes('env')) {
         defaultDetectors.push(envDetectorSync);
@@ -145,9 +145,9 @@ export class AwsOpentelemetryConfigurator {
       defaultDetectors = [
         processDetector,
         hostDetector,
-        awsEc2Detector,
-        awsEcsDetector,
-        awsEksDetector,
+        awsEc2DetectorSync,
+        awsEcsDetectorSync,
+        awsEksDetectorSync,
         envDetectorSync,
       ];
     }

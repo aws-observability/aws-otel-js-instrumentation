@@ -265,6 +265,9 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         }
       } else if (modelId.includes('mistral.mistral')) {
         if (requestBody.prompt !== undefined) {
+          // NOTE: We approximate the token count since this value is not directly available in the body
+          // According to Bedrock docs they use (total_chars / 6) to approximate token count for pricing.
+          // https://docs.aws.amazon.com/bedrock/latest/userguide/model-customization-prepare.html
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS] = Math.ceil(requestBody.prompt.length / 6);
         }
         if (requestBody.max_tokens !== undefined) {
@@ -326,11 +329,17 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         }
       } else if (currentModelId.includes('cohere.command')) {
         if (responseBody.prompt !== undefined) {
+          // NOTE: We approximate the token count since this value is not directly available in the body
+          // According to Bedrock docs they use (total_chars / 6) to approximate token count for pricing.
+          // https://docs.aws.amazon.com/bedrock/latest/userguide/model-customization-prepare.html
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, Math.ceil(responseBody.prompt.length / 6));
         }
         if (responseBody.generations?.[0]?.text !== undefined) {
           span.setAttribute(
             AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS,
+            // NOTE: We approximate the token count since this value is not directly available in the body
+            // According to Bedrock docs they use (total_chars / 6) to approximate token count for pricing.
+            // https://docs.aws.amazon.com/bedrock/latest/userguide/model-customization-prepare.html
             Math.ceil(responseBody.generations[0].text.length / 6)
           );
         }
@@ -355,6 +364,9 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (responseBody.outputs?.[0]?.text !== undefined) {
           span.setAttribute(
             AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS,
+            // NOTE: We approximate the token count since this value is not directly available in the body
+            // According to Bedrock docs they use (total_chars / 6) to approximate token count for pricing.
+            // https://docs.aws.amazon.com/bedrock/latest/userguide/model-customization-prepare.html
             Math.ceil(responseBody.outputs[0].text.length / 6)
           );
         }

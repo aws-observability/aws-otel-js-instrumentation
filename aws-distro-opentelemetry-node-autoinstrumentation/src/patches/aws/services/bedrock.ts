@@ -215,13 +215,15 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
       const requestBody = JSON.parse(request.commandInput.body);
       if (modelId.includes('amazon.titan')) {
         if (requestBody.textGenerationConfig?.temperature !== undefined) {
-          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.textGenerationConfig.temperature;
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] =
+            requestBody.textGenerationConfig.temperature;
         }
         if (requestBody.textGenerationConfig?.topP !== undefined) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.textGenerationConfig.topP;
         }
-        if (requestBody.textGenerationConfig?.maxTokenCount != undefined) {
-          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.textGenerationConfig.maxTokenCount;
+        if (requestBody.textGenerationConfig?.maxTokenCount !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] =
+            requestBody.textGenerationConfig.maxTokenCount;
         }
       } else if (modelId.includes('anthropic.claude')) {
         if (requestBody.max_tokens !== undefined) {

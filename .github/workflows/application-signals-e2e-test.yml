@@ -93,6 +93,14 @@ jobs:
       adot-image-name: ${{ inputs.adot-image-name }}
       caller-workflow-name: 'main-build'
 
+  ecs:
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ecs-test.yml@main
+    secrets: inherit
+    with:
+      aws-region: us-east-1
+      adot-image-name: ${{ inputs.adot-image-name }}
+      caller-workflow-name: 'main-build'
+
   k8s:
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-k8s-test.yml@main
     secrets: inherit

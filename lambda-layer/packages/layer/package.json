@@ -33,6 +33,6 @@
     "instrumentation"
   ],
   "dependencies": {
-    "@aws/aws-distro-opentelemetry-node-autoinstrumentation": "file:../../../aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-0.2.0-dev0.tgz"
+    "@aws/aws-distro-opentelemetry-node-autoinstrumentation": "file:../../../aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-0.3.0-dev0.tgz"
   }
 }

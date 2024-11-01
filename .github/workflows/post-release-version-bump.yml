@@ -107,9 +107,27 @@ jobs:
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" package.json
           VERSION="${{ github.event.inputs.version }}"
           npm install
-          sed -i  "s|\(/aws-observability/adot-autoinstrumentation-node:\)v[0-9]\+\.[0-9]\+\.[0-9]\+|\1v${{github.event.inputs.version}}|g" .github/workflows/daily-scan.yml
+          sed -i  "s|\(/aws-observability/adot-autoinstrumentation-node:\)v[0-9]\+\.[0-9]\+\.[0-9]\+|\1v${{ github.event.inputs.version }}|g" .github/workflows/daily-scan.yml
           git add .
-          git status
+
+      - name: Append latest release checksum to release-build-metadata.json
+        run: |
+          ARTIFACT_NAME="aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz"
+          curl -L -o $ARTIFACT_NAME https://github.com/aws-observability/aws-otel-js-instrumentation/releases/download/v${{ github.event.inputs.version }}/$ARTIFACT_NAME
+
+          CHECKSUM=$(shasum -a 256 $ARTIFACT_NAME | awk '{ print $1 }')
+
+          FILE="release-build-metadata.json"
+          UPDATED_JSON=$(jq --arg version "${{ env.VERSION }}" \
+                            --arg name "$ARTIFACT_NAME" \
+                            --arg checksum "$CHECKSUM" \
+                            '.release += [{"version": $version, "checksum": [{"name": $name, "checksum": $checksum}]}]' "$FILE")
+
+          echo "$UPDATED_JSON" > "$FILE"
+          git add release-build-metadata.json
+
+      - name: Push changes to Github
+        run: |
           git commit -m "Prepare main for next development cycle: Update version to $DEV_VERSION"
           git push --set-upstream origin "prepare-main-for-next-dev-cycle-${VERSION}"
 

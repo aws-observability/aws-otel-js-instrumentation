@@ -1,0 +1,13 @@
+{
+    "release": [
+        {
+            "version": "0.3.0",
+            "checksum": [
+                {
+                    "name": "aws-aws-distro-opentelemetry-node-autoinstrumentation-0.3.0.tgz",
+                    "checksum": "22f0aabe7a24f57769c994acd57031caafbdbde46b3ca396372499055a7cb76c"
+                }
+            ]
+        }
+    ]
+}

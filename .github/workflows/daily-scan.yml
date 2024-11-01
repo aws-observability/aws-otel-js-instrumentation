@@ -73,7 +73,7 @@ jobs:
         id: high_scan
         uses: ./.github/actions/image_scan
         with:
-          image-ref: "public.ecr.aws/aws-observability/adot-autoinstrumentation-node:v0.2.0"
+          image-ref: "public.ecr.aws/aws-observability/adot-autoinstrumentation-node:v0.3.0"
           severity: 'CRITICAL,HIGH'
 
       # TODO: Update image to public once available
@@ -82,7 +82,7 @@ jobs:
         id: low_scan
         uses: ./.github/actions/image_scan
         with:
-          image-ref: "public.ecr.aws/aws-observability/adot-autoinstrumentation-node:v0.2.0"
+          image-ref: "public.ecr.aws/aws-observability/adot-autoinstrumentation-node:v0.3.0"
           severity: 'MEDIUM,LOW,UNKNOWN'
 
       - name: Configure AWS Credentials for emitting metrics

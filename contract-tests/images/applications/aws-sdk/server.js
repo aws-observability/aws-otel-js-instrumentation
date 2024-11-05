@@ -577,7 +577,7 @@ async function handleBedrockRequest(req, res, path) {
             body = JSON.stringify({
               anthropic_version: 'bedrock-2023-05-31',
               max_tokens: 1000,
-              temperature: 1.1,
+              temperature: 0.99,
               top_p: 1,
               messages: [
                 {
@@ -586,7 +586,52 @@ async function handleBedrockRequest(req, res, path) {
                 },
               ],
             });
-        }      
+        }
+
+        if (path.includes('meta.llama')) {
+          modelId = 'meta.llama2-13b-chat-v1';
+          body = JSON.stringify({
+            prompt,
+            max_gen_len: 512,
+            temperature: 0.5,
+            top_p: 0.9
+          });
+        }
+
+        if (path.includes('cohere.command')) {
+          modelId = 'cohere.command-light-text-v14';
+          body = JSON.stringify({
+            prompt,
+            max_tokens: 512,
+            temperature: 0.5,
+            p: 0.65,
+          });
+        }
+
+        if (path.includes('ai21.jamba')) {
+          modelId = 'ai21.jamba-1-5-large-v1:0';
+          body = JSON.stringify({
+            messages: [
+              {
+                role: 'user',
+                content: prompt,
+              },
+            ],
+            top_p: 0.8,
+            temperature: 0.6,
+            max_tokens: 512,
+          });
+        }
+
+        if (path.includes('mistral.mistral')) {
+          modelId = 'mistral.mistral-7b-instruct-v0:2';
+          body = JSON.stringify({
+            prompt,
+            max_tokens: 4096,
+            temperature: 0.75,
+            top_p: 0.99,
+          });
+        }
 
         await bedrockRuntimeClient.send(
           new InvokeModelCommand({

@@ -447,12 +447,100 @@ class AWSSDKTest(ContractTestBase):
             request_specific_attributes={
                 _GEN_AI_REQUEST_MODEL: 'anthropic.claude-v2:1',
                 _GEN_AI_REQUEST_MAX_TOKENS: 1000,
-                _GEN_AI_REQUEST_TEMPERATURE: 1.1,
+                _GEN_AI_REQUEST_TEMPERATURE: 0.99,
                 _GEN_AI_REQUEST_TOP_P: 1
                 },
             span_name="BedrockRuntime.InvokeModel"
         )
 
+    def test_bedrock_runtime_invoke_model_meta_llama(self):
+        self.do_test_requests(
+            "bedrock/invokemodel/invoke-model/meta.llama2-13b-chat-v1",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock",
+            rpc_service="BedrockRuntime",
+            remote_service="AWS::BedrockRuntime",
+            remote_operation="InvokeModel",
+            remote_resource_type="AWS::Bedrock::Model",
+            remote_resource_identifier='meta.llama2-13b-chat-v1',
+            request_specific_attributes={
+                _GEN_AI_REQUEST_MODEL: 'meta.llama2-13b-chat-v1',
+                _GEN_AI_REQUEST_MAX_TOKENS: 512,
+                _GEN_AI_REQUEST_TEMPERATURE: 0.5,
+                _GEN_AI_REQUEST_TOP_P: 0.9
+                },
+            span_name="BedrockRuntime.InvokeModel"
+        )
+
+    def test_bedrock_runtime_invoke_model_cohere_command(self):
+        self.do_test_requests(
+            "bedrock/invokemodel/invoke-model/cohere.command-light-text-v14",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock",
+            rpc_service="BedrockRuntime",
+            remote_service="AWS::BedrockRuntime",
+            remote_operation="InvokeModel",
+            remote_resource_type="AWS::Bedrock::Model",
+            remote_resource_identifier='cohere.command-light-text-v14',
+            request_specific_attributes={
+                _GEN_AI_REQUEST_MODEL: 'cohere.command-light-text-v14',
+                _GEN_AI_REQUEST_MAX_TOKENS: 512,
+                _GEN_AI_REQUEST_TEMPERATURE: 0.5,
+                _GEN_AI_REQUEST_TOP_P: 0.65
+                },
+            span_name="BedrockRuntime.InvokeModel"
+        )
+
+    def test_bedrock_runtime_invoke_model_ai21_jamba(self):
+        self.do_test_requests(
+            "bedrock/invokemodel/invoke-model/ai21.jamba-1-5-large-v1:0",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock",
+            rpc_service="BedrockRuntime",
+            remote_service="AWS::BedrockRuntime",
+            remote_operation="InvokeModel",
+            remote_resource_type="AWS::Bedrock::Model",
+            remote_resource_identifier='ai21.jamba-1-5-large-v1:0',
+            request_specific_attributes={
+                _GEN_AI_REQUEST_MODEL: 'ai21.jamba-1-5-large-v1:0',
+                _GEN_AI_REQUEST_MAX_TOKENS: 512,
+                _GEN_AI_REQUEST_TEMPERATURE: 0.6,
+                _GEN_AI_REQUEST_TOP_P: 0.8
+                },
+            span_name="BedrockRuntime.InvokeModel"
+        )
+    
+    def test_bedrock_runtime_invoke_model_mistral_mistral(self):
+        self.do_test_requests(
+            "bedrock/invokemodel/invoke-model/mistral.mistral-7b-instruct-v0:2",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock",
+            rpc_service="BedrockRuntime",
+            remote_service="AWS::BedrockRuntime",
+            remote_operation="InvokeModel",
+            remote_resource_type="AWS::Bedrock::Model",
+            remote_resource_identifier='mistral.mistral-7b-instruct-v0:2',
+            request_specific_attributes={
+                _GEN_AI_REQUEST_MODEL: 'mistral.mistral-7b-instruct-v0:2',
+                _GEN_AI_REQUEST_MAX_TOKENS: 4096,
+                _GEN_AI_REQUEST_TEMPERATURE: 0.75,
+                _GEN_AI_REQUEST_TOP_P: 0.99
+                },
+            span_name="BedrockRuntime.InvokeModel"
+        )
+    
     def test_bedrock_get_guardrail(self):
         self.do_test_requests(
             "bedrock/getguardrail/get-guardrail",

@@ -34,6 +34,9 @@ _AWS_BEDROCK_GUARDRAIL_ID: str = "aws.bedrock.guardrail.id"
 _AWS_BEDROCK_KNOWLEDGE_BASE_ID: str = "aws.bedrock.knowledge_base.id"
 _AWS_BEDROCK_DATA_SOURCE_ID: str = "aws.bedrock.data_source.id"
 _GEN_AI_REQUEST_MODEL: str = "gen_ai.request.model"
+_GEN_AI_REQUEST_TEMPERATURE: str = "gen_ai.request.temperature"
+_GEN_AI_REQUEST_TOP_P: str = "gen_ai.request.top_p"
+_GEN_AI_REQUEST_MAX_TOKENS: str = "gen_ai.request.max_tokens"
 
 
 # pylint: disable=too-many-public-methods
@@ -406,9 +409,9 @@ class AWSSDKTest(ContractTestBase):
             span_name="Kinesis.PutRecord",
         )
 
-    def test_bedrock_runtime_invoke_model(self):
+    def test_bedrock_runtime_invoke_model_amazon_titan(self):
         self.do_test_requests(
-            "bedrock/invokemodel/invoke-model",
+            "bedrock/invokemodel/invoke-model/amazon.titan-text-premier-v1:0",
             "GET",
             200,
             0,
@@ -418,11 +421,36 @@ class AWSSDKTest(ContractTestBase):
             remote_service="AWS::BedrockRuntime",
             remote_operation="InvokeModel",
             remote_resource_type="AWS::Bedrock::Model",
-            remote_resource_identifier="amazon.titan-text-premier-v1:0",
+            remote_resource_identifier='amazon.titan-text-premier-v1:0',
             request_specific_attributes={
-                _GEN_AI_REQUEST_MODEL: "amazon.titan-text-premier-v1:0",
-            },
-            span_name="BedrockRuntime.InvokeModel",
+                _GEN_AI_REQUEST_MODEL: 'amazon.titan-text-premier-v1:0',
+                _GEN_AI_REQUEST_MAX_TOKENS: 3072,
+                _GEN_AI_REQUEST_TEMPERATURE: 0.7,
+                _GEN_AI_REQUEST_TOP_P: 0.9
+                },
+            span_name="BedrockRuntime.InvokeModel"
+        )
+
+    def test_bedrock_runtime_invoke_model_anthropic_claude(self):
+        self.do_test_requests(
+            "bedrock/invokemodel/invoke-model/anthropic.claude-v2:1",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock",
+            rpc_service="BedrockRuntime",
+            remote_service="AWS::BedrockRuntime",
+            remote_operation="InvokeModel",
+            remote_resource_type="AWS::Bedrock::Model",
+            remote_resource_identifier='anthropic.claude-v2:1',
+            request_specific_attributes={
+                _GEN_AI_REQUEST_MODEL: 'anthropic.claude-v2:1',
+                _GEN_AI_REQUEST_MAX_TOKENS: 1000,
+                _GEN_AI_REQUEST_TEMPERATURE: 1.1,
+                _GEN_AI_REQUEST_TOP_P: 1
+                },
+            span_name="BedrockRuntime.InvokeModel"
         )
 
     def test_bedrock_get_guardrail(self):
@@ -538,6 +566,9 @@ class AWSSDKTest(ContractTestBase):
             },
             span_name="BedrockAgent.GetDataSource",
         )
+    
+    # def test_bedrock_agent_runtime_invoke_agent(self):
+    #     return None
 
     @override
     def _assert_aws_span_attributes(self, resource_scope_spans: List[ResourceScopeSpan], path: str, **kwargs) -> None:
@@ -591,6 +622,7 @@ class AWSSDKTest(ContractTestBase):
     def _assert_semantic_conventions_span_attributes(
         self, resource_scope_spans: List[ResourceScopeSpan], method: str, path: str, status_code: int, **kwargs
     ) -> None:
+
         target_spans: List[Span] = []
         for resource_scope_span in resource_scope_spans:
             # pylint: disable=no-member
@@ -629,6 +661,8 @@ class AWSSDKTest(ContractTestBase):
                 self._assert_str_attribute(attributes_dict, key, value)
             elif isinstance(value, int):
                 self._assert_int_attribute(attributes_dict, key, value)
+            elif isinstance(value, float):
+                self._assert_float_attribute(attributes_dict, key, value)
             else:
                 self._assert_array_value_ddb_table_name(attributes_dict, key, value)
 

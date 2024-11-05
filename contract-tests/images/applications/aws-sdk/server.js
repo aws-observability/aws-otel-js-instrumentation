@@ -554,19 +554,39 @@ async function handleBedrockRequest(req, res, path) {
       res.statusCode = 200;
     } else if (path.includes('invokemodel/invoke-model')) {
       await withInjected200Success(bedrockRuntimeClient, ['InvokeModelCommand'], {}, async () => {
-        const modelId = 'amazon.titan-text-premier-v1:0';
+        let modelId = ''
+        let body = {}
         const userMessage = "Describe the purpose of a 'hello world' program in one line.";
         const prompt = `<s>[INST] ${userMessage} [/INST]`;
 
-        const body = JSON.stringify({
-          inputText: prompt,
-          textGenerationConfig: {
-            maxTokenCount: 3072,
-            stopSequences: [],
-            temperature: 0.7,
-            topP: 0.9,
-          },
-        });
+        if (path.includes('amazon.titan')) {
+            modelId = 'amazon.titan-text-premier-v1:0';
+            body = JSON.stringify({
+              inputText: prompt,
+              textGenerationConfig: {
+                maxTokenCount: 3072,
+                stopSequences: [],
+                temperature: 0.7,
+                topP: 0.9,
+              },
+            });
+        }
+
+        if (path.includes('anthropic.claude')) {
+            modelId = 'anthropic.claude-v2:1';
+            body = JSON.stringify({
+              anthropic_version: 'bedrock-2023-05-31',
+              max_tokens: 1000,
+              temperature: 1.1,
+              top_p: 1,
+              messages: [
+                {
+                  role: 'user',
+                  content: [{ type: 'text', text: prompt }],
+                },
+              ],
+            });
+        }      
 
         await bedrockRuntimeClient.send(
           new InvokeModelCommand({
@@ -577,6 +597,7 @@ async function handleBedrockRequest(req, res, path) {
           })
         );
       });
+      
       res.statusCode = 200;
     } else {
       res.statusCode = 404;

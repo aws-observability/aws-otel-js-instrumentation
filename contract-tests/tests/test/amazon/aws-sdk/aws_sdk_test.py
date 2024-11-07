@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 from logging import INFO, Logger, getLogger
+import math
 from typing import Dict, List
 
 from docker.types import EndpointConfig
@@ -37,7 +38,9 @@ _GEN_AI_REQUEST_MODEL: str = "gen_ai.request.model"
 _GEN_AI_REQUEST_TEMPERATURE: str = "gen_ai.request.temperature"
 _GEN_AI_REQUEST_TOP_P: str = "gen_ai.request.top_p"
 _GEN_AI_REQUEST_MAX_TOKENS: str = "gen_ai.request.max_tokens"
-
+_GEN_AI_RESPONSE_FINISH_REASONS: str = "gen_ai.response.finish_reasons"
+_GEN_AI_USAGE_INPUT_TOKENS: str = 'gen_ai.usage.input_tokens'
+_GEN_AI_USAGE_OUTPUT_TOKENS: str = 'gen_ai.usage.output_tokens'
 
 # pylint: disable=too-many-public-methods
 class AWSSDKTest(ContractTestBase):
@@ -410,7 +413,7 @@ class AWSSDKTest(ContractTestBase):
         )
 
     def test_bedrock_runtime_invoke_model_amazon_titan(self):
-        self.do_test_requests(
+        result = self.do_test_requests(
             "bedrock/invokemodel/invoke-model/amazon.titan-text-premier-v1:0",
             "GET",
             200,
@@ -428,9 +431,15 @@ class AWSSDKTest(ContractTestBase):
                 _GEN_AI_REQUEST_TEMPERATURE: 0.7,
                 _GEN_AI_REQUEST_TOP_P: 0.9
                 },
+            response_specific_attributes={
+                _GEN_AI_RESPONSE_FINISH_REASONS: ['CONTENT_FILTERED'],
+                _GEN_AI_USAGE_INPUT_TOKENS: 15,
+                _GEN_AI_USAGE_OUTPUT_TOKENS: 13
+                },
+            
             span_name="BedrockRuntime.InvokeModel"
         )
-
+        
     def test_bedrock_runtime_invoke_model_anthropic_claude(self):
         self.do_test_requests(
             "bedrock/invokemodel/invoke-model/anthropic.claude-v2:1",
@@ -449,6 +458,11 @@ class AWSSDKTest(ContractTestBase):
                 _GEN_AI_REQUEST_MAX_TOKENS: 1000,
                 _GEN_AI_REQUEST_TEMPERATURE: 0.99,
                 _GEN_AI_REQUEST_TOP_P: 1
+                },
+            response_specific_attributes={
+                _GEN_AI_RESPONSE_FINISH_REASONS: ['end_turn'],
+                _GEN_AI_USAGE_INPUT_TOKENS: 15,
+                _GEN_AI_USAGE_OUTPUT_TOKENS: 13
                 },
             span_name="BedrockRuntime.InvokeModel"
         )
@@ -472,6 +486,11 @@ class AWSSDKTest(ContractTestBase):
                 _GEN_AI_REQUEST_TEMPERATURE: 0.5,
                 _GEN_AI_REQUEST_TOP_P: 0.9
                 },
+            response_specific_attributes={
+                _GEN_AI_RESPONSE_FINISH_REASONS: ['stop'],
+                _GEN_AI_USAGE_INPUT_TOKENS: 31,
+                _GEN_AI_USAGE_OUTPUT_TOKENS: 49
+                },
             span_name="BedrockRuntime.InvokeModel"
         )
 
@@ -493,6 +512,11 @@ class AWSSDKTest(ContractTestBase):
                 _GEN_AI_REQUEST_MAX_TOKENS: 512,
                 _GEN_AI_REQUEST_TEMPERATURE: 0.5,
                 _GEN_AI_REQUEST_TOP_P: 0.65
+                },
+            response_specific_attributes={
+                _GEN_AI_RESPONSE_FINISH_REASONS: ['COMPLETE'],
+                _GEN_AI_USAGE_INPUT_TOKENS: math.ceil(len("Describe the purpose of a 'hello world' program in one line.") / 6),
+                _GEN_AI_USAGE_OUTPUT_TOKENS: math.ceil(len("test-generation-text") / 6)
                 },
             span_name="BedrockRuntime.InvokeModel"
         )
@@ -516,6 +540,11 @@ class AWSSDKTest(ContractTestBase):
                 _GEN_AI_REQUEST_TEMPERATURE: 0.6,
                 _GEN_AI_REQUEST_TOP_P: 0.8
                 },
+            response_specific_attributes={
+                _GEN_AI_RESPONSE_FINISH_REASONS: ['stop'],
+                _GEN_AI_USAGE_INPUT_TOKENS: 21,
+                _GEN_AI_USAGE_OUTPUT_TOKENS: 24
+                },
             span_name="BedrockRuntime.InvokeModel"
         )
     
@@ -537,6 +566,11 @@ class AWSSDKTest(ContractTestBase):
                 _GEN_AI_REQUEST_MAX_TOKENS: 4096,
                 _GEN_AI_REQUEST_TEMPERATURE: 0.75,
                 _GEN_AI_REQUEST_TOP_P: 0.99
+                },
+            response_specific_attributes={
+                _GEN_AI_RESPONSE_FINISH_REASONS: ['stop'],
+                _GEN_AI_USAGE_INPUT_TOKENS: math.ceil(len("Describe the purpose of a 'hello world' program in one line.") / 6),
+                _GEN_AI_USAGE_OUTPUT_TOKENS: math.ceil(len("test-output-text") / 6)
                 },
             span_name="BedrockRuntime.InvokeModel"
         )
@@ -654,9 +688,6 @@ class AWSSDKTest(ContractTestBase):
             },
             span_name="BedrockAgent.GetDataSource",
         )
-    
-    # def test_bedrock_agent_runtime_invoke_agent(self):
-    #     return None
 
     @override
     def _assert_aws_span_attributes(self, resource_scope_spans: List[ResourceScopeSpan], path: str, **kwargs) -> None:
@@ -726,6 +757,7 @@ class AWSSDKTest(ContractTestBase):
             kwargs.get("remote_operation"),
             status_code,
             kwargs.get("request_specific_attributes", {}),
+            kwargs.get("response_specific_attributes", {}),
         )
 
     # pylint: disable=unidiomatic-typecheck
@@ -736,6 +768,7 @@ class AWSSDKTest(ContractTestBase):
         operation: str,
         status_code: int,
         request_specific_attributes: dict,
+        response_specific_attributes: dict,
     ) -> None:
         attributes_dict: Dict[str, AnyValue] = self._get_attributes_dict(attributes_list)
         self._assert_str_attribute(attributes_dict, SpanAttributes.RPC_METHOD, operation)
@@ -744,7 +777,11 @@ class AWSSDKTest(ContractTestBase):
         self._assert_int_attribute(attributes_dict, SpanAttributes.HTTP_STATUS_CODE, status_code)
         # TODO: aws sdk instrumentation is not respecting PEER_SERVICE
         # self._assert_str_attribute(attributes_dict, SpanAttributes.PEER_SERVICE, "backend:8080")
-        for key, value in request_specific_attributes.items():
+        self._assert_specific_attributes(attributes_dict, request_specific_attributes)
+        self._assert_specific_attributes(attributes_dict, response_specific_attributes)
+    
+    def _assert_specific_attributes(self, attributes_dict: Dict[str, AnyValue], specific_attributes: Dict[str, AnyValue]) -> None:
+        for key, value in specific_attributes.items():
             if isinstance(value, str):
                 self._assert_str_attribute(attributes_dict, key, value)
             elif isinstance(value, int):

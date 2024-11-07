@@ -10,7 +10,6 @@ const { S3Client, CreateBucketCommand, PutObjectCommand, GetObjectCommand } = re
 const { DynamoDBClient, CreateTableCommand, PutItemCommand } = require('@aws-sdk/client-dynamodb');
 const { SQSClient, CreateQueueCommand, SendMessageCommand, ReceiveMessageCommand } = require('@aws-sdk/client-sqs');
 const { KinesisClient, CreateStreamCommand, PutRecordCommand } = require('@aws-sdk/client-kinesis');
-const fetch = require('node-fetch');
 const { BedrockClient, GetGuardrailCommand } = require('@aws-sdk/client-bedrock');
 const { BedrockAgentClient, GetKnowledgeBaseCommand, GetDataSourceCommand, GetAgentCommand } = require('@aws-sdk/client-bedrock-agent');
 const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
@@ -553,15 +552,17 @@ async function handleBedrockRequest(req, res, path) {
       });
       res.statusCode = 200;
     } else if (path.includes('invokemodel/invoke-model')) {
-      await withInjected200Success(bedrockRuntimeClient, ['InvokeModelCommand'], {}, async () => {
-        let modelId = ''
-        let body = {}
-        const userMessage = "Describe the purpose of a 'hello world' program in one line.";
-        const prompt = `<s>[INST] ${userMessage} [/INST]`;
-
-        if (path.includes('amazon.titan')) {
+        const get_model_request_response = function () {
+          const prompt = "Describe the purpose of a 'hello world' program in one line.";
+          let modelId = ''
+          let request_body = {}
+          let response_body = {}
+          
+          if (path.includes('amazon.titan')) {
+            
             modelId = 'amazon.titan-text-premier-v1:0';
-            body = JSON.stringify({
+
+            request_body = {
               inputText: prompt,
               textGenerationConfig: {
                 maxTokenCount: 3072,
@@ -569,12 +570,26 @@ async function handleBedrockRequest(req, res, path) {
                 temperature: 0.7,
                 topP: 0.9,
               },
-            });
-        }
+            };
 
-        if (path.includes('anthropic.claude')) {
+            response_body = {
+              inputTextTokenCount: 15,
+              results: [
+                {
+                  tokenCount: 13,
+                  outputText: 'text-test-response',
+                  completionReason: 'CONTENT_FILTERED',
+                },
+              ],
+            }
+
+          }
+
+          if (path.includes('anthropic.claude')) {
+            
             modelId = 'anthropic.claude-v2:1';
-            body = JSON.stringify({
+            
+            request_body = {
               anthropic_version: 'bedrock-2023-05-31',
               max_tokens: 1000,
               temperature: 0.99,
@@ -585,64 +600,120 @@ async function handleBedrockRequest(req, res, path) {
                   content: [{ type: 'text', text: prompt }],
                 },
               ],
-            });
-        }
+            };
 
-        if (path.includes('meta.llama')) {
-          modelId = 'meta.llama2-13b-chat-v1';
-          body = JSON.stringify({
-            prompt,
-            max_gen_len: 512,
-            temperature: 0.5,
-            top_p: 0.9
-          });
-        }
-
-        if (path.includes('cohere.command')) {
-          modelId = 'cohere.command-light-text-v14';
-          body = JSON.stringify({
-            prompt,
-            max_tokens: 512,
-            temperature: 0.5,
-            p: 0.65,
-          });
-        }
-
-        if (path.includes('ai21.jamba')) {
-          modelId = 'ai21.jamba-1-5-large-v1:0';
-          body = JSON.stringify({
-            messages: [
-              {
-                role: 'user',
-                content: prompt,
+            response_body = {
+              stop_reason: 'end_turn',
+              usage: {
+                input_tokens: 15,
+                output_tokens: 13,
               },
-            ],
-            top_p: 0.8,
-            temperature: 0.6,
-            max_tokens: 512,
-          });
-        }
+            }
+          }
 
-        if (path.includes('mistral.mistral')) {
-          modelId = 'mistral.mistral-7b-instruct-v0:2';
-          body = JSON.stringify({
-            prompt,
-            max_tokens: 4096,
-            temperature: 0.75,
-            top_p: 0.99,
-          });
-        }
+          if (path.includes('meta.llama')) {
+            modelId = 'meta.llama2-13b-chat-v1';
+            
+            request_body = {
+              prompt,
+              max_gen_len: 512,
+              temperature: 0.5,
+              top_p: 0.9
+            };
 
+            response_body = {
+              prompt_token_count: 31,
+              generation_token_count: 49,
+              stop_reason: 'stop'
+            }
+          }
+
+          if (path.includes('cohere.command')) {
+            modelId = 'cohere.command-light-text-v14';
+            
+            request_body = {
+              prompt,
+              max_tokens: 512,
+              temperature: 0.5,
+              p: 0.65,
+            };
+
+            response_body = {
+              generations: [
+                {
+                  finish_reason: 'COMPLETE',
+                  text: 'test-generation-text',
+                },
+              ],
+              prompt: prompt,
+            };
+          }
+  
+          if (path.includes('ai21.jamba')) {
+            modelId = 'ai21.jamba-1-5-large-v1:0';
+            
+            request_body = {
+              messages: [
+                {
+                  role: 'user',
+                  content: prompt,
+                },
+              ],
+              top_p: 0.8,
+              temperature: 0.6,
+              max_tokens: 512,
+            };
+
+            response_body = {
+              stop_reason: 'end_turn',
+              usage: {
+                prompt_tokens: 21,
+                completion_tokens: 24,
+              },
+              choices: [
+                {
+                  finish_reason: 'stop',
+                },
+              ],
+            }
+          }
+  
+          if (path.includes('mistral.mistral')) {
+            modelId = 'mistral.mistral-7b-instruct-v0:2';
+            
+            request_body = {
+              prompt,
+              max_tokens: 4096,
+              temperature: 0.75,
+              top_p: 0.99,
+            };
+
+            response_body = {
+              outputs: [
+                {
+                  text: 'test-output-text',
+                  stop_reason: 'stop',
+                },
+              ]
+            }
+          }
+          
+          return [modelId, JSON.stringify(request_body), new TextEncoder().encode(JSON.stringify(response_body))]
+        }
+        
+        const [modelId, request_body, response_body] = get_model_request_response();
+
+      await withInjected200Success(bedrockRuntimeClient, ['InvokeModelCommand'], { body: response_body }, async () => {          
         await bedrockRuntimeClient.send(
           new InvokeModelCommand({
-            body: body,
+            body: request_body,
             modelId: modelId,
             accept: 'application/json',
             contentType: 'application/json',
           })
         );
       });
-      
+
       res.statusCode = 200;
     } else {
       res.statusCode = 404;

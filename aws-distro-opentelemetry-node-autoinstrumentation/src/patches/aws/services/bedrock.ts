@@ -284,7 +284,7 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (requestBody.top_p !== undefined) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
         }
-      } else if (modelId.includes('mistral.mistral')) {
+      } else if (modelId.includes('mistral')) {
         if (requestBody.prompt !== undefined) {
           // NOTE: We approximate the token count since this value is not directly available in the body
           // According to Bedrock docs they use (total_chars / 6) to approximate token count for pricing.
@@ -386,7 +386,7 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
             responseBody.choices[0].finish_reason,
           ]);
         }
-      } else if (currentModelId.includes('mistral.mistral')) {
+      } else if (currentModelId.includes('mistral')) {
         if (responseBody.outputs?.[0]?.text !== undefined) {
           span.setAttribute(
             AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS,

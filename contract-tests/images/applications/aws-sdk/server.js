@@ -648,6 +648,28 @@ async function handleBedrockRequest(req, res, path) {
               prompt: prompt,
             };
           }
+
+          if (path.includes('cohere.command-r')) {
+            modelId = 'cohere.command-r-v1:0';
+            
+            request_body = {
+              message: prompt,
+              max_tokens: 512,
+              temperature: 0.5,
+              p: 0.65,
+            };
+
+            response_body = {
+              finish_reason: 'COMPLETE',
+              text: 'test-generation-text',
+              prompt: prompt,
+              request: {
+                commandInput: {
+                  modelId: modelId,
+                },
+              },
+            }
+          }
   
           if (path.includes('ai21.jamba')) {
             modelId = 'ai21.jamba-1-5-large-v1:0';
@@ -678,7 +700,7 @@ async function handleBedrockRequest(req, res, path) {
             }
           }
   
-          if (path.includes('mistral.mistral')) {
+          if (path.includes('mistral')) {
             modelId = 'mistral.mistral-7b-instruct-v0:2';
             
             request_body = {
@@ -761,3 +783,4 @@ prepareAwsServer().then(() => {
     console.log('Ready');
   });
 });
+

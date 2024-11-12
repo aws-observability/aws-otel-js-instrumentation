@@ -493,7 +493,35 @@ class AWSSDKTest(ContractTestBase):
                 },
             span_name="BedrockRuntime.InvokeModel"
         )
+    
+    def test_bedrock_runtime_invoke_model_cohere_command_r(self):
+        self.do_test_requests(
+            "bedrock/invokemodel/invoke-model/cohere.command-r-v1:0",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock",
+            rpc_service="BedrockRuntime",
+            remote_service="AWS::BedrockRuntime",
+            remote_operation="InvokeModel",
+            remote_resource_type="AWS::Bedrock::Model",
+            remote_resource_identifier='cohere.command-r-v1:0',
+            request_specific_attributes={
+                _GEN_AI_REQUEST_MODEL: 'cohere.command-r-v1:0',
+                _GEN_AI_REQUEST_MAX_TOKENS: 512,
+                _GEN_AI_REQUEST_TEMPERATURE: 0.5,
+                _GEN_AI_REQUEST_TOP_P: 0.65
+                },
+            response_specific_attributes={
+                _GEN_AI_RESPONSE_FINISH_REASONS: ['COMPLETE'],
+                _GEN_AI_USAGE_INPUT_TOKENS: math.ceil(len("Describe the purpose of a 'hello world' program in one line.") / 6),
+                _GEN_AI_USAGE_OUTPUT_TOKENS: math.ceil(len("test-generation-text") / 6)
+                },
+            span_name="BedrockRuntime.InvokeModel"
+        )
 
+    # Delete once this model is fully deprecated on node
     def test_bedrock_runtime_invoke_model_cohere_command(self):
         self.do_test_requests(
             "bedrock/invokemodel/invoke-model/cohere.command-light-text-v14",

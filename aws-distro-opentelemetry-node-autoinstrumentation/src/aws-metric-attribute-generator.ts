@@ -55,6 +55,8 @@ const NORMALIZED_DYNAMO_DB_SERVICE_NAME: string = 'AWS::DynamoDB';
 const NORMALIZED_KINESIS_SERVICE_NAME: string = 'AWS::Kinesis';
 const NORMALIZED_S3_SERVICE_NAME: string = 'AWS::S3';
 const NORMALIZED_SQS_SERVICE_NAME: string = 'AWS::SQS';
+const NORMALIZED_SNS_SERVICE_NAME: string = 'AWS::SNS';
+const NORMALIZED_SECRETSMANAGER_SERVICE_NAME = "AWS::SecretsManager"
 const NORMALIZED_BEDROCK_SERVICE_NAME: string = 'AWS::Bedrock';
 const NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME: string = 'AWS::BedrockRuntime';
 
@@ -369,6 +371,16 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteResourceType = NORMALIZED_S3_SERVICE_NAME + '::Bucket';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
           span.attributes[AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET]
+        );
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN)) {
+        remoteResourceType = NORMALIZED_SNS_SERVICE_NAME + '::Topic';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]
+        );
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN)) {
+        remoteResourceType = NORMALIZED_SECRETSMANAGER_SERVICE_NAME + '::Secret';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]
         );
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME)) {
         remoteResourceType = NORMALIZED_SQS_SERVICE_NAME + '::Queue';

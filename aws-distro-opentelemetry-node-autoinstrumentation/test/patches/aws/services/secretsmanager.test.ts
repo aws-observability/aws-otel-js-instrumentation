@@ -30,24 +30,69 @@ describe('SecretsManager', () => {
       },
     });
   });
+  
   describe('DescribeSecret', () => {
-    it('no attribute generated in span if secretId is not an ARN', async () => {
-      const secretId: string = "arn:aws:secretsmanager:sdsadsadtestId";
-
-      nock(`https://secretsmanager.${region}.amazonaws.com/`).post('/').reply(200, 'null');
-
-      await secretsManager.describeSecret({
+    
+    const testParams = [
+      "testId", 
+      'badarn:aws:secretsmanager:us-weast-1:123456789123:secret:testId123456', 
+      'arn:aws:secretsmanager:us-east-1:123456789123:secret:testId123456'
+    ]
+    
+    testParams.forEach((secretId) => {
+        it('should generate secret arn attribute only if secretId is an valid ARN', async () => {
+          
+          nock(`https://secretsmanager.${region}.amazonaws.com/`).post('/').reply(200, 'null');
+      
+          await secretsManager.describeSecret({
             SecretId: secretId,
-        }).catch((err: any) => {});
+          }).catch((err: any) => {});
+      
+          const testSpans: ReadableSpan[] = getTestSpans();
+          const getDescribeSecretSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+            return s.name === 'SecretsManager.DescribeSecret';
+          });
 
+          expect(getDescribeSecretSpans.length).toBe(1);
+          const getTopicAttributeSpan = getDescribeSecretSpans[0];
+
+          if (secretId.startsWith('arn:aws:secretsmanager:')) {
+            expect(getTopicAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(secretId);
+          } else {
+            expect(getTopicAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBeUndefined();
+          }
+
+          expect(getTopicAttributeSpan.kind).toBe(SpanKind.CLIENT);
+        });
+      }
+    )
+  });
+
+  describe('GetSecretValue', () => {
+    it('secret arn attribute should be populated from the response', async () => {
+      const secretIdArn = 'arn:aws:secretsmanager:us-east-1:123456789123:secret:testId123456'
+ 
+      nock(`https://secretsmanager.${region}.amazonaws.com/`).post('/').reply(200, {
+        ARN: secretIdArn,
+        Name: 'testId'
+      })
+  
+      await secretsManager.getSecretValue({
+        SecretId: "testSecret",
+      }).catch((err: any) => {
+        console.log(err);
+      });
+  
       const testSpans: ReadableSpan[] = getTestSpans();
       const getDescribeSecretSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
-        return s.name === 'SecretsManager.DescribeSecret';
+        return s.name === 'SecretsManager.GetSecretValue';
       });
+
       expect(getDescribeSecretSpans.length).toBe(1);
       const getTopicAttributeSpan = getDescribeSecretSpans[0];
-      expect(getTopicAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(secretId);
+      expect(getTopicAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(secretIdArn);
       expect(getTopicAttributeSpan.kind).toBe(SpanKind.CLIENT);
     });
-  });
+  })
 });
+

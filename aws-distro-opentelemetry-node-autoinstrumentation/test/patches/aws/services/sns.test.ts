@@ -30,6 +30,7 @@ describe('SNS', () => {
       },
     });
   });
+  
   describe('GetTopicAttributes', () => {
     it('span has sns topic.arn in its attributes', async () => {
       const topicArn: string = "arn:aws:sns:us-east-1:123456789012:mystack-mytopic-NZJ5JSMVGFIE";
@@ -44,10 +45,13 @@ describe('SNS', () => {
       const getTopicAttributeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'SNS.GetTopicAttributes';
       });
+      
       expect(getTopicAttributeSpans.length).toBe(1);
-      const getTopicAttributeSpan = getTopicAttributeSpans[0];
-      expect(getTopicAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]).toBe(topicArn);
-      expect(getTopicAttributeSpan.kind).toBe(SpanKind.CLIENT);
+      
+      const topicAttributeSpan = getTopicAttributeSpans[0];
+      
+      expect(topicAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]).toBe(topicArn);
+      expect(topicAttributeSpan.kind).toBe(SpanKind.CLIENT);
     });
   });
 });

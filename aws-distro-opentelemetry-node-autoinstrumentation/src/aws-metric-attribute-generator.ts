@@ -56,7 +56,9 @@ const NORMALIZED_KINESIS_SERVICE_NAME: string = 'AWS::Kinesis';
 const NORMALIZED_S3_SERVICE_NAME: string = 'AWS::S3';
 const NORMALIZED_SQS_SERVICE_NAME: string = 'AWS::SQS';
 const NORMALIZED_SNS_SERVICE_NAME: string = 'AWS::SNS';
-const NORMALIZED_SECRETSMANAGER_SERVICE_NAME = "AWS::SecretsManager"
+const NORMALIZED_SECRETSMANAGER_SERVICE_NAME = "AWS::SecretsManager";
+const NORMALIZED_STEPFUNCTIONS_SERVICE_NAME = "AWS::StepFunctions";
+const NORMALIZED_LAMBDA_SERVICE_NAME = "AWS::Lambda"
 const NORMALIZED_BEDROCK_SERVICE_NAME: string = 'AWS::Bedrock';
 const NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME: string = 'AWS::BedrockRuntime';
 
@@ -352,6 +354,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   private static setRemoteResourceTypeAndIdentifier(span: ReadableSpan, attributes: Attributes): void {
     let remoteResourceType: AttributeValue | undefined;
     let remoteResourceIdentifier: AttributeValue | undefined;
+    let cloudFormationIdentifier: AttributeValue | undefined;
 
     if (AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
       const awsTableNames: AttributeValue | undefined = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES];
@@ -373,14 +376,47 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
           span.attributes[AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET]
         );
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN)) {
+        const snsArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]
+        
         remoteResourceType = NORMALIZED_SNS_SERVICE_NAME + '::Topic';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]
+          this.simplifyARNAttribute(snsArn)
         );
+        cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(snsArn);
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN)) {
+        const secretsArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]
+
         remoteResourceType = NORMALIZED_SECRETSMANAGER_SERVICE_NAME + '::Secret';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]
+           this.simplifyARNAttribute(secretsArn)
+        );
+        cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(secretsArn)
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN)) {
+        const stateMachineArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN]
+        
+        remoteResourceType = NORMALIZED_STEPFUNCTIONS_SERVICE_NAME + '::StateMachine';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          this.simplifyARNAttribute(stateMachineArn)
+        );
+        cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(stateMachineArn);
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN)) {
+        const activityArn =  span.attributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN]
+        
+        remoteResourceType = NORMALIZED_STEPFUNCTIONS_SERVICE_NAME + '::Activity';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          this.simplifyARNAttribute(activityArn)
+        );
+        cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(activityArn);
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME)) {
+        remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::Function';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]
+        );
+        cloudFormationIdentifier = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCEMAPPING_ID)) {
+        remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::EventSourceMapping';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCEMAPPING_ID]
         );
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME)) {
         remoteResourceType = NORMALIZED_SQS_SERVICE_NAME + '::Queue';
@@ -426,6 +462,10 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     if (remoteResourceType !== undefined && remoteResourceIdentifier !== undefined) {
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_TYPE] = remoteResourceType;
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER] = remoteResourceIdentifier;
+    }
+
+    if (cloudFormationIdentifier !== undefined) {
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER] = cloudFormationIdentifier;
     }
   }
 
@@ -542,6 +582,15 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     // Implementing some regex is also possible
     //   e.g. let re = new RegExp(String.raw`\s${variable}\s`, "g");
     return input.split('^').join('^^').split('|').join('^|');
+  }
+
+  private static simplifyARNAttribute(attribute: AttributeValue | undefined) {
+    if (typeof attribute == 'string' && attribute.startsWith("arn:aws:")) {
+      const split = attribute.split(":");
+      return split[split.length - 1];
+    }
+
+    return ''
   }
 
   /** Span kind is needed for differentiating metrics in the EMF exporter */

@@ -28,6 +28,8 @@ import { S3ServiceExtension } from './aws/services/s3';
 import { AwsLambdaInstrumentationPatch } from './aws/services/aws-lambda';
 import { SNSServiceExtension } from './aws/services/sns';
 import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
+import { StepFunctionsServiceExtension } from './aws/services/step-functions';
+import { LambdaServiceExtension } from './aws/services/lambda';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 const awsPropagator = new AWSXRayPropagator();
@@ -59,8 +61,10 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
       if (services) {
         services.set('S3', new S3ServiceExtension());
         services.set('Kinesis', new KinesisServiceExtension());
+        services.set('Lambda', new LambdaServiceExtension());
         services.set('SNS', new SNSServiceExtension());
         services.set('SecretsManager', new SecretsManagerServiceExtension());
+        services.set('SFN', new StepFunctionsServiceExtension());
         services.set('Bedrock', new BedrockServiceExtension());
         services.set('BedrockAgent', new BedrockAgentServiceExtension());
         services.set('BedrockAgentRuntime', new BedrockAgentRuntimeServiceExtension());

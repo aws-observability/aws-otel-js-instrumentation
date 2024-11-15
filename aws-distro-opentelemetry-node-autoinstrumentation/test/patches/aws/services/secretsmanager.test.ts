@@ -54,15 +54,15 @@ describe('SecretsManager', () => {
           });
 
           expect(getDescribeSecretSpans.length).toBe(1);
-          const getTopicAttributeSpan = getDescribeSecretSpans[0];
+          const describeSecretSpan = getDescribeSecretSpans[0];
 
           if (secretId.startsWith('arn:aws:secretsmanager:')) {
-            expect(getTopicAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(secretId);
+            expect(describeSecretSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(secretId);
           } else {
-            expect(getTopicAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBeUndefined();
+            expect(describeSecretSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBeUndefined();
           }
 
-          expect(getTopicAttributeSpan.kind).toBe(SpanKind.CLIENT);
+          expect(describeSecretSpan.kind).toBe(SpanKind.CLIENT);
         });
       }
     )
@@ -84,14 +84,16 @@ describe('SecretsManager', () => {
       });
   
       const testSpans: ReadableSpan[] = getTestSpans();
-      const getDescribeSecretSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+      const getSecretValueSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'SecretsManager.GetSecretValue';
       });
 
-      expect(getDescribeSecretSpans.length).toBe(1);
-      const getTopicAttributeSpan = getDescribeSecretSpans[0];
-      expect(getTopicAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(secretIdArn);
-      expect(getTopicAttributeSpan.kind).toBe(SpanKind.CLIENT);
+      expect(getSecretValueSpans.length).toBe(1);
+      
+      const secretValueSpan = getSecretValueSpans[0];
+
+      expect(secretValueSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(secretIdArn);
+      expect(secretValueSpan.kind).toBe(SpanKind.CLIENT);
     });
   })
 });

@@ -780,7 +780,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN,
       'arn:aws:lambda:us-east-1:123456789012:function:aws_lambda_function_name'
     );
-    
+
     validateRemoteResourceAttributes('AWS::Lambda::Function', 'aws_lambda_function_name');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN, undefined);

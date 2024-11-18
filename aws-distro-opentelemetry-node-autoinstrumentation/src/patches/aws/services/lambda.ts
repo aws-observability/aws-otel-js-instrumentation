@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Attributes, Span, SpanKind, Tracer } from '@opentelemetry/api';
-import { AwsSdkInstrumentationConfig, NormalizedRequest, NormalizedResponse } from '@opentelemetry/instrumentation-aws-sdk';
+import {
+  AwsSdkInstrumentationConfig,
+  NormalizedRequest,
+  NormalizedResponse,
+} from '@opentelemetry/instrumentation-aws-sdk';
 import { AWS_ATTRIBUTE_KEYS } from '../../../aws-attribute-keys';
 import { RequestMetadata, ServiceExtension } from '../../../third-party/otel/aws/services/ServiceExtension';
 
@@ -19,16 +23,16 @@ export class LambdaServiceExtension implements ServiceExtension {
     let functionName = requestFunctionName;
 
     if (requestFunctionName) {
-        if (requestFunctionName.startsWith("arn:aws:lambda:")) {
-            const split = requestFunctionName.split(":")
-            functionName = split[split.length - 1];
-        }
-        
-        spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME] = functionName;
+      if (requestFunctionName.startsWith('arn:aws:lambda:')) {
+        const split = requestFunctionName.split(':');
+        functionName = split[split.length - 1];
+      }
+
+      spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME] = functionName;
     }
 
     if (resourceMappingId) {
-        spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID] = resourceMappingId;
+      spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID] = resourceMappingId;
     }
 
     const isIncoming = false;
@@ -42,9 +46,7 @@ export class LambdaServiceExtension implements ServiceExtension {
   }
 
   responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
-    
     if (response.data.Configuration) {
-      
       const functionArn = response.data.Configuration.FunctionArn;
 
       if (functionArn) {
@@ -52,5 +54,4 @@ export class LambdaServiceExtension implements ServiceExtension {
       }
     }
   }
-
 }

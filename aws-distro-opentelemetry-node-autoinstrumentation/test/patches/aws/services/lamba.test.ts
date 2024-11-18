@@ -30,59 +30,64 @@ describe('Lambda', () => {
       },
     });
   });
-  
+
   describe('GetFunction', () => {
     {
-      it(`span has lambda functionName and function ARN in its attributes`, async () => {
-          const funcName = 'testFunction'
-          const arn = 'arn:aws:lambda:us-east-1:123456789012:function:testFunction'
+      it('span has lambda functionName and function ARN in its attributes', async () => {
+        const funcName = 'testFunction';
+        const arn = 'arn:aws:lambda:us-east-1:123456789012:function:testFunction';
 
-          nock(`https://lambda.${region}.amazonaws.com/`).get(/.*/).reply(200, {
+        nock(`https://lambda.${region}.amazonaws.com/`)
+          .get(/.*/)
+          .reply(200, {
             Configuration: {
-              FunctionArn: arn
-            }
+              FunctionArn: arn,
+            },
           });
-          
-          await lambda.getFunction({
+
+        await lambda
+          .getFunction({
             FunctionName: funcName,
-          }).catch((err: any) => {});
-      
-          const testSpans: ReadableSpan[] = getTestSpans();
-          const getFunctionNameSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
-            return s.name === 'Lambda.GetFunction';
-          });
-            
-          expect(getFunctionNameSpans.length).toBe(1);
-            
-          const functionAttributeSpan = getFunctionNameSpans[0];
-            
-          expect(functionAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]).toBe(funcName);
-          expect(functionAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toBe(arn);
-          expect(functionAttributeSpan.kind).toBe(SpanKind.CLIENT);
+          })
+          .catch((err: any) => {});
+
+        const testSpans: ReadableSpan[] = getTestSpans();
+        const getFunctionNameSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+          return s.name === 'Lambda.GetFunction';
         });
-      }
+
+        expect(getFunctionNameSpans.length).toBe(1);
+
+        const functionAttributeSpan = getFunctionNameSpans[0];
+
+        expect(functionAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]).toBe(funcName);
+        expect(functionAttributeSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toBe(arn);
+        expect(functionAttributeSpan.kind).toBe(SpanKind.CLIENT);
+      });
+    }
   });
 
   describe('GetEventSourceMapping', () => {
-
-    it(`span has eventSourceMapping attribute in its attributes`, async () => {
-      const uuid = '14e0db71-abcd-4eb5-b481-8945cf9d10c2'
+    it('span has eventSourceMapping attribute in its attributes', async () => {
+      const uuid = '14e0db71-abcd-4eb5-b481-8945cf9d10c2';
 
       nock(`https://lambda.${region}.amazonaws.com/`).post('/').reply(200, {});
-  
-      await lambda.getEventSourceMapping({
-            UUID: uuid,
-        }).catch((err: any) => {});
+
+      await lambda
+        .getEventSourceMapping({
+          UUID: uuid,
+        })
+        .catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
       const getEventSourceMappingSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
         return s.name === 'Lambda.GetEventSourceMapping';
       });
-      
+
       expect(getEventSourceMappingSpans.length).toBe(1);
-      
+
       const eventSourceMappingSpan = getEventSourceMappingSpans[0];
-      
+
       expect(eventSourceMappingSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID]).toBe(uuid);
       expect(eventSourceMappingSpan.kind).toBe(SpanKind.CLIENT);
     });

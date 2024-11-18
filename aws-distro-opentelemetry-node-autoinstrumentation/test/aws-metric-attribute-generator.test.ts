@@ -769,7 +769,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     // Validate behaviour of AWS_SECRETSMANAGER_SECRET_ARN attributes then remove it.
     mockAttribute(
       AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN,
-        'arn:aws:secretsmanager:us-east-1:123456789123:secret:testSecret'
+      'arn:aws:secretsmanager:us-east-1:123456789123:secret:testSecret'
     );
     validateRemoteResourceAttributes('AWS::SecretsManager::Secret', 'testSecret');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN, undefined);
@@ -778,7 +778,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, 'aws_lambda_function_name');
     mockAttribute(
       AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN,
-        'arn:aws:lambda:us-east-1:123456789012:function:aws_lambda_function_name'
+      'arn:aws:lambda:us-east-1:123456789012:function:aws_lambda_function_name'
     );
     
     validateRemoteResourceAttributes('AWS::Lambda::Function', 'aws_lambda_function_name');
@@ -792,14 +792,14 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     // Validate behaviour of AWS_STEPFUNCTIONS_STATEMACHINE_ARN and AWS_STEPFUNCTIONS_ACTIVITY_ARN attributes then remove them.
     mockAttribute(
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN,
-        'arn:aws:states:us-east-1:007003123456789012:stateMachine:testStateMachine'
+      'arn:aws:states:us-east-1:007003123456789012:stateMachine:testStateMachine'
     );
     validateRemoteResourceAttributes('AWS::StepFunctions::StateMachine', 'testStateMachine');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
 
     mockAttribute(
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
-        'arn:aws:states:us-east-1:007003123456789012:activity:testActivity'
+      'arn:aws:states:us-east-1:007003123456789012:activity:testActivity'
     );
     validateRemoteResourceAttributes('AWS::StepFunctions::Activity', 'testActivity');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN, undefined);

@@ -760,20 +760,26 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, 'AWS_KINESIS_STREAM_NAME');
     validateRemoteResourceAttributes('AWS::Kinesis::Stream', 'AWS_KINESIS_STREAM_NAME');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, undefined);
-    
+
     // Validate behaviour of AWS_SNS_TOPIC_ARN attribute then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN, 'arn:aws:sns:us-east-1:123456789012:testTopic');
     validateRemoteResourceAttributes('AWS::SNS::Topic', 'testTopic');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN, undefined);
 
     // Validate behaviour of AWS_SECRETSMANAGER_SECRET_ARN attributes then remove it.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN, 'arn:aws:secretsmanager:us-east-1:123456789123:secret:testSecret');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN,
+      'arn:aws:secretsmanager:us-east-1:123456789123:secret:testSecret'
+    );
     validateRemoteResourceAttributes('AWS::SecretsManager::Secret', 'testSecret');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN, undefined);
 
     // Validate behaviour of AWS_LAMBDA_FUNCTION_NAME, AWS_LAMBDA_FUNCTION_ARN, and AWS_LAMBDA_RESOURCE_MAPPING_ID attributes then remove them.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, 'aws_lambda_function_name');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN, 'arn:aws:lambda:us-east-1:123456789012:function:aws_lambda_function_name');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN,
+      'arn:aws:lambda:us-east-1:123456789012:function:aws_lambda_function_name'
+    );
     validateRemoteResourceAttributes('AWS::Lambda::Function', 'aws_lambda_function_name');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN, undefined);
@@ -783,11 +789,17 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID, undefined);
 
     // Validate behaviour of AWS_STEPFUNCTIONS_STATEMACHINE_ARN and AWS_STEPFUNCTIONS_ACTIVITY_ARN attributes then remove them.
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, 'arn:aws:states:us-east-1:007003123456789012:stateMachine:testStateMachine');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN,
+      'arn:aws:states:us-east-1:007003123456789012:stateMachine:testStateMachine'
+    );
     validateRemoteResourceAttributes('AWS::StepFunctions::StateMachine', 'testStateMachine');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
 
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN, 'arn:aws:states:us-east-1:007003123456789012:activity:testActivity');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
+      'arn:aws:states:us-east-1:007003123456789012:activity:testActivity'
+    );
     validateRemoteResourceAttributes('AWS::StepFunctions::Activity', 'testActivity');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN, undefined);
 

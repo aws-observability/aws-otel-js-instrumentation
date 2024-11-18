@@ -100,7 +100,7 @@ jobs:
             aws lambda publish-layer-version \
               --layer-name ${{ env.LAYER_NAME }} \
               --content S3Bucket=${{ env.BUCKET_NAME }},S3Key=layer.zip \
-              --compatible-runtimes nodejs18.x nodejs20.x \
+              --compatible-runtimes nodejs18.x nodejs20.x nodejs22.x \
               --compatible-architectures "arm64" "x86_64" \
               --license-info "Apache-2.0" \
               --description "AWS Distro of OpenTelemetry Lambda Layer for NodeJs Runtime" \
@@ -186,16 +186,6 @@ jobs:
         with:
           name: layer.tf
           path: layer.tf
-      - name: Commit changes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          mv layer.tf lambda-layer/terraform/lambda/
-          git add lambda-layer/terraform/lambda/layer.tf
-          git commit -m "Update Lambda layer ARNs for releasing" || echo "No changes to commit"
-          git push
   create-release:
     runs-on: ubuntu-latest
     needs: generate-release-note
@@ -207,23 +197,12 @@ jobs:
           echo "COMMIT_SHA=${GITHUB_SHA}" >> $GITHUB_ENV
           SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
           echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
-      - name: Create Tag
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          TAG_NAME="lambda-${SHORT_SHA}"
-          git tag -a "$TAG_NAME" -m "Release Lambda layer based on commit $TAG_NAME"
-          git push origin "$TAG_NAME"
-          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ env.TAG_NAME }}
           release_name: "Release AWSOpenTelemetryDistroPython Lambda Layer"
           body_path: lambda-layer/terraform/lambda/layer.tf
           draft: true

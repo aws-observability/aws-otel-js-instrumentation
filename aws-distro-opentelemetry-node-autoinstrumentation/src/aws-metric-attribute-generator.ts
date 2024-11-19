@@ -456,12 +456,17 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       remoteResourceIdentifier = AwsMetricAttributeGenerator.getDbConnection(span);
     }
 
-    if (remoteResourceType !== undefined && remoteResourceIdentifier !== undefined) {
-      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_TYPE] = remoteResourceType;
-      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER] = remoteResourceIdentifier;
+    if (cloudFormationIdentifier === undefined) {
+      cloudFormationIdentifier = remoteResourceIdentifier;
     }
 
-    if (cloudFormationIdentifier !== undefined) {
+    if (
+      remoteResourceType !== undefined &&
+      remoteResourceIdentifier !== undefined &&
+      cloudFormationIdentifier !== undefined
+    ) {
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_TYPE] = remoteResourceType;
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER] = remoteResourceIdentifier;
       attributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER] = cloudFormationIdentifier;
     }
   }

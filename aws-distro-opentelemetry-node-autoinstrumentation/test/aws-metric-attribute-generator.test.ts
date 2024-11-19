@@ -849,10 +849,12 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes('AWS::Bedrock::DataSource', 'test_datasource_^^id');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID, undefined);
 
-    // Validate behaviour of AWS_BEDROCK_GUARDRAIL_ID attribute, then remove it.
+    // Validate behaviour of AWS_BEDROCK_GUARDRAIL_ID and AWS_BEDROCK_GUARDRAIL_ARN attribute, then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, 'test_guardrail_id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN, 'test_guardrail_arn');
     validateRemoteResourceAttributes('AWS::Bedrock::Guardrail', 'test_guardrail_id');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN, undefined);
 
     // Validate behaviour of AWS_BEDROCK_GUARDRAIL_ID attribute with special chars(^), then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, 'test_guardrail_^id');

@@ -236,9 +236,11 @@ describe('Bedrock', () => {
   describe('GetGuardrail', () => {
     it('adds guardrailId to span', async () => {
       const dummyGuardrailIdentifier: string = 'ABCDEFGH';
+      const guardrailArn: string = 'arn:aws:bedrock:us-east-1:123456789012:guardrail/abc123';
 
       nock(`https://bedrock.${region}.amazonaws.com`).get(`/guardrails/${dummyGuardrailIdentifier}`).reply(200, {
         guardrailId: dummyGuardrailIdentifier,
+        guardrailArn: guardrailArn,
       });
 
       await bedrock
@@ -258,6 +260,7 @@ describe('Bedrock', () => {
       expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
       expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
       expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID]).toBe(dummyGuardrailIdentifier);
+      expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN]).toBe(guardrailArn);
       expect(getGuardrailSpan.kind).toBe(SpanKind.CLIENT);
     });
   });

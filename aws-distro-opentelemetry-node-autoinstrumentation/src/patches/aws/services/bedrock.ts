@@ -15,6 +15,7 @@ const AGENT_ID: string = 'agentId';
 const KNOWLEDGE_BASE_ID: string = 'knowledgeBaseId';
 const DATA_SOURCE_ID: string = 'dataSourceId';
 const GUARDRAIL_ID: string = 'guardrailId';
+const GUARDRAIL_ARN: string = 'guardrailArn';
 const MODEL_ID: string = 'modelId';
 const AWS_BEDROCK_SYSTEM: string = 'aws_bedrock';
 
@@ -182,10 +183,15 @@ export class BedrockServiceExtension implements ServiceExtension {
     };
   }
   responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
-    const guardrail_id = response.data[GUARDRAIL_ID];
+    const guardrailId = response.data[GUARDRAIL_ID];
+    const guardrailArn = response.data[GUARDRAIL_ARN];
 
-    if (guardrail_id) {
-      span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, guardrail_id);
+    if (guardrailId) {
+      span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, guardrailId);
+    }
+
+    if (guardrailArn) {
+      span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN, guardrailArn);
     }
   }
 }

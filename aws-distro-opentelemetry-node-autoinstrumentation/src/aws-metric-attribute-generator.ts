@@ -437,6 +437,9 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
           span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID]
         );
+        cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN]
+        );
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID)) {
         remoteResourceType = NORMALIZED_BEDROCK_SERVICE_NAME + '::KnowledgeBase';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(

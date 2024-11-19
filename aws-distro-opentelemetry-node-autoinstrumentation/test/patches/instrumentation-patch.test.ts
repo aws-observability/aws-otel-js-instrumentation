@@ -38,6 +38,7 @@ const _QUEUE_URL: string = 'https://sqs.us-east-1.amazonaws.com/123412341234/que
 const _BEDROCK_AGENT_ID: string = 'agentId';
 const _BEDROCK_DATASOURCE_ID: string = 'DataSourceId';
 const _BEDROCK_GUARDRAIL_ID: string = 'GuardrailId';
+const _BEDROCK_GUARDRAIL_ARN: string = 'arn:aws:bedrock:us-east-1:123456789012:guardrail/abc123';
 const _BEDROCK_KNOWLEDGEBASE_ID: string = 'KnowledgeBaseId';
 const _GEN_AI_SYSTEM: string = 'aws_bedrock';
 const _GEN_AI_REQUEST_MODEL: string = 'genAiReuqestModelId';
@@ -250,8 +251,11 @@ describe('InstrumentationPatchTest', () => {
     // Expect no-op from attribute extraction in Bedrock
     expect(Object.entries(bedrockAttributes).length).toEqual(0);
     const bedrockAttributesAfterResponse: Attributes = doResponseHookBedrock(services, 'Bedrock');
-    expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(1);
+    expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(2);
     expect(bedrockAttributesAfterResponse[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID]).toEqual(_BEDROCK_GUARDRAIL_ID);
+    expect(bedrockAttributesAfterResponse[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN]).toEqual(
+      _BEDROCK_GUARDRAIL_ARN
+    );
   });
 
   it('Bedrock Agent with patching', () => {
@@ -519,6 +523,7 @@ describe('InstrumentationPatchTest', () => {
         dataSourceId: _BEDROCK_DATASOURCE_ID,
         knowledgeBaseId: _BEDROCK_KNOWLEDGEBASE_ID,
         guardrailId: _BEDROCK_GUARDRAIL_ID,
+        guardrailArn: _BEDROCK_GUARDRAIL_ARN,
         modelId: _GEN_AI_REQUEST_MODEL,
       },
       request: {

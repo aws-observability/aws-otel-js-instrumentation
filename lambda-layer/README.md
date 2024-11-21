@@ -1,5 +1,7 @@
 # AWS Distro Lambda Layer for NodeJS
 
+This folder provides support for **Application Signals** in AWS Lambda environments. You can explore this repository to learn how to build a Lambda layer for AWS Node.js Runtimes from scratch in your AWS account. Alternatively, you can directly visit the AWS documentation, [Enable Application Signals on Lambda functions](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Application-Signals-Enable-Lambda.html), and use the AWS-managed Lambda layers we provide.
+
 By default, the layer enables aws-sdk and aws-lambda instrumentation libraries only for better Lambda cold start
 performance.
 You can use the environment variable `OTEL_NODE_ENABLED_INSTRUMENTATIONS` to enable only certain

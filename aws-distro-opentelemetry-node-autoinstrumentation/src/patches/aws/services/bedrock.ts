@@ -349,7 +349,6 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.stop_reason]);
         }
       } else if (currentModelId.includes('cohere.command-r')) {
-        console.log('Response Body:', responseBody);
         if (responseBody.text !== undefined) {
           // NOTE: We approximate the token count since this value is not directly available in the body
           // According to Bedrock docs they use (total_chars / 6) to approximate token count for pricing.

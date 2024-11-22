@@ -517,6 +517,60 @@ describe('BedrockRuntime', () => {
       expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
     });
 
+    it('Add Cohere Command R model attributes to span', async () => {
+      const modelId: string = 'cohere.command-r-v1:0"';
+      const prompt: string = "Describe the purpose of a 'hello world' program in one line";
+      const nativeRequest: any = {
+        message: prompt,
+        max_tokens: 512,
+        temperature: 0.5,
+        p: 0.65,
+      };
+      const mockRequestBody: string = JSON.stringify(nativeRequest);
+      const mockResponseBody: any = {
+        finish_reason: 'COMPLETE',
+        text: 'test-generation-text',
+        prompt: prompt,
+        request: {
+          commandInput: {
+            modelId: modelId,
+          },
+        },
+      };
+
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`)
+        .post(`/model/${encodeURIComponent(modelId)}/invoke`)
+        .reply(200, mockResponseBody);
+
+      await bedrock
+        .invokeModel({
+          modelId: modelId,
+          body: mockRequestBody,
+        })
+        .catch((err: any) => {
+          console.log('error', err);
+        });
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const invokeModelSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'BedrockRuntime.InvokeModel';
+      });
+      expect(invokeModelSpans.length).toBe(1);
+      const invokeModelSpan = invokeModelSpans[0];
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws_bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(512);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(0.5);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P]).toBe(0.65);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS]).toBe(10);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(4);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['COMPLETE']);
+      expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
+    });
+
     it('Add Meta Llama model attributes to span', async () => {
       const modelId: string = 'meta.llama2-13b-chat-v1';
       const prompt: string = 'Describe the purpose of an interpreter program in one line.';

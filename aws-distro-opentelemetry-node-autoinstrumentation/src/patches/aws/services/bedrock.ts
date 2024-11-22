@@ -245,6 +245,22 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (requestBody.top_p !== undefined) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
         }
+      } else if (modelId.includes('cohere.command-r')) {
+        if (requestBody.max_tokens !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
+        }
+        if (requestBody.temperature !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
+        }
+        if (requestBody.p !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.p;
+        }
+        if (requestBody.message !== undefined) {
+          // NOTE: We approximate the token count since this value is not directly available in the body
+          // According to Bedrock docs they use (total_chars / 6) to approximate token count for pricing.
+          // https://docs.aws.amazon.com/bedrock/latest/userguide/model-customization-prepare.html
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS] = Math.ceil(requestBody.message.length / 6);
+        }
       } else if (modelId.includes('cohere.command')) {
         if (requestBody.max_tokens !== undefined) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
@@ -254,6 +270,9 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         }
         if (requestBody.p !== undefined) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.p;
+        }
+        if (requestBody.prompt !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS] = Math.ceil(requestBody.prompt.length / 6);
         }
       } else if (modelId.includes('ai21.jamba')) {
         if (requestBody.max_tokens !== undefined) {
@@ -265,7 +284,7 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (requestBody.top_p !== undefined) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
         }
-      } else if (modelId.includes('mistral.mistral')) {
+      } else if (modelId.includes('mistral')) {
         if (requestBody.prompt !== undefined) {
           // NOTE: We approximate the token count since this value is not directly available in the body
           // According to Bedrock docs they use (total_chars / 6) to approximate token count for pricing.
@@ -329,13 +348,17 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (responseBody.stop_reason !== undefined) {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.stop_reason]);
         }
-      } else if (currentModelId.includes('cohere.command')) {
-        if (responseBody.prompt !== undefined) {
+      } else if (currentModelId.includes('cohere.command-r')) {
+        if (responseBody.text !== undefined) {
           // NOTE: We approximate the token count since this value is not directly available in the body
           // According to Bedrock docs they use (total_chars / 6) to approximate token count for pricing.
           // https://docs.aws.amazon.com/bedrock/latest/userguide/model-customization-prepare.html
-          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, Math.ceil(responseBody.prompt.length / 6));
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, Math.ceil(responseBody.text.length / 6));
         }
+        if (responseBody.finish_reason !== undefined) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.finish_reason]);
+        }
+      } else if (currentModelId.includes('cohere.command')) {
         if (responseBody.generations?.[0]?.text !== undefined) {
           span.setAttribute(
             AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS,
@@ -362,7 +385,7 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
             responseBody.choices[0].finish_reason,
           ]);
         }
-      } else if (currentModelId.includes('mistral.mistral')) {
+      } else if (currentModelId.includes('mistral')) {
         if (responseBody.outputs?.[0]?.text !== undefined) {
           span.setAttribute(
             AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS,

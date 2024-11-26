@@ -401,12 +401,6 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteResourceType = NORMALIZED_STEPFUNCTIONS_SERVICE_NAME + '::Activity';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(this.simplifyARNAttribute(activityArn));
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(activityArn);
-      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME)) {
-        remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::Function';
-        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]
-        );
-        cloudFormationIdentifier = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN];
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID)) {
         remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::EventSourceMapping';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(

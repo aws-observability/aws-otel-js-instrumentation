@@ -27,8 +27,6 @@ import { SinonStub } from 'sinon';
 const _STREAM_NAME: string = 'streamName';
 const _BUCKET_NAME: string = 'bucketName';
 const _QUEUE_NAME: string = 'queueName';
-const _FUNCTION_NAME: string = 'testFunction';
-const _FUNCTION_ARN: string = `arn:aws:lambda:us-east-1:123456789012:function:${_FUNCTION_NAME}`;
 const _ACTIVITY_ARN: string = 'arn:aws:states:us-east-1:007003123456789012:activity:testActivity';
 const _STATE_MACHINE_ARN: string = 'arn:aws:states:us-east-1:007003123456789012:stateMachine:testStateMachine';
 const _SECRETS_ARN: string = 'arn:aws:secretsmanager:us-east-1:123456789123:secret:testId123456';
@@ -66,7 +64,6 @@ describe('InstrumentationPatchTest', () => {
     // From patching but shouldn't be applied
     expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
-    expect(services.get('Lambda').responseHook).toBeTruthy();
     expect(services.get('SecretsManager')).toBeFalsy();
     expect(services.get('SFN')).toBeFalsy();
     expect(services.has('S3')).toBeFalsy();
@@ -94,7 +91,6 @@ describe('InstrumentationPatchTest', () => {
     // From patching
     expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
-    expect(services.get('Lambda').responseHook).toBeTruthy();
     expect(services.has('SecretsManager')).toBeTruthy();
     expect(services.has('SFN')).toBeTruthy();
     expect(services.has('S3')).toBeTruthy();
@@ -150,8 +146,6 @@ describe('InstrumentationPatchTest', () => {
     expect(() => doExtractLambdaAttributes(services)).not.toThrow();
 
     const lambdaAttributes: Attributes = doExtractLambdaAttributes(services);
-    expect(lambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]).toBeUndefined();
-    expect(lambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toBeUndefined();
     expect(lambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID]).toBeUndefined();
   });
 
@@ -215,13 +209,7 @@ describe('InstrumentationPatchTest', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
     const requestLambdaAttributes: Attributes = doExtractLambdaAttributes(services);
-    expect(requestLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toBeUndefined();
-    expect(requestLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]).toEqual(_FUNCTION_NAME);
     expect(requestLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID]).toEqual(_UUID);
-
-    const responseLambdaAttributes = doResponseHookLambda(services);
-
-    expect(responseLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toEqual(_FUNCTION_ARN);
   });
 
   it('SFN with patching', () => {
@@ -415,7 +403,6 @@ describe('InstrumentationPatchTest', () => {
       serviceName: serviceName,
       commandName: 'mockCommandName',
       commandInput: {
-        FunctionName: _FUNCTION_ARN,
         UUID: _UUID,
       },
     };
@@ -477,23 +464,6 @@ describe('InstrumentationPatchTest', () => {
     }
     const requestMetadata: RequestMetadata = serviceExtension.requestPreSpanHook(requestInput, {}, diag);
     return requestMetadata.spanAttributes || {};
-  }
-
-  function doResponseHookLambda(services: Map<string, ServiceExtension>): Attributes {
-    const results: Partial<NormalizedResponse> = {
-      data: {
-        Configuration: {
-          FunctionArn: _FUNCTION_ARN,
-        },
-      },
-      request: {
-        commandInput: {},
-        commandName: 'dummy_operation',
-        serviceName: 'Lambda',
-      },
-    };
-
-    return doResponseHook(services, 'Lambda', results as NormalizedResponse);
   }
 
   function doResponseHookSecretsManager(services: Map<string, ServiceExtension>): Attributes {

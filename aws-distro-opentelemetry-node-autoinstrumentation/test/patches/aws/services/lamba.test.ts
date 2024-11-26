@@ -30,7 +30,7 @@ describe('Lambda', () => {
       },
     });
   });
-  
+
   describe('GetEventSourceMapping', () => {
     it('span has eventSourceMapping attribute in its attributes', async () => {
       const uuid = '14e0db71-abcd-4eb5-b481-8945cf9d10c2';

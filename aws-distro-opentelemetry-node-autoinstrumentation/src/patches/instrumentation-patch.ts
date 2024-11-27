@@ -206,7 +206,7 @@ function patchLambdaServiceExtension(lambdaServiceExtension: any): void {
       }
       return requestMetadata;
     };
-    
+
     lambdaServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
   }
 }

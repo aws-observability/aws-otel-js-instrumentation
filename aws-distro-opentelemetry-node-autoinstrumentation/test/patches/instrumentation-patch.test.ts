@@ -59,11 +59,14 @@ describe('InstrumentationPatchTest', () => {
     // Not from patching
     expect(services.has('SQS')).toBeTruthy();
     expect(services.has('SNS')).toBeTruthy();
-    expect(services.has('DynamoDB')).toBeTruthy();
     expect(services.has('Lambda')).toBeTruthy();
-    // From patching but shouldn't be applied
+    expect(services.get('SNS')._requestPreSpanHook).toBeFalsy();
     expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
+    expect(services.get('Lambda')._requestPreSpanHook).toBeFalsy();
     expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
+
+    expect(services.has('DynamoDB')).toBeTruthy();
+    // From patching but shouldn't be applied
     expect(services.get('SecretsManager')).toBeFalsy();
     expect(services.get('SFN')).toBeFalsy();
     expect(services.has('S3')).toBeFalsy();
@@ -88,9 +91,11 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('SNS')).toBeTruthy();
     expect(services.has('DynamoDB')).toBeTruthy();
     expect(services.has('Lambda')).toBeTruthy();
-    // From patching
+    expect(services.get('SNS')._requestPreSpanHook).toBeTruthy();
     expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
+    expect(services.get('Lambda')._requestPreSpanHook).toBeTruthy();
     expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
+    // From patching
     expect(services.has('SecretsManager')).toBeTruthy();
     expect(services.has('SFN')).toBeTruthy();
     expect(services.has('S3')).toBeTruthy();

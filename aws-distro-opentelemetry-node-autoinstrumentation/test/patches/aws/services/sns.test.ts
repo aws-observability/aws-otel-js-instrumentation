@@ -45,7 +45,7 @@ describe('SNS', () => {
 
       const testSpans: ReadableSpan[] = getTestSpans();
       const getTopicAttributeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
-        return s.name === 'SNS.GetTopicAttributes';
+        return s.name === 'SNS GetTopicAttributes';
       });
 
       expect(getTopicAttributeSpans.length).toBe(1);

@@ -33,7 +33,7 @@ describe('SFN', () => {
 
   describe('DescribeStateMachine', () => {
     it('span has stateMachineArn in its attributes', async () => {
-      const stateMachineArn: string = 'arn:aws:states:us-east-1:007003123456789012:stateMachine:testStateMachine';
+      const stateMachineArn: string = 'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine';
 
       nock(`https://states.${region}.amazonaws.com/`).post('/').reply(200, 'null');
 
@@ -64,7 +64,7 @@ describe('SFN', () => {
 
   describe('DescribeActivity', () => {
     it('span has activityArn in its attributes', async () => {
-      const activityArn: string = 'arn:aws:states:us-east-1:007003123456789012:activity:testActivity';
+      const activityArn: string = 'arn:aws:states:us-east-1:123456789123:activity:testActivity';
 
       nock(`https://states.${region}.amazonaws.com/`).post('/').reply(200, 'null');
 

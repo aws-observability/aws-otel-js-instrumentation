@@ -782,14 +782,14 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     // Validate behaviour of AWS_STEPFUNCTIONS_STATEMACHINE_ARN and AWS_STEPFUNCTIONS_ACTIVITY_ARN attributes then remove them.
     mockAttribute(
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN,
-      'arn:aws:states:us-east-1:007003123456789012:stateMachine:testStateMachine'
+      'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine'
     );
     validateRemoteResourceAttributes('AWS::StepFunctions::StateMachine', 'testStateMachine');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
 
     mockAttribute(
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
-      'arn:aws:states:us-east-1:007003123456789012:activity:testActivity'
+      'arn:aws:states:us-east-1:123456789123:activity:testActivity'
     );
     validateRemoteResourceAttributes('AWS::StepFunctions::Activity', 'testActivity');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN, undefined);
@@ -839,12 +839,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes('AWS::Bedrock::DataSource', 'test_datasource_^^id');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID, undefined);
 
-    // Validate behaviour of AWS_BEDROCK_GUARDRAIL_ID and AWS_BEDROCK_GUARDRAIL_ARN attribute, then remove it.
+    // Validate behaviour of AWS_BEDROCK_GUARDRAIL_ID attribute, then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, 'test_guardrail_id');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN, 'test_guardrail_arn');
     validateRemoteResourceAttributes('AWS::Bedrock::Guardrail', 'test_guardrail_id');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, undefined);
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN, undefined);
 
     // Validate behaviour of AWS_BEDROCK_GUARDRAIL_ID attribute with special chars(^), then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, 'test_guardrail_^id');

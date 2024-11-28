@@ -580,13 +580,14 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     return input.split('^').join('^^').split('|').join('^|');
   }
 
-  private static simplifyARNAttribute(attribute: AttributeValue | undefined) {
+  // Extracts the name of the resource from an arn
+  private static simplifyARNAttribute(attribute: AttributeValue | undefined): string | undefined {
     if (typeof attribute == 'string' && attribute.startsWith('arn:aws:')) {
       const split = attribute.split(':');
       return split[split.length - 1];
     }
 
-    return '';
+    return undefined;
   }
 
   /** Span kind is needed for differentiating metrics in the EMF exporter */

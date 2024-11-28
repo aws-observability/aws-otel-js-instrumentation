@@ -176,6 +176,7 @@ function patchSnsServiceExtension(snsServiceExtension: any): void {
       }
       return requestMetadata;
     };
+
     snsServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
   }
 }

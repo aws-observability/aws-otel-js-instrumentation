@@ -379,13 +379,17 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         const snsArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN];
 
         remoteResourceType = NORMALIZED_SNS_SERVICE_NAME + '::Topic';
-        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(this.extractResourceNameFromArn(snsArn));
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          this.extractResourceNameFromArn(snsArn)
+        );
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(snsArn);
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN)) {
         const secretsArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN];
 
         remoteResourceType = NORMALIZED_SECRETSMANAGER_SERVICE_NAME + '::Secret';
-        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(this.extractResourceNameFromArn(secretsArn));
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          this.extractResourceNameFromArn(secretsArn)
+        );
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(secretsArn);
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN)) {
         const stateMachineArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN];
@@ -399,7 +403,9 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         const activityArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN];
 
         remoteResourceType = NORMALIZED_STEPFUNCTIONS_SERVICE_NAME + '::Activity';
-        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(this.extractResourceNameFromArn(activityArn));
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          this.extractResourceNameFromArn(activityArn)
+        );
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(activityArn);
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID)) {
         remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::EventSourceMapping';

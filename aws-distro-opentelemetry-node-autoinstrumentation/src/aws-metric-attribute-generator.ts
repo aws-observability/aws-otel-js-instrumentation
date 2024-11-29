@@ -57,7 +57,7 @@ const NORMALIZED_S3_SERVICE_NAME: string = 'AWS::S3';
 const NORMALIZED_SQS_SERVICE_NAME: string = 'AWS::SQS';
 const NORMALIZED_SNS_SERVICE_NAME: string = 'AWS::SNS';
 const NORMALIZED_SECRETSMANAGER_SERVICE_NAME = 'AWS::SecretsManager';
-const NORMALIZED_STEPFUNCTIONS_SERVICE_NAME = 'AWS::StepFunctions';
+const NORMALIZED_STEPFUNCTIONS_SERVICE_NAME = 'AWS::SFN';
 const NORMALIZED_LAMBDA_SERVICE_NAME = 'AWS::Lambda';
 const NORMALIZED_BEDROCK_SERVICE_NAME: string = 'AWS::Bedrock';
 const NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME: string = 'AWS::BedrockRuntime';
@@ -379,27 +379,27 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         const snsArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN];
 
         remoteResourceType = NORMALIZED_SNS_SERVICE_NAME + '::Topic';
-        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(this.simplifyARNAttribute(snsArn));
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(this.extractResourceNameFromArn(snsArn));
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(snsArn);
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN)) {
         const secretsArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN];
 
         remoteResourceType = NORMALIZED_SECRETSMANAGER_SERVICE_NAME + '::Secret';
-        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(this.simplifyARNAttribute(secretsArn));
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(this.extractResourceNameFromArn(secretsArn));
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(secretsArn);
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN)) {
         const stateMachineArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN];
 
         remoteResourceType = NORMALIZED_STEPFUNCTIONS_SERVICE_NAME + '::StateMachine';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          this.simplifyARNAttribute(stateMachineArn)
+          this.extractResourceNameFromArn(stateMachineArn)
         );
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(stateMachineArn);
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN)) {
         const activityArn = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN];
 
         remoteResourceType = NORMALIZED_STEPFUNCTIONS_SERVICE_NAME + '::Activity';
-        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(this.simplifyARNAttribute(activityArn));
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(this.extractResourceNameFromArn(activityArn));
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(activityArn);
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID)) {
         remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::EventSourceMapping';
@@ -581,7 +581,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   }
 
   // Extracts the name of the resource from an arn
-  private static simplifyARNAttribute(attribute: AttributeValue | undefined): string | undefined {
+  private static extractResourceNameFromArn(attribute: AttributeValue | undefined): string | undefined {
     if (typeof attribute == 'string' && attribute.startsWith('arn:aws:')) {
       const split = attribute.split(':');
       return split[split.length - 1];

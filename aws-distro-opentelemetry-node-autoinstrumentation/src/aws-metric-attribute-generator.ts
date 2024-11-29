@@ -57,7 +57,7 @@ const NORMALIZED_S3_SERVICE_NAME: string = 'AWS::S3';
 const NORMALIZED_SQS_SERVICE_NAME: string = 'AWS::SQS';
 const NORMALIZED_SNS_SERVICE_NAME: string = 'AWS::SNS';
 const NORMALIZED_SECRETSMANAGER_SERVICE_NAME = 'AWS::SecretsManager';
-const NORMALIZED_STEPFUNCTIONS_SERVICE_NAME = 'AWS::SFN';
+const NORMALIZED_STEPFUNCTIONS_SERVICE_NAME = 'AWS::StepFunctions';
 const NORMALIZED_LAMBDA_SERVICE_NAME = 'AWS::Lambda';
 const NORMALIZED_BEDROCK_SERVICE_NAME: string = 'AWS::Bedrock';
 const NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME: string = 'AWS::BedrockRuntime';
@@ -334,6 +334,9 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         BedrockAgent: NORMALIZED_BEDROCK_SERVICE_NAME,
         BedrockAgentRuntime: NORMALIZED_BEDROCK_SERVICE_NAME,
         BedrockRuntime: NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME,
+        SecretsManager: NORMALIZED_SECRETSMANAGER_SERVICE_NAME,
+        SNS: NORMALIZED_SNS_SERVICE_NAME,
+        SFN: NORMALIZED_STEPFUNCTIONS_SERVICE_NAME,
       };
       return awsSdkServiceMapping[serviceName] || 'AWS::' + serviceName;
     }

@@ -784,14 +784,14 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN,
       'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine'
     );
-    validateRemoteResourceAttributes('AWS::SFN::StateMachine', 'testStateMachine');
+    validateRemoteResourceAttributes('AWS::StepFunctions::StateMachine', 'testStateMachine');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
 
     mockAttribute(
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
       'arn:aws:states:us-east-1:123456789123:activity:testActivity'
     );
-    validateRemoteResourceAttributes('AWS::SFN::Activity', 'testActivity');
+    validateRemoteResourceAttributes('AWS::StepFunctions::Activity', 'testActivity');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN, undefined);
 
     // Validate behaviour of AWS_TABLE_NAMES attribute with one table name, then remove it.
@@ -1203,7 +1203,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     testAwsSdkServiceNormalization('SNS', 'AWS::SNS');
     testAwsSdkServiceNormalization('Lambda', 'AWS::Lambda');
     testAwsSdkServiceNormalization('SecretsManager', 'AWS::SecretsManager');
-    testAwsSdkServiceNormalization('SFN', 'AWS::SFN');
+    testAwsSdkServiceNormalization('SFN', 'AWS::StepFunctions');
     testAwsSdkServiceNormalization('Bedrock', 'AWS::Bedrock');
     testAwsSdkServiceNormalization('BedrockAgent', 'AWS::Bedrock');
     testAwsSdkServiceNormalization('BedrockAgentRuntime', 'AWS::Bedrock');

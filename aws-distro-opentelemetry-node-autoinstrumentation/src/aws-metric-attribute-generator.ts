@@ -335,7 +335,6 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         BedrockAgentRuntime: NORMALIZED_BEDROCK_SERVICE_NAME,
         BedrockRuntime: NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME,
         SecretsManager: NORMALIZED_SECRETSMANAGER_SERVICE_NAME,
-        SNS: NORMALIZED_SNS_SERVICE_NAME,
         SFN: NORMALIZED_STEPFUNCTIONS_SERVICE_NAME,
       };
       return awsSdkServiceMapping[serviceName] || 'AWS::' + serviceName;
@@ -591,7 +590,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
 
   // Extracts the name of the resource from an arn
   private static extractResourceNameFromArn(attribute: AttributeValue | undefined): string | undefined {
-    if (typeof attribute == 'string' && attribute.startsWith('arn:aws:')) {
+    if (typeof attribute === 'string' && attribute.startsWith('arn:aws:')) {
       const split = attribute.split(':');
       return split[split.length - 1];
     }

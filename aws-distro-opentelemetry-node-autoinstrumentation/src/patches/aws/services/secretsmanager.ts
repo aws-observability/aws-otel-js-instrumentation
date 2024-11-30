@@ -19,7 +19,7 @@ export class SecretsManagerServiceExtension implements ServiceExtension {
 
     const spanAttributes: Attributes = {};
 
-    if (typeof secretId == 'string' && secretId.startsWith('arn:aws:secretsmanager:')) {
+    if (typeof secretId === 'string' && secretId.startsWith('arn:aws:secretsmanager:')) {
       spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN] = secretId;
     }
 

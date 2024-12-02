@@ -420,15 +420,21 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
           span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]
         );
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL)) {
-        remoteResourceType = NORMALIZED_SQS_SERVICE_NAME + '::Queue';
-        remoteResourceIdentifier = SqsUrlParser.getQueueName(
-          AwsMetricAttributeGenerator.escapeDelimiters(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL])
+        const sqsQueueUrl = AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL]
         );
+
+        remoteResourceType = NORMALIZED_SQS_SERVICE_NAME + '::Queue';
+        remoteResourceIdentifier = SqsUrlParser.getQueueName(sqsQueueUrl);
+        cloudFormationIdentifier = sqsQueueUrl;
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID)) {
         remoteResourceType = NORMALIZED_BEDROCK_SERVICE_NAME + '::Agent';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
           span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]
         );
+        cloudFormationIdentifier = `${AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]
+        )}|${remoteResourceIdentifier}`;
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID)) {
         remoteResourceType = NORMALIZED_BEDROCK_SERVICE_NAME + '::DataSource';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(

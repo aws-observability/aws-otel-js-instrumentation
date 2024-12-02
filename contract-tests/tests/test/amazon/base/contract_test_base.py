@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 import time
+import re
 from logging import INFO, Logger, getLogger
 from typing import Dict, List
 from unittest import TestCase
@@ -230,6 +231,12 @@ class ContractTestBase(TestCase):
         self.assertIsNotNone(actual_value)
         self.assertEqual(expected_value, actual_value.int_value)
 
+    def _assert_match_attribute(self, attributes_dict: Dict[str, AnyValue], key: str, pattern: str) -> None:
+        self.assertIn(key, attributes_dict)
+        actual_value: AnyValue = attributes_dict[key]
+        self.assertIsNotNone(actual_value)
+        self.assertRegex(actual_value.string_value, pattern)
+        
     def _assert_float_attribute(self, attributes_dict: Dict[str, AnyValue], key: str, expected_value: float) -> None:
         self.assertIn(key, attributes_dict)
         actual_value: AnyValue = attributes_dict[key]
@@ -241,6 +248,13 @@ class ContractTestBase(TestCase):
             self.assertTrue(0 < actual_sum < expected_sum)
         else:
             self.assertEqual(actual_sum, expected_sum)
+
+    def _is_valid_regex(self, pattern: str):
+        try:
+            re.compile(pattern)
+            return True
+        except (re.error, StopIteration, RuntimeError, KeyError):
+            return False
 
     # pylint: disable=no-self-use
     # Methods that should be overridden in subclasses

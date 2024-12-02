@@ -459,7 +459,6 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       }
 
       attributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER] = cloudFormationIdentifier;
-
     } else if (AwsSpanProcessingUtil.isDBSpan(span)) {
       remoteResourceType = DB_CONNECTION_RESOURCE_TYPE;
       remoteResourceIdentifier = AwsMetricAttributeGenerator.getDbConnection(span);

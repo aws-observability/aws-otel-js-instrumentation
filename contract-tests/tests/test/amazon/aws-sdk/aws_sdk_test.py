@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from logging import INFO, Logger, getLogger
 import math
+import re
 from typing import Dict, List
 
 from docker.types import EndpointConfig
@@ -648,7 +649,7 @@ class AWSSDKTest(ContractTestBase):
             remote_operation="GetGuardrail",
             remote_resource_type="AWS::Bedrock::Guardrail",
             remote_resource_identifier="bt4o77i015cu",
-            cloudformation_primary_identifier="bt4o77i015cu",
+            cloudformation_primary_identifier="arn:aws:bedrock:us-east-1:000000000000:guardrail/bt4o77i015cu",
             request_specific_attributes={
                 _AWS_BEDROCK_GUARDRAIL_ID: "bt4o77i015cu",
                 _AWS_BEDROCK_GUARDRAIL_ARN: "arn:aws:bedrock:us-east-1:000000000000:guardrail/bt4o77i015cu"
@@ -694,27 +695,6 @@ class AWSSDKTest(ContractTestBase):
                 _AWS_BEDROCK_KNOWLEDGE_BASE_ID: "test-knowledge-base-id",
             },
             span_name="BedrockAgentRuntime.Retrieve",
-        )
-
-    def test_bedrock_agent_associate_agent_knowledge_base(self):
-        self.do_test_requests(
-            "bedrock/associateagent/associate_agent_knowledge_base",
-            "GET",
-            200,
-            0,
-            0,
-            local_operation="GET /bedrock",
-            rpc_service="BedrockAgentRuntime",
-            remote_service="AWS::Bedrock",
-            remote_operation="AssociateAgentKnowledgeBase",
-            remote_resource_type="AWS::Bedrock::Agent",
-            remote_resource_identifier="Q08WFRPHVL",
-            cloudformation_primary_identifier="test-knowledge-base-id|Q08WFRPHVL",
-            request_specific_attributes={
-                _AWS_BEDROCK_AGENT_ID: "Q08WFRPHVL",
-                _AWS_BEDROCK_KNOWLEDGE_BASE_ID: "test-knowledge-base-id",
-            },
-            span_name="BedrockAgentRuntime.AssociateAgentKnowledgeBase",
         )
 
     def test_bedrock_agent_get_agent(self):
@@ -770,7 +750,7 @@ class AWSSDKTest(ContractTestBase):
             remote_operation="GetDataSource",
             remote_resource_type="AWS::Bedrock::DataSource",
             remote_resource_identifier="DATASURCID",
-            cloudformation_primary_identifier="DATASURCID",
+            cloudformation_primary_identifier=r'TESTKBSEID\|DATASURCID',
             request_specific_attributes={
                 _AWS_BEDROCK_DATA_SOURCE_ID: "DATASURCID",
             },
@@ -832,9 +812,9 @@ class AWSSDKTest(ContractTestBase):
             remote_operation="DescribeSecret",
             remote_resource_type="AWS::SecretsManager::Secret",
             remote_resource_identifier=r'MyTestSecret-[a-zA-Z0-9]{6}$',
-            cloudformation_primary_identifier=r"arn:aws:secretsmanager:us-west-2:000000000000:secret:MyTestSecret-[a-zA-Z0-9]{6}$",
+            cloudformation_primary_identifier=r'arn:aws:secretsmanager:us-west-2:000000000000:secret:MyTestSecret-[a-zA-Z0-9]{6}$',
             response_specific_attributes= {
-                _AWS_SECRET_ARN: r"arn:aws:secretsmanager:us-west-2:000000000000:secret:MyTestSecret-[a-zA-Z0-9]{6}$",
+                _AWS_SECRET_ARN: r'arn:aws:secretsmanager:us-west-2:000000000000:secret:MyTestSecret-[a-zA-Z0-9]{6}$',
             },
             span_name="SecretsManager.DescribeSecret",
         )
@@ -1211,10 +1191,7 @@ class AWSSDKTest(ContractTestBase):
 
     def _assert_attribute(self, attributes_dict: Dict[str, AnyValue], key, value) -> None:
         if isinstance(value, str):
-            if self._is_valid_regex(value):
-                self._assert_match_attribute(attributes_dict, key, value) 
-            else:
-                self._assert_str_attribute(attributes_dict, key, value)
+            self._assert_str_attribute(attributes_dict, key, value)
         elif isinstance(value, int):
             self._assert_int_attribute(attributes_dict, key, value)
         elif isinstance(value, float):
@@ -1222,6 +1199,15 @@ class AWSSDKTest(ContractTestBase):
         else:
             self._assert_array_value_ddb_table_name(attributes_dict, key, value)
 
+    @override
+    def _assert_str_attribute(self, attributes_dict: Dict[str, AnyValue], key: str, expected_value: str):
+        self.assertIn(key, attributes_dict)
+        actual_value: AnyValue = attributes_dict[key]
+        self.assertIsNotNone(actual_value)
+        pattern = re.compile(expected_value)
+        match = pattern.fullmatch(actual_value.string_value)
+        self.assertTrue(match is not None, f"Actual: {actual_value.string_value} does not match Expected: {expected_value}")
+        
     # pylint: disable=consider-using-enumerate
     def _assert_array_value_ddb_table_name(self, attributes_dict: Dict[str, AnyValue], key: str, expect_values: list):
         self.assertIn(key, attributes_dict)

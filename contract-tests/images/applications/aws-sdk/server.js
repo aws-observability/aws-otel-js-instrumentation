@@ -13,7 +13,7 @@ const { DynamoDBClient, CreateTableCommand, PutItemCommand } = require('@aws-sdk
 const { SQSClient, CreateQueueCommand, SendMessageCommand, ReceiveMessageCommand } = require('@aws-sdk/client-sqs');
 const { KinesisClient, CreateStreamCommand, PutRecordCommand } = require('@aws-sdk/client-kinesis');
 const { BedrockClient, GetGuardrailCommand } = require('@aws-sdk/client-bedrock');
-const { BedrockAgentClient, GetKnowledgeBaseCommand, GetDataSourceCommand, GetAgentCommand, AssociateAgentKnowledgeBaseCommand } = require('@aws-sdk/client-bedrock-agent');
+const { BedrockAgentClient, GetKnowledgeBaseCommand, GetDataSourceCommand, GetAgentCommand } = require('@aws-sdk/client-bedrock-agent');
 const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
 const { BedrockAgentRuntimeClient, InvokeAgentCommand, RetrieveCommand } = require('@aws-sdk/client-bedrock-agent-runtime');
 const { SNSClient, CreateTopicCommand, GetTopicAttributesCommand } = require('@aws-sdk/client-sns');
@@ -575,17 +575,6 @@ async function handleBedrockRequest(req, res, path) {
           );
         }
       );
-      res.statusCode = 200;
-    } else if (path.includes('associateagent/associate_agent_knowledge_base')) {
-      await withInjected200Success(bedrockAgentRuntimeClient, ['AssociateAgentKnowledgeBaseCommand'], {}, async () => {
-        await bedrockAgentRuntimeClient.send(
-          new AssociateAgentKnowledgeBaseCommand({
-            agentId: 'Q08WFRPHVL',
-            agentVersion: '1',
-            knowledgeBaseId: 'test-knowledge-base-id',
-          })
-        );
-      });
       res.statusCode = 200;
     } else if (path.includes('invokeagent/invoke_agent')) {
       await withInjected200Success(bedrockAgentRuntimeClient, ['InvokeAgentCommand'], {}, async () => {

@@ -432,14 +432,14 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
           span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]
         );
-        cloudFormationIdentifier = `${AwsMetricAttributeGenerator.escapeDelimiters(
-          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]
-        )}|${remoteResourceIdentifier}`;
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID)) {
         remoteResourceType = NORMALIZED_BEDROCK_SERVICE_NAME + '::DataSource';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
           span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]
         );
+        cloudFormationIdentifier = `${AwsMetricAttributeGenerator.escapeDelimiters(
+          span.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]
+        )}|${remoteResourceIdentifier}`;
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID)) {
         remoteResourceType = NORMALIZED_BEDROCK_SERVICE_NAME + '::Guardrail';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(

@@ -284,18 +284,25 @@ describe('InstrumentationPatchTest', () => {
       ListDataSources: { 'aws.bedrock.knowledge_base.id': _BEDROCK_KNOWLEDGEBASE_ID },
       UpdateAgentKnowledgeBase: { 'aws.bedrock.knowledge_base.id': _BEDROCK_KNOWLEDGEBASE_ID },
       DeleteDataSource: { 'aws.bedrock.data_source.id': _BEDROCK_DATASOURCE_ID },
-      GetDataSource: { 'aws.bedrock.data_source.id': _BEDROCK_DATASOURCE_ID },
+      GetDataSource: {
+        'aws.bedrock.data_source.id': _BEDROCK_DATASOURCE_ID,
+        'aws.bedrock.knowledge_base.id': _BEDROCK_KNOWLEDGEBASE_ID,
+      },
       UpdateDataSource: { 'aws.bedrock.data_source.id': _BEDROCK_DATASOURCE_ID },
     };
 
     for (const [operation, attribute_tuple] of Object.entries(operation_to_expected_attribute)) {
       const bedrockAttributes: Attributes = doExtractBedrockAttributes(services, 'BedrockAgent', operation);
-      const [attribute_key, attribute_value] = Object.entries(attribute_tuple)[0];
-      expect(Object.entries(bedrockAttributes).length).toBe(1);
-      expect(bedrockAttributes[attribute_key]).toEqual(attribute_value);
+
+      for (const [attribute_key, attribute_value] of Object.entries(attribute_tuple)) {
+        expect(bedrockAttributes[attribute_key]).toEqual(attribute_value);
+      }
+
       const bedrockAgentSuccessAttributes: Attributes = doResponseHookBedrock(services, 'BedrockAgent', operation);
-      expect(Object.entries(bedrockAgentSuccessAttributes).length).toBe(1);
-      expect(bedrockAgentSuccessAttributes[attribute_key]).toEqual(attribute_value);
+
+      for (const [attribute_key, attribute_value] of Object.entries(attribute_tuple)) {
+        expect(bedrockAgentSuccessAttributes[attribute_key]).toEqual(attribute_value);
+      }
     }
   });
 

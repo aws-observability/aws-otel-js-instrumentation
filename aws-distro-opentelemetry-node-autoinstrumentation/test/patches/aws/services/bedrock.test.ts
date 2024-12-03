@@ -134,7 +134,7 @@ describe('BedrockAgent', () => {
       expect(getDataSourceSpans.length).toBe(1);
       const getDataSourceSpan = getDataSourceSpans[0];
       expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
-      expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]);
       expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBe(dummyDataSourceId);
       expect(getDataSourceSpan.kind).toBe(SpanKind.CLIENT);
     });

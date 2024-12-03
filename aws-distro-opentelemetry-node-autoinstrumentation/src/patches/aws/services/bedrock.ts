@@ -61,6 +61,7 @@ const knowledgeBaseOperationAttributeKeyMapping = {
 };
 const dataSourceOperationAttributeKeyMapping = {
   [AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]: DATA_SOURCE_ID,
+  [AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]: KNOWLEDGE_BASE_ID,
 };
 
 // This map allows us to get all relevant attribute key mappings for a given operation

@@ -12,5 +12,4 @@
   "dependencies": {
     "mysql2": "3.11.4"
   }
-
 }

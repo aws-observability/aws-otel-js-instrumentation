@@ -14,6 +14,7 @@ export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   AWS_REMOTE_RESOURCE_IDENTIFIER: 'aws.remote.resource.identifier',
   AWS_SDK_DESCENDANT: 'aws.sdk.descendant',
   AWS_CONSUMER_PARENT_SPAN_KIND: 'aws.consumer.parent.span.kind',
+  AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER: 'aws.remote.resource.cfn.primary.identifier',
 
   AWS_REMOTE_TARGET: 'aws.remote.target',
   AWS_REMOTE_DB_USER: 'aws.remote.db.user',
@@ -35,4 +36,12 @@ export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   AWS_BEDROCK_KNOWLEDGE_BASE_ID: 'aws.bedrock.knowledge_base.id',
   AWS_BEDROCK_AGENT_ID: 'aws.bedrock.agent.id',
   AWS_BEDROCK_GUARDRAIL_ID: 'aws.bedrock.guardrail.id',
+  AWS_BEDROCK_GUARDRAIL_ARN: 'aws.bedrock.guardrail.arn',
+  AWS_SNS_TOPIC_ARN: 'aws.sns.topic.arn',
+  AWS_SECRETSMANAGER_SECRET_ARN: 'aws.secretsmanager.secret.arn',
+  AWS_STEPFUNCTIONS_STATEMACHINE_ARN: 'aws.stepfunctions.state_machine.arn',
+  AWS_STEPFUNCTIONS_ACTIVITY_ARN: 'aws.stepfunctions.activity.arn',
+  AWS_LAMBDA_FUNCTION_NAME: 'aws.lambda.function.name',
+  AWS_LAMBDA_RESOURCE_MAPPING_ID: 'aws.lambda.resource_mapping.id',
+  AWS_LAMBDA_FUNCTION_ARN: 'aws.lambda.function.arn',
 };

@@ -469,15 +469,12 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER] = remoteResourceIdentifier;
 
       if (AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
-        
         if (cloudFormationIdentifier === undefined) {
           cloudFormationIdentifier = remoteResourceIdentifier;
         }
 
         attributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER] = cloudFormationIdentifier;
-
       }
-
     }
   }
 

@@ -104,5 +104,26 @@ jobs:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
           NPM_CONFIG_PROVENANCE: true
         run: npx lerna publish from-package --no-push --no-private --no-git-tag-version --no-verify-access --yes
+
+      - name: Get SHA256 checksum of wheel file
+        id: get_sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          checksum=$(shasum -a 256 aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz | awk '{ print $1 }')
+          echo "CHECKSUM=$checksum" >> $GITHUB_OUTPUT
+
+      - name: Append checksum and update version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz ${{ steps.get_sha256.outputs.CHECKSUM }}" >> checksum.txt
+          echo "${{ github.event.inputs.version }}" > version.txt
+
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "GitHub Action Release Workflow"
+          git add checksum.txt version.txt
+          git commit -m "Update latest version and append checksum"
+          git push
     
     

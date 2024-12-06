@@ -459,12 +459,6 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
           span.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]
         );
       }
-
-      if (cloudFormationIdentifier === undefined) {
-        cloudFormationIdentifier = remoteResourceIdentifier;
-      }
-
-      attributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER] = cloudFormationIdentifier;
     } else if (AwsSpanProcessingUtil.isDBSpan(span)) {
       remoteResourceType = DB_CONNECTION_RESOURCE_TYPE;
       remoteResourceIdentifier = AwsMetricAttributeGenerator.getDbConnection(span);
@@ -473,6 +467,17 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     if (remoteResourceType !== undefined && remoteResourceIdentifier !== undefined) {
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_TYPE] = remoteResourceType;
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER] = remoteResourceIdentifier;
+
+      if (AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
+        
+        if (cloudFormationIdentifier === undefined) {
+          cloudFormationIdentifier = remoteResourceIdentifier;
+        }
+
+        attributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER] = cloudFormationIdentifier;
+
+      }
+
     }
   }
 

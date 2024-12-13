@@ -23,6 +23,11 @@ import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { Context } from 'aws-lambda';
 import { SinonStub } from 'sinon';
+import { S3 } from '@aws-sdk/client-s3';
+import nock = require('nock');
+import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
+import { getTestSpans, registerInstrumentationTesting } from '@opentelemetry/contrib-test-utils';
+import { AwsSdkInstrumentationExtended } from '../../src/patches/extended-instrumentations/aws-sdk-instrumentation-extended';
 
 const _STREAM_NAME: string = 'streamName';
 const _BUCKET_NAME: string = 'bucketName';
@@ -44,6 +49,10 @@ const UNPATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentation
 
 const PATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations();
 applyInstrumentationPatches(PATCHED_INSTRUMENTATIONS);
+
+const extendedAwsSdkInstrumentation: AwsInstrumentation = new AwsInstrumentation();
+applyInstrumentationPatches([extendedAwsSdkInstrumentation]);
+registerInstrumentationTesting(extendedAwsSdkInstrumentation);
 
 describe('InstrumentationPatchTest', () => {
   it('SanityTestUnpatchedAwsSdkInstrumentation', () => {
@@ -89,6 +98,9 @@ describe('InstrumentationPatchTest', () => {
     expect(services.get('BedrockRuntime')).toBeTruthy();
     // Sanity check
     expect(services.has('InvalidService')).toBeFalsy();
+
+    // Check that the original AWS SDK Instrumentation is replaced with the extended version
+    expect(awsSdkInstrumentation).toBeInstanceOf(AwsSdkInstrumentationExtended);
   });
 
   it('S3 without patching', () => {
@@ -388,6 +400,52 @@ describe('InstrumentationPatchTest', () => {
     expect(filteredInstrumentations.length).toEqual(1);
     return filteredInstrumentations[0] as AwsLambdaInstrumentation;
   }
+
+  describe('AwsSdkInstrumentationPatchTest', () => {
+    let s3: S3;
+    const region = 'us-east-1';
+
+    it('injects trace context header into request via propagator', async () => {
+      s3 = new S3({
+        region: region,
+        credentials: {
+          accessKeyId: 'abcde',
+          secretAccessKey: 'abcde',
+        },
+      });
+
+      const dummyBucketName: string = 'dummy-bucket-name';
+      let reqHeaders: any = {};
+
+      nock(`https://${dummyBucketName}.s3.${region}.amazonaws.com`)
+        .get('/')
+        .reply(200, function (uri: any, requestBody: any) {
+          reqHeaders = this.req.headers;
+          return 'null';
+        });
+
+      await s3
+        .listObjects({
+          Bucket: dummyBucketName,
+        })
+        .catch((err: any) => {});
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const listObjectsSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'S3.ListObjects';
+      });
+
+      expect(listObjectsSpans.length).toBe(1);
+
+      const traceId = listObjectsSpans[0].spanContext().traceId;
+      const spanId = listObjectsSpans[0].spanContext().spanId;
+      expect(reqHeaders['x-amzn-trace-id'] as string).toEqual(
+        `Root=1-${traceId.substring(0, 8)}-${listObjectsSpans[0]
+          .spanContext()
+          .traceId.substring(8, 32)};Parent=${spanId};Sampled=1`
+      );
+    });
+  });
 });
 
 describe('customExtractor', () => {

@@ -397,6 +397,60 @@ describe('BedrockRuntime', () => {
       expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
     });
 
+    it('Add Amazon Nova model attributes to span', async () => {
+      const modelId: string = 'amazon.nova-pro-v1:0';
+      const prompt: string = 'Campfire story';
+      const mockRequestBody: string = JSON.stringify({
+        inputText: prompt,
+        inferenceConfig: {
+          max_new_tokens: 500,
+          temperature: 0.9,
+          top_p: 0.7,
+        },
+      });
+      const mockResponseBody: any = {
+        output: { message: { content: [{ text: '' }], role: 'assistant' } },
+        stopReason: 'max_tokens',
+        usage: { inputTokens: 432, outputTokens: 681 },
+
+        request: {
+          commandInput: {
+            modelId: modelId,
+          },
+        },
+      };
+
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`)
+        .post(`/model/${encodeURIComponent(modelId)}/invoke`)
+        .reply(200, mockResponseBody);
+
+      await bedrock
+        .invokeModel({
+          modelId: modelId,
+          body: mockRequestBody,
+        })
+        .catch((err: any) => {});
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const invokeModelSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'BedrockRuntime.InvokeModel';
+      });
+      expect(invokeModelSpans.length).toBe(1);
+      const invokeModelSpan = invokeModelSpans[0];
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws_bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(500);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(0.9);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P]).toBe(0.7);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS]).toBe(432);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(681);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['max_tokens']);
+      expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
+    });
+
     it('Add Anthropic Claude model attributes to span', async () => {
       const modelId: string = 'anthropic.claude-3-5-sonnet-20240620-v1:0';
       const prompt: string = 'Complete this text. It was the best of times it was the worst...';

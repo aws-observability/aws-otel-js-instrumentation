@@ -225,6 +225,16 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] =
             requestBody.textGenerationConfig.maxTokenCount;
         }
+      } else if (modelId.includes('amazon.nova')) {
+        if (requestBody.inferenceConfig?.temperature !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.inferenceConfig.temperature;
+        }
+        if (requestBody.inferenceConfig?.top_p !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.inferenceConfig.top_p;
+        }
+        if (requestBody.inferenceConfig?.max_new_tokens !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.inferenceConfig.max_new_tokens;
+        }
       } else if (modelId.includes('anthropic.claude')) {
         if (requestBody.max_tokens !== undefined) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
@@ -327,6 +337,18 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
             responseBody.results[0].completionReason,
           ]);
+        }
+      } else if (currentModelId.includes('amazon.nova')) {
+        if (responseBody.usage !== undefined) {
+          if (responseBody.usage.inputTokens !== undefined) {
+            span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.inputTokens);
+          }
+          if (responseBody.usage.outputTokens !== undefined) {
+            span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.usage.outputTokens);
+          }
+        }
+        if (responseBody.stopReason !== undefined) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.stopReason]);
         }
       } else if (currentModelId.includes('anthropic.claude')) {
         if (responseBody.usage?.input_tokens !== undefined) {

@@ -443,7 +443,7 @@ describe('BedrockRuntime', () => {
       expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
       expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
       expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
-      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws_bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws.bedrock');
       expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
       expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(500);
       expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(0.9);

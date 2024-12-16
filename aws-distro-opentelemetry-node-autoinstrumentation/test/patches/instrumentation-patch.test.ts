@@ -38,7 +38,7 @@ const _BEDROCK_DATASOURCE_ID: string = 'DataSourceId';
 const _BEDROCK_GUARDRAIL_ID: string = 'GuardrailId';
 const _BEDROCK_GUARDRAIL_ARN: string = 'arn:aws:bedrock:us-east-1:123456789012:guardrail/abc123';
 const _BEDROCK_KNOWLEDGEBASE_ID: string = 'KnowledgeBaseId';
-const _GEN_AI_SYSTEM: string = 'aws_bedrock';
+const _GEN_AI_SYSTEM: string = 'aws.bedrock';
 const _GEN_AI_REQUEST_MODEL: string = 'genAiReuqestModelId';
 
 const mockHeaders = {

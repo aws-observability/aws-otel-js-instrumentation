@@ -17,7 +17,7 @@ const DATA_SOURCE_ID: string = 'dataSourceId';
 const GUARDRAIL_ID: string = 'guardrailId';
 const GUARDRAIL_ARN: string = 'guardrailArn';
 const MODEL_ID: string = 'modelId';
-const AWS_BEDROCK_SYSTEM: string = 'aws_bedrock';
+const AWS_BEDROCK_SYSTEM: string = 'aws.bedrock';
 
 const AGENT_OPERATIONS = [
   'CreateAgentActionGroup',

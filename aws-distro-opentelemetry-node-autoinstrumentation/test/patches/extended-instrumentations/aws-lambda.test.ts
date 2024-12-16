@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { diag } from '@opentelemetry/api';
 import { InstrumentationNodeModuleDefinition } from '@opentelemetry/instrumentation';
-import { AwsLambdaInstrumentationPatch } from '../../../../src/patches/aws/services/aws-lambda';
+import { AwsLambdaInstrumentationPatch } from '../../../src/patches/extended-instrumentations/aws-lambda';
 
 describe('AwsLambdaInstrumentationPatch', () => {
   let instrumentation: AwsLambdaInstrumentationPatch;

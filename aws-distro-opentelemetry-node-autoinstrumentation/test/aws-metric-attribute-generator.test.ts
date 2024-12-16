@@ -761,6 +761,39 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes('AWS::Kinesis::Stream', 'AWS_KINESIS_STREAM_NAME');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, undefined);
 
+    // Validate behaviour of AWS_SNS_TOPIC_ARN attribute then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN, 'arn:aws:sns:us-east-1:123456789012:testTopic');
+    validateRemoteResourceAttributes('AWS::SNS::Topic', 'testTopic');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN, undefined);
+
+    // Validate behaviour of AWS_SECRETSMANAGER_SECRET_ARN attributes then remove it.
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN,
+      'arn:aws:secretsmanager:us-east-1:123456789123:secret:testSecret'
+    );
+    validateRemoteResourceAttributes('AWS::SecretsManager::Secret', 'testSecret');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN, undefined);
+
+    // Validate behaviour of AWS_LAMBDA_RESOURCE_MAPPING_ID attribute then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID, 'aws_lambda_resource_mapping_id');
+    validateRemoteResourceAttributes('AWS::Lambda::EventSourceMapping', 'aws_lambda_resource_mapping_id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID, undefined);
+
+    // Validate behaviour of AWS_STEPFUNCTIONS_STATEMACHINE_ARN and AWS_STEPFUNCTIONS_ACTIVITY_ARN attributes then remove them.
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN,
+      'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine'
+    );
+    validateRemoteResourceAttributes('AWS::StepFunctions::StateMachine', 'testStateMachine');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
+
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
+      'arn:aws:states:us-east-1:123456789123:activity:testActivity'
+    );
+    validateRemoteResourceAttributes('AWS::StepFunctions::Activity', 'testActivity');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN, undefined);
+
     // Validate behaviour of AWS_TABLE_NAMES attribute with one table name, then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, ['aws_table_name']);
     validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'aws_table_name');
@@ -1167,6 +1200,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     testAwsSdkServiceNormalization('Kinesis', 'AWS::Kinesis');
     testAwsSdkServiceNormalization('S3', 'AWS::S3');
     testAwsSdkServiceNormalization('SQS', 'AWS::SQS');
+    testAwsSdkServiceNormalization('SNS', 'AWS::SNS');
+    testAwsSdkServiceNormalization('Lambda', 'AWS::Lambda');
+    testAwsSdkServiceNormalization('SecretsManager', 'AWS::SecretsManager');
+    testAwsSdkServiceNormalization('SFN', 'AWS::StepFunctions');
     testAwsSdkServiceNormalization('Bedrock', 'AWS::Bedrock');
     testAwsSdkServiceNormalization('BedrockAgent', 'AWS::Bedrock');
     testAwsSdkServiceNormalization('BedrockAgentRuntime', 'AWS::Bedrock');

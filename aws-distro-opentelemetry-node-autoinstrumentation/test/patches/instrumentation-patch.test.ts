@@ -23,16 +23,27 @@ import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { Context } from 'aws-lambda';
 import { SinonStub } from 'sinon';
+import { S3 } from '@aws-sdk/client-s3';
+import nock = require('nock');
+import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
+import { getTestSpans, registerInstrumentationTesting } from '@opentelemetry/contrib-test-utils';
+import { AwsSdkInstrumentationExtended } from '../../src/patches/extended-instrumentations/aws-sdk-instrumentation-extended';
 
 const _STREAM_NAME: string = 'streamName';
 const _BUCKET_NAME: string = 'bucketName';
 const _QUEUE_NAME: string = 'queueName';
+const _ACTIVITY_ARN: string = 'arn:aws:states:us-east-1:123456789123:activity:testActivity';
+const _STATE_MACHINE_ARN: string = 'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine';
+const _SECRETS_ARN: string = 'arn:aws:secretsmanager:us-east-1:123456789123:secret:testId123456';
+const _UUID: string = 'random-uuid';
+const _TOPIC_ARN: string = 'arn:aws:sns:us-east-1:123456789012:mystack-mytopic-NZJ5JSMVGFIE';
 const _QUEUE_URL: string = 'https://sqs.us-east-1.amazonaws.com/123412341234/queueName';
 const _BEDROCK_AGENT_ID: string = 'agentId';
 const _BEDROCK_DATASOURCE_ID: string = 'DataSourceId';
 const _BEDROCK_GUARDRAIL_ID: string = 'GuardrailId';
+const _BEDROCK_GUARDRAIL_ARN: string = 'arn:aws:bedrock:us-east-1:123456789012:guardrail/abc123';
 const _BEDROCK_KNOWLEDGEBASE_ID: string = 'KnowledgeBaseId';
-const _GEN_AI_SYSTEM: string = 'aws_bedrock';
+const _GEN_AI_SYSTEM: string = 'aws.bedrock';
 const _GEN_AI_REQUEST_MODEL: string = 'genAiReuqestModelId';
 
 const mockHeaders = {
@@ -45,6 +56,10 @@ const UNPATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentation
 const PATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations();
 applyInstrumentationPatches(PATCHED_INSTRUMENTATIONS);
 
+const extendedAwsSdkInstrumentation: AwsInstrumentation = new AwsInstrumentation();
+applyInstrumentationPatches([extendedAwsSdkInstrumentation]);
+registerInstrumentationTesting(extendedAwsSdkInstrumentation);
+
 describe('InstrumentationPatchTest', () => {
   it('SanityTestUnpatchedAwsSdkInstrumentation', () => {
     const awsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
@@ -53,11 +68,18 @@ describe('InstrumentationPatchTest', () => {
     // Not from patching
     expect(services.has('SQS')).toBeTruthy();
     expect(services.has('SNS')).toBeTruthy();
-    expect(services.has('DynamoDB')).toBeTruthy();
     expect(services.has('Lambda')).toBeTruthy();
+
+    expect(services.has('DynamoDB')).toBeTruthy();
     // From patching but shouldn't be applied
+    expect(services.get('SecretsManager')).toBeFalsy();
+    expect(services.get('SFN')).toBeFalsy();
     expect(services.has('S3')).toBeFalsy();
     expect(services.has('Kinesis')).toBeFalsy();
+    expect(services.get('SNS')._requestPreSpanHook).toBeFalsy();
+    expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
+    expect(services.get('Lambda')._requestPreSpanHook).toBeFalsy();
+    expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
     expect(services.get('SQS')._requestPreSpanHook).toBeFalsy();
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
     expect(services.has('Bedrock')).toBeFalsy();
@@ -78,9 +100,16 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('SNS')).toBeTruthy();
     expect(services.has('DynamoDB')).toBeTruthy();
     expect(services.has('Lambda')).toBeTruthy();
+
     // From patching
+    expect(services.has('SecretsManager')).toBeTruthy();
+    expect(services.has('SFN')).toBeTruthy();
     expect(services.has('S3')).toBeTruthy();
     expect(services.has('Kinesis')).toBeTruthy();
+    expect(services.get('SNS')._requestPreSpanHook).toBeTruthy();
+    expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
+    expect(services.get('Lambda')._requestPreSpanHook).toBeTruthy();
+    expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
     expect(services.get('SQS')._requestPreSpanHook).toBeTruthy();
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
     expect(services.has('Bedrock')).toBeTruthy();
@@ -89,6 +118,9 @@ describe('InstrumentationPatchTest', () => {
     expect(services.get('BedrockRuntime')).toBeTruthy();
     // Sanity check
     expect(services.has('InvalidService')).toBeFalsy();
+
+    // Check that the original AWS SDK Instrumentation is replaced with the extended version
+    expect(awsSdkInstrumentation).toBeInstanceOf(AwsSdkInstrumentationExtended);
   });
 
   it('S3 without patching', () => {
@@ -117,6 +149,36 @@ describe('InstrumentationPatchTest', () => {
     expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]).toBeUndefined();
   });
 
+  it('SNS without patching', () => {
+    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
+    expect(() => doExtractSNSAttributes(services)).not.toThrow();
+
+    const snsAttributes = doExtractSNSAttributes(services);
+    expect(snsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]).toBeUndefined();
+  });
+
+  it('Lambda without patching', () => {
+    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
+    expect(() => doExtractLambdaAttributes(services)).not.toThrow();
+
+    const lambdaAttributes: Attributes = doExtractLambdaAttributes(services);
+    expect(lambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID]).toBeUndefined();
+  });
+
+  it('SFN without patching', () => {
+    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
+    expect(() => doExtractSFNAttributes(services)).toThrow();
+  });
+
+  it('SecretsManager without patching', () => {
+    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
+    expect(() => doExtractSecretsManagerAttributes(services)).toThrow();
+  });
+
   it('Bedrock without patching', () => {
     const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
@@ -137,6 +199,14 @@ describe('InstrumentationPatchTest', () => {
     expect(kinesisAttributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME]).toEqual(_STREAM_NAME);
   });
 
+  it('SNS with patching', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+
+    const snsAttributes = doExtractSNSAttributes(services);
+    expect(snsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]).toBe(_TOPIC_ARN);
+  });
+
   it('SQS with patching', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
@@ -153,6 +223,33 @@ describe('InstrumentationPatchTest', () => {
     expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]).toEqual(_QUEUE_NAME);
   });
 
+  it('Lambda with patching', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const requestLambdaAttributes: Attributes = doExtractLambdaAttributes(services);
+    expect(requestLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID]).toEqual(_UUID);
+  });
+
+  it('SFN with patching', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const requestSFNAttributes: Attributes = doExtractSFNAttributes(services);
+    expect(requestSFNAttributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN]).toEqual(_STATE_MACHINE_ARN);
+    expect(requestSFNAttributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN]).toEqual(_ACTIVITY_ARN);
+  });
+
+  it('SecretsManager with patching', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const requestSecretsManagerAttributes: Attributes = doExtractSecretsManagerAttributes(services);
+
+    expect(requestSecretsManagerAttributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(_SECRETS_ARN);
+
+    const responseHookSecretsManagerAttributes = doResponseHookSecretsManager(services);
+
+    expect(responseHookSecretsManagerAttributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(_SECRETS_ARN);
+  });
+
   it('Bedrock with patching', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
@@ -160,8 +257,11 @@ describe('InstrumentationPatchTest', () => {
     // Expect no-op from attribute extraction in Bedrock
     expect(Object.entries(bedrockAttributes).length).toEqual(0);
     const bedrockAttributesAfterResponse: Attributes = doResponseHookBedrock(services, 'Bedrock');
-    expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(1);
+    expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(2);
     expect(bedrockAttributesAfterResponse[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID]).toEqual(_BEDROCK_GUARDRAIL_ID);
+    expect(bedrockAttributesAfterResponse[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN]).toEqual(
+      _BEDROCK_GUARDRAIL_ARN
+    );
   });
 
   it('Bedrock Agent with patching', () => {
@@ -196,18 +296,25 @@ describe('InstrumentationPatchTest', () => {
       ListDataSources: { 'aws.bedrock.knowledge_base.id': _BEDROCK_KNOWLEDGEBASE_ID },
       UpdateAgentKnowledgeBase: { 'aws.bedrock.knowledge_base.id': _BEDROCK_KNOWLEDGEBASE_ID },
       DeleteDataSource: { 'aws.bedrock.data_source.id': _BEDROCK_DATASOURCE_ID },
-      GetDataSource: { 'aws.bedrock.data_source.id': _BEDROCK_DATASOURCE_ID },
+      GetDataSource: {
+        'aws.bedrock.data_source.id': _BEDROCK_DATASOURCE_ID,
+        'aws.bedrock.knowledge_base.id': _BEDROCK_KNOWLEDGEBASE_ID,
+      },
       UpdateDataSource: { 'aws.bedrock.data_source.id': _BEDROCK_DATASOURCE_ID },
     };
 
     for (const [operation, attribute_tuple] of Object.entries(operation_to_expected_attribute)) {
       const bedrockAttributes: Attributes = doExtractBedrockAttributes(services, 'BedrockAgent', operation);
-      const [attribute_key, attribute_value] = Object.entries(attribute_tuple)[0];
-      expect(Object.entries(bedrockAttributes).length).toBe(1);
-      expect(bedrockAttributes[attribute_key]).toEqual(attribute_value);
+
+      for (const [attribute_key, attribute_value] of Object.entries(attribute_tuple)) {
+        expect(bedrockAttributes[attribute_key]).toEqual(attribute_value);
+      }
+
       const bedrockAgentSuccessAttributes: Attributes = doResponseHookBedrock(services, 'BedrockAgent', operation);
-      expect(Object.entries(bedrockAgentSuccessAttributes).length).toBe(1);
-      expect(bedrockAgentSuccessAttributes[attribute_key]).toEqual(attribute_value);
+
+      for (const [attribute_key, attribute_value] of Object.entries(attribute_tuple)) {
+        expect(bedrockAgentSuccessAttributes[attribute_key]).toEqual(attribute_value);
+      }
     }
   });
 
@@ -303,6 +410,55 @@ describe('InstrumentationPatchTest', () => {
     return doExtractAttributes(services, serviceName, params);
   }
 
+  function doExtractSNSAttributes(services: Map<string, ServiceExtension>): Attributes {
+    const serviceName: string = 'SNS';
+    const params: NormalizedRequest = {
+      serviceName: serviceName,
+      commandName: 'mockCommandName',
+      commandInput: {
+        TopicArn: _TOPIC_ARN,
+      },
+    };
+    return doExtractAttributes(services, serviceName, params);
+  }
+
+  function doExtractLambdaAttributes(services: Map<string, ServiceExtension>): Attributes {
+    const serviceName: string = 'Lambda';
+    const params: NormalizedRequest = {
+      serviceName: serviceName,
+      commandName: 'mockCommandName',
+      commandInput: {
+        UUID: _UUID,
+      },
+    };
+    return doExtractAttributes(services, serviceName, params);
+  }
+
+  function doExtractSFNAttributes(services: Map<string, ServiceExtension>): Attributes {
+    const serviceName: string = 'SFN';
+    const params: NormalizedRequest = {
+      serviceName: serviceName,
+      commandName: 'mockCommandName',
+      commandInput: {
+        stateMachineArn: _STATE_MACHINE_ARN,
+        activityArn: _ACTIVITY_ARN,
+      },
+    };
+    return doExtractAttributes(services, serviceName, params);
+  }
+
+  function doExtractSecretsManagerAttributes(services: Map<string, ServiceExtension>): Attributes {
+    const serviceName: string = 'SecretsManager';
+    const params: NormalizedRequest = {
+      serviceName: serviceName,
+      commandName: 'mockCommandName',
+      commandInput: {
+        SecretId: _SECRETS_ARN,
+      },
+    };
+    return doExtractAttributes(services, serviceName, params);
+  }
+
   function doExtractBedrockAttributes(
     services: Map<string, ServiceExtension>,
     serviceName: string,
@@ -335,6 +491,22 @@ describe('InstrumentationPatchTest', () => {
     return requestMetadata.spanAttributes || {};
   }
 
+  function doResponseHookSecretsManager(services: Map<string, ServiceExtension>): Attributes {
+    const results: Partial<NormalizedResponse> = {
+      data: {
+        ARN: _SECRETS_ARN,
+      },
+
+      request: {
+        commandInput: {},
+        commandName: 'dummy_operation',
+        serviceName: 'SecretsManager',
+      },
+    };
+
+    return doResponseHook(services, 'SecretsManager', results as NormalizedResponse);
+  }
+
   function doResponseHookBedrock(
     services: Map<string, ServiceExtension>,
     serviceName: string,
@@ -346,6 +518,7 @@ describe('InstrumentationPatchTest', () => {
         dataSourceId: _BEDROCK_DATASOURCE_ID,
         knowledgeBaseId: _BEDROCK_KNOWLEDGEBASE_ID,
         guardrailId: _BEDROCK_GUARDRAIL_ID,
+        guardrailArn: _BEDROCK_GUARDRAIL_ARN,
         modelId: _GEN_AI_REQUEST_MODEL,
       },
       request: {
@@ -388,6 +561,52 @@ describe('InstrumentationPatchTest', () => {
     expect(filteredInstrumentations.length).toEqual(1);
     return filteredInstrumentations[0] as AwsLambdaInstrumentation;
   }
+
+  describe('AwsSdkInstrumentationPatchTest', () => {
+    let s3: S3;
+    const region = 'us-east-1';
+
+    it('injects trace context header into request via propagator', async () => {
+      s3 = new S3({
+        region: region,
+        credentials: {
+          accessKeyId: 'abcde',
+          secretAccessKey: 'abcde',
+        },
+      });
+
+      const dummyBucketName: string = 'dummy-bucket-name';
+      let reqHeaders: any = {};
+
+      nock(`https://${dummyBucketName}.s3.${region}.amazonaws.com`)
+        .get('/')
+        .reply(200, function (uri: any, requestBody: any) {
+          reqHeaders = this.req.headers;
+          return 'null';
+        });
+
+      await s3
+        .listObjects({
+          Bucket: dummyBucketName,
+        })
+        .catch((err: any) => {});
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const listObjectsSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'S3.ListObjects';
+      });
+
+      expect(listObjectsSpans.length).toBe(1);
+
+      const traceId = listObjectsSpans[0].spanContext().traceId;
+      const spanId = listObjectsSpans[0].spanContext().spanId;
+      expect(reqHeaders['x-amzn-trace-id'] as string).toEqual(
+        `Root=1-${traceId.substring(0, 8)}-${listObjectsSpans[0]
+          .spanContext()
+          .traceId.substring(8, 32)};Parent=${spanId};Sampled=1`
+      );
+    });
+  });
 });
 
 describe('customExtractor', () => {

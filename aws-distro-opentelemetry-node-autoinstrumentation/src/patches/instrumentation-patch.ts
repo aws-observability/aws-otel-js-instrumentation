@@ -25,9 +25,11 @@ import {
 } from './aws/services/bedrock';
 import { KinesisServiceExtension } from './aws/services/kinesis';
 import { S3ServiceExtension } from './aws/services/s3';
-import { AwsLambdaInstrumentationPatch } from './aws/services/aws-lambda';
 import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
 import { StepFunctionsServiceExtension } from './aws/services/step-functions';
+import { InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
+import { AwsSdkInstrumentationExtended } from './extended-instrumentations/aws-sdk-instrumentation-extended';
+import { AwsLambdaInstrumentationPatch } from './extended-instrumentations/aws-lambda';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 const awsPropagator = new AWSXRayPropagator();
@@ -40,7 +42,10 @@ export const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
   },
 };
 
-export function applyInstrumentationPatches(instrumentations: Instrumentation[]): void {
+export function applyInstrumentationPatches(
+  instrumentations: Instrumentation[],
+  instrumentationConfigs?: InstrumentationConfigMap
+): void {
   /*
   Apply patches to upstream instrumentation libraries.
 
@@ -52,10 +57,16 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
   */
   instrumentations.forEach((instrumentation, index) => {
     if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-sdk') {
+      diag.debug('Overriding aws sdk instrumentation');
+      instrumentations[index] = new AwsSdkInstrumentationExtended(
+        instrumentationConfigs ? instrumentationConfigs['@opentelemetry/instrumentation-aws-sdk'] : undefined
+      );
+
       // Access private property servicesExtensions of AwsInstrumentation
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
-      const services: Map<string, ServiceExtension> | undefined = (instrumentation as any).servicesExtensions?.services;
+      const services: Map<string, ServiceExtension> | undefined = (instrumentations[index] as any).servicesExtensions
+        ?.services;
       if (services) {
         services.set('S3', new S3ServiceExtension());
         services.set('Kinesis', new KinesisServiceExtension());

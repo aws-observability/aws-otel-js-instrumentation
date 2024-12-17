@@ -480,6 +480,7 @@ class AWSSDKTest(ContractTestBase):
             remote_operation="InvokeModel",
             remote_resource_type="AWS::Bedrock::Model",
             remote_resource_identifier='amazon.nova-pro-v1:0',
+            cloudformation_primary_identifier="amazon.nova-pro-v1:0",
             request_specific_attributes={
                 _GEN_AI_REQUEST_MODEL: 'amazon.nova-pro-v1:0',
                 _GEN_AI_REQUEST_MAX_TOKENS: 800,

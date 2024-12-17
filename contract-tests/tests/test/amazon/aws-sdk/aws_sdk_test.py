@@ -466,6 +466,34 @@ class AWSSDKTest(ContractTestBase):
             
             span_name="BedrockRuntime.InvokeModel"
         )
+
+    def test_bedrock_runtime_invoke_model_amazon_nova(self):
+        result = self.do_test_requests(
+            "bedrock/invokemodel/invoke-model/amazon.nova-pro-v1:0",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock",
+            rpc_service="BedrockRuntime",
+            remote_service="AWS::BedrockRuntime",
+            remote_operation="InvokeModel",
+            remote_resource_type="AWS::Bedrock::Model",
+            remote_resource_identifier='amazon.nova-pro-v1:0',
+            request_specific_attributes={
+                _GEN_AI_REQUEST_MODEL: 'amazon.nova-pro-v1:0',
+                _GEN_AI_REQUEST_MAX_TOKENS: 800,
+                _GEN_AI_REQUEST_TEMPERATURE: 0.9,
+                _GEN_AI_REQUEST_TOP_P: 0.7
+                },
+            response_specific_attributes={
+                _GEN_AI_RESPONSE_FINISH_REASONS: ['max_tokens'],
+                _GEN_AI_USAGE_INPUT_TOKENS: 432,
+                _GEN_AI_USAGE_OUTPUT_TOKENS: 681
+                },
+            
+            span_name="BedrockRuntime.InvokeModel"
+        )
         
     def test_bedrock_runtime_invoke_model_anthropic_claude(self):
         self.do_test_requests(
@@ -1105,6 +1133,25 @@ class AWSSDKTest(ContractTestBase):
 
         for key, value in response_specific_attributes.items():
             self._assert_attribute(attributes_dict, key, value)
+    
+    def _assert_attribute(self, attributes_dict: Dict[str, AnyValue], key, value) -> None:
+        if isinstance(value, str):
+            self._assert_str_attribute(attributes_dict, key, value)
+        elif isinstance(value, int):
+            self._assert_int_attribute(attributes_dict, key, value)
+        elif isinstance(value, float):
+            self._assert_float_attribute(attributes_dict, key, value)
+        else:
+            self._assert_array_value_ddb_table_name(attributes_dict, key, value)
+
+    @override
+    def _assert_str_attribute(self, attributes_dict: Dict[str, AnyValue], key: str, expected_value: str):
+        self.assertIn(key, attributes_dict)
+        actual_value: AnyValue = attributes_dict[key]
+        self.assertIsNotNone(actual_value)
+        pattern = re.compile(expected_value)
+        match = pattern.fullmatch(actual_value.string_value)
+        self.assertTrue(match is not None, f"Actual: {actual_value.string_value} does not match Expected: {expected_value}")
 
     @override
     def _assert_metric_attributes(

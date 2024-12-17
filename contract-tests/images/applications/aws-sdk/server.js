@@ -631,7 +631,29 @@ async function handleBedrockRequest(req, res, path) {
                 },
               ],
             }
-
+          }
+          
+          if (path.includes("amazon.nova")) {
+            
+            modelId = "amazon.nova-pro-v1:0"
+            
+            request_body = {
+              messages: [{role: "user", content: [{text: "A camping trip"}]}],
+              inferenceConfig: {
+                  max_new_tokens: 800,
+                  temperature: 0.9,
+                  top_p: 0.7,
+              },
+            }
+          
+            response_body = {
+              output: {message: {content: [{text: ""}], role: "assistant"}},
+              stopReason: "max_tokens",
+              usage: {
+                inputTokens: 432, 
+                outputTokens: 681
+              },
+            }
           }
 
           if (path.includes('anthropic.claude')) {

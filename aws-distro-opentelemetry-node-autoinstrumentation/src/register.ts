@@ -62,7 +62,7 @@ const instrumentationConfigs: InstrumentationConfigMap = {
 const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
 // Apply instrumentation patches
-applyInstrumentationPatches(instrumentations);
+applyInstrumentationPatches(instrumentations, instrumentationConfigs);
 
 const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator(instrumentations, useXraySampler);
 const configuration: Partial<opentelemetry.NodeSDKConfiguration> = configurator.configure();

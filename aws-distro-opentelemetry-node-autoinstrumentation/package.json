@@ -31,8 +31,17 @@
     "prepublishOnly": "npm run compile",
     "tdd": "yarn test -- --watch-extensions ts --watch",
     "test": "nyc ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/**/*.ts'",
-    "test:coverage": "nyc --all --check-coverage --functions 95 --lines 95 ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/**/*.ts'",
+    "test:coverage": "nyc --check-coverage --functions 95 --lines 95 ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/**/*.ts'",
     "watch": "tsc -w"
+  },
+  "nyc": {
+    "all": true,
+    "include": [
+      "src/**/*.ts"
+    ],
+    "exclude": [
+      "src/third-party/**/*.ts"
+    ]
   },
   "bugs": {
     "url": "https://github.com/aws-observability/aws-otel-js-instrumentation/issues"
@@ -64,7 +73,11 @@
     "@aws-sdk/client-bedrock-agent-runtime": "3.632.0",
     "@aws-sdk/client-bedrock-runtime": "3.632.0",
     "@aws-sdk/client-kinesis": "3.632.0",
+    "@aws-sdk/client-lambda": "^3.632.0",
     "@aws-sdk/client-s3": "3.632.0",
+    "@aws-sdk/client-secrets-manager": "^3.632.0",
+    "@aws-sdk/client-sfn": "^3.632.0",
+    "@aws-sdk/client-sns": "^3.632.0",
     "@opentelemetry/contrib-test-utils": "0.41.0",
     "@types/mocha": "7.0.2",
     "@types/node": "18.6.5",

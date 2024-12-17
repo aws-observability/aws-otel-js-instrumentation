@@ -25,7 +25,11 @@ import {
 } from './aws/services/bedrock';
 import { KinesisServiceExtension } from './aws/services/kinesis';
 import { S3ServiceExtension } from './aws/services/s3';
-import { AwsLambdaInstrumentationPatch } from './aws/services/aws-lambda';
+import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
+import { StepFunctionsServiceExtension } from './aws/services/step-functions';
+import { InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
+import { AwsSdkInstrumentationExtended } from './extended-instrumentations/aws-sdk-instrumentation-extended';
+import { AwsLambdaInstrumentationPatch } from './extended-instrumentations/aws-lambda';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 const awsPropagator = new AWSXRayPropagator();
@@ -38,7 +42,10 @@ export const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
   },
 };
 
-export function applyInstrumentationPatches(instrumentations: Instrumentation[]): void {
+export function applyInstrumentationPatches(
+  instrumentations: Instrumentation[],
+  instrumentationConfigs?: InstrumentationConfigMap
+): void {
   /*
   Apply patches to upstream instrumentation libraries.
 
@@ -50,18 +57,28 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
   */
   instrumentations.forEach((instrumentation, index) => {
     if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-sdk') {
+      diag.debug('Overriding aws sdk instrumentation');
+      instrumentations[index] = new AwsSdkInstrumentationExtended(
+        instrumentationConfigs ? instrumentationConfigs['@opentelemetry/instrumentation-aws-sdk'] : undefined
+      );
+
       // Access private property servicesExtensions of AwsInstrumentation
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
-      const services: Map<string, ServiceExtension> | undefined = (instrumentation as any).servicesExtensions?.services;
+      const services: Map<string, ServiceExtension> | undefined = (instrumentations[index] as any).servicesExtensions
+        ?.services;
       if (services) {
         services.set('S3', new S3ServiceExtension());
         services.set('Kinesis', new KinesisServiceExtension());
+        services.set('SecretsManager', new SecretsManagerServiceExtension());
+        services.set('SFN', new StepFunctionsServiceExtension());
         services.set('Bedrock', new BedrockServiceExtension());
         services.set('BedrockAgent', new BedrockAgentServiceExtension());
         services.set('BedrockAgentRuntime', new BedrockAgentRuntimeServiceExtension());
         services.set('BedrockRuntime', new BedrockRuntimeServiceExtension());
         patchSqsServiceExtension(services.get('SQS'));
+        patchSnsServiceExtension(services.get('SNS'));
+        patchLambdaServiceExtension(services.get('Lambda'));
       }
     } else if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-lambda') {
       diag.debug('Overriding aws lambda instrumentation');
@@ -141,5 +158,67 @@ function patchSqsServiceExtension(sqsServiceExtension: any): void {
       return requestMetadata;
     };
     sqsServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
+  }
+}
+
+/*
+ * This patch extends the existing upstream extension for SNS. Extensions allow for custom logic for adding
+ * service-specific information to spans, such as attributes. Specifically, we are adding logic to add
+ * `aws.sns.topic.arn` attribute, to be used to generate RemoteTarget and achieve parity with the Java/Python instrumentation.
+ *
+ *
+ * @param snsServiceExtension SNS Service Extension obtained the service extension list from the AWS SDK OTel Instrumentation
+ */
+function patchSnsServiceExtension(snsServiceExtension: any): void {
+  if (snsServiceExtension) {
+    const requestPreSpanHook = snsServiceExtension.requestPreSpanHook;
+    snsServiceExtension._requestPreSpanHook = requestPreSpanHook;
+
+    const patchedRequestPreSpanHook = (
+      request: NormalizedRequest,
+      _config: AwsSdkInstrumentationConfig
+    ): RequestMetadata => {
+      const requestMetadata: RequestMetadata = snsServiceExtension._requestPreSpanHook(request, _config);
+      if (requestMetadata.spanAttributes) {
+        const topicArn = request.commandInput?.TopicArn;
+        if (topicArn) {
+          requestMetadata.spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN] = topicArn;
+        }
+      }
+      return requestMetadata;
+    };
+
+    snsServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
+  }
+}
+
+/*
+ * This patch extends the existing upstream extension for Lambda. Extensions allow for custom logic for adding
+ * service-specific information to spans, such as attributes. Specifically, we are adding logic to add
+ * `aws.lambda.resource_mapping.id` attribute, to be used to generate RemoteTarget and achieve parity with the Java/Python instrumentation.
+ *
+ *
+ * @param lambdaServiceExtension Lambda Service Extension obtained the service extension list from the AWS SDK OTel Instrumentation
+ */
+function patchLambdaServiceExtension(lambdaServiceExtension: any): void {
+  if (lambdaServiceExtension) {
+    const requestPreSpanHook = lambdaServiceExtension.requestPreSpanHook;
+    lambdaServiceExtension._requestPreSpanHook = requestPreSpanHook;
+
+    const patchedRequestPreSpanHook = (
+      request: NormalizedRequest,
+      _config: AwsSdkInstrumentationConfig
+    ): RequestMetadata => {
+      const requestMetadata: RequestMetadata = lambdaServiceExtension._requestPreSpanHook(request, _config);
+      if (requestMetadata.spanAttributes) {
+        const resourceMappingId = request.commandInput?.UUID;
+        if (resourceMappingId) {
+          requestMetadata.spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID] = resourceMappingId;
+        }
+      }
+      return requestMetadata;
+    };
+
+    lambdaServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
   }
 }

@@ -15,8 +15,9 @@ const AGENT_ID: string = 'agentId';
 const KNOWLEDGE_BASE_ID: string = 'knowledgeBaseId';
 const DATA_SOURCE_ID: string = 'dataSourceId';
 const GUARDRAIL_ID: string = 'guardrailId';
+const GUARDRAIL_ARN: string = 'guardrailArn';
 const MODEL_ID: string = 'modelId';
-const AWS_BEDROCK_SYSTEM: string = 'aws_bedrock';
+const AWS_BEDROCK_SYSTEM: string = 'aws.bedrock';
 
 const AGENT_OPERATIONS = [
   'CreateAgentActionGroup',
@@ -60,6 +61,7 @@ const knowledgeBaseOperationAttributeKeyMapping = {
 };
 const dataSourceOperationAttributeKeyMapping = {
   [AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]: DATA_SOURCE_ID,
+  [AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]: KNOWLEDGE_BASE_ID,
 };
 
 // This map allows us to get all relevant attribute key mappings for a given operation
@@ -182,10 +184,15 @@ export class BedrockServiceExtension implements ServiceExtension {
     };
   }
   responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
-    const guardrail_id = response.data[GUARDRAIL_ID];
+    const guardrailId = response.data[GUARDRAIL_ID];
+    const guardrailArn = response.data[GUARDRAIL_ARN];
 
-    if (guardrail_id) {
-      span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, guardrail_id);
+    if (guardrailId) {
+      span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, guardrailId);
+    }
+
+    if (guardrailArn) {
+      span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN, guardrailArn);
     }
   }
 }
@@ -224,6 +231,16 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
         if (requestBody.textGenerationConfig?.maxTokenCount !== undefined) {
           spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] =
             requestBody.textGenerationConfig.maxTokenCount;
+        }
+      } else if (modelId.includes('amazon.nova')) {
+        if (requestBody.inferenceConfig?.temperature !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.inferenceConfig.temperature;
+        }
+        if (requestBody.inferenceConfig?.top_p !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.inferenceConfig.top_p;
+        }
+        if (requestBody.inferenceConfig?.max_new_tokens !== undefined) {
+          spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.inferenceConfig.max_new_tokens;
         }
       } else if (modelId.includes('anthropic.claude')) {
         if (requestBody.max_tokens !== undefined) {
@@ -327,6 +344,18 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
           span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
             responseBody.results[0].completionReason,
           ]);
+        }
+      } else if (currentModelId.includes('amazon.nova')) {
+        if (responseBody.usage !== undefined) {
+          if (responseBody.usage.inputTokens !== undefined) {
+            span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.inputTokens);
+          }
+          if (responseBody.usage.outputTokens !== undefined) {
+            span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.usage.outputTokens);
+          }
+        }
+        if (responseBody.stopReason !== undefined) {
+          span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [responseBody.stopReason]);
         }
       } else if (currentModelId.includes('anthropic.claude')) {
         if (responseBody.usage?.input_tokens !== undefined) {

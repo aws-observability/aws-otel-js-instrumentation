@@ -134,7 +134,7 @@ describe('BedrockAgent', () => {
       expect(getDataSourceSpans.length).toBe(1);
       const getDataSourceSpan = getDataSourceSpans[0];
       expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
-      expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBe(dummyKnowledgeBaseId);
       expect(getDataSourceSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBe(dummyDataSourceId);
       expect(getDataSourceSpan.kind).toBe(SpanKind.CLIENT);
     });
@@ -236,9 +236,11 @@ describe('Bedrock', () => {
   describe('GetGuardrail', () => {
     it('adds guardrailId to span', async () => {
       const dummyGuardrailIdentifier: string = 'ABCDEFGH';
+      const guardrailArn: string = 'arn:aws:bedrock:us-east-1:123456789012:guardrail/abc123';
 
       nock(`https://bedrock.${region}.amazonaws.com`).get(`/guardrails/${dummyGuardrailIdentifier}`).reply(200, {
         guardrailId: dummyGuardrailIdentifier,
+        guardrailArn: guardrailArn,
       });
 
       await bedrock
@@ -258,6 +260,7 @@ describe('Bedrock', () => {
       expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
       expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
       expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID]).toBe(dummyGuardrailIdentifier);
+      expect(getGuardrailSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN]).toBe(guardrailArn);
       expect(getGuardrailSpan.kind).toBe(SpanKind.CLIENT);
     });
   });
@@ -276,19 +279,102 @@ describe('BedrockRuntime', () => {
   });
 
   describe('InvokeModel', () => {
-    it('adds modelId to span', async () => {
-      const dummyModelId: string = 'ABCDEFGH';
-      const dummyBody: string = 'HGFEDCBA';
+    it('Add AI21 Jamba model attributes to span', async () => {
+      const modelId: string = 'ai21.jamba-1-5-large-v1:0';
+      const prompt: string = 'Describe the purpose of a compiler in one line.';
+      const nativeRequest: any = {
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        top_p: 0.8,
+        temperature: 0.6,
+        max_tokens: 512,
+      };
+      const mockRequestBody: string = JSON.stringify(nativeRequest);
+      const mockResponseBody: any = {
+        stop_reason: 'end_turn',
+        usage: {
+          prompt_tokens: 21,
+          completion_tokens: 24,
+        },
+        choices: [
+          {
+            finish_reason: 'stop',
+          },
+        ],
+        request: {
+          commandInput: {
+            modelId: modelId,
+          },
+        },
+      };
 
-      nock(`https://bedrock-runtime.${region}.amazonaws.com`).post(`/model/${dummyModelId}/invoke`).reply(200, {
-        modelId: dummyModelId,
-        body: dummyBody,
-      });
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`)
+        .post(`/model/${encodeURIComponent(modelId)}/invoke`)
+        .reply(200, mockResponseBody);
 
       await bedrock
         .invokeModel({
-          modelId: dummyModelId,
-          body: dummyBody,
+          modelId: modelId,
+          body: mockRequestBody,
+        })
+        .catch((err: any) => {
+          console.log('error', err);
+        });
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const invokeModelSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'BedrockRuntime.InvokeModel';
+      });
+      expect(invokeModelSpans.length).toBe(1);
+      const invokeModelSpan = invokeModelSpans[0];
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws.bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(512);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(0.6);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P]).toBe(0.8);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS]).toBe(21);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(24);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+      expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
+    });
+    it('Add Amazon Titan model attributes to span', async () => {
+      const modelId: string = 'amazon.titan-text-express-v1';
+      const prompt: string = 'Complete this text. It was the best of times it was the worst...';
+      const nativeRequest: any = {
+        inputText: prompt,
+        textGenerationConfig: {
+          maxTokenCount: 4096,
+          stopSequences: [],
+          temperature: 0,
+          topP: 1,
+        },
+      };
+      const mockRequestBody: string = JSON.stringify(nativeRequest);
+      const mockResponseBody: any = {
+        inputTextTokenCount: 15,
+        results: [
+          {
+            tokenCount: 13,
+            completionReason: 'CONTENT_FILTERED',
+          },
+        ],
+      };
+
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`)
+        .post(`/model/${modelId}/invoke`)
+        .reply(200, mockResponseBody);
+
+      await bedrock
+        .invokeModel({
+          modelId: modelId,
+          body: mockRequestBody,
         })
         .catch((err: any) => {});
 
@@ -301,7 +387,360 @@ describe('BedrockRuntime', () => {
       expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
       expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
       expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
-      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(dummyModelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws.bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(4096);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(0);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P]).toBe(1);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS]).toBe(15);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(13);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS]).toEqual([
+        'CONTENT_FILTERED',
+      ]);
+      expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
+    });
+
+    it('Add Amazon Nova model attributes to span', async () => {
+      const modelId: string = 'amazon.nova-pro-v1:0';
+      const prompt: string = 'Campfire story';
+      const mockRequestBody: string = JSON.stringify({
+        inputText: prompt,
+        inferenceConfig: {
+          max_new_tokens: 500,
+          temperature: 0.9,
+          top_p: 0.7,
+        },
+      });
+      const mockResponseBody: any = {
+        output: { message: { content: [{ text: '' }], role: 'assistant' } },
+        stopReason: 'max_tokens',
+        usage: { inputTokens: 432, outputTokens: 681 },
+
+        request: {
+          commandInput: {
+            modelId: modelId,
+          },
+        },
+      };
+
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`)
+        .post(`/model/${encodeURIComponent(modelId)}/invoke`)
+        .reply(200, mockResponseBody);
+
+      await bedrock
+        .invokeModel({
+          modelId: modelId,
+          body: mockRequestBody,
+        })
+        .catch((err: any) => {});
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const invokeModelSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'BedrockRuntime.InvokeModel';
+      });
+      expect(invokeModelSpans.length).toBe(1);
+      const invokeModelSpan = invokeModelSpans[0];
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws.bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(500);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(0.9);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P]).toBe(0.7);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS]).toBe(432);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(681);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['max_tokens']);
+      expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
+    });
+
+    it('Add Anthropic Claude model attributes to span', async () => {
+      const modelId: string = 'anthropic.claude-3-5-sonnet-20240620-v1:0';
+      const prompt: string = 'Complete this text. It was the best of times it was the worst...';
+      const nativeRequest: any = {
+        anthropic_version: 'bedrock-2023-05-31',
+        max_tokens: 1000,
+        temperature: 1.0,
+        top_p: 1,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: prompt }],
+          },
+        ],
+      };
+      const mockRequestBody: string = JSON.stringify(nativeRequest);
+      const mockResponseBody: any = {
+        stop_reason: 'end_turn',
+        usage: {
+          input_tokens: 15,
+          output_tokens: 13,
+        },
+        request: {
+          commandInput: {
+            modelId: modelId,
+          },
+        },
+      };
+
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`)
+        .post(`/model/${encodeURIComponent(modelId)}/invoke`)
+        .reply(200, mockResponseBody);
+
+      await bedrock
+        .invokeModel({
+          modelId: modelId,
+          body: mockRequestBody,
+        })
+        .catch((err: any) => {
+          console.log('error', err);
+        });
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const invokeModelSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'BedrockRuntime.InvokeModel';
+      });
+      expect(invokeModelSpans.length).toBe(1);
+      const invokeModelSpan = invokeModelSpans[0];
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws.bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(1000);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(1.0);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P]).toBe(1);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS]).toBe(15);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(13);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['end_turn']);
+      expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
+    });
+
+    it('Add Cohere Command model attributes to span', async () => {
+      const modelId: string = 'cohere.command-light-text-v14';
+      const prompt: string = "Describe the purpose of a 'hello world' program in one line";
+      const nativeRequest: any = {
+        prompt: prompt,
+        max_tokens: 512,
+        temperature: 0.5,
+        p: 0.65,
+      };
+      const mockRequestBody: string = JSON.stringify(nativeRequest);
+      const mockResponseBody: any = {
+        generations: [
+          {
+            finish_reason: 'COMPLETE',
+            text: 'test-generation-text',
+          },
+        ],
+        prompt: prompt,
+        request: {
+          commandInput: {
+            modelId: modelId,
+          },
+        },
+      };
+
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`)
+        .post(`/model/${encodeURIComponent(modelId)}/invoke`)
+        .reply(200, mockResponseBody);
+
+      await bedrock
+        .invokeModel({
+          modelId: modelId,
+          body: mockRequestBody,
+        })
+        .catch((err: any) => {
+          console.log('error', err);
+        });
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const invokeModelSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'BedrockRuntime.InvokeModel';
+      });
+      expect(invokeModelSpans.length).toBe(1);
+      const invokeModelSpan = invokeModelSpans[0];
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws.bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(512);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(0.5);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P]).toBe(0.65);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS]).toBe(10);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(4);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['COMPLETE']);
+      expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
+    });
+
+    it('Add Cohere Command R model attributes to span', async () => {
+      const modelId: string = 'cohere.command-r-v1:0"';
+      const prompt: string = "Describe the purpose of a 'hello world' program in one line";
+      const nativeRequest: any = {
+        message: prompt,
+        max_tokens: 512,
+        temperature: 0.5,
+        p: 0.65,
+      };
+      const mockRequestBody: string = JSON.stringify(nativeRequest);
+      const mockResponseBody: any = {
+        finish_reason: 'COMPLETE',
+        text: 'test-generation-text',
+        prompt: prompt,
+        request: {
+          commandInput: {
+            modelId: modelId,
+          },
+        },
+      };
+
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`)
+        .post(`/model/${encodeURIComponent(modelId)}/invoke`)
+        .reply(200, mockResponseBody);
+
+      await bedrock
+        .invokeModel({
+          modelId: modelId,
+          body: mockRequestBody,
+        })
+        .catch((err: any) => {
+          console.log('error', err);
+        });
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const invokeModelSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'BedrockRuntime.InvokeModel';
+      });
+      expect(invokeModelSpans.length).toBe(1);
+      const invokeModelSpan = invokeModelSpans[0];
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws.bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(512);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(0.5);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P]).toBe(0.65);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS]).toBe(10);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(4);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['COMPLETE']);
+      expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
+    });
+
+    it('Add Meta Llama model attributes to span', async () => {
+      const modelId: string = 'meta.llama2-13b-chat-v1';
+      const prompt: string = 'Describe the purpose of an interpreter program in one line.';
+      const nativeRequest: any = {
+        prompt,
+        max_gen_len: 512,
+        temperature: 0.5,
+        top_p: 0.9,
+      };
+      const mockRequestBody: string = JSON.stringify(nativeRequest);
+      const mockResponseBody: any = {
+        prompt_token_count: 31,
+        generation_token_count: 49,
+        stop_reason: 'stop',
+        request: {
+          commandInput: {
+            modelId: modelId,
+          },
+        },
+      };
+
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`)
+        .post(`/model/${encodeURIComponent(modelId)}/invoke`)
+        .reply(200, mockResponseBody);
+
+      await bedrock
+        .invokeModel({
+          modelId: modelId,
+          body: mockRequestBody,
+        })
+        .catch((err: any) => {
+          console.log('error', err);
+        });
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const invokeModelSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'BedrockRuntime.InvokeModel';
+      });
+      expect(invokeModelSpans.length).toBe(1);
+      const invokeModelSpan = invokeModelSpans[0];
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws.bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(512);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(0.5);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P]).toBe(0.9);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS]).toBe(31);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(49);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+      expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
+    });
+
+    it('Add Mistral AI model attributes to span', async () => {
+      const modelId: string = 'mistral.mistral-7b-instruct-v0:2';
+      const prompt: string = `
+      <s>[INST] 
+      In Bash, how do I list all text files in the current directory 
+      (excluding subdirectories) that have been modified in the last month? 
+      [/INST]
+      `;
+      const nativeRequest: any = {
+        prompt: prompt,
+        max_tokens: 4096,
+        temperature: 0.75,
+        top_p: 1.0,
+      };
+      const mockRequestBody: string = JSON.stringify(nativeRequest);
+      const mockResponseBody: any = {
+        outputs: [
+          {
+            text: 'test-output-text',
+            stop_reason: 'stop',
+          },
+        ],
+        request: {
+          commandInput: {
+            modelId: modelId,
+          },
+        },
+      };
+
+      nock(`https://bedrock-runtime.${region}.amazonaws.com`)
+        .post(`/model/${encodeURIComponent(modelId)}/invoke`)
+        .reply(200, mockResponseBody);
+
+      await bedrock
+        .invokeModel({
+          modelId: modelId,
+          body: mockRequestBody,
+        })
+        .catch((err: any) => {
+          console.log('error', err);
+        });
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const invokeModelSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'BedrockRuntime.InvokeModel';
+      });
+      expect(invokeModelSpans.length).toBe(1);
+      const invokeModelSpan = invokeModelSpans[0];
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID]).toBeUndefined();
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_SYSTEM]).toBe('aws.bedrock');
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]).toBe(modelId);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS]).toBe(4096);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE]).toBe(0.75);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P]).toBe(1.0);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS]).toBe(31);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(3);
+      expect(invokeModelSpan.attributes[AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
       expect(invokeModelSpan.kind).toBe(SpanKind.CLIENT);
     });
   });

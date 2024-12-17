@@ -17,4 +17,5 @@ AWS_REMOTE_SERVICE: str = "aws.remote.service"
 AWS_REMOTE_OPERATION: str = "aws.remote.operation"
 AWS_REMOTE_RESOURCE_TYPE: str = "aws.remote.resource.type"
 AWS_REMOTE_RESOURCE_IDENTIFIER: str = "aws.remote.resource.identifier"
+AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER: str = 'aws.remote.resource.cfn.primary.identifier'
 AWS_SPAN_KIND: str = "aws.span.kind"

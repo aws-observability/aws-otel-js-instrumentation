@@ -25,13 +25,10 @@ diag.setLogger(new DiagConsoleLogger(), opentelemetry.core.getEnv().OTEL_LOG_LEV
 /*
 Sets up default environment variables and apply patches
 
-Set default OTEL_EXPORTER_OTLP_PROTOCOL to be `http/protobuf`. This must be run before `configurator.configure()`, which will use this value to
-create an OTel Metric Exporter that is used for the customized AWS Span Procesors. The default value of OTEL_EXPORTER_OTLP_PROTOCOL should be `http/protobuf`:
+Set default OTEL_EXPORTER_OTLP_PROTOCOL to be `http/protobuf` to remain consistent with other ADOT languages. This must be run before
+`configurator.configure()`, which will use this value to create an OTel Metric Exporter that is used for the customized AWS Span Procesors.
+The default value of OTEL_EXPORTER_OTLP_PROTOCOL should be `http/protobuf`:
 https://github.com/open-telemetry/opentelemetry-js/blob/34003c9b7ef7e7e95e86986550d1c7fb6c1c56c6/packages/opentelemetry-core/src/utils/environment.ts#L233
-
-We are setting OTEL_EXPORTER_OTLP_PROTOCOL to HTTP to avoid any potential issues with gRPC. In the ADOT Python SDKs, gRPC did not not work out of the box for
-the vended docker image, due to gRPC having a strict dependency on the Python version the artifact was built for (OTEL observed this:
-https://github.com/open-telemetry/opentelemetry-operator/blob/461ba68e80e8ac6bf2603eb353547cd026119ed2/autoinstrumentation/python/requirements.txt#L2-L3)
 
 Also sets default OTEL_PROPAGATORS to ensure good compatibility with X-Ray and Application Signals.
 
@@ -65,7 +62,7 @@ const instrumentationConfigs: InstrumentationConfigMap = {
 const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
 // Apply instrumentation patches
-applyInstrumentationPatches(instrumentations);
+applyInstrumentationPatches(instrumentations, instrumentationConfigs);
 
 const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator(instrumentations, useXraySampler);
 const configuration: Partial<opentelemetry.NodeSDKConfiguration> = configurator.configure();

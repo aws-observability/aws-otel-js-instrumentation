@@ -14,6 +14,7 @@ env:
   RELEASE_PRIVATE_REPOSITORY: 020628701572.dkr.ecr.us-west-2.amazonaws.com/adot-autoinstrumentation-node
   RELEASE_PRIVATE_REGISTRY: 020628701572.dkr.ecr.us-west-2.amazonaws.com
   PACKAGE_NAME: aws-distro-opentelemetry-node-autoinstrumentation
+  ARTIFACT_NAME: aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz 
 
 permissions:
   id-token: write
@@ -86,6 +87,11 @@ jobs:
           tags: |
             ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
 
+      - name: Get SHA256 checksum of release artifact
+        id: get_sha256
+        run: |
+          shasum -a 256 aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }} | sed "s|aws-distro-opentelemetry-node-autoinstrumentation/||" > ${{ env.ARTIFACT_NAME }}.sha256
+    
       # Publish to GitHub releases
       - name: Create GH release
         id: create_release
@@ -96,7 +102,8 @@ jobs:
              --title "Release v${{ github.event.inputs.version }}" \
              --draft \
              "v${{ github.event.inputs.version }}" \
-             aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz
+             aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }} \
+             ${{ env.ARTIFACT_NAME }}.sha256
 
       # Publish to npm
       - name: Publish to npm
@@ -104,26 +111,5 @@ jobs:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
           NPM_CONFIG_PROVENANCE: true
         run: npx lerna publish from-package --no-push --no-private --no-git-tag-version --no-verify-access --yes
-
-      - name: Get SHA256 checksum of wheel file
-        id: get_sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          checksum=$(shasum -a 256 aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz | awk '{ print $1 }')
-          echo "CHECKSUM=$checksum" >> $GITHUB_OUTPUT
-
-      - name: Append checksum and update version
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz ${{ steps.get_sha256.outputs.CHECKSUM }}" >> checksum.txt
-          echo "${{ github.event.inputs.version }}" > version.txt
-
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "GitHub Action Release Workflow"
-          git add checksum.txt version.txt
-          git commit -m "Update latest version and append checksum"
-          git push
     
     

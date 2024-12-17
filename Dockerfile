@@ -18,7 +18,7 @@ RUN npm install aws-aws-distro-opentelemetry-node-autoinstrumentation-$(node -p 
 RUN npm install
 
 # Stage 2: Build the cp-utility binary
-FROM public.ecr.aws/docker/library/rust:1.75 as builder
+FROM public.ecr.aws/docker/library/rust:1.81 as builder
 
 WORKDIR /usr/src/cp-utility
 COPY ./tools/cp-utility .

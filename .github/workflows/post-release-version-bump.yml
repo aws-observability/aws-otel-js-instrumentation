@@ -9,6 +9,7 @@ on:
 
 env:
   AWS_DEFAULT_REGION: us-east-1
+  VERSION: ${{ github.event.inputs.version }}
 
 permissions:
   id-token: write
@@ -27,8 +28,7 @@ jobs:
 
       - name: Extract Major.Minor Version and setup Env variable
         run: |
-          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-          echo "MAJOR_MINOR=$(echo ${{ github.event.inputs.version }} | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+/\1/')" >> $GITHUB_ENV
+          echo "MAJOR_MINOR=$(echo ${{ env.VERSION }} | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+/\1/')" >> $GITHUB_ENV
 
       - name: Get current major.minor version from main branch
         id: get_version
@@ -85,8 +85,7 @@ jobs:
 
       - name: Extract Major.Minor Version and setup Env variable
         run: |
-          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-          echo "MAJOR_MINOR=$(echo ${{ github.event.inputs.version }} | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+/\1/')" >> $GITHUB_ENV
+          echo "MAJOR_MINOR=$(echo ${{ env.VERSION }} | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+/\1/')" >> $GITHUB_ENV
 
       - name: Determine release branch and checkout
         run: |
@@ -98,11 +97,11 @@ jobs:
         # TODO: change the version in daily scan like adot python did
         # sed -i 's/python:v.*"/python:v'$VERSION'"/' .github/workflows/daily_scan.yml
         run: |
-          DEV_VERSION="${{ github.event.inputs.version }}.dev0"
+          DEV_VERSION="${{ env.VERSION }}.dev0"
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" aws-distro-opentelemetry-node-autoinstrumentation/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" docker-utils/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" package.json
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${{ env.VERSION }}"
           git add .
           git commit -m "Prepare main for next development cycle: Update version to $DEV_VERSION"
           git push --set-upstream origin "prepare-main-for-next-dev-cycle-${VERSION}"
@@ -111,7 +110,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ env.BOT_TOKEN_GITHUB_RW_PATOKEN }}
         run: |
-          DEV_VERSION="${{ github.event.inputs.version }}.dev0"
+          DEV_VERSION="${{ env.VERSION }}.dev0"
           gh pr create --title "Post release $VERSION: Update version to $DEV_VERSION" \
                        --body "This PR prepares the main branch for the next development cycle by updating the version to $DEV_VERSION and updating the image version to be scanned to the latest released.
           

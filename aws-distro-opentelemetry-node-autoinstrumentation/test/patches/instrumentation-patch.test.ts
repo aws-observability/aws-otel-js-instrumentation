@@ -28,9 +28,6 @@ import nock = require('nock');
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { getTestSpans, registerInstrumentationTesting } from '@opentelemetry/contrib-test-utils';
 import { AwsSdkInstrumentationExtended } from '../../src/patches/extended-instrumentations/aws-sdk-instrumentation-extended';
-
-const _STREAM_NAME: string = 'streamName';
-const _BUCKET_NAME: string = 'bucketName';
 const _QUEUE_NAME: string = 'queueName';
 const _ACTIVITY_ARN: string = 'arn:aws:states:us-east-1:123456789123:activity:testActivity';
 const _STATE_MACHINE_ARN: string = 'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine';
@@ -69,13 +66,13 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('SQS')).toBeTruthy();
     expect(services.has('SNS')).toBeTruthy();
     expect(services.has('Lambda')).toBeTruthy();
+    expect(services.has('S3')).toBeTruthy();
+    expect(services.has('Kinesis')).toBeTruthy();
 
     expect(services.has('DynamoDB')).toBeTruthy();
     // From patching but shouldn't be applied
     expect(services.get('SecretsManager')).toBeFalsy();
     expect(services.get('SFN')).toBeFalsy();
-    expect(services.has('S3')).toBeFalsy();
-    expect(services.has('Kinesis')).toBeFalsy();
     expect(services.get('SNS')._requestPreSpanHook).toBeFalsy();
     expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Lambda')._requestPreSpanHook).toBeFalsy();
@@ -100,8 +97,8 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('SNS')).toBeTruthy();
     expect(services.has('DynamoDB')).toBeTruthy();
     expect(services.has('Lambda')).toBeTruthy();
-    expect(services.has('S3')).toBeTruthy();
-    expect(services.has('Kinesis')).toBeTruthy();
+    expect(services.has('S3')).toBeFalsy();
+    expect(services.has('Kinesis')).toBeFalsy();
 
     // From patching
     expect(services.has('SecretsManager')).toBeTruthy();
@@ -171,20 +168,6 @@ describe('InstrumentationPatchTest', () => {
     const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
     expect(() => doExtractBedrockAttributes(services, 'Bedrock')).toThrow();
-  });
-
-  it('S3 with patching', () => {
-    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const s3Attributes: Attributes = doExtractS3Attributes(services);
-    expect(s3Attributes[AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET]).toEqual(_BUCKET_NAME);
-  });
-
-  it('Kinesis with patching', () => {
-    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const kinesisAttributes: Attributes = doExtractKinesisAttributes(services);
-    expect(kinesisAttributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME]).toEqual(_STREAM_NAME);
   });
 
   it('SNS with patching', () => {
@@ -354,30 +337,6 @@ describe('InstrumentationPatchTest', () => {
       throw new Error('extractServicesFromAwsSdkInstrumentation() returned undefined `services`');
     }
     return services;
-  }
-
-  function doExtractKinesisAttributes(services: Map<string, ServiceExtension>): Attributes {
-    const serviceName: string = 'Kinesis';
-    const params: NormalizedRequest = {
-      serviceName: serviceName,
-      commandName: 'mockCommandName',
-      commandInput: {
-        StreamName: _STREAM_NAME,
-      },
-    };
-    return doExtractAttributes(services, serviceName, params);
-  }
-
-  function doExtractS3Attributes(services: Map<string, ServiceExtension>): Attributes {
-    const serviceName: string = 'S3';
-    const params: NormalizedRequest = {
-      serviceName: serviceName,
-      commandName: 'mockCommandName',
-      commandInput: {
-        Bucket: _BUCKET_NAME,
-      },
-    };
-    return doExtractAttributes(services, serviceName, params);
   }
 
   function doExtractSqsAttributes(

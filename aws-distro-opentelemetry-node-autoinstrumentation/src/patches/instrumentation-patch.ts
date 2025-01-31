@@ -23,8 +23,6 @@ import {
   BedrockRuntimeServiceExtension,
   BedrockServiceExtension,
 } from './aws/services/bedrock';
-import { KinesisServiceExtension } from './aws/services/kinesis';
-import { S3ServiceExtension } from './aws/services/s3';
 import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
 import { StepFunctionsServiceExtension } from './aws/services/step-functions';
 import { InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
@@ -68,8 +66,6 @@ export function applyInstrumentationPatches(
       const services: Map<string, ServiceExtension> | undefined = (instrumentations[index] as any).servicesExtensions
         ?.services;
       if (services) {
-        services.set('S3', new S3ServiceExtension());
-        services.set('Kinesis', new KinesisServiceExtension());
         services.set('SecretsManager', new SecretsManagerServiceExtension());
         services.set('SFN', new StepFunctionsServiceExtension());
         services.set('Bedrock', new BedrockServiceExtension());

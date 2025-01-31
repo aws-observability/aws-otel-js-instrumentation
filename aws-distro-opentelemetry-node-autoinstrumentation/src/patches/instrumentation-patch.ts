@@ -84,7 +84,6 @@ export function applyInstrumentationPatches(
       diag.debug('Overriding aws lambda instrumentation');
       const lambdaInstrumentation = new AwsLambdaInstrumentationPatch({
         eventContextExtractor: customExtractor,
-        disableAwsContextPropagation: true,
       });
       instrumentations[index] = lambdaInstrumentation;
     }

@@ -94,7 +94,7 @@
   "dependencies": {
     "@opentelemetry/api": "1.9.0",
     "@opentelemetry/auto-configuration-propagators": "0.3.0",
-    "@opentelemetry/auto-instrumentations-node": "0.50.0",
+    "@opentelemetry/auto-instrumentations-node": "0.56.0",
     "@opentelemetry/core": "1.26.0",
     "@opentelemetry/exporter-metrics-otlp-grpc": "0.53.0",
     "@opentelemetry/exporter-metrics-otlp-http": "0.53.0",

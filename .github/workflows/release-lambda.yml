@@ -3,6 +3,9 @@ name: Release Lambda layer
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: The version to tag the lambda release with (should be the same as the current ADOT JavaScript SDK version, e.g., 0.6.0)
+        required: true
       aws_region:
         description: 'Deploy to aws regions'
         required: true
@@ -49,7 +52,7 @@ jobs:
       - name: Build Lambda Layer
         run: npm run build-lambda
       - name: upload layer
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: layer.zip
           path: lambda-layer/packages/layer/build/layer.zip
@@ -90,7 +93,7 @@ jobs:
         run: |
           echo BUCKET_NAME=nodejs-lambda-layer-${{ github.run_id }}-${{ matrix.aws_region }} | tee --append $GITHUB_ENV
       - name: download layer.zip
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: layer.zip
       - name: publish
@@ -128,7 +131,7 @@ jobs:
             --action lambda:GetLayerVersion
       - name: upload layer arn artifact
         if: ${{ success() }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.LAYER_NAME }}
           path: ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
@@ -144,7 +147,7 @@ jobs:
         uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v2
       - name: download layerARNs
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: ${{ env.LAYER_NAME }}
           path: ${{ env.LAYER_NAME }}
@@ -183,28 +186,35 @@ jobs:
           terraform fmt layer.tf
           cat layer.tf
       - name: upload layer tf file
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: layer.tf
           path: layer.tf
-  create-release:
-    runs-on: ubuntu-latest
-    needs: generate-release-note
-    steps:
-      - name: Checkout Repo @ SHA - ${{ github.sha }}
-        uses: actions/checkout@v4
-      - name: Get latest commit SHA
+      
+      - name: Get commit hash
+        id: commit
         run: |
-          echo "COMMIT_SHA=${GITHUB_SHA}" >> $GITHUB_ENV
-          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
-          echo "SHORT_SHA=${SHORT_SHA}" >> $GITHUB_ENV
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
+          echo "sha_short=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+          
+      - name: Create Release Notes
+        run: |
+          echo "AWS OpenTelemetry Lambda Layer for JavaScript version ${{ github.event.inputs.version }}-${{ steps.commit.outputs.sha_short }}" > release_notes.md
+          echo "" >> release_notes.md
+          echo "Lambda Layer ARNs:" >> release_notes.md
+          echo "" >> release_notes.md
+          cat layer-note >> release_notes.md
+          echo "" >> release_notes.md
+          echo "Notes:" >> release_notes.md          
+      - name: Create GH release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          release_name: "Release AWSOpenTelemetryDistroPython Lambda Layer"
-          body_path: lambda-layer/terraform/lambda/layer.tf
-          draft: true
-          prerelease: false
+        run: |
+          gh release create \
+            --target "$GITHUB_REF_NAME" \
+            --title "Release lambda-v${{ github.event.inputs.version }}-${{ steps.commit.outputs.sha_short }}" \
+            --notes-file release_notes.md \
+            --draft \
+            "lambda-v${{ github.event.inputs.version }}-${{ steps.commit.outputs.sha_short }}" \
+            lambda-layer/terraform/lambda/layer.tf
+          echo Removing release_notes.md ...
+          rm -f release_notes.md

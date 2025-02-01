@@ -12,7 +12,7 @@ import {
   AttributeValue,
 } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
-import { Instrumentation } from '@opentelemetry/instrumentation';
+import { Instrumentation, InstrumentationBase, InstrumentationConfig } from '@opentelemetry/instrumentation';
 import { AwsInstrumentation, NormalizedRequest, NormalizedResponse } from '@opentelemetry/instrumentation-aws-sdk';
 import { AwsLambdaInstrumentation, AwsLambdaInstrumentationConfig } from '@opentelemetry/instrumentation-aws-lambda';
 import { expect } from 'expect';
@@ -55,7 +55,7 @@ applyInstrumentationPatches(PATCHED_INSTRUMENTATIONS);
 
 const extendedAwsSdkInstrumentation: AwsInstrumentation = new AwsInstrumentation();
 applyInstrumentationPatches([extendedAwsSdkInstrumentation]);
-registerInstrumentationTesting(extendedAwsSdkInstrumentation);
+registerInstrumentationTesting(extendedAwsSdkInstrumentation as unknown as InstrumentationBase<InstrumentationConfig>);
 
 describe('InstrumentationPatchTest', () => {
   it('SanityTestUnpatchedAwsSdkInstrumentation', () => {

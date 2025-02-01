@@ -7,7 +7,7 @@ import { applyInstrumentationPatches } from './../../../../src/patches/instrumen
 
 const instrumentations: AwsInstrumentation[] = [new AwsInstrumentation()];
 applyInstrumentationPatches(instrumentations);
-registerInstrumentationTesting(instrumentations[0]);
+registerInstrumentationTesting(instrumentations[0] as unknown as InstrumentationBase<InstrumentationConfig>);
 
 import { Bedrock } from '@aws-sdk/client-bedrock';
 import { BedrockAgent } from '@aws-sdk/client-bedrock-agent';
@@ -20,6 +20,7 @@ import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { expect } from 'expect';
 import { AWS_ATTRIBUTE_KEYS } from '../../../../src/aws-attribute-keys';
 import { AwsSpanProcessingUtil } from '../../../../src/aws-span-processing-util';
+import { InstrumentationBase, InstrumentationConfig } from '@opentelemetry/instrumentation';
 
 // This file's contents are being contributed to upstream
 // - https://github.com/open-telemetry/opentelemetry-js-contrib/pull/2361

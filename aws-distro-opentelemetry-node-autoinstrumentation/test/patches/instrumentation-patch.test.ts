@@ -97,8 +97,8 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('SNS')).toBeTruthy();
     expect(services.has('DynamoDB')).toBeTruthy();
     expect(services.has('Lambda')).toBeTruthy();
-    expect(services.has('S3')).toBeFalsy();
-    expect(services.has('Kinesis')).toBeFalsy();
+    expect(services.has('S3')).toBeTruthy();
+    expect(services.has('Kinesis')).toBeTruthy();
 
     // From patching
     expect(services.has('SecretsManager')).toBeTruthy();

@@ -188,35 +188,23 @@ export class AwsOpentelemetryConfigurator {
   }
 
   public configure(): Partial<NodeSDKConfiguration> {
-    let config: Partial<NodeSDKConfiguration>;
-    if (AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
-      // config.autoDetectResources is set to False, as the resources are detected and added to the
-      // resource ahead of time. The resource is needed to be populated ahead of time instead of letting
-      // the OTel Node SDK do the population work because the constructed resource was required to build
-      // the sampler (if using XRay sampler) and the AwsMetricAttributesSpanExporter and AwsSpanMetricsProcessor
-      config = {
-        instrumentations: this.instrumentations,
-        resource: this.resource,
-        idGenerator: this.idGenerator,
-        sampler: this.sampler,
-        // Error message 'Exporter "otlp" requested through environment variable is unavailable.'
-        // will appear from BasicTracerProvider that is used in the OTel JS SDK, even though the
-        // span processors are specified
-        // https://github.com/open-telemetry/opentelemetry-js/issues/3449
-        spanProcessors: this.spanProcessors,
-        autoDetectResources: false,
-        textMapPropagator: this.propagator,
-      };
-    } else {
-      // Default experience config
-      config = {
-        instrumentations: this.instrumentations,
-        resource: this.resource,
-        sampler: this.sampler,
-        idGenerator: this.idGenerator,
-        autoDetectResources: false,
-      };
-    }
+    // config.autoDetectResources is set to False, as the resources are detected and added to the
+    // resource ahead of time. The resource is needed to be populated ahead of time instead of letting
+    // the OTel Node SDK do the population work because the constructed resource was required to build
+    // the sampler (if using XRay sampler) and the AwsMetricAttributesSpanExporter and AwsSpanMetricsProcessor
+    const config: Partial<NodeSDKConfiguration> = {
+      instrumentations: this.instrumentations,
+      resource: this.resource,
+      idGenerator: this.idGenerator,
+      sampler: this.sampler,
+      // Error message 'Exporter "otlp" requested through environment variable is unavailable.'
+      // will appear from BasicTracerProvider that is used in the OTel JS SDK, even though the
+      // span processors are specified
+      // https://github.com/open-telemetry/opentelemetry-js/issues/3449
+      spanProcessors: this.spanProcessors,
+      autoDetectResources: false,
+      textMapPropagator: this.propagator,
+    };
 
     return config;
   }

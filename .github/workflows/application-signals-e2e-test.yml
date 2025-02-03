@@ -34,7 +34,7 @@ jobs:
           role-to-assume: arn:aws:iam::637423224110:role/${{ secrets.STAGING_ARTIFACTS_ACCESS_ROLE_NAME }}
           aws-region: us-east-1
 
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: ${{ inputs.staging-instrumentation-name }}
 

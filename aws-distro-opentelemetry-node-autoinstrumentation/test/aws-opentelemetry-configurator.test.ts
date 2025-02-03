@@ -9,7 +9,13 @@ import { OTLPTraceExporter as OTLPHttpTraceExporter } from '@opentelemetry/expor
 import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { Resource } from '@opentelemetry/resources';
 import { PushMetricExporter } from '@opentelemetry/sdk-metrics';
-import { AlwaysOffSampler, ReadableSpan, SpanProcessor, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
+import {
+  AlwaysOffSampler,
+  BatchSpanProcessor,
+  ReadableSpan,
+  SpanProcessor,
+  TraceIdRatioBasedSampler,
+} from '@opentelemetry/sdk-trace-base';
 import {
   AlwaysOnSampler,
   NodeTracerProvider,
@@ -453,6 +459,24 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect((spanExporter as OTLPUdpSpanExporter)['_endpoint']).toBe('www.test.com:2222');
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    delete process.env.OTEL_TRACES_EXPORTER;
+    delete process.env.AWS_XRAY_DAEMON_ADDRESS;
+  });
+
+  it('Tests that OTLP exporter from the configurator is UDPExporter when Application Signals is disabled on Lambda', () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'False';
+    process.env.OTEL_TRACES_EXPORTER = 'otlp';
+    process.env.AWS_XRAY_DAEMON_ADDRESS = 'www.test.com:2222';
+
+    const config = new AwsOpentelemetryConfigurator([]).configure();
+    expect((config.spanProcessors as any)[0]).toBeInstanceOf(BatchSpanProcessor);
+    expect((config.spanProcessors as any)[0]._exporter).toBeInstanceOf(OTLPUdpSpanExporter);
+    expect((config.spanProcessors as any)[0]._exporter._endpoint).toBe('www.test.com:2222');
+    expect(config.spanProcessors?.length).toEqual(1);
+
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     delete process.env.OTEL_TRACES_EXPORTER;
     delete process.env.AWS_XRAY_DAEMON_ADDRESS;
   });

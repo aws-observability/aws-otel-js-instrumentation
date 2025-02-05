@@ -774,6 +774,16 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes('AWS::SecretsManager::Secret', 'testSecret');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN, undefined);
 
+    // Validate behaviour of AWS_LAMBDA_FUNCTION_NAME and AWS_LAMBDA_FUNCTION_ARN
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, 'aws_lambda_function_name');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN,
+      'arn:aws:lambda:us-east-1:123456789012:function:aws_lambda_function_name'
+    );
+    validateRemoteResourceAttributes('AWS::Lambda::Function', 'aws_lambda_function_name');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN, undefined);
+
     // Validate behaviour of AWS_LAMBDA_RESOURCE_MAPPING_ID attribute then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID, 'aws_lambda_resource_mapping_id');
     validateRemoteResourceAttributes('AWS::Lambda::EventSourceMapping', 'aws_lambda_resource_mapping_id');

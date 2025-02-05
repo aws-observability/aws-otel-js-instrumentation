@@ -10,9 +10,15 @@ import {
   ROOT_CONTEXT,
   TextMapGetter,
   trace,
+  Span,
+  Tracer,
 } from '@opentelemetry/api';
 import { Instrumentation } from '@opentelemetry/instrumentation';
-import { AwsSdkInstrumentationConfig, NormalizedRequest } from '@opentelemetry/instrumentation-aws-sdk';
+import {
+  AwsSdkInstrumentationConfig,
+  NormalizedRequest,
+  NormalizedResponse,
+} from '@opentelemetry/instrumentation-aws-sdk';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
 import { AWS_ATTRIBUTE_KEYS } from '../aws-attribute-keys';
@@ -215,10 +221,41 @@ function patchLambdaServiceExtension(lambdaServiceExtension: any): void {
         if (resourceMappingId) {
           requestMetadata.spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID] = resourceMappingId;
         }
+
+        const requestFunctionNameFormat = request.commandInput?.FunctionName;
+        let functionName = requestFunctionNameFormat;
+
+        if (requestFunctionNameFormat) {
+          if (requestFunctionNameFormat.startsWith('arn:aws:lambda')) {
+            const split = requestFunctionNameFormat.split(':');
+            functionName = split[split.length - 1];
+          }
+          requestMetadata.spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME] = functionName;
+        }
       }
       return requestMetadata;
     };
 
     lambdaServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
+
+    if (typeof lambdaServiceExtension.responseHook === 'function') {
+      const originalResponseHook = lambdaServiceExtension.responseHook;
+
+      lambdaServiceExtension.responseHook = (
+        response: NormalizedResponse,
+        span: Span,
+        tracer: Tracer,
+        config: AwsSdkInstrumentationConfig
+      ): void => {
+        originalResponseHook.call(lambdaServiceExtension, response, span, tracer, config);
+
+        if (response.data && response.data.Configuration) {
+          const functionArn = response.data.Configuration.FunctionArn;
+          if (functionArn) {
+            span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN, functionArn);
+          }
+        }
+      };
+    }
   }
 }

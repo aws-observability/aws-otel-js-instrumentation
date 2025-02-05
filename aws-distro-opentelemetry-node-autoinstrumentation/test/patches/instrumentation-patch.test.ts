@@ -38,6 +38,8 @@ const _SECRETS_ARN: string = 'arn:aws:secretsmanager:us-east-1:123456789123:secr
 const _UUID: string = 'random-uuid';
 const _TOPIC_ARN: string = 'arn:aws:sns:us-east-1:123456789012:mystack-mytopic-NZJ5JSMVGFIE';
 const _QUEUE_URL: string = 'https://sqs.us-east-1.amazonaws.com/123412341234/queueName';
+const _FUNCTION_NAME: string = 'testFunction';
+const _FUNCTION_ARN: string = `arn:aws:lambda:us-east-1:123456789012:function:${_FUNCTION_NAME}`;
 const _BEDROCK_AGENT_ID: string = 'agentId';
 const _BEDROCK_DATASOURCE_ID: string = 'DataSourceId';
 const _BEDROCK_GUARDRAIL_ID: string = 'GuardrailId';
@@ -165,6 +167,8 @@ describe('InstrumentationPatchTest', () => {
 
     const lambdaAttributes: Attributes = doExtractLambdaAttributes(services);
     expect(lambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID]).toBeUndefined();
+    expect(lambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]).toBeUndefined();
+    expect(lambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toBeUndefined();
   });
 
   it('SFN without patching', () => {
@@ -228,6 +232,9 @@ describe('InstrumentationPatchTest', () => {
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
     const requestLambdaAttributes: Attributes = doExtractLambdaAttributes(services);
     expect(requestLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID]).toEqual(_UUID);
+    expect(requestLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]).toEqual(_FUNCTION_NAME);
+    const responseLambdaAttributes: Attributes = doResponseHookLambda(services);
+    expect(responseLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toEqual(_FUNCTION_ARN);
   });
 
   it('SFN with patching', () => {
@@ -429,6 +436,7 @@ describe('InstrumentationPatchTest', () => {
       commandName: 'mockCommandName',
       commandInput: {
         UUID: _UUID,
+        FunctionName: _FUNCTION_NAME,
       },
     };
     return doExtractAttributes(services, serviceName, params);
@@ -505,6 +513,23 @@ describe('InstrumentationPatchTest', () => {
     };
 
     return doResponseHook(services, 'SecretsManager', results as NormalizedResponse);
+  }
+
+  function doResponseHookLambda(services: Map<string, ServiceExtension>): Attributes {
+    const results: Partial<NormalizedResponse> = {
+      data: {
+        Configuration: {
+          FunctionArn: _FUNCTION_ARN,
+        },
+      },
+      request: {
+        commandInput: {},
+        commandName: 'dummy_operation',
+        serviceName: 'Lambda',
+      },
+    };
+
+    return doResponseHook(services, 'Lambda', results as NormalizedResponse);
   }
 
   function doResponseHookBedrock(

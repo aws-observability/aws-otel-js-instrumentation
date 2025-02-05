@@ -9,6 +9,7 @@ export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   AWS_LOCAL_SERVICE: 'aws.local.service',
   AWS_LOCAL_OPERATION: 'aws.local.operation',
   AWS_REMOTE_SERVICE: 'aws.remote.service',
+  AWS_REMOTE_ENVIRONMENT: 'aws.remote.environment',
   AWS_REMOTE_OPERATION: 'aws.remote.operation',
   AWS_REMOTE_RESOURCE_TYPE: 'aws.remote.resource.type',
   AWS_REMOTE_RESOURCE_IDENTIFIER: 'aws.remote.resource.identifier',

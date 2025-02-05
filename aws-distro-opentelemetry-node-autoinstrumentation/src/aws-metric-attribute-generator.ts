@@ -409,6 +409,33 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
           this.extractResourceNameFromArn(activityArn)
         );
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(activityArn);
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME)) {
+        // Handling downstream Lambda as a service vs. an AWS resource:
+        // - If the method call is "Invoke", we treat downstream Lambda as a service.
+        // - Otherwise, we treat it as an AWS resource.
+        //
+        // This addresses a Lambda topology issue in Application Signals.
+        // More context in PR: https://github.com/aws-observability/aws-otel-python-instrumentation/pull/319
+        //
+        // NOTE: The env vars LAMBDA_APPLICATION_SIGNALS_REMOTE_SERVICE and
+        // LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT were introduced as part of this fix.
+        // They are optional and allow users to override the default values if needed.
+        if (AwsMetricAttributeGenerator.getRemoteOperation(span, SEMATTRS_RPC_METHOD) === 'Invoke') {
+          attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE] =
+            process.env.LAMBDA_APPLICATION_SIGNALS_REMOTE_SERVICE ||
+            span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME];
+          attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT] = `lambda:${
+            process.env.LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT || 'default'
+          }`;
+        } else {
+          remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::Function';
+          remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+            span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]
+          );
+          cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+            span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]
+          );
+        }
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID)) {
         remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::EventSourceMapping';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(

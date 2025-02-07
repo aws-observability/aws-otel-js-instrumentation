@@ -5,8 +5,9 @@ import { AttributeValue, Attributes, Context, Histogram, SpanStatusCode } from '
 import { Resource } from '@opentelemetry/resources';
 import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
-import { AttributeMap, MetricAttributeGenerator } from './metric-attribute-generator';
+import { AttributeMap, DEPENDENCY_METRIC, MetricAttributeGenerator } from './metric-attribute-generator';
 import { ForceFlushFunction } from './aws-span-processing-util';
+import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 
 /**
  * This processor will generate metrics based on span data. It depends on a
@@ -32,6 +33,10 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
   private ERROR_CODE_UPPER_BOUND: number = 499;
   private FAULT_CODE_LOWER_BOUND: number = 500;
   private FAULT_CODE_UPPER_BOUND: number = 599;
+
+  // EC2 Metadata API IP Address
+  // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html#instancedata-inside-access
+  private EC2_METADATA_API_IP: string = '169.254.169.254';
 
   // Metric instruments
   private errorHistogram: Histogram;
@@ -83,8 +88,10 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
   public onEnd(span: ReadableSpan): void {
     const attributeMap: AttributeMap = this.generator.generateMetricAttributeMapFromSpan(span, this.resource);
 
-    for (const attribute in attributeMap) {
-      this.recordMetrics(span, attributeMap[attribute]);
+    if (!this.isEc2MetadataApiSpan(attributeMap)) {
+      for (const attribute in attributeMap) {
+        this.recordMetrics(span, attributeMap[attribute]);
+      }
     }
   }
 
@@ -142,5 +149,9 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
 
   public forceFlush(): Promise<void> {
     return this.forceFlushFunction();
+  }
+
+  private isEc2MetadataApiSpan(attributeMap: AttributeMap): boolean {
+    return attributeMap[DEPENDENCY_METRIC]?.[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE] === this.EC2_METADATA_API_IP;
   }
 }

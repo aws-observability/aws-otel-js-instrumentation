@@ -397,6 +397,22 @@ describe('AwsSpanMetricsProcessorTest', () => {
     validateMetricsGeneratedForStatusDataOk(600, ExpectedStatusMetric.NEITHER);
   });
 
+  it('testOnEndMetricsGenerationFromEc2MetadataApi', () => {
+    const spanAttributes: Attributes = { [AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE]: '169.254.169.254' };
+    const readableSpanMock: ReadableSpan = buildReadableSpanMock(
+      spanAttributes,
+      SpanKind.CLIENT,
+      INVALID_SPAN_CONTEXT,
+      { code: SpanStatusCode.UNSET }
+    );
+    const metricAttributesMap: AttributeMap = buildEc2MetadataApiMetricAttributes();
+    configureMocksForOnEnd(readableSpanMock, metricAttributesMap);
+    awsSpanMetricsProcessor.onEnd(readableSpanMock);
+    sinon.assert.notCalled(errorHistogramMockRecord);
+    sinon.assert.notCalled(faultHistogramMockRecord);
+    sinon.assert.notCalled(latencyHistogramMockRecord);
+  });
+
   function buildSpanAttributes(containsAttribute: boolean): Attributes {
     if (containsAttribute) {
       return { 'original key': 'original value' };
@@ -418,6 +434,13 @@ describe('AwsSpanMetricsProcessorTest', () => {
         attributesMap[DEPENDENCY_METRIC] = attributes;
       }
     }
+    return attributesMap;
+  }
+
+  function buildEc2MetadataApiMetricAttributes(): AttributeMap {
+    const attributesMap: AttributeMap = {};
+    const attributes: Attributes = { [AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE]: '169.254.169.254' };
+    attributesMap[DEPENDENCY_METRIC] = attributes;
     return attributesMap;
   }
 

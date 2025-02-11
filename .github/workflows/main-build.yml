@@ -72,7 +72,7 @@ jobs:
           aws s3 cp aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL }} s3://${{ env.STAGING_S3_BUCKET }}
 
       - name: Upload Tarball to GitHub Actions
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
           path: aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}

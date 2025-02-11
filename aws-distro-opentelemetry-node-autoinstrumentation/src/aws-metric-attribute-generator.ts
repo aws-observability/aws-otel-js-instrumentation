@@ -417,13 +417,13 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         // This addresses a Lambda topology issue in Application Signals.
         // More context in PR: https://github.com/aws-observability/aws-otel-python-instrumentation/pull/319
         //
-        // NOTE: The env vars LAMBDA_APPLICATION_SIGNALS_REMOTE_SERVICE and
-        // LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT were introduced as part of this fix.
-        // They are optional and allow users to override the default values if needed.
+        // NOTE: The env var LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT was introduced as part of this fix.
+        // It is optional and allow users to override the default value if needed.
         if (AwsMetricAttributeGenerator.getRemoteOperation(span, SEMATTRS_RPC_METHOD) === 'Invoke') {
-          attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE] =
-            process.env.LAMBDA_APPLICATION_SIGNALS_REMOTE_SERVICE ||
-            span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME];
+          attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE] = AwsMetricAttributeGenerator.escapeDelimiters(
+            span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]
+          );
+
           attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT] = `lambda:${
             process.env.LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT || 'default'
           }`;

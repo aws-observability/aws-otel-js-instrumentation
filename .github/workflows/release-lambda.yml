@@ -149,7 +149,7 @@ jobs:
       - name: download layerARNs
         uses: actions/download-artifact@v4
         with:
-          name: ${{ env.LAYER_NAME }}-*
+          pattern: ${{ env.LAYER_NAME }}-*
           path: ${{ env.LAYER_NAME }}
           merge-multiple: true
       - name: show layerARNs

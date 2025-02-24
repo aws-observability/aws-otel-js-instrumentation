@@ -3,15 +3,9 @@
 import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { diag } from '@opentelemetry/api';
 import { OTLPExporterNodeConfigBase } from '@opentelemetry/otlp-exporter-base';
-import { ExportResult } from '@opentelemetry/core';
-import { defaultProvider } from '@aws-sdk/credential-provider-node';
-import { Sha256 } from '@aws-crypto/sha256-js';
-import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
-import { SignatureV4 } from '@smithy/signature-v4';
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer';
-import { HttpRequest } from '@smithy/protocol-http';
-
-const SERVICE_NAME = 'xray';
+import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
+import { ExportResult } from '@opentelemetry/core';
 
 /**
  * This exporter extends the functionality of the OTLPProtoTraceExporter to allow spans to be exported
@@ -20,11 +14,22 @@ const SERVICE_NAME = 'xray';
  * href="https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-OTLPEndpoint.html">...</a>
  */
 export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
+  private static readonly SERVICE_NAME: string = 'xray';
   private endpoint: string;
   private region: string;
 
+  // Holds the dependencies needed to sign the SigV4 headers
+  private defaultProvider: any;
+  private sha256: any;
+  private signatureV4: any;
+  private httpRequest: any;
+
+  // If there are required dependencies then we enable SigV4 signing. Otherwise skip it
+  private hasRequiredDependencies: boolean = false;
+
   constructor(endpoint: string, config?: OTLPExporterNodeConfigBase) {
-    super(config);
+    super(OTLPAwsSpanExporter.changeUrlConfig(endpoint, config));
+    this.initDependencies();
     this.region = endpoint.split('.')[1];
     this.endpoint = endpoint;
   }
@@ -35,48 +40,82 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
    * sending it to the endpoint. Otherwise, we will skip signing.
    */
   public override async export(items: ReadableSpan[], resultCallback: (result: ExportResult) => void): Promise<void> {
-    const url = new URL(this.endpoint);
-    const serializedSpans: Uint8Array | undefined = ProtobufTraceSerializer.serializeRequest(items);
+    // Only do SigV4 Signing if the required dependencies are installed. Otherwise default to the regular http/protobuf exporter.
+    if (this.hasRequiredDependencies) {
+      const url = new URL(this.endpoint);
+      const serializedSpans: Uint8Array | undefined = ProtobufTraceSerializer.serializeRequest(items);
 
-    if (serializedSpans === undefined) {
-      return;
-    }
+      if (serializedSpans === undefined) {
+        return;
+      }
 
-    /*
-      This is bad practice but there is no other way to access and inject SigV4 headers
-      into the request headers before the traces get exported.
-    */
-    const oldHeaders = (this as any)._transport._transport._parameters.headers;
+      /*
+        This is bad practice but there is no other way to access and inject SigV4 headers
+        into the request headers before the traces get exported.
+      */
+      const oldHeaders = (this as any)._transport?._transport?._parameters?.headers;
 
-    const request = new HttpRequest({
-      method: 'POST',
-      protocol: 'https',
-      hostname: url.hostname,
-      path: url.pathname,
-      body: serializedSpans,
-      headers: {
-        ...oldHeaders,
-        host: url.hostname,
-      },
-    });
+      if (oldHeaders) {
+        const request = new this.httpRequest({
+          method: 'POST',
+          protocol: 'https',
+          hostname: url.hostname,
+          path: url.pathname,
+          body: serializedSpans,
+          headers: {
+            ...oldHeaders,
+            host: url.hostname,
+          },
+        });
 
-    try {
-      const signer = new SignatureV4({
-        credentials: defaultProvider(),
-        region: this.region,
-        service: SERVICE_NAME,
-        sha256: Sha256,
-      });
+        try {
+          const signer = new this.signatureV4({
+            credentials: this.defaultProvider(),
+            region: this.region,
+            service: OTLPAwsSpanExporter.SERVICE_NAME,
+            sha256: this.sha256,
+          });
 
-      const signedRequest = await signer.sign(request);
+          const signedRequest = await signer.sign(request);
 
-      (this as any)._transport._transport._parameters.headers = signedRequest.headers;
-    } catch (exception) {
-      diag.debug(
-        `Failed to sign/authenticate the given exported Span request to OTLP XRay endpoint with error: ${exception}`
-      );
+          (this as any)._transport._transport._parameters.headers = signedRequest.headers;
+        } catch (exception) {
+          diag.debug(
+            `Failed to sign/authenticate the given exported Span request to OTLP XRay endpoint with error: ${exception}`
+          );
+        }
+      }
     }
 
     await super.export(items, resultCallback);
+  }
+
+  private initDependencies(): any {
+    try {
+      const awsSdkModule = require('@aws-sdk/credential-provider-node');
+      const awsCryptoModule = require('@aws-crypto/sha256-js');
+      const signatureModule = require('@smithy/signature-v4');
+      const httpModule = require('@smithy/protocol-http');
+
+      (this.defaultProvider = awsSdkModule.defaultProvider),
+        (this.sha256 = awsCryptoModule.Sha256),
+        (this.signatureV4 = signatureModule.SignatureV4),
+        (this.httpRequest = httpModule.HttpRequest);
+      this.hasRequiredDependencies = true;
+    } catch (error) {
+      diag.error(`Failed to load required AWS dependency for SigV4 Signing: ${error}`);
+    }
+  }
+
+  private static changeUrlConfig(endpoint: string, config?: OTLPExporterNodeConfigBase) {
+    const newConfig =
+      config === undefined
+        ? { url: endpoint }
+        : {
+            ...config,
+            url: endpoint,
+          };
+
+    return newConfig;
   }
 }

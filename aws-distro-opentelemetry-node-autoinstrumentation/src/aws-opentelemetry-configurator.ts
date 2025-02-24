@@ -62,7 +62,7 @@ import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
 
-const XRAY_OTLP_ENDPOINT_PATTERN = '^https://xray\.([a-z0-9-]+)\.amazonaws\.com/v1/traces$';
+const XRAY_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';

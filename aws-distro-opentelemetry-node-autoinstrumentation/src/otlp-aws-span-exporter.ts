@@ -6,12 +6,15 @@ import { OTLPExporterNodeConfigBase } from '@opentelemetry/otlp-exporter-base';
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { ExportResult } from '@opentelemetry/core';
+import { getNodeVersion } from './utils';
 
 /**
  * This exporter extends the functionality of the OTLPProtoTraceExporter to allow spans to be exported
  * to the XRay OTLP endpoint https://xray.[AWSRegion].amazonaws.com/v1/traces. Utilizes the aws-sdk
  * library to sign and directly inject SigV4 Authentication to the exported request's headers. <a
  * href="https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-OTLPEndpoint.html">...</a>
+ *
+ * This only works with version >=16 Node.js environments.
  */
 export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
   private static readonly SERVICE_NAME: string = 'xray';
@@ -24,7 +27,7 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
   private signatureV4: any;
   private httpRequest: any;
 
-  // If there are required dependencies then we enable SigV4 signing. Otherwise skip it
+  // If the required dependencies are installed then we enable SigV4 signing. Otherwise skip it
   private hasRequiredDependencies: boolean = false;
 
   constructor(endpoint: string, config?: OTLPExporterNodeConfigBase) {
@@ -91,6 +94,11 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
   }
 
   private initDependencies(): any {
+    if (getNodeVersion() < 16) {
+      diag.error('SigV4 signing requires atleast Node major version 16');
+      return;
+    }
+
     try {
       const awsSdkModule = require('@aws-sdk/credential-provider-node');
       const awsCryptoModule = require('@aws-crypto/sha256-js');

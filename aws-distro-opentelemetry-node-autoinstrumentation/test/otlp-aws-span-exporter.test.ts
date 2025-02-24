@@ -58,7 +58,7 @@ describe('OTLPAwsSpanExporter', () => {
     sandbox.restore();
   });
 
-  it('Should inject SigV4 Headers successfully', () => {
+  it('Should inject SigV4 Headers successfully', async () => {
     const exporter = new mockModule.OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT + '/v1/traces');
 
     scope.on('request', (req, interceptor, body) => {
@@ -75,7 +75,7 @@ describe('OTLPAwsSpanExporter', () => {
       expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
     });
 
-    exporter.export([], () => {});
+    await exporter.export([], () => {});
   });
 
   describe('Should not inject SigV4 headers if dependencies are missing', () => {
@@ -87,7 +87,7 @@ describe('OTLPAwsSpanExporter', () => {
     ];
 
     dependencies.forEach(dependency => {
-      it(`should not sign headers if missing dependency: ${dependency}`, () => {
+      it(`should not sign headers if missing dependency: ${dependency}`, async () => {
         const exporter = new OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT + '/v1/traces');
 
         scope.on('request', (req, interceptor, body) => {
@@ -107,7 +107,7 @@ describe('OTLPAwsSpanExporter', () => {
         requireStub.withArgs(dependency).throws(new Error(`Cannot find module '${dependency}'`));
         requireStub.callThrough();
 
-        exporter.export([], () => {});
+        await exporter.export([], () => {});
       });
     });
   });
@@ -135,7 +135,7 @@ describe('OTLPAwsSpanExporter', () => {
 
     const exporter = new stubbedModule.OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT);
 
-    exporter.export([], () => {});
+    await exporter.export([], () => {});
   });
 
   it('should not inject SigV4 headers if failure to retrieve credentials', async () => {
@@ -159,6 +159,6 @@ describe('OTLPAwsSpanExporter', () => {
 
     const exporter = new stubbedModule.OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT);
 
-    exporter.export([], () => {});
+    await exporter.export([], () => {});
   });
 });

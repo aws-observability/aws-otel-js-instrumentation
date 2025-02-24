@@ -239,7 +239,7 @@ export class AwsOpentelemetryConfigurator {
 
     spanProcessors.push(AttributePropagatingSpanProcessorBuilder.create().build());
 
-    if(isXrayOtlpEndpoint(process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'])) {
+    if (isXrayOtlpEndpoint(process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'])) {
       return;
     }
 

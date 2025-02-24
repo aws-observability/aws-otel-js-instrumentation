@@ -77,7 +77,7 @@ describe('OTLPAwsSpanExporter', () => {
 
     exporter.export([], () => {});
   });
-  
+
   describe('Should not inject SigV4 headers if dependencies are missing', () => {
     const dependencies = [
       '@aws-sdk/credential-provider-node',

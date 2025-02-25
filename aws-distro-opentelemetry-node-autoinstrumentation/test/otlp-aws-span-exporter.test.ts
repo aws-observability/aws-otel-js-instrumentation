@@ -19,10 +19,8 @@ const EXPECTED_AUTH_SECURITY_TOKEN = 'test_token';
 
 const nodeVersion = getNodeVersion();
 
-/* istanbul ignore else */
-if (nodeVersion < 16) {
-  it.skip(`Skipping tests - Node.js version ${nodeVersion} is below required version 16`, () => {});
-} else {
+/* istanbul ignore next */
+if (nodeVersion >= 16) {
   describe('OTLPAwsSpanExporter', () => {
     let sandbox: sinon.SinonSandbox;
     let scope: nock.Scope;

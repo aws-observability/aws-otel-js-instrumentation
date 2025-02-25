@@ -19,6 +19,7 @@ const EXPECTED_AUTH_SECURITY_TOKEN = 'test_token';
 
 const nodeVersion = getNodeVersion();
 
+// SigV4 exporter requires packages that require Node environments >= 16
 /* istanbul ignore next */
 if (nodeVersion >= 16) {
   describe('OTLPAwsSpanExporter', () => {

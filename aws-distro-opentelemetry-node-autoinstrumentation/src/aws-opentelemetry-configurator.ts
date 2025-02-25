@@ -56,8 +56,8 @@ import { AttributePropagatingSpanProcessorBuilder } from './attribute-propagatin
 import { AwsBatchUnsampledSpanProcessor } from './aws-batch-unsampled-span-processor';
 import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-span-exporter-builder';
 import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
-import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
 import { OTLPAwsSpanExporter } from './otlp-aws-span-exporter';
+import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
 import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';

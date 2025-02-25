@@ -4,10 +4,11 @@ import expect from 'expect';
 import { OTLPAwsSpanExporter } from '../src/otlp-aws-span-exporter';
 import * as sinon from 'sinon';
 import * as proxyquire from 'proxyquire';
-import nock = require('nock');
+import * as nock from 'nock';
 import { getNodeVersion } from '../src/utils';
 
 const XRAY_OTLP_ENDPOINT = 'https://xray.us-east-1.amazonaws.com';
+const XRAY_OTLP_ENDPOINT_PATH = '/v1/traces';
 const AUTHORIZATION_HEADER = 'Authorization';
 const X_AMZ_DATE_HEADER = 'X-Amz-Date';
 const X_AMZ_SECURITY_TOKEN_HEADER = 'X-Amz-Security-Token';
@@ -18,7 +19,7 @@ const EXPECTED_AUTH_SECURITY_TOKEN = 'test_token';
 
 const nodeVersion = getNodeVersion();
 
-/* istanbul ignore if */
+/* istanbul ignore else */
 if (nodeVersion < 16) {
   it.skip(`Skipping tests - Node.js version ${nodeVersion} is below required version 16`, () => {});
 } else {
@@ -31,7 +32,7 @@ if (nodeVersion < 16) {
       sandbox = sinon.createSandbox();
 
       scope = nock(XRAY_OTLP_ENDPOINT)
-        .post('/v1/traces')
+        .post(XRAY_OTLP_ENDPOINT_PATH)
         .reply((uri: any, requestBody: any) => {
           return [200, ''];
         });
@@ -67,7 +68,7 @@ if (nodeVersion < 16) {
     });
 
     it('Should inject SigV4 Headers successfully', async () => {
-      const exporter = new mockModule.OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT + '/v1/traces');
+      const exporter = new mockModule.OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT + XRAY_OTLP_ENDPOINT_PATH);
 
       scope.on('request', (req, interceptor, body) => {
         const headers = req.headers;
@@ -96,7 +97,7 @@ if (nodeVersion < 16) {
 
       dependencies.forEach(dependency => {
         it(`should not sign headers if missing dependency: ${dependency}`, async () => {
-          const exporter = new OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT + '/v1/traces');
+          const exporter = new OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT + XRAY_OTLP_ENDPOINT_PATH);
 
           scope.on('request', (req, interceptor, body) => {
             const headers = req.headers;

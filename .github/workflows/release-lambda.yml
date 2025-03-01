@@ -174,24 +174,22 @@ jobs:
       - name: generate tf layer
         working-directory: ${{ env.LAYER_NAME }}
         run: |
-          echo "locals {" >> ../layer.tf
-          echo "  sdk_layer_arns = {" >> ../layer.tf
+          echo "locals {" >> ../layer_arns.tf
+          echo "  sdk_layer_arns = {" >> ../layer_arns.tf
           for file in *
           do
           read arn < $file
-          echo "    \""$file"\" = \""$arn"\"" >> ../layer.tf
+          echo "    \""$file"\" = \""$arn"\"" >> ../layer_arns.tf
           done
           cd ..
-          echo "  }" >> layer.tf
-          echo "}" >> layer.tf
-          terraform fmt layer.tf
-          cat layer.tf
-      - name: upload layer tf file
-        uses: actions/upload-artifact@v4
+          echo "  }" >> layer_arns.tf
+          echo "}" >> layer_arns.tf
+          terraform fmt layer_arns.tf
+          cat layer_arns.tf
+      - name: download layer.zip
+        uses: actions/download-artifact@v4
         with:
-          name: layer.tf
-          path: layer.tf
-      
+          name: layer.zip
       - name: Get commit hash
         id: commit
         run: |
@@ -216,6 +214,6 @@ jobs:
             --notes-file release_notes.md \
             --draft \
             "lambda-v${{ github.event.inputs.version }}-${{ steps.commit.outputs.sha_short }}" \
-            lambda-layer/terraform/lambda/layer.tf
+            layer_arns.tf layer.zip
           echo Removing release_notes.md ...
           rm -f release_notes.md

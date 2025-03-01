@@ -66,7 +66,7 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
           path: url.pathname,
           body: serializedSpans,
           headers: {
-            ...oldHeaders,
+            ...this.removeSigV4Headers(oldHeaders),
             host: url.hostname,
           },
         });
@@ -91,6 +91,18 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
     }
 
     await super.export(items, resultCallback);
+  }
+
+  // Need to ensure old SigV4 headers do not remain when we inject new SigV4 authorization headers.
+  private removeSigV4Headers(headers: Record<string, string>) {
+    const newHeaders: Record<string, string> = {};
+
+    for (const key in headers) {
+      if (!key.toLowerCase().startsWith('x-amz-') && key.toLowerCase() !== 'authorization') {
+        newHeaders[key] = headers[key];
+      }
+    }
+    return newHeaders;
   }
 
   private initDependencies(): any {
@@ -127,3 +139,4 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
     return newConfig;
   }
 }
+

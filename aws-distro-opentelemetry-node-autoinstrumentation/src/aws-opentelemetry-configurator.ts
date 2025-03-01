@@ -448,6 +448,7 @@ export class AwsSpanProcessorProvider {
         return new OTLPHttpTraceExporter();
       case 'http/protobuf':
         if (otlp_exporter_traces_endpoint && isXrayOtlpEndpoint(otlp_exporter_traces_endpoint)) {
+          diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
           return new OTLPAwsSpanExporter(otlp_exporter_traces_endpoint);
         }
         return new OTLPProtoTraceExporter();
@@ -457,6 +458,7 @@ export class AwsSpanProcessorProvider {
       default:
         diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
         if (otlp_exporter_traces_endpoint && isXrayOtlpEndpoint(otlp_exporter_traces_endpoint)) {
+          diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
           return new OTLPAwsSpanExporter(otlp_exporter_traces_endpoint);
         }
         return new OTLPProtoTraceExporter();
@@ -672,3 +674,4 @@ function isXrayOtlpEndpoint(otlpEndpoint: string | undefined) {
 }
 
 // END The OpenTelemetry Authors code
+

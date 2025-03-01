@@ -139,4 +139,3 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
     return newConfig;
   }
 }
-

@@ -674,4 +674,3 @@ function isXrayOtlpEndpoint(otlpEndpoint: string | undefined) {
 }
 
 // END The OpenTelemetry Authors code
-

@@ -66,7 +66,7 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
           path: url.pathname,
           body: serializedSpans,
           headers: {
-            ...oldHeaders,
+            ...this.removeSigV4Headers(oldHeaders),
             host: url.hostname,
           },
         });
@@ -91,6 +91,19 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
     }
 
     await super.export(items, resultCallback);
+  }
+
+  // Removes Sigv4 headers from old headers to avoid accidentally copying them to the new headers
+  private removeSigV4Headers(headers: Record<string, string>) {
+    const newHeaders: Record<string, string> = {};
+    const sigV4Headers = ['x-amz-date', 'authorization', 'x-amz-content-sha256', 'x-amz-security-token'];
+
+    for (const key in headers) {
+      if (!sigV4Headers.includes(key.toLowerCase())) {
+        newHeaders[key] = headers[key];
+      }
+    }
+    return newHeaders;
   }
 
   private initDependencies(): any {

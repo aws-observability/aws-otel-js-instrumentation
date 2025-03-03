@@ -93,7 +93,7 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
     await super.export(items, resultCallback);
   }
 
-  // Need to ensure old SigV4 headers do not remain when we inject new SigV4 authorization headers.
+  // Removes Sigv4 headers from old headers to avoid accidentally copying them to the new headers
   private removeSigV4Headers(headers: Record<string, string>) {
     const newHeaders: Record<string, string> = {};
     const sigV4Headers = ['x-amz-date', 'authorization', 'x-amz-content-sha256', 'x-amz-security-token'];

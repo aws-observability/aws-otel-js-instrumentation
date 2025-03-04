@@ -62,12 +62,12 @@ export class OTLPUdpSpanExporter implements SpanExporter {
   constructor(endpoint?: string, _signalPrefix?: string) {
     if (endpoint == null) {
       if (isLambdaEnvironment()) {
-        this._endpoint = getXrayDaemonEndpoint() || DEFAULT_ENDPOINT
+        this._endpoint = getXrayDaemonEndpoint() || DEFAULT_ENDPOINT;
       } else {
-        this._endpoint = DEFAULT_ENDPOINT
+        this._endpoint = DEFAULT_ENDPOINT;
       }
     } else {
-      this._endpoint = endpoint
+      this._endpoint = endpoint;
     }
 
     this._udpExporter = new UdpExporter(this._endpoint);

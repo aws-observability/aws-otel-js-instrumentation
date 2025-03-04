@@ -1,5 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
 import { diag, SpanContext, SpanKind } from '@opentelemetry/api';
 import { ExportResultCode } from '@opentelemetry/core';
 import { Resource } from '@opentelemetry/resources';
@@ -67,8 +68,9 @@ describe('UdpExporterTest', () => {
   });
 
   it('should throw when provided invalid endpoint', () => {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    expect(() => new UdpExporter(123)).toThrow(new Error("Invalid endpoint: 123"));
+    expect(() => new UdpExporter(123)).toThrow(new Error('Invalid endpoint: 123'));
   });
 });
 
@@ -176,15 +178,15 @@ describe('OTLPUdpSpanExporterTest', () => {
   });
 
   it('should use expected Environment Variables to configure endpoint', () => {
-    process.env.AWS_LAMBDA_FUNCTION_NAME = "testFunctionName"
-    process.env.AWS_XRAY_DAEMON_ADDRESS = "someaddress:1234"
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'testFunctionName';
+    process.env.AWS_XRAY_DAEMON_ADDRESS = 'someaddress:1234';
 
-    let exporter = new OTLPUdpSpanExporter(undefined);
-    expect(exporter['_endpoint']).toBe('someaddress:1234')
+    const exporter = new OTLPUdpSpanExporter(undefined);
+    expect(exporter['_endpoint']).toBe('someaddress:1234');
     expect(exporter['_udpExporter']['_host']).toBe('someaddress');
     expect(exporter['_udpExporter']['_port']).toBe(1234);
 
-    delete process.env.AWS_XRAY_DAEMON_ADDRESS
-    delete process.env.AWS_LAMBDA_FUNCTION_NAME
+    delete process.env.AWS_XRAY_DAEMON_ADDRESS;
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
   });
 });

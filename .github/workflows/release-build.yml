@@ -105,11 +105,12 @@ jobs:
              aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }} \
              ${{ env.ARTIFACT_NAME }}.sha256
 
-      # Publish to npm
-      - name: Publish to npm
+      # Publish '@aws/aws-distro-opentelemetry-node-autoinstrumentation' to npm
+      - name: Publish autoinstrumentation to npm
+        working-directory: aws-distro-opentelemetry-node-autoinstrumentation
         env:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
           NPM_CONFIG_PROVENANCE: true
-        run: npx lerna publish from-package --no-push --no-private --no-git-tag-version --no-verify-access --yes
+        run: npm publish
     
     

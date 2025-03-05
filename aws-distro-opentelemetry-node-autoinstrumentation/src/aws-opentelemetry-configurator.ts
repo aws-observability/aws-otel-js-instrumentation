@@ -56,10 +56,13 @@ import { AttributePropagatingSpanProcessorBuilder } from './attribute-propagatin
 import { AwsBatchUnsampledSpanProcessor } from './aws-batch-unsampled-span-processor';
 import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-span-exporter-builder';
 import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
+import { OTLPAwsSpanExporter } from './otlp-aws-span-exporter';
 import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
 import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
+
+const XRAY_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
@@ -235,6 +238,11 @@ export class AwsOpentelemetryConfigurator {
     }
 
     spanProcessors.push(AttributePropagatingSpanProcessorBuilder.create().build());
+
+    if (isXrayOtlpEndpoint(process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'])) {
+      return;
+    }
+
     const applicationSignalsMetricExporter: PushMetricExporter =
       ApplicationSignalsExporterProvider.Instance.createExporter();
     const periodicExportingMetricReader: PeriodicExportingMetricReader = new PeriodicExportingMetricReader({
@@ -422,6 +430,7 @@ export class AwsSpanProcessorProvider {
   private resource: Resource;
 
   static configureOtlp(): SpanExporter {
+    const otlp_exporter_traces_endpoint = process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'];
     // eslint-disable-next-line @typescript-eslint/typedef
     let protocol = this.getOtlpProtocol();
 
@@ -438,12 +447,20 @@ export class AwsSpanProcessorProvider {
       case 'http/json':
         return new OTLPHttpTraceExporter();
       case 'http/protobuf':
+        if (otlp_exporter_traces_endpoint && isXrayOtlpEndpoint(otlp_exporter_traces_endpoint)) {
+          diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
+          return new OTLPAwsSpanExporter(otlp_exporter_traces_endpoint);
+        }
         return new OTLPProtoTraceExporter();
       case 'udp':
         diag.debug('Detected AWS Lambda environment and enabling UDPSpanExporter');
         return new OTLPUdpSpanExporter(getXrayDaemonEndpoint(), FORMAT_OTEL_SAMPLED_TRACES_BINARY_PREFIX);
       default:
         diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
+        if (otlp_exporter_traces_endpoint && isXrayOtlpEndpoint(otlp_exporter_traces_endpoint)) {
+          diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
+          return new OTLPAwsSpanExporter(otlp_exporter_traces_endpoint);
+        }
         return new OTLPProtoTraceExporter();
     }
   }
@@ -650,6 +667,10 @@ function hasCustomOtlpTraceEndpoint() {
 
 function getXrayDaemonEndpoint() {
   return process.env[AWS_XRAY_DAEMON_ADDRESS_CONFIG];
+}
+
+function isXrayOtlpEndpoint(otlpEndpoint: string | undefined) {
+  return otlpEndpoint && new RegExp(XRAY_OTLP_ENDPOINT_PATTERN).test(otlpEndpoint.toLowerCase());
 }
 
 // END The OpenTelemetry Authors code

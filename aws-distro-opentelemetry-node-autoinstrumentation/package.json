@@ -43,7 +43,8 @@
       "src/**/*.ts"
     ],
     "exclude": [
-      "src/third-party/**/*.ts"
+      "src/third-party/**/*.ts",
+      "src/otlp-aws-span-exporter.ts"
     ]
   },
   "bugs": {
@@ -82,13 +83,17 @@
     "@aws-sdk/client-sfn": "^3.632.0",
     "@aws-sdk/client-sns": "^3.632.0",
     "@opentelemetry/contrib-test-utils": "0.41.0",
+    "@smithy/protocol-http": "^5.0.1",
+    "@smithy/signature-v4": "^5.0.1",
     "@types/mocha": "7.0.2",
     "@types/node": "18.6.5",
+    "@types/proxyquire": "^1.3.31",
     "@types/sinon": "10.0.18",
     "expect": "29.2.0",
     "mocha": "7.2.0",
     "nock": "13.2.1",
     "nyc": "15.1.0",
+    "proxyquire": "^2.1.3",
     "rimraf": "5.0.5",
     "sinon": "15.2.0",
     "ts-loader": "^9.5.2",

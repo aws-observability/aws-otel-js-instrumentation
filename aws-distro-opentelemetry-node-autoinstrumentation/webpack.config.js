@@ -5,9 +5,6 @@ module.exports = {
   target: 'node',
   mode: 'production',
   externalsPresets: { node: true },
-  externals: [
-    'import-in-the-middle',
-  ],
   output: {
     path: path.resolve('./build/src'),
     filename: 'register.js',

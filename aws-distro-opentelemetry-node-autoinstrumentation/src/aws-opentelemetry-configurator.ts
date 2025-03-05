@@ -3,9 +3,8 @@
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
 import { TextMapPropagator, diag } from '@opentelemetry/api';
-import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
 import { getResourceDetectors as getResourceDetectorsFromEnv } from '@opentelemetry/auto-instrumentations-node';
-import { ENVIRONMENT, TracesSamplerValues, getEnv, getEnvWithoutDefaults } from '@opentelemetry/core';
+import { CompositePropagator, ENVIRONMENT, TracesSamplerValues, getEnv, getEnvWithoutDefaults, W3CBaggagePropagator, W3CTraceContextPropagator } from '@opentelemetry/core';
 import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import {
   AggregationTemporalityPreference,
@@ -17,6 +16,8 @@ import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/expo
 import { ZipkinExporter } from '@opentelemetry/exporter-zipkin';
 import { AWSXRayIdGenerator } from '@opentelemetry/id-generator-aws-xray';
 import { Instrumentation } from '@opentelemetry/instrumentation';
+import { AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
+import { AWSXRayLambdaPropagator } from '@opentelemetry/propagator-aws-xray-lambda';
 import { awsEc2DetectorSync, awsEcsDetectorSync, awsEksDetectorSync } from '@opentelemetry/resource-detector-aws';
 import {
   Detector,
@@ -75,6 +76,13 @@ const FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX = 'T1U';
 // Follow Python SDK Impl to set the max span batch size
 // which will reduce the chance of UDP package size is larger than 64KB
 const LAMBDA_SPAN_EXPORT_BATCH_SIZE = 10;
+
+const propagatorMap = new Map<string, () => TextMapPropagator>([
+  ['tracecontext', () => new W3CTraceContextPropagator()],
+  ['baggage', () => new W3CBaggagePropagator()],
+  ['xray', () => new AWSXRayPropagator()],
+  ['xray-lambda', () => new AWSXRayLambdaPropagator()],
+]);
 /**
  * Aws Application Signals Config Provider creates a configuration object that can be provided to
  * the OTel NodeJS SDK for Auto Instrumentation with Application Signals Functionality.
@@ -163,7 +171,7 @@ export class AwsOpentelemetryConfigurator {
     this.resource = autoResource;
 
     this.instrumentations = instrumentations;
-    this.propagator = getPropagator();
+    this.propagator = this.getPropagator();
 
     // TODO: Consider removing AWSXRayIdGenerator as it is not needed
     // Similarly to Java, always use AWS X-Ray Id Generator
@@ -188,6 +196,44 @@ export class AwsOpentelemetryConfigurator {
       `@aws/aws-distro-opentelemetry-node-autoinstrumentation - version: ${autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION]}`
     );
     return autoResource;
+  }
+
+  private getPropagator(): TextMapPropagator {
+    if (
+      process.env.OTEL_PROPAGATORS == null ||
+      process.env.OTEL_PROPAGATORS.trim() === ''
+    ) {
+      return new CompositePropagator({
+        propagators: [
+          new W3CTraceContextPropagator(),
+          new W3CBaggagePropagator(),
+        ],
+      });
+    }
+    const propagatorsFromEnv = Array.from(
+      new Set(
+        process.env.OTEL_PROPAGATORS?.split(',').map(value =>
+          value.toLowerCase().trim(),
+        ),
+      ),
+    );
+    const propagators = propagatorsFromEnv.flatMap(propagatorName => {
+      if (propagatorName === 'none') {
+        diag.info(
+          'Not selecting any propagator for value "none" specified in the environment variable OTEL_PROPAGATORS',
+        );
+        return [];
+      }
+      const propagatorFactoryFunction = propagatorMap.get(propagatorName);
+      if (propagatorFactoryFunction == null) {
+        diag.warn(
+          `Invalid propagator "${propagatorName}" specified in the environment variable OTEL_PROPAGATORS`,
+        );
+        return [];
+      }
+      return propagatorFactoryFunction();
+    });
+    return new CompositePropagator({ propagators });
   }
 
   public configure(): Partial<NodeSDKConfiguration> {

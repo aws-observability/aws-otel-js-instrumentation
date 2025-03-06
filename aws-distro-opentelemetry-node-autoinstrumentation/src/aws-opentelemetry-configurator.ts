@@ -4,7 +4,15 @@
 
 import { TextMapPropagator, diag } from '@opentelemetry/api';
 import { getResourceDetectors as getResourceDetectorsFromEnv } from '@opentelemetry/auto-instrumentations-node';
-import { CompositePropagator, ENVIRONMENT, TracesSamplerValues, getEnv, getEnvWithoutDefaults, W3CBaggagePropagator, W3CTraceContextPropagator } from '@opentelemetry/core';
+import {
+  CompositePropagator,
+  ENVIRONMENT,
+  TracesSamplerValues,
+  getEnv,
+  getEnvWithoutDefaults,
+  W3CBaggagePropagator,
+  W3CTraceContextPropagator,
+} from '@opentelemetry/core';
 import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import {
   AggregationTemporalityPreference,
@@ -199,36 +207,24 @@ export class AwsOpentelemetryConfigurator {
   }
 
   private getPropagator(): TextMapPropagator {
-    if (
-      process.env.OTEL_PROPAGATORS == null ||
-      process.env.OTEL_PROPAGATORS.trim() === ''
-    ) {
+    if (process.env.OTEL_PROPAGATORS == null || process.env.OTEL_PROPAGATORS.trim() === '') {
       return new CompositePropagator({
-        propagators: [
-          new W3CTraceContextPropagator(),
-          new W3CBaggagePropagator(),
-        ],
+        propagators: [new W3CTraceContextPropagator(), new W3CBaggagePropagator()],
       });
     }
     const propagatorsFromEnv = Array.from(
-      new Set(
-        process.env.OTEL_PROPAGATORS?.split(',').map(value =>
-          value.toLowerCase().trim(),
-        ),
-      ),
+      new Set(process.env.OTEL_PROPAGATORS?.split(',').map(value => value.toLowerCase().trim()))
     );
     const propagators = propagatorsFromEnv.flatMap(propagatorName => {
       if (propagatorName === 'none') {
         diag.info(
-          'Not selecting any propagator for value "none" specified in the environment variable OTEL_PROPAGATORS',
+          'Not selecting any propagator for value "none" specified in the environment variable OTEL_PROPAGATORS'
         );
         return [];
       }
       const propagatorFactoryFunction = propagatorMap.get(propagatorName);
       if (propagatorFactoryFunction == null) {
-        diag.warn(
-          `Invalid propagator "${propagatorName}" specified in the environment variable OTEL_PROPAGATORS`,
-        );
+        diag.warn(`Invalid propagator "${propagatorName}" specified in the environment variable OTEL_PROPAGATORS`);
         return [];
       }
       return propagatorFactoryFunction();

@@ -98,12 +98,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
         run: |
+          # Download layer.zip from existing latest tagged SDK release note
+          LATEST_SDK_VERSION=$(gh release list --repo "aws-observability/aws-otel-js-instrumentation" --json tagName,isLatest -q 'map(select(.isLatest==true)) | .[0].tagName')
+          mkdir -p layer_artifact
+          gh release download "$LATEST_SDK_VERSION" --repo "aws-observability/aws-otel-js-instrumentation" --pattern "layer.zip" --dir layer_artifact
+          shasum -a 256 layer_artifact/layer.zip > layer_artifact/layer.zip.sha256
+
           gh release create --target "$GITHUB_REF_NAME" \
              --title "Release v${{ github.event.inputs.version }}" \
              --draft \
              "v${{ github.event.inputs.version }}" \
              aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }} \
-             ${{ env.ARTIFACT_NAME }}.sha256
+             ${{ env.ARTIFACT_NAME }}.sha256 \
+             layer_artifact/layer.zip \
+             layer_artifact/layer.zip.sha256
 
       # Publish '@aws/aws-distro-opentelemetry-node-autoinstrumentation' to npm
       - name: Publish autoinstrumentation to npm
@@ -112,5 +120,4 @@ jobs:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
           NPM_CONFIG_PROVENANCE: true
         run: npm publish
-    
     

@@ -126,6 +126,6 @@
     "build/src/**/*.js",
     "build/src/**/*.d.ts",
     "build/src/**/*.d.ts.map",
-    "build/workspace/node_modules/**"
+    "build/src/**/*.json"
   ]
 }

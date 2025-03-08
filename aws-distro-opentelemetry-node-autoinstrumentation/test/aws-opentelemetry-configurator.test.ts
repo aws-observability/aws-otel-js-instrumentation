@@ -498,7 +498,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   function validateConfiguratorEnviron() {
     // Set by register.ts
     expect('http/protobuf').toEqual(process.env.OTEL_EXPORTER_OTLP_PROTOCOL);
-    expect('xray,tracecontext,b3,b3multi').toEqual(process.env.OTEL_PROPAGATORS);
+    expect('xray,tracecontext').toEqual(process.env.OTEL_PROPAGATORS);
 
     // Not set
     expect(undefined).toEqual(process.env.OTEL_TRACES_SAMPLER);

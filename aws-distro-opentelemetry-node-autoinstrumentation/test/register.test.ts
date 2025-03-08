@@ -33,7 +33,7 @@ describe('Register', function () {
     it('sets AWS Default Environment Variables', () => {
       setAwsDefaultEnvironmentVariables();
       expect(process.env.OTEL_EXPORTER_OTLP_PROTOCOL).toEqual('http/protobuf');
-      expect(process.env.OTEL_PROPAGATORS).toEqual('xray,tracecontext,b3,b3multi');
+      expect(process.env.OTEL_PROPAGATORS).toEqual('xray,tracecontext');
       expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs');
     });
 

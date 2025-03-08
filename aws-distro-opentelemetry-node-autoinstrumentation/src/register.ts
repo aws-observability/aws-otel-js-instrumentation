@@ -40,7 +40,7 @@ export function setAwsDefaultEnvironmentVariables(): void {
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
   }
   if (!process.env.OTEL_PROPAGATORS) {
-    process.env.OTEL_PROPAGATORS = 'xray,tracecontext,b3,b3multi';
+    process.env.OTEL_PROPAGATORS = 'xray,tracecontext';
   }
   // Disable the following instrumentations by default
   // This auto-instrumentation for the `fs` module generates many low-value spans. `dns` is similar.

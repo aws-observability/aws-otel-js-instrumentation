@@ -189,12 +189,12 @@ export class _AwsXRayRemoteSampler implements Sampler {
         responseObject.LastRuleModification
       );
       this.targetPollingInterval = nextPollingInterval;
-      clearInterval(this.targetPoller);
+      clearInterval(this.targetPoller as NodeJS.Timeout);
       this.startSamplingTargetsPoller();
 
       if (refreshSamplingRules) {
         this.samplerDiag.debug('Performing out-of-band sampling rule polling to fetch updated rules.');
-        clearInterval(this.rulePoller);
+        clearInterval(this.rulePoller as NodeJS.Timeout);
         this.startSamplingRulesPoller();
       }
     } catch (error: unknown) {

@@ -71,13 +71,13 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('SQS')).toBeTruthy();
     expect(services.has('SNS')).toBeTruthy();
     expect(services.has('Lambda')).toBeTruthy();
+    expect(services.has('S3')).toBeTruthy();
+    expect(services.has('Kinesis')).toBeTruthy();
 
     expect(services.has('DynamoDB')).toBeTruthy();
     // From patching but shouldn't be applied
     expect(services.get('SecretsManager')).toBeFalsy();
     expect(services.get('SFN')).toBeFalsy();
-    expect(services.has('S3')).toBeFalsy();
-    expect(services.has('Kinesis')).toBeFalsy();
     expect(services.get('SNS')._requestPreSpanHook).toBeFalsy();
     expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Lambda')._requestPreSpanHook).toBeFalsy();
@@ -124,7 +124,6 @@ describe('InstrumentationPatchTest', () => {
     // Check that the original AWS SDK Instrumentation is replaced with the extended version
     expect(awsSdkInstrumentation).toBeInstanceOf(AwsSdkInstrumentationExtended);
   });
-
   it('S3 without patching', () => {
     const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
@@ -136,7 +135,6 @@ describe('InstrumentationPatchTest', () => {
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
     expect(() => doExtractKinesisAttributes(services)).toThrow();
   });
-
   it('SQS without patching', () => {
     const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);

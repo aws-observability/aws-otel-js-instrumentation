@@ -33,7 +33,7 @@ describe('Register', function () {
     it('sets AWS Default Environment Variables', () => {
       setAwsDefaultEnvironmentVariables();
       expect(process.env.OTEL_EXPORTER_OTLP_PROTOCOL).toEqual('http/protobuf');
-      expect(process.env.OTEL_PROPAGATORS).toEqual('xray,tracecontext,b3,b3multi');
+      expect(process.env.OTEL_PROPAGATORS).toEqual('xray,tracecontext');
       expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs');
     });
 
@@ -79,7 +79,7 @@ describe('Register', function () {
 
     assert.ok(proc.stdout.includes('AWS Distro of OpenTelemetry automatic instrumentation started successfully'));
     assert.ok(proc.stdout.includes("Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to 'http/protobuf'"));
-    assert.ok(proc.stdout.includes("Environment variable OTEL_PROPAGATORS is set to 'xray,tracecontext,b3,b3multi'"));
+    assert.ok(proc.stdout.includes("Environment variable OTEL_PROPAGATORS is set to 'xray,tracecontext'"));
 
     // Check a span has been generated for the GET request done in app.js
     assert.ok(proc.stdout.includes("name: 'GET'"), 'console span output in stdout - validate Span Name');

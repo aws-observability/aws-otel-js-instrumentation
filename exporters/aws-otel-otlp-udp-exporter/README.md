@@ -9,7 +9,7 @@ npm install --save @aws/aws-otel-otlp-udp-exporter
 ## Usage
 
 ```js
-import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
+import { OTLPUdpSpanExporter } from '@aws/aws-otel-otlp-udp-exporter';
 import { SpanExporter } from '@opentelemetry/sdk-trace-base';
 
 // ...

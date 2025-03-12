@@ -64,8 +64,8 @@
     "instrumentation"
   ],
   "devDependencies": {
-    "@opentelemetry/resources": "1.26.0",
-    "@opentelemetry/contrib-test-utils": "0.41.0",
+    "@opentelemetry/resources": "1.30.1",
+    "@opentelemetry/contrib-test-utils": "^0.45.0",
     "@types/mocha": "7.0.2",
     "@types/node": "18.6.5",
     "@types/sinon": "10.0.18",
@@ -78,10 +78,10 @@
     "typescript": "4.4.4"
   },
   "dependencies": {
-    "@opentelemetry/api": "1.9.0",
-    "@opentelemetry/core": "1.26.0",
-    "@opentelemetry/otlp-transformer": "0.53.0",
-    "@opentelemetry/sdk-trace-base": "1.26.0"
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/core": "1.30.1",
+    "@opentelemetry/otlp-transformer": "0.57.1",
+    "@opentelemetry/sdk-trace-base": "1.30.1"
   },
   "files": [
     "build/src/**/*.js",

@@ -56,7 +56,7 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
         This is bad practice but there is no other way to access and inject SigV4 headers
         into the request headers before the traces get exported.
       */
-      const oldHeaders = (this as any)._delegate._transport?._transport?._parameters?.headers;
+      const oldHeaders = (this as any)._delegate._transport?._transport?._parameters?.headers();
 
       if (oldHeaders) {
         const request = new this.httpRequest({
@@ -81,7 +81,7 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
 
           const signedRequest = await signer.sign(request);
 
-          (this as any)._delegate._transport._transport._parameters.headers = signedRequest.headers;
+          (this as any)._delegate._transport._transport._parameters.headers = () => signedRequest.headers;
         } catch (exception) {
           diag.debug(
             `Failed to sign/authenticate the given exported Span request to OTLP XRay endpoint with error: ${exception}`
@@ -90,7 +90,7 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
       }
     }
 
-    await super.export(items, resultCallback);
+    super.export(items, resultCallback);
   }
 
   // Removes Sigv4 headers from old headers to avoid accidentally copying them to the new headers

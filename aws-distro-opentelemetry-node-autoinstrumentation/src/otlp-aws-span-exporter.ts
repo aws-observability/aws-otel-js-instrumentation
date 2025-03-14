@@ -81,7 +81,9 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
 
           const signedRequest = await signer.sign(request);
 
-          (this as any)._delegate._transport._transport._parameters.headers = () => signedRequest.headers;
+          // See type: https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/experimental/packages/otlp-exporter-base/src/transport/http-transport-types.ts#L31
+          const newHeaders: () => Record<string, string> = () => signedRequest.headers;
+          (this as any)._delegate._transport._transport._parameters.headers = newHeaders;
         } catch (exception) {
           diag.debug(
             `Failed to sign/authenticate the given exported Span request to OTLP XRay endpoint with error: ${exception}`

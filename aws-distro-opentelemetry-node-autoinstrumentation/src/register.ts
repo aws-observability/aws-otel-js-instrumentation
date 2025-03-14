@@ -17,7 +17,7 @@ import { diag, DiagConsoleLogger, trace } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
-import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
+import { AwsOpentelemetryConfigurator, isLambdaEnvironment } from './aws-opentelemetry-configurator';
 import { applyInstrumentationPatches } from './patches/instrumentation-patch';
 
 diag.setLogger(new DiagConsoleLogger(), opentelemetry.core.getEnv().OTEL_LOG_LEVEL);
@@ -35,6 +35,9 @@ Also sets default OTEL_PROPAGATORS to ensure good compatibility with X-Ray and A
 This file may also be used to apply patches to upstream instrumentation - usually these are stopgap measures until we can contribute
 long-term changes to upstream.
 */
+
+let usePatchedAwsLambdaInstrumentation = false;
+
 export function setAwsDefaultEnvironmentVariables(): void {
   if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
@@ -47,6 +50,14 @@ export function setAwsDefaultEnvironmentVariables(): void {
   // https://github.com/open-telemetry/opentelemetry-js-contrib/issues/1344#issuecomment-1618993178
   if (!process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS) {
     process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'fs,dns';
+  }
+
+  // Temporary solution to never initialize the unpatched AWS Lambda Instrumentation,
+  // and only initialize the patched one in `src/patches/extended-instrumentations/aws-lambda.ts`
+  // This workaround is for until the patched Lambda Instrumentation is removed
+  if (!process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS.includes('aws-lambda') && isLambdaEnvironment()) {
+    process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS += ',aws-lambda';
+    usePatchedAwsLambdaInstrumentation = true;
   }
 }
 setAwsDefaultEnvironmentVariables();
@@ -62,7 +73,7 @@ const instrumentationConfigs: InstrumentationConfigMap = {
 const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
 // Apply instrumentation patches
-applyInstrumentationPatches(instrumentations, instrumentationConfigs);
+applyInstrumentationPatches(instrumentations, instrumentationConfigs, usePatchedAwsLambdaInstrumentation);
 
 const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator(instrumentations, useXraySampler);
 const configuration: Partial<opentelemetry.NodeSDKConfiguration> = configurator.configure();

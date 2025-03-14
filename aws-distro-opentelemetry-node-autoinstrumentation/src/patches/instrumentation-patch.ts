@@ -48,7 +48,8 @@ export const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
 
 export function applyInstrumentationPatches(
   instrumentations: Instrumentation[],
-  instrumentationConfigs?: InstrumentationConfigMap
+  instrumentationConfigs?: InstrumentationConfigMap,
+  usePatchedAwsLambdaInstrumentation: boolean = false
 ): void {
   /*
   Apply patches to upstream instrumentation libraries.
@@ -82,14 +83,18 @@ export function applyInstrumentationPatches(
         patchSnsServiceExtension(services.get('SNS'));
         patchLambdaServiceExtension(services.get('Lambda'));
       }
-    } else if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-lambda') {
-      diag.debug('Overriding aws lambda instrumentation');
-      const lambdaInstrumentation = new AwsLambdaInstrumentationPatch({
-        eventContextExtractor: customExtractor,
-      });
-      instrumentations[index] = lambdaInstrumentation;
     }
   });
+
+  if (usePatchedAwsLambdaInstrumentation) {
+    diag.debug('Overriding aws lambda instrumentation');
+    const lambdaInstrumentation = new AwsLambdaInstrumentationPatch({
+      // When the `AwsLambdaInstrumentationPatch` is removed in favor of the patched one,
+      // setting `eventContextExtractor` should be in the `instrumentationConfigs` map.
+      eventContextExtractor: customExtractor,
+    });
+    instrumentations.push(lambdaInstrumentation);
+  }
 }
 
 /*

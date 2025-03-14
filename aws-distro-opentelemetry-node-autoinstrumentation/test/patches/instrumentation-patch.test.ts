@@ -57,8 +57,10 @@ const mockHeaders = {
 
 const UNPATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations();
 
+process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS += ',aws-lambda';
+const usePatchedAwsLambdaInstrumentation = true;
 const PATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations();
-applyInstrumentationPatches(PATCHED_INSTRUMENTATIONS);
+applyInstrumentationPatches(PATCHED_INSTRUMENTATIONS, {}, usePatchedAwsLambdaInstrumentation);
 
 describe('InstrumentationPatchTest', () => {
   it('SanityTestUnpatchedAwsSdkInstrumentation', () => {

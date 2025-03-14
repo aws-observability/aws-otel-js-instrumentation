@@ -12,9 +12,12 @@ import {
   trace,
   Span,
   Tracer,
+  SpanStatusCode,
+  defaultTextMapSetter,
 } from '@opentelemetry/api';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import {
+  AwsInstrumentation,
   AwsSdkInstrumentationConfig,
   NormalizedRequest,
   NormalizedResponse,
@@ -31,9 +34,8 @@ import {
 } from './aws/services/bedrock';
 import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
 import { StepFunctionsServiceExtension } from './aws/services/step-functions';
-import { InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
-import { AwsSdkInstrumentationExtended } from './extended-instrumentations/aws-sdk-instrumentation-extended';
-import { AwsLambdaInstrumentationPatch } from './extended-instrumentations/aws-lambda';
+import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
+import type { Command as AwsV3Command } from '@aws-sdk/types';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 const awsPropagator = new AWSXRayPropagator();
@@ -46,11 +48,7 @@ export const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
   },
 };
 
-export function applyInstrumentationPatches(
-  instrumentations: Instrumentation[],
-  instrumentationConfigs?: InstrumentationConfigMap,
-  usePatchedAwsLambdaInstrumentation: boolean = false
-): void {
+export function applyInstrumentationPatches(instrumentations: Instrumentation[]): void {
   /*
   Apply patches to upstream instrumentation libraries.
 
@@ -62,10 +60,8 @@ export function applyInstrumentationPatches(
   */
   instrumentations.forEach((instrumentation, index) => {
     if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-sdk') {
-      diag.debug('Overriding aws sdk instrumentation');
-      instrumentations[index] = new AwsSdkInstrumentationExtended(
-        instrumentationConfigs ? instrumentationConfigs['@opentelemetry/instrumentation-aws-sdk'] : undefined
-      );
+      diag.debug('Patching aws sdk instrumentation');
+      patchAwsSdkInstrumentation(instrumentation);
 
       // Access private property servicesExtensions of AwsInstrumentation
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -83,18 +79,11 @@ export function applyInstrumentationPatches(
         patchSnsServiceExtension(services.get('SNS'));
         patchLambdaServiceExtension(services.get('Lambda'));
       }
+    } else if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-lambda') {
+      diag.debug('Patching aws lambda instrumentation');
+      patchAwsLambdaInstrumentation(instrumentation);
     }
   });
-
-  if (usePatchedAwsLambdaInstrumentation) {
-    diag.debug('Overriding aws lambda instrumentation');
-    const lambdaInstrumentation = new AwsLambdaInstrumentationPatch({
-      // When the `AwsLambdaInstrumentationPatch` is removed in favor of the patched one,
-      // setting `eventContextExtractor` should be in the `instrumentationConfigs` map.
-      eventContextExtractor: customExtractor,
-    });
-    instrumentations.push(lambdaInstrumentation);
-  }
 }
 
 /*
@@ -257,5 +246,80 @@ function patchLambdaServiceExtension(lambdaServiceExtension: any): void {
         }
       };
     }
+  }
+}
+
+// Override the upstream private _endSpan method to remove the unnecessary metric force-flush error message
+// https://github.com/open-telemetry/opentelemetry-js-contrib/blob/main/plugins/node/opentelemetry-instrumentation-aws-lambda/src/instrumentation.ts#L358-L398
+function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
+  if (instrumentation) {
+    (instrumentation as AwsLambdaInstrumentation)['_endSpan'] = function (
+      span: Span,
+      err: string | Error | null | undefined,
+      callback: () => void
+    ) {
+      if (err) {
+        span.recordException(err);
+      }
+
+      let errMessage;
+      if (typeof err === 'string') {
+        errMessage = err;
+      } else if (err) {
+        errMessage = err.message;
+      }
+      if (errMessage) {
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: errMessage,
+        });
+      }
+
+      span.end();
+
+      const flushers = [];
+      if ((this as any)._traceForceFlusher) {
+        flushers.push((this as any)._traceForceFlusher());
+      } else {
+        diag.error(
+          'Spans may not be exported for the lambda function because we are not force flushing before callback.'
+        );
+      }
+
+      Promise.all(flushers).then(callback, callback);
+    };
+  }
+}
+
+// Override the upstream private _getV3SmithyClientSendPatch method to add middleware to inject X-Ray Trace Context into HTTP Headers
+// https://github.com/open-telemetry/opentelemetry-js-contrib/blob/instrumentation-aws-sdk-v0.48.0/plugins/node/opentelemetry-instrumentation-aws-sdk/src/aws-sdk.ts#L373-L384
+const awsXrayPropagator = new AWSXRayPropagator();
+const V3_CLIENT_CONFIG_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.client.config');
+type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
+  [V3_CLIENT_CONFIG_KEY]?: any;
+};
+function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
+  if (instrumentation) {
+    (instrumentation as AwsInstrumentation)['_getV3SmithyClientSendPatch'] = function (
+      original: (...args: unknown[]) => Promise<any>
+    ) {
+      return function send(this: any, command: V3PluginCommand, ...args: unknown[]): Promise<any> {
+        this.middlewareStack?.add(
+          (next: any, context: any) => async (middlewareArgs: any) => {
+            awsXrayPropagator.inject(otelContext.active(), middlewareArgs.request.headers, defaultTextMapSetter);
+            const result = await next(middlewareArgs);
+            return result;
+          },
+          {
+            step: 'build',
+            name: '_adotInjectXrayContextMiddleware',
+            override: true,
+          }
+        );
+
+        command[V3_CLIENT_CONFIG_KEY] = this.config;
+        return original.apply(this, [command, ...args]);
+      };
+    };
   }
 }

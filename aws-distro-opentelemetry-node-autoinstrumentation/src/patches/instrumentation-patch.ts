@@ -294,6 +294,7 @@ function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
 // Override the upstream private _getV3SmithyClientSendPatch method to add middleware to inject X-Ray Trace Context into HTTP Headers
 // https://github.com/open-telemetry/opentelemetry-js-contrib/blob/instrumentation-aws-sdk-v0.48.0/plugins/node/opentelemetry-instrumentation-aws-sdk/src/aws-sdk.ts#L373-L384
 const awsXrayPropagator = new AWSXRayPropagator();
+const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
 const V3_CLIENT_CONFIG_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.client.config');
 type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
   [V3_CLIENT_CONFIG_KEY]?: any;
@@ -307,6 +308,12 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
         this.middlewareStack?.add(
           (next: any, context: any) => async (middlewareArgs: any) => {
             awsXrayPropagator.inject(otelContext.active(), middlewareArgs.request.headers, defaultTextMapSetter);
+            // Need to set capitalized version of the trace id to ensure that the Recursion Detection Middleware
+            // of aws-sdk-js-v3 will detect the propagated X-Ray Context
+            // See: https://github.com/aws/aws-sdk-js-v3/blob/v3.768.0/packages/middleware-recursion-detection/src/index.ts#L13
+            middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED] =
+              middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER];
+            delete middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER];
             const result = await next(middlewareArgs);
             return result;
           },

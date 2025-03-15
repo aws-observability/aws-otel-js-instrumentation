@@ -319,25 +319,29 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     // Check default protocol - HTTP, as specified by aws-distro-opentelemetry-node-autoinstrumentation's register.ts.
     let exporter: PushMetricExporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
-    expect('http://localhost:4316/v1/metrics').toEqual((exporter as any)._otlpExporter.url);
+    expect('http://localhost:4316/v1/metrics').toEqual(
+      (exporter as any)._delegate._transport._transport._parameters.url
+    );
 
     // Overwrite protocol to gRPC.
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'grpc';
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPGrpcOTLPMetricExporter);
-    expect('localhost:4315').toEqual((exporter as any)._otlpExporter.url);
+    expect('localhost:4315').toEqual((exporter as any)._delegate._transport._parameters.address);
 
     // Overwrite protocol back to HTTP.
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
-    expect('http://localhost:4316/v1/metrics').toEqual((exporter as any)._otlpExporter.url);
+    expect('http://localhost:4316/v1/metrics').toEqual(
+      (exporter as any)._delegate._transport._transport._parameters.url
+    );
 
     // If for some reason, the env var is undefined (it shouldn't), overwrite protocol to gRPC.
     delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPGrpcOTLPMetricExporter);
-    expect('localhost:4315').toEqual((exporter as any)._otlpExporter.url);
+    expect('localhost:4315').toEqual((exporter as any)._delegate._transport._parameters.address);
 
     // Expect invalid protocol to throw error.
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'invalid_protocol';
@@ -351,38 +355,42 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     // Check default protocol - HTTP, as specified by aws-distro-opentelemetry-node-autoinstrumentation's register.ts.
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
-    expect('http://localhost:4316/v1/metrics').toEqual((exporter as any)._otlpExporter.url);
+    expect('http://localhost:4316/v1/metrics').toEqual(
+      (exporter as any)._delegate._transport._transport._parameters.url
+    );
 
     // Overwrite protocol to gRPC.
     process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'grpc';
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPGrpcOTLPMetricExporter);
-    expect('localhost:4315').toEqual((exporter as any)._otlpExporter.url);
+    expect('localhost:4315').toEqual((exporter as any)._delegate._transport._parameters.address);
 
     // Overwrite protocol back to HTTP.
     process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'http/protobuf';
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
-    expect('http://localhost:4316/v1/metrics').toEqual((exporter as any)._otlpExporter.url);
+    expect('http://localhost:4316/v1/metrics').toEqual(
+      (exporter as any)._delegate._transport._transport._parameters.url
+    );
 
     // Expect invalid protocol to throw error.
     process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'invalid_protocol';
     expect(() => ApplicationSignalsExporterProvider.Instance.createExporter()).toThrow();
 
     // Test custom URLs via OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT
-    process.env.OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT = 'my_custom_endpoint';
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT = 'http://my_custom_endpoint';
 
     // Overwrite protocol to gRPC, export to url "my_custom_endpoint"
     process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'grpc';
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPGrpcOTLPMetricExporter);
-    expect('my_custom_endpoint').toEqual((exporter as any)._otlpExporter.url);
+    expect('my_custom_endpoint').toEqual((exporter as any)._delegate._transport._parameters.address);
 
-    // Overwrite protocol back to HTTP, export to url "my_custom_endpoint"
+    // Overwrite protocol back to HTTP, export to url "http://my_custom_endpoint"
     process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'http/protobuf';
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
-    expect('my_custom_endpoint').toEqual((exporter as any)._otlpExporter.url);
+    expect('http://my_custom_endpoint').toEqual((exporter as any)._delegate._transport._transport._parameters.url);
 
     // Cleanup
     delete process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL;

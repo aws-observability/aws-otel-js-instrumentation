@@ -12,9 +12,12 @@ import {
   trace,
   Span,
   Tracer,
+  SpanStatusCode,
+  defaultTextMapSetter,
 } from '@opentelemetry/api';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import {
+  AwsInstrumentation,
   AwsSdkInstrumentationConfig,
   NormalizedRequest,
   NormalizedResponse,
@@ -29,13 +32,10 @@ import {
   BedrockRuntimeServiceExtension,
   BedrockServiceExtension,
 } from './aws/services/bedrock';
-import { KinesisServiceExtension } from './aws/services/kinesis';
-import { S3ServiceExtension } from './aws/services/s3';
 import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
 import { StepFunctionsServiceExtension } from './aws/services/step-functions';
-import { InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
-import { AwsSdkInstrumentationExtended } from './extended-instrumentations/aws-sdk-instrumentation-extended';
-import { AwsLambdaInstrumentationPatch } from './extended-instrumentations/aws-lambda';
+import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
+import type { Command as AwsV3Command } from '@aws-sdk/types';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 const awsPropagator = new AWSXRayPropagator();
@@ -48,10 +48,7 @@ export const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
   },
 };
 
-export function applyInstrumentationPatches(
-  instrumentations: Instrumentation[],
-  instrumentationConfigs?: InstrumentationConfigMap
-): void {
+export function applyInstrumentationPatches(instrumentations: Instrumentation[]): void {
   /*
   Apply patches to upstream instrumentation libraries.
 
@@ -63,10 +60,8 @@ export function applyInstrumentationPatches(
   */
   instrumentations.forEach((instrumentation, index) => {
     if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-sdk') {
-      diag.debug('Overriding aws sdk instrumentation');
-      instrumentations[index] = new AwsSdkInstrumentationExtended(
-        instrumentationConfigs ? instrumentationConfigs['@opentelemetry/instrumentation-aws-sdk'] : undefined
-      );
+      diag.debug('Patching aws sdk instrumentation');
+      patchAwsSdkInstrumentation(instrumentation);
 
       // Access private property servicesExtensions of AwsInstrumentation
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -74,8 +69,6 @@ export function applyInstrumentationPatches(
       const services: Map<string, ServiceExtension> | undefined = (instrumentations[index] as any).servicesExtensions
         ?.services;
       if (services) {
-        services.set('S3', new S3ServiceExtension());
-        services.set('Kinesis', new KinesisServiceExtension());
         services.set('SecretsManager', new SecretsManagerServiceExtension());
         services.set('SFN', new StepFunctionsServiceExtension());
         services.set('Bedrock', new BedrockServiceExtension());
@@ -87,12 +80,8 @@ export function applyInstrumentationPatches(
         patchLambdaServiceExtension(services.get('Lambda'));
       }
     } else if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-lambda') {
-      diag.debug('Overriding aws lambda instrumentation');
-      const lambdaInstrumentation = new AwsLambdaInstrumentationPatch({
-        eventContextExtractor: customExtractor,
-        disableAwsContextPropagation: true,
-      });
-      instrumentations[index] = lambdaInstrumentation;
+      diag.debug('Patching aws lambda instrumentation');
+      patchAwsLambdaInstrumentation(instrumentation);
     }
   });
 }
@@ -257,5 +246,87 @@ function patchLambdaServiceExtension(lambdaServiceExtension: any): void {
         }
       };
     }
+  }
+}
+
+// Override the upstream private _endSpan method to remove the unnecessary metric force-flush error message
+// https://github.com/open-telemetry/opentelemetry-js-contrib/blob/main/plugins/node/opentelemetry-instrumentation-aws-lambda/src/instrumentation.ts#L358-L398
+function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
+  if (instrumentation) {
+    (instrumentation as AwsLambdaInstrumentation)['_endSpan'] = function (
+      span: Span,
+      err: string | Error | null | undefined,
+      callback: () => void
+    ) {
+      if (err) {
+        span.recordException(err);
+      }
+
+      let errMessage;
+      if (typeof err === 'string') {
+        errMessage = err;
+      } else if (err) {
+        errMessage = err.message;
+      }
+      if (errMessage) {
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: errMessage,
+        });
+      }
+
+      span.end();
+
+      const flushers = [];
+      if ((this as any)._traceForceFlusher) {
+        flushers.push((this as any)._traceForceFlusher());
+      } else {
+        diag.error(
+          'Spans may not be exported for the lambda function because we are not force flushing before callback.'
+        );
+      }
+
+      Promise.all(flushers).then(callback, callback);
+    };
+  }
+}
+
+// Override the upstream private _getV3SmithyClientSendPatch method to add middleware to inject X-Ray Trace Context into HTTP Headers
+// https://github.com/open-telemetry/opentelemetry-js-contrib/blob/instrumentation-aws-sdk-v0.48.0/plugins/node/opentelemetry-instrumentation-aws-sdk/src/aws-sdk.ts#L373-L384
+const awsXrayPropagator = new AWSXRayPropagator();
+const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
+const V3_CLIENT_CONFIG_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.client.config');
+type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
+  [V3_CLIENT_CONFIG_KEY]?: any;
+};
+function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
+  if (instrumentation) {
+    (instrumentation as AwsInstrumentation)['_getV3SmithyClientSendPatch'] = function (
+      original: (...args: unknown[]) => Promise<any>
+    ) {
+      return function send(this: any, command: V3PluginCommand, ...args: unknown[]): Promise<any> {
+        this.middlewareStack?.add(
+          (next: any, context: any) => async (middlewareArgs: any) => {
+            awsXrayPropagator.inject(otelContext.active(), middlewareArgs.request.headers, defaultTextMapSetter);
+            // Need to set capitalized version of the trace id to ensure that the Recursion Detection Middleware
+            // of aws-sdk-js-v3 will detect the propagated X-Ray Context
+            // See: https://github.com/aws/aws-sdk-js-v3/blob/v3.768.0/packages/middleware-recursion-detection/src/index.ts#L13
+            middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED] =
+              middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER];
+            delete middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER];
+            const result = await next(middlewareArgs);
+            return result;
+          },
+          {
+            step: 'build',
+            name: '_adotInjectXrayContextMiddleware',
+            override: true,
+          }
+        );
+
+        command[V3_CLIENT_CONFIG_KEY] = this.config;
+        return original.apply(this, [command, ...args]);
+      };
+    };
   }
 }

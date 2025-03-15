@@ -58,7 +58,7 @@ class ResourceAttributesTest(ContractTestBase):
         target_spans: List[Span] = []
         for resource_scope_span in resource_scope_spans:
             # pylint: disable=no-member
-            if resource_scope_span.span.name == "tcp.connect":
+            if resource_scope_span.span.name == "GET" and resource_scope_span.span.kind == Span.SPAN_KIND_CLIENT:
                 target_spans.append(resource_scope_span.resource_spans)
 
         self.assertEqual(len(target_spans), 1)

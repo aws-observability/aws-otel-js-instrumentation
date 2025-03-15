@@ -10,6 +10,7 @@ import {
   Span,
   Tracer,
   AttributeValue,
+  TextMapSetter,
 } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
@@ -23,14 +24,16 @@ import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { Context } from 'aws-lambda';
 import { SinonStub } from 'sinon';
-import { S3 } from '@aws-sdk/client-s3';
+import { Lambda } from '@aws-sdk/client-lambda';
 import nock = require('nock');
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
-import { getTestSpans, registerInstrumentationTesting } from '@opentelemetry/contrib-test-utils';
-import { AwsSdkInstrumentationExtended } from '../../src/patches/extended-instrumentations/aws-sdk-instrumentation-extended';
+import { getTestSpans } from '@opentelemetry/contrib-test-utils';
+import { instrumentationConfigs } from '../../src/register';
 
-const _STREAM_NAME: string = 'streamName';
-const _BUCKET_NAME: string = 'bucketName';
+// It is assumed that bedrock.test.ts has already registered the
+// necessary instrumentations for testing by calling:
+// - `registerInstrumentationTesting(instrumentations[0])`
+
 const _QUEUE_NAME: string = 'queueName';
 const _ACTIVITY_ARN: string = 'arn:aws:states:us-east-1:123456789123:activity:testActivity';
 const _STATE_MACHINE_ARN: string = 'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine';
@@ -53,14 +56,10 @@ const mockHeaders = {
   'content-type': 'application/json',
 };
 
-const UNPATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations();
+const UNPATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
-const PATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations();
+const PATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 applyInstrumentationPatches(PATCHED_INSTRUMENTATIONS);
-
-const extendedAwsSdkInstrumentation: AwsInstrumentation = new AwsInstrumentation();
-applyInstrumentationPatches([extendedAwsSdkInstrumentation]);
-registerInstrumentationTesting(extendedAwsSdkInstrumentation);
 
 describe('InstrumentationPatchTest', () => {
   it('SanityTestUnpatchedAwsSdkInstrumentation', () => {
@@ -71,13 +70,12 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('SQS')).toBeTruthy();
     expect(services.has('SNS')).toBeTruthy();
     expect(services.has('Lambda')).toBeTruthy();
-
     expect(services.has('DynamoDB')).toBeTruthy();
+    expect(services.has('S3')).toBeTruthy();
+    expect(services.has('Kinesis')).toBeTruthy();
     // From patching but shouldn't be applied
     expect(services.get('SecretsManager')).toBeFalsy();
     expect(services.get('SFN')).toBeFalsy();
-    expect(services.has('S3')).toBeFalsy();
-    expect(services.has('Kinesis')).toBeFalsy();
     expect(services.get('SNS')._requestPreSpanHook).toBeFalsy();
     expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Lambda')._requestPreSpanHook).toBeFalsy();
@@ -102,12 +100,11 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('SNS')).toBeTruthy();
     expect(services.has('DynamoDB')).toBeTruthy();
     expect(services.has('Lambda')).toBeTruthy();
-
+    expect(services.has('S3')).toBeTruthy();
+    expect(services.has('Kinesis')).toBeTruthy();
     // From patching
     expect(services.has('SecretsManager')).toBeTruthy();
     expect(services.has('SFN')).toBeTruthy();
-    expect(services.has('S3')).toBeTruthy();
-    expect(services.has('Kinesis')).toBeTruthy();
     expect(services.get('SNS')._requestPreSpanHook).toBeTruthy();
     expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Lambda')._requestPreSpanHook).toBeTruthy();
@@ -120,21 +117,6 @@ describe('InstrumentationPatchTest', () => {
     expect(services.get('BedrockRuntime')).toBeTruthy();
     // Sanity check
     expect(services.has('InvalidService')).toBeFalsy();
-
-    // Check that the original AWS SDK Instrumentation is replaced with the extended version
-    expect(awsSdkInstrumentation).toBeInstanceOf(AwsSdkInstrumentationExtended);
-  });
-
-  it('S3 without patching', () => {
-    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
-    expect(() => doExtractS3Attributes(services)).toThrow();
-  });
-
-  it('Kinesis without patching', () => {
-    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
-    expect(() => doExtractKinesisAttributes(services)).toThrow();
   });
 
   it('SQS without patching', () => {
@@ -187,20 +169,6 @@ describe('InstrumentationPatchTest', () => {
     const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
     expect(() => doExtractBedrockAttributes(services, 'Bedrock')).toThrow();
-  });
-
-  it('S3 with patching', () => {
-    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const s3Attributes: Attributes = doExtractS3Attributes(services);
-    expect(s3Attributes[AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET]).toEqual(_BUCKET_NAME);
-  });
-
-  it('Kinesis with patching', () => {
-    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const kinesisAttributes: Attributes = doExtractKinesisAttributes(services);
-    expect(kinesisAttributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME]).toEqual(_STREAM_NAME);
   });
 
   it('SNS with patching', () => {
@@ -373,30 +341,6 @@ describe('InstrumentationPatchTest', () => {
       throw new Error('extractServicesFromAwsSdkInstrumentation() returned undefined `services`');
     }
     return services;
-  }
-
-  function doExtractKinesisAttributes(services: Map<string, ServiceExtension>): Attributes {
-    const serviceName: string = 'Kinesis';
-    const params: NormalizedRequest = {
-      serviceName: serviceName,
-      commandName: 'mockCommandName',
-      commandInput: {
-        StreamName: _STREAM_NAME,
-      },
-    };
-    return doExtractAttributes(services, serviceName, params);
-  }
-
-  function doExtractS3Attributes(services: Map<string, ServiceExtension>): Attributes {
-    const serviceName: string = 'S3';
-    const params: NormalizedRequest = {
-      serviceName: serviceName,
-      commandName: 'mockCommandName',
-      commandInput: {
-        Bucket: _BUCKET_NAME,
-      },
-    };
-    return doExtractAttributes(services, serviceName, params);
   }
 
   function doExtractSqsAttributes(
@@ -588,11 +532,41 @@ describe('InstrumentationPatchTest', () => {
   }
 
   describe('AwsSdkInstrumentationPatchTest', () => {
-    let s3: S3;
+    let lambda: Lambda;
     const region = 'us-east-1';
 
+    it('overridden _getV3SmithyClientSendPatch updates MiddlewareStack', async () => {
+      const mockedMiddlewareStackInternal: any = [];
+      const mockedMiddlewareStack = {
+        add: (arg1: any, arg2: any) => mockedMiddlewareStackInternal.push([arg1, arg2]),
+      };
+      const send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
+        ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
+        .bind({ middlewareStack: mockedMiddlewareStack });
+      sinon
+        .stub(AWSXRayPropagator.prototype, 'inject')
+        .callsFake((context: OtelContext, carrier: unknown, setter: TextMapSetter) => {
+          (carrier as any)['isCarrierModified'] = 'carrierIsModified';
+        });
+
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      await send({}, null);
+
+      const middlewareArgs: any = {
+        request: {
+          headers: {},
+        },
+      };
+      await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgs);
+
+      sinon.restore();
+      expect(middlewareArgs.request.headers['isCarrierModified']).toEqual('carrierIsModified');
+      expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
+    });
+
     it('injects trace context header into request via propagator', async () => {
-      s3 = new S3({
+      lambda = new Lambda({
         region: region,
         credentials: {
           accessKeyId: 'abcde',
@@ -600,33 +574,33 @@ describe('InstrumentationPatchTest', () => {
         },
       });
 
-      const dummyBucketName: string = 'dummy-bucket-name';
+      const dummyFunctionName: string = 'dummy-function-name';
       let reqHeaders: any = {};
 
-      nock(`https://${dummyBucketName}.s3.${region}.amazonaws.com`)
-        .get('/')
+      nock(`https://lambda.${region}.amazonaws.com`)
+        .post(`/2015-03-31/functions/${dummyFunctionName}/invocations`)
         .reply(200, function (uri: any, requestBody: any) {
           reqHeaders = this.req.headers;
           return 'null';
         });
 
-      await s3
-        .listObjects({
-          Bucket: dummyBucketName,
+      await lambda
+        .invoke({
+          FunctionName: dummyFunctionName,
         })
         .catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const listObjectsSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
-        return s.name === 'S3.ListObjects';
+      const invokeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'dummy-function-name Invoke';
       });
 
-      expect(listObjectsSpans.length).toBe(1);
+      expect(invokeSpans.length).toBe(1);
 
-      const traceId = listObjectsSpans[0].spanContext().traceId;
-      const spanId = listObjectsSpans[0].spanContext().spanId;
+      const traceId = invokeSpans[0].spanContext().traceId;
+      const spanId = invokeSpans[0].spanContext().spanId;
       expect(reqHeaders['x-amzn-trace-id'] as string).toEqual(
-        `Root=1-${traceId.substring(0, 8)}-${listObjectsSpans[0]
+        `Root=1-${traceId.substring(0, 8)}-${invokeSpans[0]
           .spanContext()
           .traceId.substring(8, 32)};Parent=${spanId};Sampled=1`
       );

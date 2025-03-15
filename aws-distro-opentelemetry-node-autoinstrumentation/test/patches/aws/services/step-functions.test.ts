@@ -1,14 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { getTestSpans, registerInstrumentationTesting } from '@opentelemetry/contrib-test-utils';
-import { AwsInstrumentation } from '@opentelemetry/instrumentation-aws-sdk';
-import { applyInstrumentationPatches } from './../../../../src/patches/instrumentation-patch';
-
-const instrumentations: AwsInstrumentation[] = [new AwsInstrumentation()];
-applyInstrumentationPatches(instrumentations);
-registerInstrumentationTesting(instrumentations[0]);
-
+import { getTestSpans } from '@opentelemetry/contrib-test-utils';
 import { SFN } from '@aws-sdk/client-sfn';
 import * as nock from 'nock';
 
@@ -16,6 +9,10 @@ import { SpanKind } from '@opentelemetry/api';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { expect } from 'expect';
 import { AWS_ATTRIBUTE_KEYS } from '../../../../src/aws-attribute-keys';
+
+// It is assumed that bedrock.test.ts has already registered the
+// necessary instrumentations for testing by calling:
+// - `registerInstrumentationTesting(instrumentations[0])`
 
 const region = 'us-east-1';
 

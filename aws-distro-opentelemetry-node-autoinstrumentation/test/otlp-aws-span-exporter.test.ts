@@ -66,24 +66,27 @@ if (nodeVersion >= 16) {
       sandbox.restore();
     });
 
-    it('Should inject SigV4 Headers successfully', async () => {
+    it('Should inject SigV4 Headers successfully', done => {
       const exporter = new mockModule.OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT + XRAY_OTLP_ENDPOINT_PATH);
 
-      scope.on('request', (req, interceptor, body) => {
-        const headers = req.headers;
-        expect(headers).toHaveProperty(AUTHORIZATION_HEADER.toLowerCase());
-        expect(headers).toHaveProperty(X_AMZ_SECURITY_TOKEN_HEADER.toLowerCase());
-        expect(headers).toHaveProperty(X_AMZ_DATE_HEADER.toLowerCase());
+      exporter
+        .export([], () => {})
+        .then(() => {
+          scope.on('request', (req, interceptor, body) => {
+            const headers = req.headers;
+            expect(headers).toHaveProperty(AUTHORIZATION_HEADER.toLowerCase());
+            expect(headers).toHaveProperty(X_AMZ_SECURITY_TOKEN_HEADER.toLowerCase());
+            expect(headers).toHaveProperty(X_AMZ_DATE_HEADER.toLowerCase());
 
-        expect(headers[AUTHORIZATION_HEADER.toLowerCase()]).toBe(EXPECTED_AUTH_HEADER);
-        expect(headers[X_AMZ_SECURITY_TOKEN_HEADER.toLowerCase()]).toBe(EXPECTED_AUTH_SECURITY_TOKEN);
-        expect(headers[X_AMZ_DATE_HEADER.toLowerCase()]).toBe(EXPECTED_AUTH_X_AMZ_DATE);
+            expect(headers[AUTHORIZATION_HEADER.toLowerCase()]).toBe(EXPECTED_AUTH_HEADER);
+            expect(headers[X_AMZ_SECURITY_TOKEN_HEADER.toLowerCase()]).toBe(EXPECTED_AUTH_SECURITY_TOKEN);
+            expect(headers[X_AMZ_DATE_HEADER.toLowerCase()]).toBe(EXPECTED_AUTH_X_AMZ_DATE);
 
-        expect(headers['content-type']).toBe('application/x-protobuf');
-        expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
-      });
-
-      await exporter.export([], () => {});
+            expect(headers['content-type']).toBe('application/x-protobuf');
+            expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
+            done();
+          });
+        });
     });
 
     describe('Should not inject SigV4 headers if dependencies are missing', () => {
@@ -95,18 +98,8 @@ if (nodeVersion >= 16) {
       ];
 
       dependencies.forEach(dependency => {
-        it(`should not sign headers if missing dependency: ${dependency}`, async () => {
+        it(`should not sign headers if missing dependency: ${dependency}`, done => {
           const exporter = new OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT + XRAY_OTLP_ENDPOINT_PATH);
-
-          scope.on('request', (req, interceptor, body) => {
-            const headers = req.headers;
-            expect(headers).not.toHaveProperty(AUTHORIZATION_HEADER);
-            expect(headers).not.toHaveProperty(X_AMZ_DATE_HEADER);
-            expect(headers).not.toHaveProperty(X_AMZ_SECURITY_TOKEN_HEADER);
-
-            expect(headers['content-type']).toBe('application/x-protobuf');
-            expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
-          });
 
           Object.keys(require.cache).forEach(key => {
             delete require.cache[key];
@@ -115,22 +108,25 @@ if (nodeVersion >= 16) {
           requireStub.withArgs(dependency).throws(new Error(`Cannot find module '${dependency}'`));
           requireStub.callThrough();
 
-          await exporter.export([], () => {});
+          exporter
+            .export([], () => {})
+            .then(() => {
+              scope.on('request', (req, interceptor, body) => {
+                const headers = req.headers;
+                expect(headers).not.toHaveProperty(AUTHORIZATION_HEADER);
+                expect(headers).not.toHaveProperty(X_AMZ_DATE_HEADER);
+                expect(headers).not.toHaveProperty(X_AMZ_SECURITY_TOKEN_HEADER);
+
+                expect(headers['content-type']).toBe('application/x-protobuf');
+                expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
+                done();
+              });
+            });
         });
       });
     });
 
-    it('should not inject SigV4 headers if failure to sign headers', async () => {
-      scope.on('request', (req, interceptor, body) => {
-        const headers = req.headers;
-        expect(headers).not.toHaveProperty(AUTHORIZATION_HEADER);
-        expect(headers).not.toHaveProperty(X_AMZ_DATE_HEADER);
-        expect(headers).not.toHaveProperty(X_AMZ_SECURITY_TOKEN_HEADER);
-
-        expect(headers['content-type']).toBe('application/x-protobuf');
-        expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
-      });
-
+    it('should not inject SigV4 headers if failure to sign headers', done => {
       const stubbedModule = proxyquire('../src/otlp-aws-span-exporter', {
         '@smithy/signature-v4': {
           SignatureV4: class MockSignatureV4 {
@@ -141,22 +137,25 @@ if (nodeVersion >= 16) {
         },
       });
 
-      const exporter = new stubbedModule.OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT);
+      const exporter = new stubbedModule.OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT + XRAY_OTLP_ENDPOINT_PATH);
 
-      await exporter.export([], () => {});
+      exporter
+        .export([], () => {})
+        .then(() => {
+          scope.on('request', (req, interceptor, body) => {
+            const headers = req.headers;
+            expect(headers).not.toHaveProperty(AUTHORIZATION_HEADER);
+            expect(headers).not.toHaveProperty(X_AMZ_DATE_HEADER);
+            expect(headers).not.toHaveProperty(X_AMZ_SECURITY_TOKEN_HEADER);
+
+            expect(headers['content-type']).toBe('application/x-protobuf');
+            expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
+            done();
+          });
+        });
     });
 
-    it('should not inject SigV4 headers if failure to retrieve credentials', async () => {
-      scope.on('request', (req, interceptor, body) => {
-        const headers = req.headers;
-        expect(headers).not.toHaveProperty(AUTHORIZATION_HEADER);
-        expect(headers).not.toHaveProperty(X_AMZ_DATE_HEADER);
-        expect(headers).not.toHaveProperty(X_AMZ_SECURITY_TOKEN_HEADER);
-
-        expect(headers['content-type']).toBe('application/x-protobuf');
-        expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
-      });
-
+    it('should not inject SigV4 headers if failure to retrieve credentials', done => {
       const stubbedModule = proxyquire('../src/otlp-aws-span-exporter', {
         '@aws-sdk/credential-provider-node': {
           defaultProvider: () => async () => {
@@ -165,9 +164,22 @@ if (nodeVersion >= 16) {
         },
       });
 
-      const exporter = new stubbedModule.OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT);
+      const exporter = new stubbedModule.OTLPAwsSpanExporter(XRAY_OTLP_ENDPOINT + XRAY_OTLP_ENDPOINT_PATH);
 
-      await exporter.export([], () => {});
+      exporter
+        .export([], () => {})
+        .then(() => {
+          scope.on('request', (req, interceptor, body) => {
+            const headers = req.headers;
+            expect(headers).not.toHaveProperty(AUTHORIZATION_HEADER);
+            expect(headers).not.toHaveProperty(X_AMZ_DATE_HEADER);
+            expect(headers).not.toHaveProperty(X_AMZ_SECURITY_TOKEN_HEADER);
+
+            expect(headers['content-type']).toBe('application/x-protobuf');
+            expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
+            done();
+          });
+        });
     });
   });
 }

@@ -24,7 +24,7 @@ import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { Context } from 'aws-lambda';
 import { SinonStub } from 'sinon';
-import { S3 } from '@aws-sdk/client-s3';
+import { Lambda } from '@aws-sdk/client-lambda';
 import nock = require('nock');
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { getTestSpans } from '@opentelemetry/contrib-test-utils';
@@ -532,7 +532,7 @@ describe('InstrumentationPatchTest', () => {
   }
 
   describe('AwsSdkInstrumentationPatchTest', () => {
-    let s3: S3;
+    let lambda: Lambda;
     const region = 'us-east-1';
 
     it('overridden _getV3SmithyClientSendPatch updates MiddlewareStack', async () => {
@@ -566,7 +566,7 @@ describe('InstrumentationPatchTest', () => {
     });
 
     it('injects trace context header into request via propagator', async () => {
-      s3 = new S3({
+      lambda = new Lambda({
         region: region,
         credentials: {
           accessKeyId: 'abcde',
@@ -574,33 +574,33 @@ describe('InstrumentationPatchTest', () => {
         },
       });
 
-      const dummyBucketName: string = 'dummy-bucket-name';
+      const dummyFunctionName: string = 'dummy-function-name';
       let reqHeaders: any = {};
 
-      nock(`https://${dummyBucketName}.s3.${region}.amazonaws.com`)
-        .get('/')
+      nock(`https://lambda.${region}.amazonaws.com`)
+        .post(`/2015-03-31/functions/${dummyFunctionName}/invocations`)
         .reply(200, function (uri: any, requestBody: any) {
           reqHeaders = this.req.headers;
           return 'null';
         });
 
-      await s3
-        .listObjects({
-          Bucket: dummyBucketName,
+      await lambda
+        .invoke({
+          FunctionName: dummyFunctionName,
         })
         .catch((err: any) => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const listObjectsSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
-        return s.name === 'S3.ListObjects';
+      const invokeSpans: ReadableSpan[] = testSpans.filter((s: ReadableSpan) => {
+        return s.name === 'dummy-function-name Invoke';
       });
 
-      expect(listObjectsSpans.length).toBe(1);
+      expect(invokeSpans.length).toBe(1);
 
-      const traceId = listObjectsSpans[0].spanContext().traceId;
-      const spanId = listObjectsSpans[0].spanContext().spanId;
+      const traceId = invokeSpans[0].spanContext().traceId;
+      const spanId = invokeSpans[0].spanContext().spanId;
       expect(reqHeaders['x-amzn-trace-id'] as string).toEqual(
-        `Root=1-${traceId.substring(0, 8)}-${listObjectsSpans[0]
+        `Root=1-${traceId.substring(0, 8)}-${invokeSpans[0]
           .spanContext()
           .traceId.substring(8, 32)};Parent=${spanId};Sampled=1`
       );

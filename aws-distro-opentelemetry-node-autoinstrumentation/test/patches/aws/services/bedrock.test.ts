@@ -5,8 +5,10 @@ import { getTestSpans, registerInstrumentationTesting } from '@opentelemetry/con
 import { AwsInstrumentation } from '@opentelemetry/instrumentation-aws-sdk';
 import { applyInstrumentationPatches } from './../../../../src/patches/instrumentation-patch';
 
+// Central location to register instrumentation for testing for all tests in this project
 const instrumentations: AwsInstrumentation[] = [new AwsInstrumentation()];
 applyInstrumentationPatches(instrumentations);
+process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'http';
 registerInstrumentationTesting(instrumentations[0]);
 
 import { Bedrock } from '@aws-sdk/client-bedrock';

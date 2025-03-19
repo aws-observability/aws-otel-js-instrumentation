@@ -18,7 +18,7 @@ import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentele
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
-import { applyInstrumentationPatches } from './patches/instrumentation-patch';
+import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 
 diag.setLogger(new DiagConsoleLogger(), opentelemetry.core.getEnv().OTEL_LOG_LEVEL);
 
@@ -35,6 +35,7 @@ Also sets default OTEL_PROPAGATORS to ensure good compatibility with X-Ray and A
 This file may also be used to apply patches to upstream instrumentation - usually these are stopgap measures until we can contribute
 long-term changes to upstream.
 */
+
 export function setAwsDefaultEnvironmentVariables(): void {
   if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
@@ -51,7 +52,10 @@ export function setAwsDefaultEnvironmentVariables(): void {
 }
 setAwsDefaultEnvironmentVariables();
 
-const instrumentationConfigs: InstrumentationConfigMap = {
+export const instrumentationConfigs: InstrumentationConfigMap = {
+  '@opentelemetry/instrumentation-aws-lambda': {
+    eventContextExtractor: customExtractor,
+  },
   '@opentelemetry/instrumentation-aws-sdk': {
     suppressInternalInstrumentation: true,
   },
@@ -62,7 +66,7 @@ const instrumentationConfigs: InstrumentationConfigMap = {
 const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
 // Apply instrumentation patches
-applyInstrumentationPatches(instrumentations, instrumentationConfigs);
+applyInstrumentationPatches(instrumentations);
 
 const configurator: AwsOpentelemetryConfigurator = new AwsOpentelemetryConfigurator(instrumentations, useXraySampler);
 const configuration: Partial<opentelemetry.NodeSDKConfiguration> = configurator.configure();

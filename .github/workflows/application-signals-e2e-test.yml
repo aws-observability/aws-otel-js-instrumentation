@@ -115,3 +115,13 @@ jobs:
     with:
       aws-region: us-east-1
       caller-workflow-name: 'main-build'
+
+  
+  adot-sigv4:
+    needs: [ upload-main-build ]
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-adot-sigv4-test.yml@main
+    secrets: inherit
+    with:
+      node-version: 22
+      staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
+      caller-workflow-name: 'main-build'

@@ -5,12 +5,7 @@
 import { TextMapPropagator, diag } from '@opentelemetry/api';
 import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
 import { getResourceDetectors as getResourceDetectorsFromEnv } from '@opentelemetry/auto-instrumentations-node';
-import {
-  ENVIRONMENT,
-  TracesSamplerValues,
-  getEnv,
-  getEnvWithoutDefaults,
-} from '@opentelemetry/core';
+import { ENVIRONMENT, TracesSamplerValues, getEnv, getEnvWithoutDefaults } from '@opentelemetry/core';
 import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import {
   AggregationTemporalityPreference,

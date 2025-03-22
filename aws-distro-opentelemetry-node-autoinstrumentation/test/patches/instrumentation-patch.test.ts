@@ -25,7 +25,7 @@ import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propa
 import { Context } from 'aws-lambda';
 import { SinonStub } from 'sinon';
 import { Lambda } from '@aws-sdk/client-lambda';
-import nock = require('nock');
+import * as nock from 'nock';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { getTestSpans } from '@opentelemetry/contrib-test-utils';
 import { instrumentationConfigs } from '../../src/register';

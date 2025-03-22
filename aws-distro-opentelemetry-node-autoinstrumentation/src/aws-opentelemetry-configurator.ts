@@ -75,6 +75,7 @@ const FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX = 'T1U';
 // Follow Python SDK Impl to set the max span batch size
 // which will reduce the chance of UDP package size is larger than 64KB
 const LAMBDA_SPAN_EXPORT_BATCH_SIZE = 10;
+
 /**
  * Aws Application Signals Config Provider creates a configuration object that can be provided to
  * the OTel NodeJS SDK for Auto Instrumentation with Application Signals Functionality.

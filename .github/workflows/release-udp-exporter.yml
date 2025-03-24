@@ -73,11 +73,10 @@ jobs:
             exit 1
           fi
 
-      # TODO: Uncomment when we make the first release
-      # # Publish OTLP UDP Exporter to npm
-      # - name: Publish to npm
-      #   working-directory: exporters/aws-otel-otlp-udp-exporter
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
-      #     NPM_CONFIG_PROVENANCE: true
-      #   run: npx publish
+      # Publish OTLP UDP Exporter to npm
+      - name: Publish to npm
+        working-directory: exporters/aws-otel-otlp-udp-exporter
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+          NPM_CONFIG_PROVENANCE: true
+        run: npx publish

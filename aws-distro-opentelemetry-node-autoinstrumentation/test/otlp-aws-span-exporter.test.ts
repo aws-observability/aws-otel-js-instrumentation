@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 import expect from 'expect';
-import { OTLPAwsSpanExporter } from '../src/otlp-aws-span-exporter';
+import { OTLPAwsSpanExporter } from '../src/exporter/otlp-aws-span-exporter';
 import * as sinon from 'sinon';
 import * as proxyquire from 'proxyquire';
 import * as nock from 'nock';

@@ -6,7 +6,7 @@ import { OTLPExporterNodeConfigBase } from '@opentelemetry/otlp-exporter-base';
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { ExportResult } from '@opentelemetry/core';
-import { getNodeVersion } from './utils';
+import { getNodeVersion } from '../utils';
 
 /**
  * This exporter extends the functionality of the OTLPProtoTraceExporter to allow spans to be exported

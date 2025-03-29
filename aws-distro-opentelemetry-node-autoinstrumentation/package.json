@@ -24,7 +24,7 @@
     "clean": "rimraf build/*",
     "compile:tsc": "tsc -p .",
     "compile:webpack": "webpack",
-    "compile": "npm run compile:webpack",
+    "compile": "npm run compile:tsc",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "create-version": "node -p \"'export const LIB_VERSION = ' + JSON.stringify(require('./package.json').version) + ';'\" > src/version.ts",

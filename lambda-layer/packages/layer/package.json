@@ -20,8 +20,8 @@
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "prepare": "npm run compile",
-    "compile": "tsc -p .",
-    "postcompile": "copyfiles -F 'node_modules/**' build/workspace/nodejs && copyfiles -f 'scripts/*' build/workspace && copyfiles -f 'build/src/*' build/workspace && cd build/workspace && bestzip ../layer.zip *"
+    "compile": "webpack && ./install-externals.sh",
+    "postcompile": "copyfiles -f 'src/**/*.mjs' build/workspace && copyfiles -f 'scripts/*' build/workspace && copyfiles -f 'build/src/*' build/workspace && cd build/workspace && bestzip ../layer.zip *"
   },
   "keywords": [
     "awsdistroopentelemetry",

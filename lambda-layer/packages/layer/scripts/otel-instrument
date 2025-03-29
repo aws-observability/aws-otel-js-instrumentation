@@ -28,12 +28,7 @@ _is_esm_handler() {
   fi
 }
 
-if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]]; then
-  export NODE_OPTIONS="${NODE_OPTIONS} --import @aws/aws-distro-opentelemetry-node-autoinstrumentation/register --experimental-loader=@opentelemetry/instrumentation/hook.mjs"
-  export HANDLER_IS_ESM=true
-else
-  export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/wrapper.js"
-fi
+export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/init.mjs"
 
 export LAMBDA_RESOURCE_ATTRIBUTES="cloud.region=$AWS_REGION,cloud.provider=aws,faas.name=$AWS_LAMBDA_FUNCTION_NAME,faas.version=$AWS_LAMBDA_FUNCTION_VERSION,faas.instance=$AWS_LAMBDA_LOG_STREAM_NAME,aws.log.group.names=$AWS_LAMBDA_LOG_GROUP_NAME";
 

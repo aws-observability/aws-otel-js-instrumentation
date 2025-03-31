@@ -1,12 +1,11 @@
 {
-    "extends": "../../tsconfig.base",
-    "compilerOptions": {
-      "module": "es2020",
-      "target": "es2020",
-      "moduleResolution": "node",
-      "esModuleInterop": true,
-    },
-    "exclude": [
-      "node_modules",
-    ]
-  }
+  "extends": "../../tsconfig.esm",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "build",
+  },
+  "include": [
+  "src/**/*.ts",
+  "test/**/*.ts"
+  ]
+}

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import expect from 'expect';
 import * as sinon from 'sinon';
-import { OTLPAwsSpanExporter } from '../src/exporter/otlp-aws-span-exporter';
+import { OTLPAwsSpanExporter } from '../src/aws-span-exporter/otlp-aws-span-exporter';
 import * as proxyquire from 'proxyquire';
 import * as nock from 'nock';
 import { getNodeVersion } from '../src/utils';
@@ -36,7 +36,7 @@ if (nodeVersion >= 16) {
           return [200, ''];
         });
 
-      mockModule = proxyquire('../src/exporter/otlp-aws-span-exporter', {
+      mockModule = proxyquire('../src/aws-span-exporter/otlp-aws-span-exporter', {
         '@smithy/signature-v4': {
           SignatureV4: class MockSignatureV4 {
             sign(req: any) {
@@ -127,7 +127,7 @@ if (nodeVersion >= 16) {
     });
 
     it('should not inject SigV4 headers if failure to sign headers', done => {
-      const stubbedModule = proxyquire('../src/otlp-aws-span-exporter', {
+      const stubbedModule = proxyquire('../src/aws-span-exporter/otlp-aws-span-exporter', {
         '@smithy/signature-v4': {
           SignatureV4: class MockSignatureV4 {
             sign() {
@@ -156,7 +156,7 @@ if (nodeVersion >= 16) {
     });
 
     it('should not inject SigV4 headers if failure to retrieve credentials', done => {
-      const stubbedModule = proxyquire('../src/otlp-aws-span-exporter', {
+      const stubbedModule = proxyquire('../src/aws-span-exporter/otlp-aws-span-exporter', {
         '@aws-sdk/credential-provider-node': {
           defaultProvider: () => async () => {
             throw new Error('credentials error');

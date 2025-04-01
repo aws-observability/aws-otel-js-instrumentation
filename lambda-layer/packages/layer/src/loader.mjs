@@ -87,8 +87,5 @@ if (_isHandlerAnESModule()) {
   to prevent redundant "import-in-the-middle" hook initialization overhead during coldstart
   of the CommonJS based user handlers.
    */
-  console.log("OpenTelemetry loader: ESM handler detected, activating 'import-in-the-middle' hook");
   registerLoader();
-} else {
-  console.log("OpenTelemetry loader: CJS handler detected, 'import-in-the-middle' hook won't be activated");
 }

@@ -43,7 +43,7 @@
     ],
     "exclude": [
       "src/third-party/**/*.ts",
-      "src/otlp-aws-span-exporter.ts"
+      "src/aws-span-exporter/otlp-aws-span-exporter.ts"
     ]
   },
   "bugs": {

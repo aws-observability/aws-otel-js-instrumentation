@@ -1,6 +1,39 @@
 #!/bin/bash
+_is_esm_handler() {
+  # Lambda function root directory
+  TASK_DIR="/var/task"
 
-export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/init.mjs"
+  # Flag variables to track conditions
+  local found_mjs=false
+  local is_module=false
+
+  # Check for any files ending with `.mjs`
+  if ls "$TASK_DIR"/*.mjs &>/dev/null; then
+      found_mjs=true
+    fi
+
+  # Check if `package.json` exists and if it contains `"type": "module"`
+  if [ -f "$TASK_DIR/package.json" ]; then
+    # Check for the `"type": "module"` attribute in `package.json`
+    if grep -q '"type": *"module"' "$TASK_DIR/package.json"; then
+      is_module=true
+    fi
+  fi
+
+  # Return true if both conditions are met
+  if $found_mjs || $is_module; then
+    return 0  # 0 in bash means true
+  else
+    return 1  # 1 in bash means false
+  fi
+}
+
+if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]]; then
+  export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/wrapper.js --experimental-loader=import-in-the-middle/hook.mjs"
+  export HANDLER_IS_ESM=true
+else
+  export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/wrapper.js"
+fi
 
 export LAMBDA_RESOURCE_ATTRIBUTES="cloud.region=$AWS_REGION,cloud.provider=aws,faas.name=$AWS_LAMBDA_FUNCTION_NAME,faas.version=$AWS_LAMBDA_FUNCTION_VERSION,faas.instance=$AWS_LAMBDA_LOG_STREAM_NAME,aws.log.group.names=$AWS_LAMBDA_LOG_GROUP_NAME";
 

@@ -29,7 +29,7 @@ _is_esm_handler() {
 }
 
 if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]]; then
-  export NODE_OPTIONS="${NODE_OPTIONS} --import @aws/aws-distro-opentelemetry-node-autoinstrumentation/register --experimental-loader=@opentelemetry/instrumentation/hook.mjs"
+  export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/wrapper.js --experimental-loader=import-in-the-middle/hook.mjs"
   export HANDLER_IS_ESM=true
 else
   export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/wrapper.js"

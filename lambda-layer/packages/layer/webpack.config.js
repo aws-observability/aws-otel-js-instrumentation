@@ -1,13 +1,17 @@
 const path = require('path');
 
 module.exports = {
-  entry: './src/register.ts',
+  entry: './src/wrapper.ts',
   target: 'node',
   mode: 'production',
   externalsPresets: { node: true },
+  externals: [
+    'import-in-the-middle',
+    '@aws-sdk',
+  ],
   output: {
     path: path.resolve('./build/src'),
-    filename: 'register.js',
+    filename: 'wrapper.js',
     library: {
         type: 'commonjs2',
     }

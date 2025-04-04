@@ -3,6 +3,9 @@
 set -euf -o pipefail
 
 # Space separated list of external NPM packages
+
+# import-in-the-middle's hook.mjs is used as a module loader for ESM-based handlers and must be available at runtime,
+# so we have to install it a standalone package separate from the bundled layer.
 EXTERNAL_PACKAGES=( "import-in-the-middle" )
 
 for EXTERNAL_PACKAGE in "${EXTERNAL_PACKAGES[@]}"

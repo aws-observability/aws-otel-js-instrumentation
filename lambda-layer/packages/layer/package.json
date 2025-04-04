@@ -17,11 +17,13 @@
   },
   "scripts": {
     "clean": "rimraf build/*",
+    "install-externals": "./install-externals.sh",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
-    "prepare": "npm run compile",
-    "compile": "webpack && ./install-externals.sh",
-    "postcompile": "copyfiles -f 'scripts/*' build/workspace && copyfiles -f 'build/src/*' build/workspace && cd build/workspace && bestzip ../layer.zip *"
+    "prepare": "npm run compile && npm run install-externals && npm run package",
+    "compile": "webpack",
+    "package": "cd build/workspace && bestzip ../layer.zip *",
+    "postcompile": "copyfiles -f 'scripts/*' build/workspace && copyfiles -f 'build/src/*' build/workspace"
   },
   "keywords": [
     "awsdistroopentelemetry",

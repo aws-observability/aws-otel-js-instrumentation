@@ -240,10 +240,6 @@ export class AwsOpentelemetryConfigurator {
 
     spanProcessors.push(AttributePropagatingSpanProcessorBuilder.create().build());
 
-    if (isXrayOtlpEndpoint(process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'])) {
-      return;
-    }
-
     const applicationSignalsMetricExporter: PushMetricExporter =
       ApplicationSignalsExporterProvider.Instance.createExporter();
     const periodicExportingMetricReader: PeriodicExportingMetricReader = new PeriodicExportingMetricReader({

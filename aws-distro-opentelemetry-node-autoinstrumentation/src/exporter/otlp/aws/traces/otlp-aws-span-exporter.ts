@@ -6,7 +6,31 @@ import { OTLPExporterNodeConfigBase } from '@opentelemetry/otlp-exporter-base';
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { ExportResult } from '@opentelemetry/core';
-import { getNodeVersion } from './utils';
+import { getNodeVersion } from '../../../../utils';
+let SignatureV4: any;
+let HttpRequest: any;
+let defaultProvider: any;
+let Sha256: any;
+
+const nodeVersionSupported = getNodeVersion() >= 16;
+
+if (nodeVersionSupported) {
+  try {
+    const { defaultProvider: awsDefaultProvider } = require('@aws-sdk/credential-provider-node');
+    const { Sha256: awsSha256 } = require('@aws-crypto/sha256-js');
+    const { SignatureV4: awsSignatureV4 } = require('@smithy/signature-v4');
+    const { HttpRequest: awsHttpRequest } = require('@smithy/protocol-http');
+    
+    // Assign to module-level variables
+    defaultProvider = awsDefaultProvider;
+    Sha256 = awsSha256;
+    SignatureV4 = awsSignatureV4;
+    HttpRequest = awsHttpRequest;
+  } catch (error) {
+    diag.error(`Failed to load required AWS dependency for SigV4 Signing: ${error}`);
+  }
+}
+
 
 /**
  * This exporter extends the functionality of the OTLPProtoTraceExporter to allow spans to be exported
@@ -21,18 +45,18 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
   private endpoint: string;
   private region: string;
 
-  // Holds the dependencies needed to sign the SigV4 headers
-  private defaultProvider: any;
-  private sha256: any;
-  private signatureV4: any;
-  private httpRequest: any;
+  // // Holds the dependencies needed to sign the SigV4 headers
+  // private defaultProvider: any;
+  // private sha256: any;
+  // private signatureV4: any;
+  // private httpRequest: any;
 
   // If the required dependencies are installed then we enable SigV4 signing. Otherwise skip it
   private hasRequiredDependencies: boolean = false;
 
   constructor(endpoint: string, config?: OTLPExporterNodeConfigBase) {
     super(OTLPAwsSpanExporter.changeUrlConfig(endpoint, config));
-    this.initDependencies();
+    // this.initDependencies();
     this.region = endpoint.split('.')[1];
     this.endpoint = endpoint;
   }
@@ -59,7 +83,7 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
       const oldHeaders = this['_delegate']._transport?._transport?._parameters?.headers();
 
       if (oldHeaders) {
-        const request = new this.httpRequest({
+        const request = new HttpRequest.httpRequest({
           method: 'POST',
           protocol: 'https',
           hostname: url.hostname,
@@ -72,11 +96,11 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
         });
 
         try {
-          const signer = new this.signatureV4({
-            credentials: this.defaultProvider(),
+          const signer = new SignatureV4({
+            credentials: defaultProvider(),
             region: this.region,
             service: OTLPAwsSpanExporter.SERVICE_NAME,
-            sha256: this.sha256,
+            sha256: Sha256,
           });
 
           const signedRequest = await signer.sign(request);
@@ -108,27 +132,27 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
     return newHeaders;
   }
 
-  private initDependencies(): any {
-    if (getNodeVersion() < 16) {
-      diag.error('SigV4 signing requires atleast Node major version 16');
-      return;
-    }
+  // private initDependencies(): any {
+  //   if (getNodeVersion() < 16) {
+  //     diag.error('SigV4 signing requires atleast Node major version 16');
+  //     return;
+  //   }
 
-    try {
-      const awsSdkModule = require('@aws-sdk/credential-provider-node');
-      const awsCryptoModule = require('@aws-crypto/sha256-js');
-      const signatureModule = require('@smithy/signature-v4');
-      const httpModule = require('@smithy/protocol-http');
+  //   try {
+  //     const awsSdkModule = require('@aws-sdk/credential-provider-node');
+  //     const awsCryptoModule = require('@aws-crypto/sha256-js');
+  //     const signatureModule = require('@smithy/signature-v4');
+  //     const httpModule = require('@smithy/protocol-http');
 
-      (this.defaultProvider = awsSdkModule.defaultProvider),
-        (this.sha256 = awsCryptoModule.Sha256),
-        (this.signatureV4 = signatureModule.SignatureV4),
-        (this.httpRequest = httpModule.HttpRequest);
-      this.hasRequiredDependencies = true;
-    } catch (error) {
-      diag.error(`Failed to load required AWS dependency for SigV4 Signing: ${error}`);
-    }
-  }
+  //     (this.defaultProvider = awsSdkModule.defaultProvider),
+  //       (this.sha256 = awsCryptoModule.Sha256),
+  //       (this.signatureV4 = signatureModule.SignatureV4),
+  //       (this.httpRequest = httpModule.HttpRequest);
+  //     this.hasRequiredDependencies = true;
+  //   } catch (error) {
+  //     diag.error(`Failed to load required AWS dependency for SigV4 Signing: ${error}`);
+  //   }
+  // }
 
   private static changeUrlConfig(endpoint: string, config?: OTLPExporterNodeConfigBase): OTLPExporterNodeConfigBase {
     const newConfig =

@@ -13,6 +13,7 @@ import {
   MetricAttributeGenerator,
   SERVICE_METRIC,
 } from './metric-attribute-generator';
+import { Mutable } from './utils';
 
 /**
  * This exporter will update a span with metric attributes before exporting. It depends on a
@@ -125,9 +126,6 @@ export class AwsMetricAttributesSpanExporter implements SpanExporter {
     }
 
     // Bypass `readonly` restriction of ReadableSpan's attributes.
-    // Workaround provided from official TypeScript docs:
-    // https://www.typescriptlang.org/docs/handbook/release-notes/typescript-2-8.html#improved-control-over-mapped-type-modifiers
-    type Mutable<T> = { -readonly [P in keyof T]: T[P] };
     const mutableSpan: Mutable<ReadableSpan> = span;
     mutableSpan.attributes = updateAttributes;
 

@@ -6,7 +6,9 @@ import { OTLPExporterNodeConfigBase } from '@opentelemetry/otlp-exporter-base';
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { ExportResult } from '@opentelemetry/core';
-import { getNodeVersion } from './utils';
+import { getNodeVersion, isAgentObservabilityEnabled } from './utils';
+import { LoggerProvider } from '@opentelemetry/sdk-logs';
+import { LLOHandler } from './llo-handler';
 
 /**
  * This exporter extends the functionality of the OTLPProtoTraceExporter to allow spans to be exported
@@ -30,11 +32,17 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
   // If the required dependencies are installed then we enable SigV4 signing. Otherwise skip it
   private hasRequiredDependencies: boolean = false;
 
-  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase) {
+  private lloHandler: LLOHandler | undefined;
+
+  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase, loggerProvider?: LoggerProvider) {
     super(OTLPAwsSpanExporter.changeUrlConfig(endpoint, config));
     this.initDependencies();
     this.region = endpoint.split('.')[1];
     this.endpoint = endpoint;
+
+    if (loggerProvider) {
+      this.lloHandler = new LLOHandler(loggerProvider);
+    }
   }
 
   /**
@@ -90,6 +98,11 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
           );
         }
       }
+    }
+
+    if (isAgentObservabilityEnabled() && this.lloHandler) {
+      const lloProcessedSpans = this.lloHandler.processSpans(items);
+      super.export(lloProcessedSpans, resultCallback);
     }
 
     super.export(items, resultCallback);

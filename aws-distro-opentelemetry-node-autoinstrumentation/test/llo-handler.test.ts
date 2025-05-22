@@ -942,7 +942,7 @@ describe('LLOHandlerTest', () => {
   });
 
   /**
-   * Test processSpansEvents
+   * Test processSpanEvents
    */
   it('testProcessSpanEvents', () => {
     const span = createMockSpan({});

@@ -1,80 +1,92 @@
-// import { diag } from '@opentelemetry/api';
-// import { getNodeVersion } from '../../../../utils';
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+import { diag } from '@opentelemetry/api';
+import { getNodeVersion } from '../../../../utils';
+let SignatureV4: any;
+let HttpRequest: any;
+let defaultProvider: any;
+let Sha256: any;
 
-// let SignatureV4: any;
-// let HttpRequest: any;
-// let defaultProvider: any;
-// let Sha256: any;
+let dependenciesLoaded = false;
 
-// const nodeVersionSupported = getNodeVersion() >= 16;
+if (getNodeVersion() >= 16) {
+  try {
+    defaultProvider = require('@aws-sdk/credential-provider-node').defaultProvider;
+    Sha256 = require('@aws-crypto/sha256-js').Sha256;
+    SignatureV4 = require('@smithy/signature-v4').SignatureV4;
+    HttpRequest = require('@smithy/protocol-http').HttpRequest;
+    dependenciesLoaded = true;
+  } catch (error) {
+    diag.error(`Failed to load required AWS dependency for SigV4 Signing: ${error}`);
+  }
+} else {
+  diag.error('SigV4 signing requires at least Node major version 16');
+}
 
-// if (nodeVersionSupported) {
-//   try {
-//     const { defaultProvider: awsDefaultProvider } = require('@aws-sdk/credential-provider-node');
-//     const { Sha256: awsSha256 } = require('@aws-crypto/sha256-js');
-//     const { SignatureV4: awsSignatureV4 } = require('@smithy/signature-v4');
-//     const { HttpRequest: awsHttpRequest } = require('@smithy/protocol-http');
-    
-//     // Assign to module-level variables
-//     defaultProvider = awsDefaultProvider;
-//     Sha256 = awsSha256;
-//     SignatureV4 = awsSignatureV4;
-//     HttpRequest = awsHttpRequest;
-//   } catch (error) {
-//     diag.error(`Failed to load required AWS dependency for SigV4 Signing: ${error}`);
-//   }
-// }
+export class AwsAuthenticator {
+  private region: string;
+  private service: string;
 
-// export class AwsAuthenticator {
+  constructor(region: string, service: string) {
+    this.region = region;
+    this.service = service;
+  }
 
-//     private static readonly SERVICE_NAME: string = 'xray';
-//     private endpoint: string;
-//     private region: string;
-//     private service: string;
+  public async authenticate(endpoint: string, headers: Record<string, string>, serializedData: Uint8Array | undefined) {
+    // Only do SigV4 Signing if the required dependencies are installed.
+    if (dependenciesLoaded) {
+      const url = new URL(endpoint);
 
-//     // Holds the dependencies needed to sign the SigV4 headers
-//     private defaultProvider: any;
-//     private sha256: any;
-//     private signatureV4: any;
-//     private httpRequest: any;
+      if (serializedData === undefined) {
+        diag.error('Given serialized data is undefined. Not authenticating.');
+        return headers;
+      }
 
-//     constructor(endpoint: string, region: string, service: string) {
-//         this.endpoint = endpoint;
-//         this.region = region;
-//         this.service = service;
-    
-//     }
+      const cleanedHeaders = this.removeSigV4Headers(headers);
 
-//         //   if (oldHeaders) {
-//         //     const request = new this.httpRequest({
-//         //       method: 'POST',
-//         //       protocol: 'https',
-//         //       hostname: url.hostname,
-//         //       path: url.pathname,
-//         //       body: serializedSpans,
-//         //       headers: {
-//         //         ...this.removeSigV4Headers(oldHeaders),
-//         //         host: url.hostname,
-//         //       },
-//         //     });
-    
-//         //     try {
-//         //       const signer = new this.signatureV4({
-//         //         credentials: this.defaultProvider(),
-//         //         region: this.region,
-//         //         service: OTLPAwsSpanExporter.SERVICE_NAME,
-//         //         sha256: this.sha256,
-//         //       });
-    
-//         //       const signedRequest = await signer.sign(request);
-    
-//         //       // See type: https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/experimental/packages/otlp-exporter-base/src/transport/http-transport-types.ts#L31
-//         //       const newHeaders: () => Record<string, string> = () => signedRequest.headers;
-//         //       this['_delegate']._transport._transport._parameters.headers = newHeaders;
-//         //     } catch (exception) {
-//         //       diag.debug(
-//         //         `Failed to sign/authenticate the given exported Span request to OTLP XRay endpoint with error: ${exception}`
-//         //       );
-//         //     }
-//         //   }
-// }
+      const request = new HttpRequest({
+        method: 'POST',
+        protocol: 'https',
+        hostname: url.hostname,
+        path: url.pathname,
+        body: serializedData,
+        headers: {
+          ...cleanedHeaders,
+          host: url.hostname,
+        },
+      });
+
+      try {
+        const signer = new SignatureV4({
+          credentials: defaultProvider(),
+          region: this.region,
+          service: this.service,
+          sha256: Sha256,
+        });
+
+        const signedRequest = await signer.sign(request);
+
+        return signedRequest.headers;
+      } catch (exception) {
+        diag.debug(
+          `Failed to sign/authenticate the given exported Span request to OTLP XRay endpoint with error: ${exception}`
+        );
+      }
+    }
+
+    return headers;
+  }
+
+  // Cleans up Sigv4 from headers to avoid accidentally copying them to the new headers
+  private removeSigV4Headers(headers: Record<string, string>) {
+    const newHeaders: Record<string, string> = {};
+    const sigV4Headers = ['x-amz-date', 'authorization', 'x-amz-content-sha256', 'x-amz-security-token'];
+
+    for (const key in headers) {
+      if (!sigV4Headers.includes(key.toLowerCase())) {
+        newHeaders[key] = headers[key];
+      }
+    }
+    return newHeaders;
+  }
+}

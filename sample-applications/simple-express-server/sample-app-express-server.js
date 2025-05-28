@@ -69,5 +69,5 @@ app.get('/aws-sdk-s3', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  logger.info(`Listening for requests on http://localhost:${PORT}`);
+  console.log(`Listening for requests on http://localhost:${PORT}`);
 });

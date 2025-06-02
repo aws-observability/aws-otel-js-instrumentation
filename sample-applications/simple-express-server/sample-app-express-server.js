@@ -2,19 +2,27 @@
 
 const http = require('http');
 const express = require('express');
+const bunyan = require('bunyan');
 const { S3Client, ListObjectsCommand } = require('@aws-sdk/client-s3');
 
 const PORT = parseInt(process.env.SAMPLE_APP_PORT || '8080', 10);
 
 const app = express();
 
+// Uses bunyan logger
+const logger = bunyan.createLogger({name: 'express-app', level: 'info'});
+
 async function getRandomNumber(min, max) {
   return Math.floor(Math.random() * (max - min) + min);
 }
 
+// Generate logs in your endpoints
 app.get('/rolldice', (req, res) => {
+
   getRandomNumber(1, 6).then((val) => {
-    res.send(`rolldice: ${val.toString()}`);
+    const msg = `rolldice: ${val.toString()}`
+    logger.info(msg);
+    res.send(msg);
   });
 });
 
@@ -29,7 +37,9 @@ app.get('/http', (req, res) => {
   const httpRequest = http.request(options, (rs) => {
     rs.setEncoding('utf8');
     rs.on('data', (result) => {
-      res.send(`random value from http request: ${result}`);
+      const msg = `random value from http request: ${result}`
+      logger.info(msg);
+      res.send(msg);
     });
     rs.on('error', console.log);
   });
@@ -45,14 +55,16 @@ app.get('/aws-sdk-s3', async (req, res) => {
         Bucket: bucketName,
       }),
     ).then((data) => {
-      console.log(data);
+      logger.info(data);
     });
   } catch (e) {
     if (e instanceof Error) {
-      console.error('Exception thrown: ', e.message);
+      logger.error(`Exception thrown: ${e.message}`);
     }
   } finally {
-    res.send('done aws sdk s3 request');
+    const msg = 'done aws sdk s3 request'
+    logger.info(msg);
+    res.send(msg);
   }
 });
 

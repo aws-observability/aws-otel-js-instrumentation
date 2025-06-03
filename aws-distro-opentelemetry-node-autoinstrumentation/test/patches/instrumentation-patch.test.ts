@@ -565,13 +565,13 @@ describe('InstrumentationPatchTest', () => {
           },
         };
 
-        afterEach(() => {
-          sinon.restore();
-        });
-
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
         await send({}, null);
+      });
+
+      afterEach(() => {
+        sinon.restore();
       });
 
       it('Updates trace header casing when AWSXRayPropagator injects trace header successfully', async () => {

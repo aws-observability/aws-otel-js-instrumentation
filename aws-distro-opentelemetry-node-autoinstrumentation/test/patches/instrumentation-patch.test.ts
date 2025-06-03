@@ -6,13 +6,15 @@ import {
   diag,
   Context as OtelContext,
   trace,
+  context,
   propagation,
   Span,
   Tracer,
   AttributeValue,
   TextMapSetter,
-  defaultTextMapSetter,
   ROOT_CONTEXT,
+  INVALID_SPAN_CONTEXT,
+  ContextAPI,
 } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
@@ -21,7 +23,12 @@ import { AwsLambdaInstrumentation, AwsLambdaInstrumentationConfig } from '@opent
 import { expect } from 'expect';
 import { AWS_ATTRIBUTE_KEYS } from '../../src/aws-attribute-keys';
 import { RequestMetadata, ServiceExtension } from '../../src/third-party/otel/aws/services/ServiceExtension';
-import { applyInstrumentationPatches, customExtractor, headerGetter } from './../../src/patches/instrumentation-patch';
+import {
+  applyInstrumentationPatches,
+  AWSXRAY_TRACE_ID_HEADER_CAPITALIZED,
+  customExtractor,
+  headerGetter,
+} from './../../src/patches/instrumentation-patch';
 import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { Context } from 'aws-lambda';
@@ -560,12 +567,16 @@ describe('InstrumentationPatchTest', () => {
           },
         };
 
+        afterEach(() => {
+          sinon.restore();
+        });
+
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
         await send({}, null);
       });
 
-      it('propagator injects with valid context', async () => {
+      it('Updates trace header casing when AWSXRayPropagator injects trace header successfully', async () => {
         sinon
           .stub(AWSXRayPropagator.prototype, 'inject')
           .callsFake((context: OtelContext, carrier: unknown, setter: TextMapSetter) => {
@@ -574,31 +585,29 @@ describe('InstrumentationPatchTest', () => {
           });
         await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsHeader);
 
-        sinon.restore();
-
         expect(middlewareArgsHeader.request.headers['isCarrierModified']).toEqual('carrierIsModified');
         expect(middlewareArgsHeader.request.headers).not.toHaveProperty(AWSXRAY_TRACE_ID_HEADER);
-        expect(middlewareArgsHeader.request.headers).toHaveProperty('X-Amzn-Trace-Id');
-        expect(middlewareArgsHeader.request.headers['X-Amzn-Trace-Id']).toEqual(testXrayTraceHeader);
+        expect(middlewareArgsHeader.request.headers).toHaveProperty(AWSXRAY_TRACE_ID_HEADER_CAPITALIZED);
+        expect(middlewareArgsHeader.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED]).toEqual(testXrayTraceHeader);
 
         expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
       });
 
-      it('propagator does not inject with invalid context', async () => {
-        const invalidContext = trace.setSpanContext(ROOT_CONTEXT, {
-          traceId: 'invalid-trace-id',
-          spanId: 'invalid-span',
-          traceFlags: 0,
-          isRemote: false,
-        });
+      it('Does not set trace header when AWSXRayPropagator does not inject trace header', async () => {
+        const invalidContext: OtelContext = {
+          getValue: (key: symbol) => ({
+            spanContext: () => INVALID_SPAN_CONTEXT,
+          }),
+          setValue: (key: symbol, value: unknown) => invalidContext,
+          deleteValue: (key: symbol) => invalidContext,
+        };
 
-        const propagator = new AWSXRayPropagator();
+        sinon.stub(context, 'active').returns(invalidContext);
 
-        propagator.inject(invalidContext, middlewareArgsHeader.request.headers, defaultTextMapSetter);
-        sinon.restore();
+        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsHeader);
 
         expect(middlewareArgsHeader.request.headers).not.toHaveProperty(AWSXRAY_TRACE_ID_HEADER);
-        expect(middlewareArgsHeader.request.headers).not.toHaveProperty('X-Amzn-Trace-Id');
+        expect(middlewareArgsHeader.request.headers).not.toHaveProperty(AWSXRAY_TRACE_ID_HEADER_CAPITALIZED);
 
         expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
       });

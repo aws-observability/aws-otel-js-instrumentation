@@ -38,6 +38,8 @@ import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lam
 import type { Command as AwsV3Command } from '@aws-sdk/types';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
+export const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
+
 const awsPropagator = new AWSXRayPropagator();
 export const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
   keys(carrier: any): string[] {
@@ -294,7 +296,6 @@ function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
 // Override the upstream private _getV3SmithyClientSendPatch method to add middleware to inject X-Ray Trace Context into HTTP Headers
 // https://github.com/open-telemetry/opentelemetry-js-contrib/blob/instrumentation-aws-sdk-v0.48.0/plugins/node/opentelemetry-instrumentation-aws-sdk/src/aws-sdk.ts#L373-L384
 const awsXrayPropagator = new AWSXRayPropagator();
-const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
 const V3_CLIENT_CONFIG_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.client.config');
 type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
   [V3_CLIENT_CONFIG_KEY]?: any;

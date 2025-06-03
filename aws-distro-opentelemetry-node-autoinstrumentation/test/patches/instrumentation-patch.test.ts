@@ -546,11 +546,6 @@ describe('InstrumentationPatchTest', () => {
       let mockedMiddlewareStackInternal: any;
       let mockedMiddlewareStack;
       let middlewareArgsHeader: any;
-
-      const send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
-        ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
-        .bind({ middlewareStack: mockedMiddlewareStack });
-
       const testXrayTraceHeader = 'test-xray-trace-header';
 
       beforeEach(async () => {
@@ -559,6 +554,9 @@ describe('InstrumentationPatchTest', () => {
         mockedMiddlewareStack = {
           add: (arg1: any, arg2: any) => mockedMiddlewareStackInternal.push([arg1, arg2]),
         };
+        const send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
+          ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
+          .bind({ middlewareStack: mockedMiddlewareStack });
 
         middlewareArgsHeader = {
           request: {

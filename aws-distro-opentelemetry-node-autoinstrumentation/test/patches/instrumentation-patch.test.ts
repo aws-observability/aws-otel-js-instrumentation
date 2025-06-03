@@ -11,6 +11,8 @@ import {
   Tracer,
   AttributeValue,
   TextMapSetter,
+  defaultTextMapSetter,
+  ROOT_CONTEXT,
 } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
@@ -539,6 +541,8 @@ describe('InstrumentationPatchTest', () => {
       let mockedMiddlewareStackInternal: any;
       let mockedMiddlewareStack;
       let send;
+      let middlewareArgsHeader: any;
+      const testXrayTraceHeader = 'test-xray-trace-header';
 
       beforeEach(async () => {
         // Clear environment variables before each test
@@ -550,11 +554,11 @@ describe('InstrumentationPatchTest', () => {
           ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
           .bind({ middlewareStack: mockedMiddlewareStack });
 
-        sinon
-          .stub(AWSXRayPropagator.prototype, 'inject')
-          .callsFake((context: OtelContext, carrier: unknown, setter: TextMapSetter) => {
-            (carrier as any)['isCarrierModified'] = 'carrierIsModified';
-          });
+        middlewareArgsHeader = {
+          request: {
+            headers: {},
+          },
+        };
 
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
@@ -562,37 +566,39 @@ describe('InstrumentationPatchTest', () => {
       });
 
       it('Injecting with existing X-Ray header', async () => {
-        const existingHeader = 'test-trace-header';
-        const middlewareArgsWithHeader: any = {
-          request: {
-            headers: { [AWSXRAY_TRACE_ID_HEADER]: existingHeader },
-          },
-        };
-        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsWithHeader);
+        sinon
+          .stub(AWSXRayPropagator.prototype, 'inject')
+          .callsFake((context: OtelContext, carrier: unknown, setter: TextMapSetter) => {
+            (carrier as any)['isCarrierModified'] = 'carrierIsModified';
+            (carrier as any)[AWSXRAY_TRACE_ID_HEADER] = testXrayTraceHeader;
+          });
+        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsHeader);
 
         sinon.restore();
 
-        expect(middlewareArgsWithHeader.request.headers['isCarrierModified']).toEqual('carrierIsModified');
-        expect(middlewareArgsWithHeader.request.headers).not.toHaveProperty(AWSXRAY_TRACE_ID_HEADER);
-        expect(middlewareArgsWithHeader.request.headers).toHaveProperty('X-Amzn-Trace-Id');
-        expect(middlewareArgsWithHeader.request.headers['X-Amzn-Trace-Id']).toEqual(existingHeader);
+        expect(middlewareArgsHeader.request.headers['isCarrierModified']).toEqual('carrierIsModified');
+        expect(middlewareArgsHeader.request.headers).not.toHaveProperty(AWSXRAY_TRACE_ID_HEADER);
+        expect(middlewareArgsHeader.request.headers).toHaveProperty('X-Amzn-Trace-Id');
+        expect(middlewareArgsHeader.request.headers['X-Amzn-Trace-Id']).toEqual(testXrayTraceHeader);
 
         expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
       });
 
       it('Injecting without existing X-Ray header', async () => {
-        const middlewareArgsNoHeader: any = {
-          request: {
-            headers: {},
-          },
-        };
+        const invalidContext = trace.setSpanContext(ROOT_CONTEXT, {
+          traceId: 'invalid-trace-id',
+          spanId: 'invalid-span',
+          traceFlags: 0,
+          isRemote: false,
+        });
 
-        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsNoHeader);
+        const propagator = new AWSXRayPropagator();
 
+        propagator.inject(invalidContext, middlewareArgsHeader.request.headers, defaultTextMapSetter);
         sinon.restore();
 
-        expect(middlewareArgsNoHeader.request.headers['isCarrierModified']).toEqual('carrierIsModified');
-        expect(middlewareArgsNoHeader.request.headers).not.toHaveProperty('X-Amzn-Trace-Id');
+        expect(middlewareArgsHeader.request.headers).not.toHaveProperty(AWSXRAY_TRACE_ID_HEADER);
+        expect(middlewareArgsHeader.request.headers).not.toHaveProperty('X-Amzn-Trace-Id');
 
         expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
       });

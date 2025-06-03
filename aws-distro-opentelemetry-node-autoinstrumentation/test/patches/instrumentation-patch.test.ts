@@ -565,7 +565,7 @@ describe('InstrumentationPatchTest', () => {
         await send({}, null);
       });
 
-      it('Injecting with existing X-Ray header', async () => {
+      it('propagator injects with valid context', async () => {
         sinon
           .stub(AWSXRayPropagator.prototype, 'inject')
           .callsFake((context: OtelContext, carrier: unknown, setter: TextMapSetter) => {
@@ -584,7 +584,7 @@ describe('InstrumentationPatchTest', () => {
         expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
       });
 
-      it('Injecting without existing X-Ray header', async () => {
+      it('propagator does not inject with invalid context', async () => {
         const invalidContext = trace.setSpanContext(ROOT_CONTEXT, {
           traceId: 'invalid-trace-id',
           spanId: 'invalid-span',

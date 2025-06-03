@@ -311,10 +311,10 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
             // Need to set capitalized version of the trace id to ensure that the Recursion Detection Middleware
             // of aws-sdk-js-v3 will detect the propagated X-Ray Context
             // See: https://github.com/aws/aws-sdk-js-v3/blob/v3.768.0/packages/middleware-recursion-detection/src/index.ts#L13
-            const xray_trace_id = middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER];
+            const xrayTraceId = middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER];
 
-            if (xray_trace_id) {
-              middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED] = xray_trace_id;
+            if (xrayTraceId) {
+              middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED] = xrayTraceId;
               delete middlewareArgs.request.headers[AWSXRAY_TRACE_ID_HEADER];
             }
             const result = await next(middlewareArgs);

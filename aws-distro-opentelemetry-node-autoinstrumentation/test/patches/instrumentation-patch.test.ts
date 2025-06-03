@@ -535,34 +535,67 @@ describe('InstrumentationPatchTest', () => {
     let lambda: Lambda;
     const region = 'us-east-1';
 
-    it('overridden _getV3SmithyClientSendPatch updates MiddlewareStack', async () => {
-      const mockedMiddlewareStackInternal: any = [];
-      const mockedMiddlewareStack = {
-        add: (arg1: any, arg2: any) => mockedMiddlewareStackInternal.push([arg1, arg2]),
-      };
-      const send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
-        ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
-        .bind({ middlewareStack: mockedMiddlewareStack });
-      sinon
-        .stub(AWSXRayPropagator.prototype, 'inject')
-        .callsFake((context: OtelContext, carrier: unknown, setter: TextMapSetter) => {
-          (carrier as any)['isCarrierModified'] = 'carrierIsModified';
-        });
+    describe('overridden _getV3SmithyClientSendPatch updates MiddlewareStack', async () => {
+      let mockedMiddlewareStackInternal: any;
+      let mockedMiddlewareStack;
+      let send;
 
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      await send({}, null);
+      beforeEach(async () => {
+        // Clear environment variables before each test
+        mockedMiddlewareStackInternal = [];
+        mockedMiddlewareStack = {
+          add: (arg1: any, arg2: any) => mockedMiddlewareStackInternal.push([arg1, arg2]),
+        };
+        send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
+          ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
+          .bind({ middlewareStack: mockedMiddlewareStack });
 
-      const middlewareArgs: any = {
-        request: {
-          headers: {},
-        },
-      };
-      await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgs);
+        sinon
+          .stub(AWSXRayPropagator.prototype, 'inject')
+          .callsFake((context: OtelContext, carrier: unknown, setter: TextMapSetter) => {
+            (carrier as any)['isCarrierModified'] = 'carrierIsModified';
+          });
 
-      sinon.restore();
-      expect(middlewareArgs.request.headers['isCarrierModified']).toEqual('carrierIsModified');
-      expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        await send({}, null);
+      });
+
+      it('Injecting with existing X-Ray header', async () => {
+        const existingHeader = 'test-trace-header';
+        const middlewareArgsWithHeader: any = {
+          request: {
+            headers: { [AWSXRAY_TRACE_ID_HEADER]: existingHeader },
+          },
+        };
+        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsWithHeader);
+
+        sinon.restore();
+
+        expect(middlewareArgsWithHeader.request.headers['isCarrierModified']).toEqual('carrierIsModified');
+        expect(middlewareArgsWithHeader.request.headers).not.toHaveProperty(AWSXRAY_TRACE_ID_HEADER);
+        expect(middlewareArgsWithHeader.request.headers).toHaveProperty('X-Amzn-Trace-Id');
+        expect(middlewareArgsWithHeader.request.headers['X-Amzn-Trace-Id']).toEqual(existingHeader);
+
+        expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
+      });
+
+      it('Injecting without existing X-Ray header', async () => {
+        const middlewareArgsNoHeader: any = {
+          request: {
+            headers: {},
+          },
+        };
+
+        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsNoHeader);
+
+        sinon.restore();
+
+        expect(middlewareArgsNoHeader.request.headers['isCarrierModified']).toEqual('carrierIsModified');
+        expect(middlewareArgsNoHeader.request.headers).not.toHaveProperty('X-Amzn-Trace-Id');
+
+        expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
+      });
     });
 
     it('injects trace context header into request via propagator', async () => {

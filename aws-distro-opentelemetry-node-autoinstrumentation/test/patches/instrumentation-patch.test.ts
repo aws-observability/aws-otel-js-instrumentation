@@ -12,9 +12,7 @@ import {
   Tracer,
   AttributeValue,
   TextMapSetter,
-  ROOT_CONTEXT,
   INVALID_SPAN_CONTEXT,
-  ContextAPI,
 } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';

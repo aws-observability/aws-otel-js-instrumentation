@@ -774,9 +774,23 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes('AWS::Kinesis::Stream', 'AWS_KINESIS_STREAM_NAME');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, undefined);
 
+    // Validate behaviour of AWS_KINESIS_STREAM_NAME attribute with special chars, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, 'kinesis-stream|with^chars');
+    validateRemoteResourceAttributes('AWS::Kinesis::Stream', 'kinesis-stream^|with^^chars');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, undefined);
+
     // Validate behaviour of AWS_SNS_TOPIC_ARN attribute then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN, 'arn:aws:sns:us-east-1:123456789012:testTopic');
     validateRemoteResourceAttributes('AWS::SNS::Topic', 'testTopic', 'arn:aws:sns:us-east-1:123456789012:testTopic');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN, undefined);
+
+    // Validate behaviour of AWS_SNS_TOPIC_ARN attribute with special chars, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN, 'arn:aws:sns:us-east-1:123456789012:test|Topic^name');
+    validateRemoteResourceAttributes(
+      'AWS::SNS::Topic',
+      'test^|Topic^^name',
+      'arn:aws:sns:us-east-1:123456789012:test^|Topic^^name'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN, undefined);
 
     // Validate behaviour of AWS_SECRETSMANAGER_SECRET_ARN attributes then remove it.
@@ -788,6 +802,18 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       'AWS::SecretsManager::Secret',
       'testSecret',
       'arn:aws:secretsmanager:us-east-1:123456789123:secret:testSecret'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN, undefined);
+
+    // Validate behaviour of AWS_SECRETSMANAGER_SECRET_ARN attribute with special chars, then remove it.
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN,
+      'arn:aws:secretsmanager:us-east-1:123456789123:secret:test|Secret^name'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::SecretsManager::Secret',
+      'test^|Secret^^name',
+      'arn:aws:secretsmanager:us-east-1:123456789123:secret:test^|Secret^^name'
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN, undefined);
 
@@ -805,9 +831,28 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN, undefined);
 
+    // Validate behaviour of AWS_LAMBDA_FUNCTION_NAME with special chars
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, 'lambda|function^name');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN,
+      'arn:aws:lambda:us-east-1:123456789012:function:lambda|function^name'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::Lambda::Function',
+      'lambda^|function^^name',
+      'arn:aws:lambda:us-east-1:123456789012:function:lambda^|function^^name'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN, undefined);
+
     // Validate behaviour of AWS_LAMBDA_RESOURCE_MAPPING_ID attribute then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID, 'aws_lambda_resource_mapping_id');
     validateRemoteResourceAttributes('AWS::Lambda::EventSourceMapping', 'aws_lambda_resource_mapping_id');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID, undefined);
+
+    // Validate behaviour of AWS_LAMBDA_RESOURCE_MAPPING_ID attribute with special chars, then remove it.
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID, 'mapping|id^test');
+    validateRemoteResourceAttributes('AWS::Lambda::EventSourceMapping', 'mapping^|id^^test');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID, undefined);
 
     // Validate behaviour of AWS_STEPFUNCTIONS_STATEMACHINE_ARN and AWS_STEPFUNCTIONS_ACTIVITY_ARN attributes then remove them.
@@ -822,6 +867,18 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
 
+    // Validate behaviour of AWS_STEPFUNCTIONS_STATEMACHINE_ARN attribute with special chars, then remove it.
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN,
+      'arn:aws:states:us-east-1:123456789123:stateMachine:test|State^Machine'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::StepFunctions::StateMachine',
+      'test^|State^^Machine',
+      'arn:aws:states:us-east-1:123456789123:stateMachine:test^|State^^Machine'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
+
     mockAttribute(
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
       'arn:aws:states:us-east-1:123456789123:activity:testActivity'
@@ -830,6 +887,18 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       'AWS::StepFunctions::Activity',
       'testActivity',
       'arn:aws:states:us-east-1:123456789123:activity:testActivity'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN, undefined);
+
+    // Validate behaviour of AWS_STEPFUNCTIONS_ACTIVITY_ARN attribute with special chars, then remove it.
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
+      'arn:aws:states:us-east-1:123456789123:activity:test|Activity^name'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::StepFunctions::Activity',
+      'test^|Activity^^name',
+      'arn:aws:states:us-east-1:123456789123:activity:test^|Activity^^name'
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN, undefined);
 

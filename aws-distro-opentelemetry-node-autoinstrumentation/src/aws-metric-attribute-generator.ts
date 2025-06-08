@@ -450,6 +450,12 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
           span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]
         );
+        // If queue URL is also present, use it as the CloudFormation primary identifier
+        if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL)) {
+          cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+            span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL]
+          );
+        }
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL)) {
         const sqsQueueUrl = AwsMetricAttributeGenerator.escapeDelimiters(
           span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL]

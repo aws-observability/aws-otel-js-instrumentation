@@ -6,11 +6,13 @@ import {
   diag,
   Context as OtelContext,
   trace,
+  context,
   propagation,
   Span,
   Tracer,
   AttributeValue,
   TextMapSetter,
+  INVALID_SPAN_CONTEXT,
 } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
@@ -19,7 +21,12 @@ import { AwsLambdaInstrumentation, AwsLambdaInstrumentationConfig } from '@opent
 import { expect } from 'expect';
 import { AWS_ATTRIBUTE_KEYS } from '../../src/aws-attribute-keys';
 import { RequestMetadata, ServiceExtension } from '../../src/third-party/otel/aws/services/ServiceExtension';
-import { applyInstrumentationPatches, customExtractor, headerGetter } from './../../src/patches/instrumentation-patch';
+import {
+  applyInstrumentationPatches,
+  AWSXRAY_TRACE_ID_HEADER_CAPITALIZED,
+  customExtractor,
+  headerGetter,
+} from './../../src/patches/instrumentation-patch';
 import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { Context } from 'aws-lambda';
@@ -535,34 +542,72 @@ describe('InstrumentationPatchTest', () => {
     let lambda: Lambda;
     const region = 'us-east-1';
 
-    it('overridden _getV3SmithyClientSendPatch updates MiddlewareStack', async () => {
-      const mockedMiddlewareStackInternal: any = [];
-      const mockedMiddlewareStack = {
-        add: (arg1: any, arg2: any) => mockedMiddlewareStackInternal.push([arg1, arg2]),
-      };
-      const send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
-        ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
-        .bind({ middlewareStack: mockedMiddlewareStack });
-      sinon
-        .stub(AWSXRayPropagator.prototype, 'inject')
-        .callsFake((context: OtelContext, carrier: unknown, setter: TextMapSetter) => {
-          (carrier as any)['isCarrierModified'] = 'carrierIsModified';
-        });
+    describe('overridden _getV3SmithyClientSendPatch updates MiddlewareStack', async () => {
+      let mockedMiddlewareStackInternal: any;
+      let mockedMiddlewareStack;
+      let middlewareArgsHeader: any;
+      const testXrayTraceHeader = 'test-xray-trace-header';
 
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      await send({}, null);
+      beforeEach(async () => {
+        // Clear environment variables before each test
+        mockedMiddlewareStackInternal = [];
+        mockedMiddlewareStack = {
+          add: (arg1: any, arg2: any) => mockedMiddlewareStackInternal.push([arg1, arg2]),
+        };
+        const send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
+          ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
+          .bind({ middlewareStack: mockedMiddlewareStack });
 
-      const middlewareArgs: any = {
-        request: {
-          headers: {},
-        },
-      };
-      await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgs);
+        middlewareArgsHeader = {
+          request: {
+            headers: {},
+          },
+        };
 
-      sinon.restore();
-      expect(middlewareArgs.request.headers['isCarrierModified']).toEqual('carrierIsModified');
-      expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        await send({}, null);
+      });
+
+      afterEach(() => {
+        sinon.restore();
+      });
+
+      it('Updates trace header casing when AWSXRayPropagator injects trace header successfully', async () => {
+        sinon
+          .stub(AWSXRayPropagator.prototype, 'inject')
+          .callsFake((context: OtelContext, carrier: unknown, setter: TextMapSetter) => {
+            (carrier as any)['isCarrierModified'] = 'carrierIsModified';
+            (carrier as any)[AWSXRAY_TRACE_ID_HEADER] = testXrayTraceHeader;
+          });
+        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsHeader);
+
+        expect(middlewareArgsHeader.request.headers['isCarrierModified']).toEqual('carrierIsModified');
+        expect(middlewareArgsHeader.request.headers).not.toHaveProperty(AWSXRAY_TRACE_ID_HEADER);
+        expect(middlewareArgsHeader.request.headers).toHaveProperty(AWSXRAY_TRACE_ID_HEADER_CAPITALIZED);
+        expect(middlewareArgsHeader.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED]).toEqual(testXrayTraceHeader);
+
+        expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
+      });
+
+      it('Does not set trace header when AWSXRayPropagator does not inject trace header', async () => {
+        const invalidContext: OtelContext = {
+          getValue: (key: symbol) => ({
+            spanContext: () => INVALID_SPAN_CONTEXT,
+          }),
+          setValue: (key: symbol, value: unknown) => invalidContext,
+          deleteValue: (key: symbol) => invalidContext,
+        };
+
+        sinon.stub(context, 'active').returns(invalidContext);
+
+        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsHeader);
+
+        expect(middlewareArgsHeader.request.headers).not.toHaveProperty(AWSXRAY_TRACE_ID_HEADER);
+        expect(middlewareArgsHeader.request.headers).not.toHaveProperty(AWSXRAY_TRACE_ID_HEADER_CAPITALIZED);
+
+        expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
+      });
     });
 
     it('injects trace context header into request via propagator', async () => {

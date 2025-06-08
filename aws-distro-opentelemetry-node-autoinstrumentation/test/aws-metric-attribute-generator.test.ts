@@ -745,7 +745,11 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     // them. Queue name is more reliable than queue URL, so we prefer to use name over URL.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, 'https://sqs.us-east-2.amazonaws.com/123456789012/Queue');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, 'aws_queue_name');
-    validateRemoteResourceAttributes('AWS::SQS::Queue', 'aws_queue_name', 'https://sqs.us-east-2.amazonaws.com/123456789012/Queue');
+    validateRemoteResourceAttributes(
+      'AWS::SQS::Queue',
+      'aws_queue_name',
+      'https://sqs.us-east-2.amazonaws.com/123456789012/Queue'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, undefined);
 
@@ -758,7 +762,11 @@ describe('AwsMetricAttributeGeneratorTest', () => {
 
     // Validate behaviour of AWS_SQS_QUEUE_URL attribute without queue name, then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, 'https://sqs.us-east-2.amazonaws.com/123456789012/MyQueue');
-    validateRemoteResourceAttributes('AWS::SQS::Queue', 'MyQueue', 'https://sqs.us-east-2.amazonaws.com/123456789012/MyQueue');
+    validateRemoteResourceAttributes(
+      'AWS::SQS::Queue',
+      'MyQueue',
+      'https://sqs.us-east-2.amazonaws.com/123456789012/MyQueue'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, undefined);
 
     // Validate behaviour of AWS_KINESIS_STREAM_NAME attribute, then remove it.
@@ -776,7 +784,11 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN,
       'arn:aws:secretsmanager:us-east-1:123456789123:secret:testSecret'
     );
-    validateRemoteResourceAttributes('AWS::SecretsManager::Secret', 'testSecret', 'arn:aws:secretsmanager:us-east-1:123456789123:secret:testSecret');
+    validateRemoteResourceAttributes(
+      'AWS::SecretsManager::Secret',
+      'testSecret',
+      'arn:aws:secretsmanager:us-east-1:123456789123:secret:testSecret'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN, undefined);
 
     // Validate behaviour of AWS_LAMBDA_FUNCTION_NAME and AWS_LAMBDA_FUNCTION_ARN
@@ -785,7 +797,11 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN,
       'arn:aws:lambda:us-east-1:123456789012:function:aws_lambda_function_name'
     );
-    validateRemoteResourceAttributes('AWS::Lambda::Function', 'aws_lambda_function_name', 'arn:aws:lambda:us-east-1:123456789012:function:aws_lambda_function_name');
+    validateRemoteResourceAttributes(
+      'AWS::Lambda::Function',
+      'aws_lambda_function_name',
+      'arn:aws:lambda:us-east-1:123456789012:function:aws_lambda_function_name'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN, undefined);
 
@@ -799,14 +815,22 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN,
       'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine'
     );
-    validateRemoteResourceAttributes('AWS::StepFunctions::StateMachine', 'testStateMachine', 'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine');
+    validateRemoteResourceAttributes(
+      'AWS::StepFunctions::StateMachine',
+      'testStateMachine',
+      'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
 
     mockAttribute(
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
       'arn:aws:states:us-east-1:123456789123:activity:testActivity'
     );
-    validateRemoteResourceAttributes('AWS::StepFunctions::Activity', 'testActivity', 'arn:aws:states:us-east-1:123456789123:activity:testActivity');
+    validateRemoteResourceAttributes(
+      'AWS::StepFunctions::Activity',
+      'testActivity',
+      'arn:aws:states:us-east-1:123456789123:activity:testActivity'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN, undefined);
 
     // Validate behaviour of AWS_TABLE_NAMES attribute with one table name, then remove it.
@@ -854,21 +878,39 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     // Validate behaviour of AWS_BEDROCK_DATA_SOURCE_ID attribute with special chars(^), then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID, 'test_datasource_^id');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, 'test_kb_^id');
-    validateRemoteResourceAttributes('AWS::Bedrock::DataSource', 'test_datasource_^^id', 'test_kb_^^id|test_datasource_^^id');
+    validateRemoteResourceAttributes(
+      'AWS::Bedrock::DataSource',
+      'test_datasource_^^id',
+      'test_kb_^^id|test_datasource_^^id'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, undefined);
 
     // Validate behaviour of AWS_BEDROCK_GUARDRAIL_ID attribute, then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, 'test_guardrail_id');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN, 'arn:aws:bedrock:us-east-1:123456789012:guardrail/test_guardrail_id');
-    validateRemoteResourceAttributes('AWS::Bedrock::Guardrail', 'test_guardrail_id', 'arn:aws:bedrock:us-east-1:123456789012:guardrail/test_guardrail_id');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN,
+      'arn:aws:bedrock:us-east-1:123456789012:guardrail/test_guardrail_id'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::Bedrock::Guardrail',
+      'test_guardrail_id',
+      'arn:aws:bedrock:us-east-1:123456789012:guardrail/test_guardrail_id'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN, undefined);
 
     // Validate behaviour of AWS_BEDROCK_GUARDRAIL_ID attribute with special chars(^), then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, 'test_guardrail_^id');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN, 'arn:aws:bedrock:us-east-1:123456789012:guardrail/test_guardrail_^id');
-    validateRemoteResourceAttributes('AWS::Bedrock::Guardrail', 'test_guardrail_^^id', 'arn:aws:bedrock:us-east-1:123456789012:guardrail/test_guardrail_^^id');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN,
+      'arn:aws:bedrock:us-east-1:123456789012:guardrail/test_guardrail_^id'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::Bedrock::Guardrail',
+      'test_guardrail_^^id',
+      'arn:aws:bedrock:us-east-1:123456789012:guardrail/test_guardrail_^^id'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ID, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN, undefined);
 
@@ -1127,7 +1169,11 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(SEMATTRS_PEER_SERVICE, undefined);
   }
 
-  function validateRemoteResourceAttributes(type: string | undefined, identifier: string | undefined, cfnPrimaryId: string | undefined = undefined): void {
+  function validateRemoteResourceAttributes(
+    type: string | undefined,
+    identifier: string | undefined,
+    cfnPrimaryId: string | undefined = undefined
+  ): void {
     // If cfnPrimaryId is not provided, it defaults to identifier
     if (cfnPrimaryId === undefined) {
       cfnPrimaryId = identifier;
@@ -1281,6 +1327,129 @@ describe('AwsMetricAttributeGeneratorTest', () => {
 
     expect(attributeMap[SERVICE_METRIC]).toEqual(serviceAttributes);
     expect(attributeMap[DEPENDENCY_METRIC]).toEqual(dependencyAttributes);
+  });
+
+  it('testCloudformationPrimaryIdentifierFallbackToRemoteResourceIdentifier', () => {
+    // Test that when cloudformationPrimaryIdentifier is not explicitly set,
+    // it falls back to use the same value as remoteResourceIdentifier.
+    mockAttribute(SEMATTRS_RPC_SYSTEM, 'aws-api');
+    (spanDataMock as any).kind = SpanKind.CLIENT;
+
+    // Test case 1: S3 Bucket (no ARN available, should use bucket name for both)
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'S3');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET, 'my-test-bucket');
+    validateRemoteResourceAttributes('AWS::S3::Bucket', 'my-test-bucket');
+
+    // Test S3 bucket with special characters
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET, 'my-test|bucket^name');
+    validateRemoteResourceAttributes('AWS::S3::Bucket', 'my-test^|bucket^^name');
+    mockAttribute(SEMATTRS_RPC_SERVICE, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET, undefined);
+
+    // Test case 2: SQS Queue by name (no ARN, should use queue name for both)
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'SQS');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, 'my-test-queue');
+    validateRemoteResourceAttributes('AWS::SQS::Queue', 'my-test-queue');
+
+    // Test SQS queue with special characters
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, 'my^queue|name');
+    validateRemoteResourceAttributes('AWS::SQS::Queue', 'my^^queue^|name');
+    mockAttribute(SEMATTRS_RPC_SERVICE, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, undefined);
+
+    // Test case 3: DynamoDB Table (no ARN, should use table name for both)
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'DynamoDB');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, ['my-test-table']);
+    validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'my-test-table');
+
+    // Test DynamoDB table with special characters
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, ['my|test^table']);
+    validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'my^|test^^table');
+    mockAttribute(SEMATTRS_RPC_SERVICE, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
+
+    // Test case 4: Kinesis Stream
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'Kinesis');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, 'my-test-stream');
+    validateRemoteResourceAttributes('AWS::Kinesis::Stream', 'my-test-stream');
+
+    // Test Kinesis stream with special characters
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, 'my-stream^with|chars');
+    validateRemoteResourceAttributes('AWS::Kinesis::Stream', 'my-stream^^with^|chars');
+    mockAttribute(SEMATTRS_RPC_SERVICE, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, undefined);
+
+    // Test case 5: Lambda Function (non-invoke operation, no ARN)
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'Lambda');
+    mockAttribute(SEMATTRS_RPC_METHOD, 'GetFunction');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, 'my-test-function');
+    validateRemoteResourceAttributes('AWS::Lambda::Function', 'my-test-function');
+
+    // Test Lambda function with special characters
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, 'my-function|with^chars');
+    validateRemoteResourceAttributes('AWS::Lambda::Function', 'my-function^|with^^chars');
+    mockAttribute(SEMATTRS_RPC_SERVICE, undefined);
+    mockAttribute(SEMATTRS_RPC_METHOD, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, undefined);
+
+    mockAttribute(SEMATTRS_RPC_SYSTEM, undefined);
+  });
+
+  it('testSetRemoteEnvironment', () => {
+    // Test remote environment setting for Lambda invoke operations.
+
+    // Test 1: Setting remote environment when all relevant attributes are present
+    (spanDataMock as any).kind = SpanKind.CLIENT;
+    mockAttribute(SEMATTRS_RPC_SYSTEM, 'aws-api');
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'Lambda');
+    mockAttribute(SEMATTRS_RPC_METHOD, 'Invoke');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, 'testFunction');
+
+    let actualAttributes: Attributes = GENERATOR.generateMetricAttributeMapFromSpan(spanDataMock, resource)[
+      DEPENDENCY_METRIC
+    ];
+    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT]).toEqual('lambda:default');
+
+    // Test 2: NOT setting it when RPC_SYSTEM is missing
+    mockAttribute(SEMATTRS_RPC_SYSTEM, undefined);
+    actualAttributes = GENERATOR.generateMetricAttributeMapFromSpan(spanDataMock, resource)[DEPENDENCY_METRIC];
+    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT]).toBeUndefined();
+    mockAttribute(SEMATTRS_RPC_SYSTEM, 'aws-api');
+
+    // Test 3: NOT setting it when RPC_METHOD is missing
+    mockAttribute(SEMATTRS_RPC_METHOD, undefined);
+    actualAttributes = GENERATOR.generateMetricAttributeMapFromSpan(spanDataMock, resource)[DEPENDENCY_METRIC];
+    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT]).toBeUndefined();
+    mockAttribute(SEMATTRS_RPC_METHOD, 'Invoke');
+
+    // Test 4: Still setting it to lambda:default when AWS_LAMBDA_FUNCTION_NAME is missing
+    // Keep the other attributes but remove AWS_LAMBDA_FUNCTION_NAME
+    mockAttribute(SEMATTRS_RPC_SYSTEM, 'aws-api');
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'Lambda');
+    mockAttribute(SEMATTRS_RPC_METHOD, 'Invoke');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, undefined);
+
+    actualAttributes = GENERATOR.generateMetricAttributeMapFromSpan(spanDataMock, resource)[DEPENDENCY_METRIC];
+    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT]).toEqual('lambda:default');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, 'testFunction');
+
+    // Test 5: NOT setting it for non-Lambda services
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'S3');
+    mockAttribute(SEMATTRS_RPC_METHOD, 'GetObject');
+    actualAttributes = GENERATOR.generateMetricAttributeMapFromSpan(spanDataMock, resource)[DEPENDENCY_METRIC];
+    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT]).toBeUndefined();
+
+    // Test 6: NOT setting it for Lambda non-Invoke operations
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'Lambda');
+    mockAttribute(SEMATTRS_RPC_METHOD, 'GetFunction');
+    actualAttributes = GENERATOR.generateMetricAttributeMapFromSpan(spanDataMock, resource)[DEPENDENCY_METRIC];
+    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT]).toBeUndefined();
+
+    // Clean up
+    mockAttribute(SEMATTRS_RPC_SYSTEM, undefined);
+    mockAttribute(SEMATTRS_RPC_SERVICE, undefined);
+    mockAttribute(SEMATTRS_RPC_METHOD, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME, undefined);
   });
 
   it('testJdbcDbConnectionString', () => {

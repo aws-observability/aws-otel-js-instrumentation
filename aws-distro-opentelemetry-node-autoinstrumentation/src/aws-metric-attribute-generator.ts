@@ -512,6 +512,10 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     }
   }
 
+  /**
+   * Remote environment is used to identify the environment of downstream services. Currently only
+   * set to "lambda:default" for Lambda Invoke operations when aws-api system is detected.
+   */
   private static setRemoteEnvironment(span: ReadableSpan, attributes: Attributes): void {
     // We want to treat downstream Lambdas as a service rather than a resource because
     // Application Signals topology map gets disconnected due to conflicting Lambda Entity

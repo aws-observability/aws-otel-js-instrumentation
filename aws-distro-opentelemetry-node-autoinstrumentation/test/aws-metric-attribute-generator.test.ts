@@ -745,18 +745,14 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     // them. Queue name is more reliable than queue URL, so we prefer to use name over URL.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, 'https://sqs.us-east-2.amazonaws.com/123456789012/Queue');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, 'aws_queue_name');
-    validateRemoteResourceAttributes(
-      'AWS::SQS::Queue',
-      'aws_queue_name',
-      'https://sqs.us-east-2.amazonaws.com/123456789012/Queue'
-    );
+    validateRemoteResourceAttributes('AWS::SQS::Queue', 'aws_queue_name');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, undefined);
 
     // Valid queue name with invalid queue URL, we should default to using the queue name.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, 'invalidUrl');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, 'aws_queue_name');
-    validateRemoteResourceAttributes('AWS::SQS::Queue', 'aws_queue_name', 'invalidUrl');
+    validateRemoteResourceAttributes('AWS::SQS::Queue', 'aws_queue_name');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, undefined);
 

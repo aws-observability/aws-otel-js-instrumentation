@@ -51,6 +51,7 @@ const _GRAPHQL_OPERATION_TYPE: string = 'graphql.operation.type';
 // Special DEPENDENCY attribute value if GRAPHQL_OPERATION_TYPE attribute key is present.
 const GRAPHQL: string = 'graphql';
 
+// Constants for Lambda operations
 const LAMBDA_INVOKE_OPERATION: string = 'Invoke';
 
 // Normalized remote service names for supported AWS services

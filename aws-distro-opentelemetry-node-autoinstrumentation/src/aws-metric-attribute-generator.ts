@@ -33,6 +33,7 @@ import {
   SERVICE_METRIC,
 } from './metric-attribute-generator';
 import { SqsUrlParser } from './sqs-url-parser';
+import { LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT } from './aws-opentelemetry-configurator';
 
 // Does not exist in @opentelemetry/semantic-conventions
 const _SERVER_SOCKET_ADDRESS: string = 'server.socket.address';
@@ -50,7 +51,6 @@ const _GRAPHQL_OPERATION_TYPE: string = 'graphql.operation.type';
 // Special DEPENDENCY attribute value if GRAPHQL_OPERATION_TYPE attribute key is present.
 const GRAPHQL: string = 'graphql';
 
-const LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT: string = 'LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT';
 const LAMBDA_INVOKE_OPERATION: string = 'Invoke';
 
 // Normalized remote service names for supported AWS services

@@ -345,8 +345,6 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
 
       // Special handling for Lambda invoke operations
       if (AwsMetricAttributeGenerator.isLambdaInvokeOperation(span)) {
-        // AWS_LAMBDA_FUNCTION_NAME is guaranteed to contain function name (not ARN)
-        // due to logic in Lambda botocore patches during instrumentation
         const lambdaFunctionName = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME];
         // If Lambda name is not present, use UnknownRemoteService
         // This is intentional - we want to clearly indicate when the Lambda function name
@@ -431,8 +429,6 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         // see normalize_remote_service_name for more information.
         if (!AwsMetricAttributeGenerator.isLambdaInvokeOperation(span)) {
           remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::Function';
-          // AWS_LAMBDA_FUNCTION_NAME is guaranteed to contain function name (not ARN)
-          // due to logic in Lambda botocore patches during instrumentation
           remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
             span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]
           );

@@ -32,6 +32,7 @@ import {
   MetricAttributeGenerator,
   SERVICE_METRIC,
 } from './metric-attribute-generator';
+import { RegionalResourceArnParser } from './regional-resource-arn-parser';
 import { SqsUrlParser } from './sqs-url-parser';
 import { LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT } from './aws-opentelemetry-configurator';
 
@@ -112,8 +113,20 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     AwsMetricAttributeGenerator.setService(resource, span, attributes);
     AwsMetricAttributeGenerator.setEgressOperation(span, attributes);
     AwsMetricAttributeGenerator.setRemoteServiceAndOperation(span, attributes);
-    AwsMetricAttributeGenerator.setRemoteResourceTypeAndIdentifier(span, attributes);
+    const isRemoteResourceIdentifierPresent = AwsMetricAttributeGenerator.setRemoteResourceTypeAndIdentifier(
+      span,
+      attributes
+    );
     AwsMetricAttributeGenerator.setRemoteEnvironment(span, attributes);
+    if (isRemoteResourceIdentifierPresent) {
+      const isAccountIdAndRegionPresent = AwsMetricAttributeGenerator.setRemoteResourceAccountIdAndRegion(
+        span,
+        attributes
+      );
+      if (!isAccountIdAndRegionPresent) {
+        AwsMetricAttributeGenerator.setRemoteResourceAccessKeyAndRegion(span, attributes);
+      }
+    }
     AwsMetricAttributeGenerator.setSpanKindForDependency(span, attributes);
     AwsMetricAttributeGenerator.setRemoteDbUser(span, attributes);
 
@@ -369,7 +382,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * href="https://docs.aws.amazon.com/cloudcontrolapi/latest/userguide/supported-resources.html">AWS
    * Cloud Control resource format</a>.
    */
-  private static setRemoteResourceTypeAndIdentifier(span: ReadableSpan, attributes: Attributes): void {
+  private static setRemoteResourceTypeAndIdentifier(span: ReadableSpan, attributes: Attributes): boolean {
     let remoteResourceType: AttributeValue | undefined;
     let remoteResourceIdentifier: AttributeValue | undefined;
     let cloudFormationIdentifier: AttributeValue | undefined;
@@ -383,10 +396,26 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       ) {
         remoteResourceType = NORMALIZED_DYNAMO_DB_SERVICE_NAME + '::Table';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(awsTableNames[0]);
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN)) {
+        remoteResourceType = NORMALIZED_DYNAMO_DB_SERVICE_NAME + '::Table';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          this.extractResourceNameFromArn(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN])?.replace(
+            'table/',
+            ''
+          )
+        );
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME)) {
         remoteResourceType = NORMALIZED_KINESIS_SERVICE_NAME + '::Stream';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
           span.attributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME]
+        );
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN)) {
+        remoteResourceType = NORMALIZED_KINESIS_SERVICE_NAME + '::Stream';
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
+          this.extractResourceNameFromArn(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN])?.replace(
+            'stream/',
+            ''
+          )
         );
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET)) {
         remoteResourceType = NORMALIZED_S3_SERVICE_NAME + '::Bucket';
@@ -500,7 +529,10 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_TYPE] = remoteResourceType;
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER] = remoteResourceIdentifier;
       attributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER] = cloudFormationIdentifier;
+      return true;
     }
+
+    return false;
   }
 
   /**
@@ -519,6 +551,56 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteEnvironment = 'default';
       }
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT] = `lambda:${remoteEnvironment}`;
+    }
+  }
+
+  private static setRemoteResourceAccountIdAndRegion(span: ReadableSpan, attributes: Attributes): boolean {
+    const ARN_ATTRIBUTES: string[] = [
+      AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN,
+    ];
+    let remoteResourceAccountId: string | undefined = undefined;
+    let remoteResourceRegion: string | undefined = undefined;
+
+    if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL)) {
+      const sqsQueueUrl = AwsMetricAttributeGenerator.escapeDelimiters(
+        span.attributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL]
+      );
+      remoteResourceAccountId = SqsUrlParser.getAccountId(sqsQueueUrl);
+      remoteResourceRegion = SqsUrlParser.getRegion(sqsQueueUrl);
+    } else {
+      for (const attributeKey of ARN_ATTRIBUTES) {
+        if (AwsSpanProcessingUtil.isKeyPresent(span, attributeKey)) {
+          const arn = span.attributes[attributeKey];
+          remoteResourceAccountId = RegionalResourceArnParser.getAccountId(arn);
+          remoteResourceRegion = RegionalResourceArnParser.getRegion(arn);
+          break;
+        }
+      }
+    }
+
+    if (remoteResourceAccountId !== undefined && remoteResourceRegion !== undefined) {
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID] = remoteResourceAccountId;
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_REGION] = remoteResourceRegion;
+      return true;
+    }
+
+    return false;
+  }
+
+  private static setRemoteResourceAccessKeyAndRegion(span: ReadableSpan, attributes: Attributes): void {
+    if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCESS_KEY)) {
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCESS_KEY] =
+        span.attributes[AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCESS_KEY];
+    }
+    if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION)) {
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_REGION] = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION];
     }
   }
 

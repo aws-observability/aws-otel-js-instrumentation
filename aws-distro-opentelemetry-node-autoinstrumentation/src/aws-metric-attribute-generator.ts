@@ -514,7 +514,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     // Additional context can be found in
     // https://github.com/aws-observability/aws-otel-python-instrumentation/pull/319
     if (AwsMetricAttributeGenerator.isLambdaInvokeOperation(span)) {
-      let remoteEnvironment = process.env[LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT]?.trim() || '';
+      let remoteEnvironment = process.env[LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT]?.trim();
       if (!remoteEnvironment) {
         remoteEnvironment = 'default';
       }

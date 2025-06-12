@@ -30,6 +30,57 @@ export class SqsUrlParser {
     return undefined;
   }
 
+  /**
+   * Extracts the account ID from an SQS URL.
+   */
+  public static getAccountId(url: AttributeValue | undefined): string | undefined {
+    if (typeof url !== 'string') {
+      return undefined;
+    }
+
+    url = url.replace(HTTP_SCHEMA, '').replace(HTTPS_SCHEMA, '');
+    if (this.isValidSqsUrl(url)) {
+      const splitUrl: string[] = url.split('/');
+      return splitUrl[1];
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Extracts the region from an SQS URL.
+   */
+  public static getRegion(url: AttributeValue | undefined): string | undefined {
+    if (typeof url !== 'string') {
+      return undefined;
+    }
+
+    url = url.replace(HTTP_SCHEMA, '').replace(HTTPS_SCHEMA, '');
+    if (this.isValidSqsUrl(url)) {
+      const splitUrl: string[] = url.split('/');
+      const domain: string = splitUrl[0];
+      const domainParts: string[] = domain.split('.');
+      if (domainParts.length === 4) {
+        return domainParts[1];
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Checks if the URL is a valid SQS URL.
+   */
+  private static isValidSqsUrl(url: string): boolean {
+    const splitUrl: string[] = url.split('/');
+    return (
+      splitUrl.length === 3 &&
+      splitUrl[0].toLowerCase().startsWith('sqs') &&
+      this.isAccountId(splitUrl[1]) &&
+      this.isValidQueueName(splitUrl[2])
+    );
+  }
+
   private static isAccountId(input: string): boolean {
     if (input == null || input.length !== 12) {
       return false;

@@ -617,7 +617,7 @@ describe('InstrumentationPatchTest', () => {
         };
         const send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
           ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
-        .bind({ middlewareStack: mockedMiddlewareStack, config: mockConfig });
+          .bind({ middlewareStack: mockedMiddlewareStack, config: mockConfig });
 
         middlewareArgsHeader = {
           request: {
@@ -676,9 +676,11 @@ describe('InstrumentationPatchTest', () => {
         const credentialsMiddlewareArgs: any = {};
         await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(arg), null)(credentialsMiddlewareArgs);
         expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_extractSignerCredentials');
-        expect(mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCESS_KEY, 'test-access-key')).toBeTruthy();
+        expect(
+          mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCESS_KEY, 'test-access-key')
+        ).toBeTruthy();
         expect(mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, 'us-west-2')).toBeTruthy();
-      }); 
+      });
     });
 
     it('injects trace context header into request via propagator', async () => {

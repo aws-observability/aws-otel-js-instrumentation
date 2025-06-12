@@ -427,7 +427,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(activityArn);
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME)) {
         // For non-Invoke Lambda operations, treat Lambda as a resource,
-        // see normalize_remote_service_name for more information.
+        // see normalizeRemoteServiceName for more information.
         if (!AwsMetricAttributeGenerator.isLambdaInvokeOperation(span)) {
           remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::Function';
           remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(

@@ -33,6 +33,7 @@ import {
   SERVICE_METRIC,
 } from './metric-attribute-generator';
 import { SqsUrlParser } from './sqs-url-parser';
+import { LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT } from './aws-opentelemetry-configurator';
 
 // Does not exist in @opentelemetry/semantic-conventions
 const _SERVER_SOCKET_ADDRESS: string = 'server.socket.address';
@@ -49,6 +50,9 @@ const _SERVER_PORT: string = 'server.port';
 const _GRAPHQL_OPERATION_TYPE: string = 'graphql.operation.type';
 // Special DEPENDENCY attribute value if GRAPHQL_OPERATION_TYPE attribute key is present.
 const GRAPHQL: string = 'graphql';
+
+// Constants for Lambda operations
+const LAMBDA_INVOKE_OPERATION: string = 'Invoke';
 
 // Normalized remote service names for supported AWS services
 const NORMALIZED_DYNAMO_DB_SERVICE_NAME: string = 'AWS::DynamoDB';
@@ -109,6 +113,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     AwsMetricAttributeGenerator.setEgressOperation(span, attributes);
     AwsMetricAttributeGenerator.setRemoteServiceAndOperation(span, attributes);
     AwsMetricAttributeGenerator.setRemoteResourceTypeAndIdentifier(span, attributes);
+    AwsMetricAttributeGenerator.setRemoteEnvironment(span, attributes);
     AwsMetricAttributeGenerator.setSpanKindForDependency(span, attributes);
     AwsMetricAttributeGenerator.setRemoteDbUser(span, attributes);
 
@@ -336,7 +341,18 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         BedrockRuntime: NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME,
         SecretsManager: NORMALIZED_SECRETSMANAGER_SERVICE_NAME,
         SFN: NORMALIZED_STEPFUNCTIONS_SERVICE_NAME,
+        Lambda: NORMALIZED_LAMBDA_SERVICE_NAME,
       };
+
+      // Special handling for Lambda invoke operations
+      if (AwsMetricAttributeGenerator.isLambdaInvokeOperation(span)) {
+        const lambdaFunctionName = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME];
+        // If Lambda name is not present, use UnknownRemoteService
+        // This is intentional - we want to clearly indicate when the Lambda function name
+        // is missing rather than falling back to a generic service name
+        return lambdaFunctionName ? String(lambdaFunctionName) : AwsSpanProcessingUtil.UNKNOWN_REMOTE_SERVICE;
+      }
+
       return awsSdkServiceMapping[serviceName] || 'AWS::' + serviceName;
     }
     return serviceName;
@@ -410,24 +426,9 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         );
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(activityArn);
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME)) {
-        // Handling downstream Lambda as a service vs. an AWS resource:
-        // - If the method call is "Invoke", we treat downstream Lambda as a service.
-        // - Otherwise, we treat it as an AWS resource.
-        //
-        // This addresses a Lambda topology issue in Application Signals.
-        // More context in PR: https://github.com/aws-observability/aws-otel-python-instrumentation/pull/319
-        //
-        // NOTE: The env var LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT was introduced as part of this fix.
-        // It is optional and allow users to override the default value if needed.
-        if (AwsMetricAttributeGenerator.getRemoteOperation(span, SEMATTRS_RPC_METHOD) === 'Invoke') {
-          attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE] = AwsMetricAttributeGenerator.escapeDelimiters(
-            span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]
-          );
-
-          attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT] = `lambda:${
-            process.env.LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT || 'default'
-          }`;
-        } else {
+        // For non-Invoke Lambda operations, treat Lambda as a resource,
+        // see normalizeRemoteServiceName for more information.
+        if (!AwsMetricAttributeGenerator.isLambdaInvokeOperation(span)) {
           remoteResourceType = NORMALIZED_LAMBDA_SERVICE_NAME + '::Function';
           remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
             span.attributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]
@@ -491,17 +492,33 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       remoteResourceIdentifier = AwsMetricAttributeGenerator.getDbConnection(span);
     }
 
+    if (cloudFormationIdentifier === undefined) {
+      cloudFormationIdentifier = remoteResourceIdentifier;
+    }
+
     if (remoteResourceType !== undefined && remoteResourceIdentifier !== undefined) {
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_TYPE] = remoteResourceType;
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER] = remoteResourceIdentifier;
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER] = cloudFormationIdentifier;
+    }
+  }
 
-      if (AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
-        if (cloudFormationIdentifier === undefined) {
-          cloudFormationIdentifier = remoteResourceIdentifier;
-        }
-
-        attributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER] = cloudFormationIdentifier;
+  /**
+   * Remote environment is used to identify the environment of downstream services. Currently only
+   * set to "lambda:default" for Lambda Invoke operations when aws-api system is detected.
+   */
+  private static setRemoteEnvironment(span: ReadableSpan, attributes: Attributes): void {
+    // We want to treat downstream Lambdas as a service rather than a resource because
+    // Application Signals topology map gets disconnected due to conflicting Lambda Entity
+    // definitions
+    // Additional context can be found in
+    // https://github.com/aws-observability/aws-otel-python-instrumentation/pull/319
+    if (AwsMetricAttributeGenerator.isLambdaInvokeOperation(span)) {
+      let remoteEnvironment = process.env[LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT]?.trim();
+      if (!remoteEnvironment) {
+        remoteEnvironment = 'default';
       }
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_ENVIRONMENT] = `lambda:${remoteEnvironment}`;
     }
   }
 
@@ -618,6 +635,18 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     // Implementing some regex is also possible
     //   e.g. let re = new RegExp(String.raw`\s${variable}\s`, "g");
     return input.split('^').join('^^').split('|').join('^|');
+  }
+
+  /**
+   * Check if the span represents a Lambda Invoke operation.
+   */
+  private static isLambdaInvokeOperation(span: ReadableSpan): boolean {
+    if (!AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
+      return false;
+    }
+
+    const rpcService = AwsMetricAttributeGenerator.getRemoteService(span, SEMATTRS_RPC_SERVICE);
+    return rpcService === 'Lambda' && span.attributes[SEMATTRS_RPC_METHOD] === LAMBDA_INVOKE_OPERATION;
   }
 
   // Extracts the name of the resource from an arn

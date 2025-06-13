@@ -14,6 +14,9 @@ import {
 import { OTLPTraceExporter as OTLPGrpcTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
 import { OTLPTraceExporter as OTLPHttpTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
+import { OTLPLogExporter as OTLPGrpcLogExporter } from '@opentelemetry/exporter-logs-otlp-grpc';
+import { OTLPLogExporter as OTLPHttpLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
+import { OTLPLogExporter as OTLPProtoLogExporter } from '@opentelemetry/exporter-logs-otlp-proto';
 import { ZipkinExporter } from '@opentelemetry/exporter-zipkin';
 import { AWSXRayIdGenerator } from '@opentelemetry/id-generator-aws-xray';
 import { Instrumentation } from '@opentelemetry/instrumentation';
@@ -50,25 +53,40 @@ import {
   SpanProcessor,
   TraceIdRatioBasedSampler,
 } from '@opentelemetry/sdk-trace-base';
+
+import {
+  BatchLogRecordProcessor,
+  ConsoleLogRecordExporter,
+  LogRecordExporter,
+  LogRecordProcessor,
+  SimpleLogRecordProcessor,
+} from '@opentelemetry/sdk-logs';
 import { SEMRESATTRS_TELEMETRY_AUTO_VERSION } from '@opentelemetry/semantic-conventions';
 import { AlwaysRecordSampler } from './always-record-sampler';
 import { AttributePropagatingSpanProcessorBuilder } from './attribute-propagating-span-processor-builder';
 import { AwsBatchUnsampledSpanProcessor } from './aws-batch-unsampled-span-processor';
 import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-span-exporter-builder';
 import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
-import { OTLPAwsSpanExporter } from './otlp-aws-span-exporter';
+import { OTLPAwsSpanExporter } from './exporter/otlp/aws/traces/otlp-aws-span-exporter';
 import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
 import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
+import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-exporter';
+import { AwsBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-batch-log-record-processor';
 
-const XRAY_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
+const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
+const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/logs$';
+
+const AWS_OTLP_LOGS_GROUP_HEADER = 'x-aws-log-group';
+const AWS_OTLP_LOGS_STREAM_HEADER = 'x-aws-log-stream';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
 const METRIC_EXPORT_INTERVAL_CONFIG: string = 'OTEL_METRIC_EXPORT_INTERVAL';
 const DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS: number = 60000;
 export const AWS_LAMBDA_FUNCTION_NAME_CONFIG: string = 'AWS_LAMBDA_FUNCTION_NAME';
+export const AGENT_OBSERVABILITY_ENABLED = 'AGENT_OBSERVABILITY_ENABLED';
 const AWS_XRAY_DAEMON_ADDRESS_CONFIG: string = 'AWS_XRAY_DAEMON_ADDRESS';
 const FORMAT_OTEL_SAMPLED_TRACES_BINARY_PREFIX = 'T1S';
 const FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX = 'T1U';
@@ -95,6 +113,7 @@ export class AwsOpentelemetryConfigurator {
   private idGenerator: IdGenerator;
   private sampler: Sampler;
   private spanProcessors: SpanProcessor[];
+  private logRecordProcessors: LogRecordProcessor[];
   private propagator: TextMapPropagator;
 
   /**
@@ -178,6 +197,7 @@ export class AwsOpentelemetryConfigurator {
     // default SpanProcessors with Span Exporters wrapped inside AwsMetricAttributesSpanExporter
     const awsSpanProcessorProvider: AwsSpanProcessorProvider = new AwsSpanProcessorProvider(this.resource);
     this.spanProcessors = awsSpanProcessorProvider.getSpanProcessors();
+    this.logRecordProcessors = AwsLoggerProcessorProvider.getlogRecordProcessors();
     AwsOpentelemetryConfigurator.customizeSpanProcessors(this.spanProcessors, this.resource);
   }
 
@@ -206,6 +226,7 @@ export class AwsOpentelemetryConfigurator {
       // span processors are specified
       // https://github.com/open-telemetry/opentelemetry-js/issues/3449
       spanProcessors: this.spanProcessors,
+      logRecordProcessors: this.logRecordProcessors,
       autoDetectResources: false,
       textMapPropagator: this.propagator,
     };
@@ -214,12 +235,12 @@ export class AwsOpentelemetryConfigurator {
   }
 
   static isApplicationSignalsEnabled(): boolean {
-    const applicationSignalsEnabled: string | undefined = process.env[APPLICATION_SIGNALS_ENABLED_CONFIG];
-    if (applicationSignalsEnabled === undefined) {
+    const isApplicationSignalsEnabled: string | undefined = process.env[APPLICATION_SIGNALS_ENABLED_CONFIG];
+    if (isApplicationSignalsEnabled === undefined) {
       return false;
     }
 
-    return applicationSignalsEnabled.toLowerCase() === 'true';
+    return isApplicationSignalsEnabled.toLowerCase() === 'true';
   }
 
   static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
@@ -385,6 +406,145 @@ export class ApplicationSignalsExporterProvider {
 }
 
 // The OpenTelemetry Authors code
+// AWS Distro for OpenTelemetry JavaScript needs to copy and adapt code from the upstream OpenTelemetry project because the original implementation doesn't expose certain critical components
+// needed for AWS-specific customizations. Specifically, the private configureLoggerProviderFromEnv() from the OpenTelemetry SDK, is a key function that allows us to configure logs exporters based on environment variables,
+// By implementing our own version of these methods, we can extend the functionality to detect AWS service endpoints and automatically switch to AWS-specific, OTLPAwsLogExporter.
+// Long term, we want to contribute these changes to upstream.
+//
+// https://github.com/open-telemetry/opentelemetry-js/blob/main/experimental/packages/opentelemetry-sdk-node/src/sdk.ts#L443
+//
+// The upstream OpenTelemetry SDK has changed its API by deprecating `getEnv()` and
+// `getEnvWithoutDefaults()` in favor of specific methods like `getStringListFromEnv`
+// and `getStringFromEnv`. Since these newer methods aren't available in our current
+// supported version, we've also needed to copy them down here.
+//
+// https://github.com/open-telemetry/opentelemetry-js/blob/main/packages/opentelemetry-core/src/platform/node/environment.ts#L52
+// https://github.com/open-telemetry/opentelemetry-js/blob/main/packages/opentelemetry-core/src/platform/node/environment.ts#L100
+//
+// TODO: Remove getStringListFromEnv and getStringFromEnv implementations
+// once we upgrade to @opentelemetry/core 2.0.0 or higher, which provides these methods natively.
+//
+export class AwsLoggerProcessorProvider {
+  public static getlogRecordProcessors(): LogRecordProcessor[] {
+    const exporters = AwsLoggerProcessorProvider.configureLogExportersFromEnv();
+
+    return exporters.map(exporter => {
+      if (exporter instanceof ConsoleLogRecordExporter) {
+        return new SimpleLogRecordProcessor(exporter);
+      }
+      if (exporter instanceof OTLPAwsLogExporter) {
+        return new AwsBatchLogRecordProcessor(exporter);
+      }
+
+      return new BatchLogRecordProcessor(exporter);
+    });
+  }
+
+  static configureLogExportersFromEnv(): LogRecordExporter[] {
+    const otlpExporterLogsEndpoint = process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+    const enabledExporters = AwsLoggerProcessorProvider.getStringListFromEnv('OTEL_LOGS_EXPORTER') ?? [];
+
+    if (enabledExporters.length === 0) {
+      diag.debug('OTEL_LOGS_EXPORTER is empty. Using default otlp exporter.');
+      enabledExporters.push('otlp');
+    }
+
+    if (enabledExporters.includes('none')) {
+      diag.info('OTEL_LOGS_EXPORTER contains "none". Logger provider will not be initialized.');
+      return [];
+    }
+
+    const exporters: LogRecordExporter[] = [];
+
+    enabledExporters.forEach(exporter => {
+      if (exporter === 'otlp') {
+        const protocol = (
+          AwsLoggerProcessorProvider.getStringFromEnv('OTEL_EXPORTER_OTLP_LOGS_PROTOCOL') ??
+          AwsLoggerProcessorProvider.getStringFromEnv('OTEL_EXPORTER_OTLP_PROTOCOL')
+        )?.trim();
+
+        switch (protocol) {
+          case 'grpc':
+            exporters.push(new OTLPGrpcLogExporter());
+            break;
+          case 'http/json':
+            exporters.push(new OTLPHttpLogExporter());
+            break;
+          case 'http/protobuf':
+            if (
+              otlpExporterLogsEndpoint &&
+              isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs') &&
+              validateLogsHeaders()
+            ) {
+              diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
+              exporters.push(new OTLPAwsLogExporter(otlpExporterLogsEndpoint));
+            } else {
+              exporters.push(new OTLPProtoLogExporter());
+            }
+            break;
+          case undefined:
+          case '':
+            exporters.push(new OTLPProtoLogExporter());
+            break;
+          default:
+            diag.warn(`Unsupported OTLP logs protocol: "${protocol}". Using http/protobuf.`);
+            if (
+              otlpExporterLogsEndpoint &&
+              isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs') &&
+              validateLogsHeaders()
+            ) {
+              diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
+              exporters.push(new OTLPAwsLogExporter(otlpExporterLogsEndpoint));
+            } else {
+              exporters.push(new OTLPProtoLogExporter());
+            }
+        }
+      } else if (exporter === 'console') {
+        exporters.push(new ConsoleLogRecordExporter());
+      } else {
+        diag.warn(`Unsupported OTEL_LOGS_EXPORTER value: "${exporter}". Supported values are: otlp, console, none.`);
+      }
+    });
+
+    return exporters;
+  }
+
+  /**
+   * Retrieves a list of strings from an environment variable.
+   * - Uses ',' as the delimiter.
+   * - Trims leading and trailing whitespace from each entry.
+   * - Excludes empty entries.
+   * - Returns `undefined` if the environment variable is empty or contains only whitespace.
+   * - Returns an empty array if all entries are empty or whitespace.
+   *
+   * @param {string} key - The name of the environment variable to retrieve.
+   * @returns {string[] | undefined} - The list of strings or `undefined`.
+   */
+  private static getStringListFromEnv(key: string): string[] | undefined {
+    return AwsLoggerProcessorProvider.getStringFromEnv(key)
+      ?.split(',')
+      .map(v => v.trim())
+      .filter(s => s !== '');
+  }
+
+  /**
+   * Retrieves a string from an environment variable.
+   * - Returns `undefined` if the environment variable is empty, unset, or contains only whitespace.
+   *
+   * @param {string} key - The name of the environment variable to retrieve.
+   * @returns {string | undefined} - The string value or `undefined`.
+   */
+  private static getStringFromEnv(key: string): string | undefined {
+    const raw = process.env[key];
+    if (raw == null || raw.trim() === '') {
+      return undefined;
+    }
+    return raw;
+  }
+}
+// END The OpenTelemetry Authors code
+
+// The OpenTelemetry Authors code
 //
 // ADOT JS needs the logic to (1) get the SpanExporters from Env and then (2) wrap the SpanExporters with AwsMetricAttributesSpanExporter
 // However, the logic to perform (1) is only in the `TracerProviderWithEnvExporters` class, which is not exported publicly.
@@ -427,7 +587,7 @@ export class AwsSpanProcessorProvider {
   private resource: Resource;
 
   static configureOtlp(): SpanExporter {
-    const otlp_exporter_traces_endpoint = process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'];
+    const otlpExporterTracesEndpoint = process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'];
     // eslint-disable-next-line @typescript-eslint/typedef
     let protocol = this.getOtlpProtocol();
 
@@ -444,9 +604,9 @@ export class AwsSpanProcessorProvider {
       case 'http/json':
         return new OTLPHttpTraceExporter();
       case 'http/protobuf':
-        if (otlp_exporter_traces_endpoint && isXrayOtlpEndpoint(otlp_exporter_traces_endpoint)) {
+        if (otlpExporterTracesEndpoint && isAwsOtlpEndpoint(otlpExporterTracesEndpoint, 'xray')) {
           diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
-          return new OTLPAwsSpanExporter(otlp_exporter_traces_endpoint);
+          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint);
         }
         return new OTLPProtoTraceExporter();
       case 'udp':
@@ -454,9 +614,9 @@ export class AwsSpanProcessorProvider {
         return new OTLPUdpSpanExporter(getXrayDaemonEndpoint(), FORMAT_OTEL_SAMPLED_TRACES_BINARY_PREFIX);
       default:
         diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
-        if (otlp_exporter_traces_endpoint && isXrayOtlpEndpoint(otlp_exporter_traces_endpoint)) {
+        if (otlpExporterTracesEndpoint && isAwsOtlpEndpoint(otlpExporterTracesEndpoint, 'xray')) {
           diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
-          return new OTLPAwsSpanExporter(otlp_exporter_traces_endpoint);
+          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint);
         }
         return new OTLPProtoTraceExporter();
     }
@@ -666,8 +826,51 @@ function getXrayDaemonEndpoint() {
   return process.env[AWS_XRAY_DAEMON_ADDRESS_CONFIG];
 }
 
-function isXrayOtlpEndpoint(otlpEndpoint: string | undefined) {
-  return otlpEndpoint && new RegExp(XRAY_OTLP_ENDPOINT_PATTERN).test(otlpEndpoint.toLowerCase());
+/**
+ * Determines if the given endpoint is either the AWS OTLP Traces or Logs endpoint.
+ */
+
+function isAwsOtlpEndpoint(otlpEndpoint: string, service: string): boolean {
+  const pattern = service === 'xray' ? AWS_TRACES_OTLP_ENDPOINT_PATTERN : AWS_LOGS_OTLP_ENDPOINT_PATTERN;
+
+  return new RegExp(pattern).test(otlpEndpoint.toLowerCase());
+}
+
+/**
+ * Checks if x-aws-log-group and x-aws-log-stream are present in the headers in order to send logs to
+ * AWS OTLP Logs endpoint.
+ */
+function validateLogsHeaders() {
+  const logsHeaders = process.env['OTEL_EXPORTER_OTLP_LOGS_HEADERS'];
+
+  if (!logsHeaders) {
+    diag.warn(
+      'Improper configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS ' +
+        'to include x-aws-log-group and x-aws-log-stream'
+    );
+    return false;
+  }
+
+  let filteredLogHeadersCount = 0;
+
+  for (const pair of logsHeaders.split(',')) {
+    if (pair.includes('=')) {
+      const [key, value] = pair.split('=', 2);
+      if ((key === AWS_OTLP_LOGS_GROUP_HEADER || key === AWS_OTLP_LOGS_STREAM_HEADER) && value) {
+        filteredLogHeadersCount += 1;
+      }
+    }
+  }
+
+  if (filteredLogHeadersCount !== 2) {
+    diag.warn(
+      'Improper configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS ' +
+        'to have values for x-aws-log-group and x-aws-log-stream'
+    );
+    return false;
+  }
+
+  return true;
 }
 
 // END The OpenTelemetry Authors code

@@ -55,7 +55,7 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
     }
 
     const headers = this['_delegate']._transport?._transport?._parameters?.headers();
-    
+
     if (headers) {
       const signedRequest = await this.authenticator.authenticate(this.endpoint, headers, serializedSpans);
 

@@ -29,7 +29,7 @@ describe('AwsBatchLogRecordProcessor', () => {
       }),
       shutdown: sinon.stub().callsFake(() => {
         return;
-      })
+      }),
     };
 
     processor = new AwsBatchLogRecordProcessor(mockExporter);
@@ -93,9 +93,7 @@ describe('AwsBatchLogRecordProcessor', () => {
         content: 'test'.repeat(MAX_LOG_REQUEST_BYTE_SIZE + 1),
         test: 'test',
       };
-      const oneTenthSizeLogBody = [
-        'a'.repeat((MAX_LOG_REQUEST_BYTE_SIZE / 10) - BASE_LOG_BUFFER_BYTE_SIZE),
-      ];
+      const oneTenthSizeLogBody = ['a'.repeat(MAX_LOG_REQUEST_BYTE_SIZE / 10 - BASE_LOG_BUFFER_BYTE_SIZE)];
 
       // expect a total of 5 export calls:
 

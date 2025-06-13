@@ -21,7 +21,7 @@ const EXPECTED_AUTH_SECURITY_TOKEN = 'test_token';
 
 describe('OTLPAwsLogExporter', () => {
   let sandbox: sinon.SinonSandbox;
-  let exporter: OTLPAwsLogExporter
+  let exporter: OTLPAwsLogExporter;
   let scope: nock.Scope;
   let mockModule: any;
 
@@ -51,16 +51,13 @@ describe('OTLPAwsLogExporter', () => {
     });
 
     exporter = new mockModule.OTLPAwsLogExporter(AWS_OTLP_LOGS_ENDPOINT + AWS_OTLP_LOGS_ENDPOINT_PATH);
-
   });
-
 
   afterEach(() => {
     sandbox.restore();
   });
 
   it('Should inject SigV4 Headers successfully', done => {
-
     exporter
       .export([], () => {})
       .then(() => {
@@ -83,7 +80,7 @@ describe('OTLPAwsLogExporter', () => {
   });
 
   it('Should inject Large Log Headers if Gen AI flag is set to true', done => {
-    exporter.setGenAIFlag()
+    exporter.setGenAIFlag();
     exporter
       .export([], () => {})
       .then(() => {
@@ -100,7 +97,7 @@ describe('OTLPAwsLogExporter', () => {
 
           expect(headers['content-type']).toBe('application/x-protobuf');
           expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
-          expect(headers[LARGE_LOG_HEADER]).toBe("body/content");
+          expect(headers[LARGE_LOG_HEADER]).toBe('body/content');
           done();
         });
       });

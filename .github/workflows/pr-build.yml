@@ -1,9 +1,6 @@
 name: JavaScript Instrumentation PR Build
 on:
   pull_request:
-    branches:
-      - main
-      - "release/v*"
 
 permissions:
   id-token: write

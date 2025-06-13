@@ -214,12 +214,12 @@ export class AwsOpentelemetryConfigurator {
   }
 
   static isApplicationSignalsEnabled(): boolean {
-    const isApplicationSignalsEnabled: string | undefined = process.env[APPLICATION_SIGNALS_ENABLED_CONFIG];
-    if (isApplicationSignalsEnabled === undefined) {
+    const applicationSignalsEnabled: string | undefined = process.env[APPLICATION_SIGNALS_ENABLED_CONFIG];
+    if (applicationSignalsEnabled === undefined) {
       return false;
     }
 
-    return isApplicationSignalsEnabled.toLowerCase() === 'true';
+    return applicationSignalsEnabled.toLowerCase() === 'true';
   }
 
   static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {

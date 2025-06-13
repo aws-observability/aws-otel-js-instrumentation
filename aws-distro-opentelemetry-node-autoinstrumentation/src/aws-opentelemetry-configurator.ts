@@ -74,6 +74,7 @@ import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 import { LIB_VERSION } from './version';
 import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-exporter';
 import { AwsBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-batch-log-record-processor';
+import { isAgentObservabilityEnabled } from './utils';
 
 const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
 const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/logs$';
@@ -148,7 +149,7 @@ export class AwsOpentelemetryConfigurator {
       defaultDetectors = getResourceDetectorsFromEnv();
       // Add Env/AWS Resource Detectors if not present
       const resourceDetectorsFromEnv: string[] = process.env.OTEL_NODE_RESOURCE_DETECTORS.split(',');
-      if (!resourceDetectorsFromEnv.includes('aws')) {
+      if (!resourceDetectorsFromEnv.includes('aws') && !isAgentObservabilityEnabled()) {
         defaultDetectors.push(awsEc2DetectorSync, awsEcsDetectorSync, awsEksDetectorSync);
       }
       if (!resourceDetectorsFromEnv.includes('env')) {
@@ -432,7 +433,7 @@ export class AwsLoggerProcessorProvider {
       if (exporter instanceof ConsoleLogRecordExporter) {
         return new SimpleLogRecordProcessor(exporter);
       }
-      if (exporter instanceof OTLPAwsLogExporter) {
+      if (exporter instanceof OTLPAwsLogExporter && isAgentObservabilityEnabled()) {
         return new AwsBatchLogRecordProcessor(exporter);
       }
 

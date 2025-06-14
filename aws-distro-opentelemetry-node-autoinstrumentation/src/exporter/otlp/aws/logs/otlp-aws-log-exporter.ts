@@ -28,14 +28,12 @@ export class OTLPAwsLogExporter extends OTLPProtoLogExporter {
   constructor(endpoint: string, config?: OTLPExporterNodeConfigBase) {
     let modifiedConfig: OTLPExporterNodeConfigBase = {
       url: endpoint,
-      compression: CompressionAlgorithm.GZIP,
     };
 
     if (config) {
       modifiedConfig = {
         ...config,
         url: endpoint,
-        compression: CompressionAlgorithm.GZIP,
       };
     }
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
-import { diag, Attributes, TimeInput, ROOT_CONTEXT, SpanContext, HrTime } from '@opentelemetry/api';
+import { diag, Attributes, AttributeValue, TimeInput, ROOT_CONTEXT, SpanContext, HrTime } from '@opentelemetry/api';
 import { LoggerProvider } from '@opentelemetry/sdk-logs';
 import { EventLoggerProvider } from '@opentelemetry/sdk-events';
 import { EventLogger, Event } from '@opentelemetry/api-events';
@@ -11,6 +11,8 @@ import { AnyValue } from '@opentelemetry/api-logs';
 import { Mutable } from './utils';
 
 // Message event types
+const GEN_AI_SYSTEM_MESSAGE = 'gen_ai.system.message';
+const GEN_AI_USER_MESSAGE = 'gen_ai.user.message';
 const GEN_AI_ASSISTANT_MESSAGE = 'gen_ai.assistant.message';
 
 // Framework-specific attribute keys
@@ -42,6 +44,7 @@ const exactMatchPatterns = new Set([
 ]);
 
 // Roles
+const ROLE_SYSTEM = 'system';
 const ROLE_USER = 'user';
 const ROLE_ASSISTANT = 'assistant';
 
@@ -58,6 +61,12 @@ const regexPatterns = [
   openinferenceOutputMsgPattern,
 ];
 
+interface PromptContent {
+  key: string;
+  value: AttributeValue | undefined;
+  role: AttributeValue;
+}
+
 /**
  * Utility class for handling Large Language Objects (LLO) in OpenTelemetry spans.
  *
@@ -67,6 +76,12 @@ const regexPatterns = [
  * 3. Filters LLO from spans to maintain privacy and reduce span size
  *
  * Supported frameworks and their attribute patterns:
+ * - Standard Gen AI:
+ *   - gen_ai.prompt.{n}.content: Structured prompt content
+ *   - gen_ai.prompt.{n}.role: Role for prompt content (system, user, assistant, etc.)
+ *   - gen_ai.completion.{n}.content: Structured completion content
+ *   - gen_ai.completion.{n}.role: Role for completion content (usually assistant)
+ *
  * - Traceloop:
  *   - traceloop.entity.input: Input text for LLM operations
  *   - traceloop.entity.output: Output text from LLM operations
@@ -74,7 +89,20 @@ const regexPatterns = [
  *   - crewai.crew.tasks_output: Tasks output data from CrewAI (uses gen_ai.system if available)
  *   - crewai.crew.result: Final result from CrewAI crew (uses gen_ai.system if available)
  *
- * TODO: Support other frameworks
+ * - OpenLit:
+ *   - gen_ai.prompt: Direct prompt text (treated as user message)
+ *   - gen_ai.completion: Direct completion text (treated as assistant message)
+ *   - gen_ai.content.revised_prompt: Revised prompt text (treated as system message)
+ *   - gen_ai.agent.actual_output: Output from CrewAI agent (treated as assistant message)
+ *
+ * - OpenInference:
+ *   - input.value: Direct input prompt
+ *   - output.value: Direct output response
+ *   - llm.input_messages.{n}.message.content: Individual structured input messages
+ *   - llm.input_messages.{n}.message.role: Role for input messages
+ *   - llm.output_messages.{n}.message.content: Individual structured output messages
+ *   - llm.output_messages.{n}.message.role: Role for output messages
+ *   - llm.model_name: Model name used for the LLM operation
  */
 export class LLOHandler {
   private loggerProvider: LoggerProvider;
@@ -107,9 +135,10 @@ export class LLOHandler {
    * 4. Preserves non-LLO attributes in the span
    *
    * Handles LLO attributes from multiple frameworks:
+   * - Standard Gen AI (structured prompt/completion pattern)
    * - Traceloop (entity input/output pattern)
-   *
-   * TODO: Support other frameworks
+   * - OpenLit (direct prompt/completion pattern)
+   * - OpenInference (input/output value and structured messages pattern)
    *
    * @param spans An array of OpenTelemetry ReadableSpan objects to process
    * @returns {ReadableSpan[]} Modified spans with LLO attributes removed
@@ -193,9 +222,10 @@ export class LLOHandler {
    * 3. Emits all collected events through the event logger
    *
    * Supported frameworks:
+   * - Standard Gen AI: Structured prompt/completion with roles
    * - Traceloop: Entity input/output and CrewAI outputs
-   *
-   * TODO: Support other frameworks
+   * - OpenLit: Direct prompt/completion/revised prompt and agent outputs
+   * - OpenInference: Direct values and structured messages
    *
    * @param span The source ReadableSpan containing the attributes
    * @param attributes Attributes to process
@@ -218,7 +248,13 @@ export class LLOHandler {
       return;
     }
 
-    const allEvents: Event[] = [...this.extractTraceloopEvents(span, attributes, eventTimestamp)];
+    const allEvents: Event[] = [
+      ...this.extractGenAiPromptEvents(span, attributes, eventTimestamp),
+      ...this.extractGenAiCompletionEvents(span, attributes, eventTimestamp),
+      ...this.extractTraceloopEvents(span, attributes, eventTimestamp),
+      ...this.extractOpenlitSpanEventAttributes(span, attributes, eventTimestamp),
+      ...this.extractOpeninferenceAttributes(span, attributes, eventTimestamp),
+    ];
 
     for (const event of allEvents) {
       this.eventLogger.emit(event);
@@ -292,6 +328,142 @@ export class LLOHandler {
     }
 
     return false;
+  }
+
+  /**
+   * Extract Gen AI Events from structured prompt attributes.
+   *
+   * Processes attributes matching the pattern `gen_ai.prompt.{n}.content` and their
+   * associated `gen_ai.prompt.{n}.role` attributes to create appropriate events.
+   *
+   * Event types are determined by the role:
+   * 1. `system` → `gen_ai.system.message` Event
+   * 2. `user` → `gen_ai.user.message` Event
+   * 3. `assistant` → `gen_ai.assistant.message` Event
+   * 4. `function` → `gen_ai.{gen_ai.system}.message` custom Event
+   * 5. `unknown` → `gen_ai.{gen_ai.system}.message` custom Event
+   *
+   * @param span The source ReadableSpan containing the attributes
+   * @param attributes Attributes to process
+   * @param eventTimestamp Optional timestamp to override span.startTime
+   * @returns {Event[]} Events created from prompt attributes
+   */
+  private extractGenAiPromptEvents(
+    span: ReadableSpan,
+    attributes: Attributes,
+    eventTimestamp: HrTime | undefined = undefined
+  ): Event[] {
+    // Quick check if any prompt content attributes exist
+    let promptContentPatternMatched: boolean = false;
+    for (const key in attributes) {
+      if (key.match(promptContentPattern)) {
+        promptContentPatternMatched = true;
+        break;
+      }
+    }
+    if (!promptContentPatternMatched) {
+      return [];
+    }
+
+    const events: Event[] = [];
+    const spanCtx = span.spanContext();
+    const genAiSystem = span.attributes['gen_ai.system'] || 'unknown';
+
+    // Use helper method to get appropriate timestamp (prompts are inputs)
+    const promptTimestamp = this.getTimestamp(span, eventTimestamp, true);
+
+    // Find all prompt content attributes and their roles
+    const promptContentMatches: PromptContent[] = [];
+    for (const [key, value] of Object.entries(attributes)) {
+      const match = key.match(promptContentPattern);
+      if (match) {
+        const index = match[1];
+        const roleKey = `gen_ai.prompt.${index}.role`;
+        const role = attributes[roleKey] || 'unknown';
+        promptContentMatches.push({ key, value, role });
+      }
+    }
+
+    // Create events for each content+role pair
+    for (const { key, value, role } of promptContentMatches) {
+      const eventAttributes = { 'gen_ai.system': genAiSystem, original_attribute: key };
+      const body = { content: value, role: role };
+
+      // Use helper method to determine event name based on role
+      const eventName = this.getEventNameForRole(role, genAiSystem);
+
+      const event = this.getGenAiEvent(eventName, spanCtx, promptTimestamp, eventAttributes, body, span);
+
+      events.push(event);
+    }
+
+    return events;
+  }
+
+  /**
+   * Extract Gen AI Events from structured completion attributes.
+   *
+   * Processes attributes matching the pattern `gen_ai.completion.{n}.content` and their
+   * associated `gen_ai.completion.{n}.role` attributes to create appropriate events.
+   *
+   * Event types are determined by the role:
+   * 1. `assistant` → `gen_ai.assistant.message` Event (most common)
+   * 2. Other roles → `gen_ai.{gen_ai.system}.message` custom Event
+   *
+   * @param span The source ReadableSpan containing the attributes
+   * @param attributes Attributes to process
+   * @param eventTimestamp Optional timestamp to override span.endTime
+   * @returns {Event[]} Events created from completion attributes
+   */
+  private extractGenAiCompletionEvents(
+    span: ReadableSpan,
+    attributes: Attributes,
+    eventTimestamp: HrTime | undefined = undefined
+  ): Event[] {
+    // Quick check if any completion content attributes exist
+    let completionContentPatternMatched: boolean = false;
+    for (const key in attributes) {
+      if (key.match(completionContentPattern)) {
+        completionContentPatternMatched = true;
+        break;
+      }
+    }
+    if (!completionContentPatternMatched) {
+      return [];
+    }
+
+    const events: Event[] = [];
+    const spanCtx = span.spanContext();
+    const genAiSystem = span.attributes['gen_ai.system'] || 'unknown';
+
+    // Use helper method to get appropriate timestamp (completions are outputs)
+    const completionTimestamp = this.getTimestamp(span, eventTimestamp, false);
+
+    // Find all completion content attributes and their roles
+    const completionContentMatches: PromptContent[] = [];
+    for (const [key, value] of Object.entries(attributes)) {
+      const match = key.match(completionContentPattern);
+      if (match) {
+        const index = match[1];
+        const roleKey = `gen_ai.completion.${index}.role`;
+        const role = attributes[roleKey] || 'unknown';
+        completionContentMatches.push({ key, value, role });
+      }
+    }
+
+    // Create events for each content+role pair
+    for (const { key, value, role } of completionContentMatches) {
+      const eventAttributes = { 'gen_ai.system': genAiSystem, original_attribute: key };
+      const body = { content: value, role: role };
+
+      // Use helper method to determine event name based on role
+      const eventName = this.getEventNameForRole(role, genAiSystem);
+
+      const event = this.getGenAiEvent(eventName, spanCtx, completionTimestamp, eventAttributes, body, span);
+
+      events.push(event);
+    }
+    return events;
   }
 
   /**
@@ -391,6 +563,264 @@ export class LLOHandler {
       }
     }
     return events;
+  }
+
+  /**
+   * Extract Gen AI Events from OpenLit direct attributes.
+
+   * OpenLit uses direct key-value pairs for LLO attributes:
+   * - `gen_ai.prompt`: Direct prompt text (treated as user message)
+   * - `gen_ai.completion`: Direct completion text (treated as assistant message)
+   * - `gen_ai.content.revised_prompt`: Revised prompt text (treated as system message)
+   * - `gen_ai.agent.actual_output`: Output from CrewAI agent (treated as assistant message)
+
+   * The event timestamps are set based on attribute type:
+   * - Prompt and revised prompt: span.startTime
+   * - Completion and agent output: span.endTime
+   *
+   * @param span The source ReadableSpan containing the attributes
+   * @param attributes Attributes to process
+   * @param eventTimestamp Optional timestamp to override span timestamps
+   * @returns {Event[]} Events created from OpenLit attributes
+   */
+  private extractOpenlitSpanEventAttributes(
+    span: ReadableSpan,
+    attributes: Attributes,
+    eventTimestamp: HrTime | undefined = undefined
+  ): Event[] {
+    // Define the OpenLit attributes we're looking for
+    const openlitKeys = [
+      OPENLIT_PROMPT,
+      OPENLIT_COMPLETION,
+      OPENLIT_REVISED_PROMPT,
+      OPENLIT_AGENT_ACTUAL_OUTPUT,
+      OPENLIT_AGENT_HUMAN_INPUT,
+    ];
+
+    // Quick check if any OpenLit attributes exist
+    let openlitAttributesExist: boolean = false;
+    for (const key of openlitKeys) {
+      if (key in attributes) {
+        openlitAttributesExist = true;
+        break;
+      }
+    }
+    if (!openlitAttributesExist) {
+      return [];
+    }
+
+    const events: Event[] = [];
+    const spanCtx = span.spanContext();
+    const genAiSystem = span.attributes['gen_ai.system'] || 'unknown';
+
+    // Use helper methods to get appropriate timestamps
+    const promptTimestamp = this.getTimestamp(span, eventTimestamp, true);
+    const completionTimestamp = this.getTimestamp(span, eventTimestamp, false);
+
+    const openlitEventAttrs = [
+      {
+        attrKey: OPENLIT_PROMPT,
+        timestamp: promptTimestamp,
+        role: ROLE_USER,
+      }, // Assume user role for direct prompts
+      {
+        attrKey: OPENLIT_COMPLETION,
+        timestamp: completionTimestamp,
+        role: ROLE_ASSISTANT,
+      }, // Assume assistant role for completions
+      {
+        attrKey: OPENLIT_REVISED_PROMPT,
+        timestamp: promptTimestamp,
+        role: ROLE_SYSTEM,
+      }, // Assume system role for revised prompts
+      {
+        attrKey: OPENLIT_AGENT_ACTUAL_OUTPUT,
+        timestamp: completionTimestamp,
+        role: ROLE_ASSISTANT,
+      }, // Assume assistant role for agent output
+      {
+        attrKey: OPENLIT_AGENT_HUMAN_INPUT,
+        timestamp: promptTimestamp,
+        role: ROLE_USER,
+      }, // Assume user role for agent human input
+    ];
+
+    for (const openlitEventAttr of openlitEventAttrs) {
+      const { attrKey, timestamp, role } = openlitEventAttr;
+      if (attrKey in attributes) {
+        const eventAttributes = { 'gen_ai.system': genAiSystem, original_attribute: attrKey };
+        const body = { content: attributes[attrKey], role: role };
+
+        // Use helper method to determine event name based on role
+        const eventName = this.getEventNameForRole(role, genAiSystem);
+
+        const event = this.getGenAiEvent(eventName, spanCtx, timestamp, eventAttributes, body, span);
+
+        events.push(event);
+      }
+    }
+    return events;
+  }
+
+  /**
+   * Extract Gen AI Events from OpenInference attributes.
+   *
+   * OpenInference uses two patterns for LLO attributes:
+   * 1. Direct values:
+   *    - `input.value`: Direct input prompt (treated as user message)
+   *    - `output.value`: Direct output response (treated as assistant message)
+   *
+   * 2. Structured messages:
+   *    - `llm.input_messages.{n}.message.content`: Individual input messages
+   *    - `llm.input_messages.{n}.message.role`: Role for input message
+   *    - `llm.output_messages.{n}.message.content`: Individual output messages
+   *    - `llm.output_messages.{n}.message.role`: Role for output message
+   *
+   * The LLM model name is extracted from the `llm.model_name` attribute
+   * instead of `gen_ai.system` which other frameworks use.
+   *
+   * Event timestamps are set based on message type:
+   * - Input messages: span.startTime
+   * - Output messages: span.endTime
+   *
+   * @param span The source ReadableSpan containing the attributes
+   * @param attributes Attributes to process
+   * @param eventTimestamp Optional timestamp to override span timestamps
+   * @returns {Event[]} Events created from OpenInference attributes
+   */
+  private extractOpeninferenceAttributes(
+    span: ReadableSpan,
+    attributes: Attributes,
+    eventTimestamp: HrTime | undefined = undefined
+  ): Event[] {
+    // Define the OpenInference keys/patterns we're looking for
+    const openinferenceDirectKeys = [OPENINFERENCE_INPUT_VALUE, OPENINFERENCE_OUTPUT_VALUE];
+
+    // Quick check if any OpenInference attributes exist
+    let hasDirectAttrs: boolean = false;
+    for (const key of openinferenceDirectKeys) {
+      if (key in attributes) {
+        hasDirectAttrs = true;
+        break;
+      }
+    }
+    let hasInputMsgs: boolean = false;
+    for (const key in attributes) {
+      if (key.match(openinferenceInputMsgPattern)) {
+        hasInputMsgs = true;
+        break;
+      }
+    }
+    let hasOutputMsgs: boolean = false;
+    for (const key in attributes) {
+      if (key.match(openinferenceOutputMsgPattern)) {
+        hasOutputMsgs = true;
+        break;
+      }
+    }
+    if (!(hasDirectAttrs || hasInputMsgs || hasOutputMsgs)) {
+      return [];
+    }
+
+    const events: Event[] = [];
+    const spanCtx = span.spanContext();
+    const genAiSystem = span.attributes['llm.model_name'] || 'unknown';
+
+    // Use helper methods to get appropriate timestamps
+    const inputTimestamp = this.getTimestamp(span, eventTimestamp, true);
+    const outputTimestamp = this.getTimestamp(span, eventTimestamp, false);
+
+    // Process direct value attributes
+    const openinferenceDirectAttrs = [
+      { attrKey: OPENINFERENCE_INPUT_VALUE, timestamp: inputTimestamp, role: ROLE_USER },
+      { attrKey: OPENINFERENCE_OUTPUT_VALUE, timestamp: outputTimestamp, role: ROLE_ASSISTANT },
+    ];
+
+    for (const openinferenceDirectAttr of openinferenceDirectAttrs) {
+      const { attrKey, timestamp, role } = openinferenceDirectAttr;
+      if (attrKey in attributes) {
+        const eventAttributes = { 'gen_ai.system': genAiSystem, original_attribute: attrKey };
+        const body = { content: attributes[attrKey], role: role };
+
+        // Use helper method to determine event name based on role
+        const eventName = this.getEventNameForRole(role, genAiSystem);
+
+        const event = this.getGenAiEvent(eventName, spanCtx, timestamp, eventAttributes, body, span);
+
+        events.push(event);
+      }
+    }
+
+    // Process input messages
+    const inputMessages: PromptContent[] = [];
+    for (const [key, value] of Object.entries(attributes)) {
+      const match = key.match(openinferenceInputMsgPattern);
+      if (match) {
+        const index = match[1];
+        const roleKey = `llm.input_messages.${index}.message.role`;
+        const role = attributes[roleKey] || ROLE_USER; // Default to user if role not specified
+        inputMessages.push({ key, value, role });
+      }
+    }
+
+    // Create events for input messages
+    for (const { key, value, role } of inputMessages) {
+      const eventAttributes = { 'gen_ai.system': genAiSystem, original_attribute: key };
+      const body = { content: value, role: role };
+
+      // Use helper method to determine event name based on role
+      const eventName = this.getEventNameForRole(role, genAiSystem);
+
+      const event = this.getGenAiEvent(eventName, spanCtx, inputTimestamp, eventAttributes, body, span);
+
+      events.push(event);
+    }
+
+    // Process output messages
+    const outputMessages: PromptContent[] = [];
+    for (const [key, value] of Object.entries(attributes)) {
+      const match = key.match(openinferenceOutputMsgPattern);
+      if (match) {
+        const index = match[1];
+        const roleKey = `llm.output_messages.${index}.message.role`;
+        const role = attributes[roleKey] || ROLE_ASSISTANT; // Default to assistant if role not specified
+        outputMessages.push({ key, value, role });
+      }
+    }
+
+    // Create events for output messages
+    for (const { key, value, role } of outputMessages) {
+      const eventAttributes = { 'gen_ai.system': genAiSystem, original_attribute: key };
+      const body = { content: value, role: role };
+
+      // Use helper method to determine event name based on role
+      const eventName = this.getEventNameForRole(role, genAiSystem);
+
+      const event = this.getGenAiEvent(eventName, spanCtx, outputTimestamp, eventAttributes, body, span);
+
+      events.push(event);
+    }
+
+    return events;
+  }
+
+  /**
+   * Map a message role to the appropriate event name.
+   *
+   * @param role The role of the message (system, user, assistant, etc.)
+   * @param genAiSystem The gen_ai system identifier
+   * @returns {string} The appropriate event name for the given role
+   */
+  private getEventNameForRole(role: AttributeValue, genAiSystem: AttributeValue): string {
+    if (role === ROLE_SYSTEM) {
+      return GEN_AI_SYSTEM_MESSAGE;
+    } else if (role === ROLE_USER) {
+      return GEN_AI_USER_MESSAGE;
+    } else if (role === ROLE_ASSISTANT) {
+      return GEN_AI_ASSISTANT_MESSAGE;
+    } else {
+      return `gen_ai.${genAiSystem}.message`;
+    }
   }
 
   /**

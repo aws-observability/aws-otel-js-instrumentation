@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { AWSCloudWatchEMFExporter } from '../src/exporter/otlp/aws/metrics/otlp-aws-emf-exporter';
 import { Span, TraceFlags, Tracer } from '@opentelemetry/api';
 import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import { OTLPMetricExporter as OTLPHttpOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
@@ -8,7 +9,7 @@ import { OTLPTraceExporter as OTLPGrpcTraceExporter } from '@opentelemetry/expor
 import { OTLPTraceExporter as OTLPHttpTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { Resource } from '@opentelemetry/resources';
-import { PushMetricExporter } from '@opentelemetry/sdk-metrics';
+import { AggregationTemporality, PushMetricExporter } from '@opentelemetry/sdk-metrics';
 import {
   AlwaysOffSampler,
   BatchSpanProcessor,
@@ -34,7 +35,11 @@ import {
   ApplicationSignalsExporterProvider,
   AwsOpentelemetryConfigurator,
   AwsSpanProcessorProvider,
+  checkEmfExporterEnabled,
+  createEmfExporter,
   customBuildSamplerFromEnv,
+  isXrayOtlpEndpoint,
+  validateLogsHeaders,
 } from '../src/aws-opentelemetry-configurator';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
 import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
@@ -666,5 +671,55 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     // Cleanup
     delete process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL;
+  });
+
+  it('testCheckEmfExporterEnabled', () => {
+    process.env.OTEL_METRICS_EXPORTER = 'first,awsemf,third';
+    checkEmfExporterEnabled();
+    expect(process.env.OTEL_METRICS_EXPORTER).toEqual('first,third');
+  });
+
+  it('testCreateEmfExporter', async () => {
+    const { CloudWatchLogs } = require('@aws-sdk/client-cloudwatch-logs');
+
+    sinon.stub(CloudWatchLogs.prototype, 'describeLogGroups').callsFake(input => {
+      return { logGroups: [] };
+    });
+    sinon.stub(CloudWatchLogs.prototype, 'createLogGroup').callsFake(input => {
+      return {};
+    });
+    sinon.stub(CloudWatchLogs.prototype, 'createLogStream').callsFake(input => {
+      return {};
+    });
+
+    const exporter = createEmfExporter('test-log-group', undefined, 'TestNamespace', AggregationTemporality.DELTA, {});
+    await exporter['logStreamExistsPromise'];
+    expect(exporter).toBeInstanceOf(AWSCloudWatchEMFExporter);
+
+    sinon.restore();
+  });
+
+  it('testIsAwsOtlpEndpoint', () => {
+    expect(isXrayOtlpEndpoint('https://xray.us-east-1.amazonaws.com/v1/traces')).toBeTruthy();
+    expect(isXrayOtlpEndpoint('https://lambda.us-east-1.amazonaws.com/v1/traces')).toBeFalsy();
+    expect(isXrayOtlpEndpoint('https://xray.us-east-1.amazonaws.com/v1/logs')).toBeFalsy();
+  });
+
+  it('testValidateLogsHeaders', () => {
+    process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS =
+      'x-aws-log-group=/test/log/group/name,x-aws-log-stream=test_log_stream_name,x-aws-metric-namespace=TEST_NAMESPACE';
+    let headerSettings = validateLogsHeaders();
+    expect(headerSettings).toEqual({
+      logGroup: '/test/log/group/name',
+      logStream: 'test_log_stream_name',
+      namespace: 'TEST_NAMESPACE',
+      isValid: true,
+    });
+
+    delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
+    headerSettings = validateLogsHeaders();
+    expect(headerSettings).toEqual({
+      isValid: false,
+    });
   });
 });

@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { AWSCloudWatchEMFExporter } from '../src/exporter/aws/metrics/aws-cloudwatch-emf-exporter';
 import { Span, TraceFlags, Tracer } from '@opentelemetry/api';
 import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import { OTLPMetricExporter as OTLPHttpOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
@@ -34,7 +35,11 @@ import {
   ApplicationSignalsExporterProvider,
   AwsOpentelemetryConfigurator,
   AwsSpanProcessorProvider,
+  checkEmfExporterEnabled,
+  createEmfExporter,
   customBuildSamplerFromEnv,
+  isXrayOtlpEndpoint,
+  validateAndFetchLogsHeader,
 } from '../src/aws-opentelemetry-configurator';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
 import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
@@ -666,5 +671,46 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     // Cleanup
     delete process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL;
+  });
+
+  it('testCheckEmfExporterEnabled', () => {
+    process.env.OTEL_METRICS_EXPORTER = 'first,awsemf,third';
+    checkEmfExporterEnabled();
+    expect(process.env.OTEL_METRICS_EXPORTER).toEqual('first,third');
+  });
+
+  it('testCreateEmfExporter', async () => {
+    process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS =
+      'x-aws-log-group=/test/log/group/name,x-aws-log-stream=test_log_stream_name,x-aws-metric-namespace=TEST_NAMESPACE';
+    const exporter = createEmfExporter();
+    expect(exporter).toBeInstanceOf(AWSCloudWatchEMFExporter);
+    delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
+  });
+
+  it('testIsAwsOtlpEndpoint', () => {
+    expect(isXrayOtlpEndpoint('https://xray.us-east-1.amazonaws.com/v1/traces')).toBeTruthy();
+    expect(isXrayOtlpEndpoint('https://lambda.us-east-1.amazonaws.com/v1/traces')).toBeFalsy();
+    expect(isXrayOtlpEndpoint('https://xray.us-east-1.amazonaws.com/v1/logs')).toBeFalsy();
+  });
+
+  it('testvalidateAndFetchLogsHeader', () => {
+    process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS =
+      'x-aws-log-group=/test/log/group/name,x-aws-log-stream=test_log_stream_name,x-aws-metric-namespace=TEST_NAMESPACE';
+    let headerSettings = validateAndFetchLogsHeader();
+    expect(headerSettings).toEqual({
+      logGroup: '/test/log/group/name',
+      logStream: 'test_log_stream_name',
+      namespace: 'TEST_NAMESPACE',
+      isValid: true,
+    });
+
+    delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
+    headerSettings = validateAndFetchLogsHeader();
+    expect(headerSettings).toEqual({
+      isValid: false,
+      logGroup: '',
+      logStream: '',
+      namespace: '',
+    });
   });
 });

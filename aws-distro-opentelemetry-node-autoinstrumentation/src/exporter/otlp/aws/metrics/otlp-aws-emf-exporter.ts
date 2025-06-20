@@ -75,6 +75,14 @@ interface LogEvent {
   timestamp: number;
 }
 
+interface EventBatch {
+  logEvents: LogEvent[];
+  byteTotal: number;
+  minTimestampMs: number;
+  maxTimestampMs: number;
+  createdTimestampMs: number;
+}
+
 /**
  * OpenTelemetry metrics exporter for CloudWatch EMF format.
  *
@@ -91,6 +99,9 @@ export class AWSCloudWatchEMFExporter implements PushMetricExporter {
   private logsClient: CloudWatchLogsType;
   private logStreamExists: boolean;
   private logStreamExistsPromise: Promise<void>;
+
+  // Event batch to store logs before sending to CloudWatch
+  private eventBatch: EventBatch | undefined;
 
   private EMF_SUPPORTED_UNITS: Set<string> = new Set<string>([
     'Seconds',
@@ -534,22 +545,157 @@ export class AWSCloudWatchEMFExporter implements PushMetricExporter {
   }
 
   /**
-   * Send a log event to CloudWatch Logs.
+   * Validate the log event according to CloudWatch Logs constraints.
+   * Implements the same validation logic as the Go version.
    *
-   * This function implements the same logic as the Go version in the OTel Collector.
-   * It batches log events according to CloudWatch Logs constraints and sends them
-   * when the batch is full or spans more than 24 hours.
+   * @param logEvent The log event to validate
+   * @returns {boolean}
+   */
+  private validateLogEvent(logEvent: LogEvent): boolean {
+    // Check message size
+    const messageSize = logEvent.message.length + CW_PER_EVENT_HEADER_BYTES;
+    if (messageSize > CW_MAX_EVENT_PAYLOAD_BYTES) {
+      diag.warn(`Log event size ${messageSize} exceeds maximum allowed size {CW_MAX_EVENT_PAYLOAD_BYTES}. Truncating.`);
+      const maxMessageSize = CW_MAX_EVENT_PAYLOAD_BYTES - CW_PER_EVENT_HEADER_BYTES - CW_TRUNCATED_SUFFIX.length;
+      logEvent.message = logEvent.message.substring(0, maxMessageSize) + CW_TRUNCATED_SUFFIX;
+    }
+
+    // Check empty message
+    if (logEvent.message === '') {
+      diag.error('Empty log event message');
+      return false;
+    }
+
+    // Check timestamp constraints
+    const currentTime = Date.now(); // Current time in milliseconds
+    const eventTime = logEvent.timestamp;
+
+    // Calculate the time difference
+    const timeDiff = currentTime - eventTime;
+
+    // Check if too old or too far in the future
+    if (timeDiff > CW_EVENT_TIMESTAMP_LIMIT_PAST || timeDiff < -CW_EVENT_TIMESTAMP_LIMIT_FUTURE) {
+      diag.error(
+        `Log event timestamp ${eventTime} is either older than 14 days or more than 2 hours in the future. Current time: ${currentTime}`
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Create a new log event batch
    *
-   * @param logEvent The log event to send
+   * @returns {EventBatch}
+   */
+  private createEventBatch(): EventBatch {
+    return {
+      logEvents: [],
+      byteTotal: 0,
+      minTimestampMs: 0,
+      maxTimestampMs: 0,
+      createdTimestampMs: Date.now(),
+    };
+  }
+
+  /**
+   * Check if adding the next event would exceed CloudWatch Logs limits.
+   *
+   * @param batch The current batch
+   * @param nextEventSize Size of the next event in bytes CW_MAX_REQUEST_EVENT_COUNT
+   * @returns {boolean} true if adding the next event would exceed limits
+   */
+  private eventBatchExceedsLimit(batch: EventBatch, nextEventSize: number): boolean {
+    return (
+      batch.logEvents.length >= CW_MAX_REQUEST_EVENT_COUNT ||
+      batch.byteTotal + nextEventSize > CW_MAX_REQUEST_PAYLOAD_BYTES
+    );
+  }
+
+  /**
+   * Check if the event batch spans more than 24 hours.
+   *
+   * @param batch The event batch
+   * @param targetTimestampMs The timestamp of the event to add
+   * @returns {boolean} true if the batch is active and can accept the event
+   */
+  private isBatchActive(batch: EventBatch, targetTimestampMs: number): boolean {
+    // New log event batch
+    if (batch.minTimestampMs === 0 || batch.maxTimestampMs === 0) {
+      return true;
+    }
+
+    // Check if adding the event would make the batch span more than 24 hours
+    if (targetTimestampMs - batch.minTimestampMs > 24 * 3600 * 1000) {
+      return false;
+    }
+
+    if (batch.maxTimestampMs - targetTimestampMs > 24 * 3600 * 1000) {
+      return false;
+    }
+
+    // flush the event batch when reached 60s interval
+    const currentTime = Date.now();
+    if (currentTime - batch.createdTimestampMs >= BATCH_FLUSH_INTERVAL) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Append a log event to the batch.
+   *
+   * @param batch The event batch
+   * @param logEvent The log event to append
+   * @param eventSize Size of the event in bytes
+   */
+  private appendToBatch(batch: EventBatch, logEvent: LogEvent, eventSize: number) {
+    batch.logEvents.push(logEvent);
+    batch.byteTotal += eventSize;
+
+    const timestamp = logEvent.timestamp;
+    if (batch.minTimestampMs === 0 || batch.minTimestampMs > timestamp) {
+      batch.minTimestampMs = timestamp;
+    }
+
+    if (batch.maxTimestampMs === 0 || batch.maxTimestampMs < timestamp) {
+      batch.maxTimestampMs = timestamp;
+    }
+  }
+
+  /**
+   * Sort log events in the batch by timestamp.
+   *
+   * @param batch The event batch
+   */
+  private sortLogEvents(batch: EventBatch) {
+    batch.logEvents = batch.logEvents.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /**
+   * Send a batch of log events to CloudWatch Logs.
+   *
+   * @param batch The event batch
    * @returns {Promise<void>}
    */
-  private async sendLogEvent(logEvent: LogEvent) {
+  private async sendLogBatch(batch: EventBatch) {
+    if (!batch.logEvents || batch.logEvents.length === 0) {
+      return;
+    }
+
+    // Sort log events by timestamp
+    this.sortLogEvents(batch);
+
     // Prepare the PutLogEvents request
     const putLogEventsInput: PutLogEventsCommandInput = {
       logStreamName: this.logStreamName,
-      logEvents: [logEvent],
+      logEvents: batch.logEvents,
       logGroupName: this.logGroupName,
     };
+
+    const startTime = Date.now();
 
     try {
       if (!this.logStreamExists) {
@@ -563,9 +709,59 @@ export class AWSCloudWatchEMFExporter implements PushMetricExporter {
         await this.logsClient.putLogEvents(putLogEventsInput);
       });
 
-      diag.debug('Successfully sent log event');
+      const elapsedMs = Date.now() - startTime;
+      diag.debug(
+        `Successfully sent ${batch.logEvents.length} log events
+                (${(batch.byteTotal / 1024).toFixed(2)} KB) in ${elapsedMs} ms`
+      );
     } catch (e) {
       diag.error(`Failed to send log events: ${e}`);
+      throw e;
+    }
+  }
+
+  /**
+   * Send a log event to CloudWatch Logs.
+   *
+   * This function implements the same logic as the Go version in the OTel Collector.
+   * It batches log events according to CloudWatch Logs constraints and sends them
+   * when the batch is full or spans more than 24 hours.
+   *
+   * @param logEvent The log event to send
+   * @returns {Promise<void>}
+   */
+  private async sendLogEvent(logEvent: LogEvent) {
+    try {
+      // Validate the log event
+      if (!this.validateLogEvent(logEvent)) {
+        return;
+      }
+
+      // Calculate event size
+      const eventSize = logEvent.message.length + CW_PER_EVENT_HEADER_BYTES;
+
+      // Initialize event batch if needed
+      if (this.eventBatch === undefined) {
+        this.eventBatch = this.createEventBatch();
+      }
+
+      // Check if we need to send the current batch and create a new one
+      let currentBatch = this.eventBatch;
+      if (
+        this.eventBatchExceedsLimit(currentBatch, eventSize) ||
+        !this.isBatchActive(currentBatch, logEvent.timestamp)
+      ) {
+        // Create a new batch
+        this.eventBatch = this.createEventBatch();
+        // Send the current batch
+        await this.sendLogBatch(currentBatch);
+        currentBatch = this.eventBatch;
+      }
+
+      // Add the log event to the batch
+      this.appendToBatch(currentBatch, logEvent, eventSize);
+    } catch (e) {
+      diag.error(`Failed to process log event: ${e}`);
       throw e;
     }
   }
@@ -574,6 +770,11 @@ export class AWSCloudWatchEMFExporter implements PushMetricExporter {
    * Force flush any pending metrics.
    */
   public async forceFlush() {
+    if (this.eventBatch !== undefined && this.eventBatch.logEvents?.length > 0) {
+      const currentBatch = this.eventBatch;
+      this.eventBatch = this.createEventBatch();
+      await this.sendLogBatch(currentBatch);
+    }
     diag.debug('AWSCloudWatchEMFExporter force flushes the bufferred metrics');
   }
 

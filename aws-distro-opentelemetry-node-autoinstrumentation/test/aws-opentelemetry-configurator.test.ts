@@ -34,7 +34,11 @@ import {
   ApplicationSignalsExporterProvider,
   AwsOpentelemetryConfigurator,
   AwsSpanProcessorProvider,
+  checkEmfExporterEnabled,
+  createEmfExporter,
   customBuildSamplerFromEnv,
+  isAwsOtlpEndpoint,
+  validateLogsHeaders,
 } from '../src/aws-opentelemetry-configurator';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
 import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
@@ -42,6 +46,8 @@ import { setAwsDefaultEnvironmentVariables } from '../src/register';
 import { AwsXRayRemoteSampler } from '../src/sampler/aws-xray-remote-sampler';
 import { AwsXraySamplingClient } from '../src/sampler/aws-xray-sampling-client';
 import { GetSamplingRulesResponse } from '../src/sampler/remote-sampler.types';
+import { CloudWatchLogs } from '@aws-sdk/client-cloudwatch-logs';
+import { AWSCloudWatchEMFExporter } from '../src/exporter/otlp/aws/metrics/otlp-aws-emf-exporter';
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -666,5 +672,53 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     // Cleanup
     delete process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL;
+  });
+
+  it('testCheckEmfExporterEnabled', () => {
+    process.env.OTEL_METRICS_EXPORTER = 'first,awsemf,third';
+    checkEmfExporterEnabled();
+    expect(process.env.OTEL_METRICS_EXPORTER).toEqual('first,third');
+  });
+
+  it('testCreateEmfExporter', () => {
+    sinon.stub(CloudWatchLogs.prototype, 'describeLogGroups').callsFake(input => {
+      return { logGroups: [] };
+    });
+    sinon.stub(CloudWatchLogs.prototype, 'createLogGroup').callsFake(input => {
+      return {};
+    });
+    sinon.stub(CloudWatchLogs.prototype, 'createLogStream').callsFake(input => {
+      return {};
+    });
+
+    const exporter = createEmfExporter('test-log-group', undefined, 'TestNamespace');
+
+    expect(exporter).toBeInstanceOf(AWSCloudWatchEMFExporter);
+    sinon.restore();
+  });
+
+  it('testIsAwsOtlpEndpoint', () => {
+    expect(isAwsOtlpEndpoint('https://xray.us-east-1.amazonaws.com/v1/traces', 'xray')).toBeTruthy();
+    expect(isAwsOtlpEndpoint('https://lambda.us-east-1.amazonaws.com/v1/traces', 'xray')).toBeFalsy();
+    expect(isAwsOtlpEndpoint('https://logs.us-east-1.amazonaws.com/v1/logs', 'logs')).toBeTruthy();
+    expect(isAwsOtlpEndpoint('https://lambda.us-east-1.amazonaws.com/v1/logs', 'logs')).toBeFalsy();
+  });
+
+  it('testValidateLogsHeaders', () => {
+    process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS =
+      'x-aws-log-group=/test/log/group/name,x-aws-log-stream=test_log_stream_name,x-aws-metric-namespace=TEST_NAMESPACE';
+    let headerSettings = validateLogsHeaders();
+    expect(headerSettings).toEqual({
+      logGroup: '/test/log/group/name',
+      logStream: 'test_log_stream_name',
+      namespace: 'TEST_NAMESPACE',
+      isValid: true,
+    });
+
+    delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
+    headerSettings = validateLogsHeaders();
+    expect(headerSettings).toEqual({
+      isValid: false,
+    });
   });
 });

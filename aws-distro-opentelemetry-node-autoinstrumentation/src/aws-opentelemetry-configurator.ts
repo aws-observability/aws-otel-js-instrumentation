@@ -31,6 +31,7 @@ import {
 import {
   Aggregation,
   AggregationSelector,
+  AggregationTemporality,
   InstrumentType,
   MeterProvider,
   PeriodicExportingMetricReader,
@@ -61,14 +62,17 @@ import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
 import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
+import { AWSCloudWatchEMFExporter } from './exporter/otlp/aws/metrics/otlp-aws-emf-exporter';
 
-const XRAY_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
+const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
+const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/logs$';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
 const METRIC_EXPORT_INTERVAL_CONFIG: string = 'OTEL_METRIC_EXPORT_INTERVAL';
 const DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS: number = 60000;
 export const AWS_LAMBDA_FUNCTION_NAME_CONFIG: string = 'AWS_LAMBDA_FUNCTION_NAME';
+export const AGENT_OBSERVABILITY_ENABLED = 'AGENT_OBSERVABILITY_ENABLED';
 const AWS_XRAY_DAEMON_ADDRESS_CONFIG: string = 'AWS_XRAY_DAEMON_ADDRESS';
 const FORMAT_OTEL_SAMPLED_TRACES_BINARY_PREFIX = 'T1S';
 const FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX = 'T1U';
@@ -76,6 +80,17 @@ const FORMAT_OTEL_UNSAMPLED_TRACES_BINARY_PREFIX = 'T1U';
 // which will reduce the chance of UDP package size is larger than 64KB
 const LAMBDA_SPAN_EXPORT_BATCH_SIZE = 10;
 export const LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT: string = 'LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT';
+
+const AWS_OTLP_LOGS_GROUP_HEADER = 'x-aws-log-group';
+const AWS_OTLP_LOGS_STREAM_HEADER = 'x-aws-log-stream';
+const AWS_EMF_METRICS_NAMESPACE = 'x-aws-metric-namespace';
+
+interface OtlpLogHeaderSetting {
+  logGroup?: string;
+  logStream?: string;
+  namespace?: string;
+  isValid: boolean;
+}
 
 /**
  * Aws Application Signals Config Provider creates a configuration object that can be provided to
@@ -97,6 +112,7 @@ export class AwsOpentelemetryConfigurator {
   private sampler: Sampler;
   private spanProcessors: SpanProcessor[];
   private propagator: TextMapPropagator;
+  private metricReader: PeriodicExportingMetricReader | undefined;
 
   /**
    * The constructor will setup the AwsOpentelemetryConfigurator object to be able to provide a
@@ -180,6 +196,10 @@ export class AwsOpentelemetryConfigurator {
     const awsSpanProcessorProvider: AwsSpanProcessorProvider = new AwsSpanProcessorProvider(this.resource);
     this.spanProcessors = awsSpanProcessorProvider.getSpanProcessors();
     AwsOpentelemetryConfigurator.customizeSpanProcessors(this.spanProcessors, this.resource);
+
+    if (checkEmfExporterEnabled()) {
+      this.metricReader = AwsOpentelemetryConfigurator.createEmfExporterMetricReader();
+    }
   }
 
   private customizeVersions(autoResource: Resource): Resource {
@@ -187,7 +207,7 @@ export class AwsOpentelemetryConfigurator {
     const DISTRO_VERSION: string = LIB_VERSION;
     autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION] = DISTRO_VERSION + '-aws';
     diag.debug(
-      `@aws/aws-distro-opentelemetry-node-autoinstrumentation - version: ${autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION]}`
+      `enhanced-adot-node-autoinstrumentation - version: ${autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION]}`
     );
     return autoResource;
   }
@@ -211,6 +231,10 @@ export class AwsOpentelemetryConfigurator {
       textMapPropagator: this.propagator,
     };
 
+    if (this.metricReader) {
+      config.metricReader = this.metricReader;
+    }
+
     return config;
   }
 
@@ -223,13 +247,7 @@ export class AwsOpentelemetryConfigurator {
     return isApplicationSignalsEnabled.toLowerCase() === 'true';
   }
 
-  static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
-    if (!AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
-      return;
-    }
-
-    diag.info('AWS Application Signals enabled.');
-
+  static geMetricExportInterval(): number {
     let exportIntervalMillis: number = Number(process.env[METRIC_EXPORT_INTERVAL_CONFIG]);
     diag.debug(`AWS Application Signals Metrics export interval: ${exportIntervalMillis}`);
 
@@ -239,13 +257,23 @@ export class AwsOpentelemetryConfigurator {
       diag.info(`AWS Application Signals metrics export interval capped to ${exportIntervalMillis}`);
     }
 
+    return exportIntervalMillis;
+  }
+
+  static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
+    if (!AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
+      return;
+    }
+
+    diag.info('AWS Application Signals enabled.');
+
     spanProcessors.push(AttributePropagatingSpanProcessorBuilder.create().build());
 
     const applicationSignalsMetricExporter: PushMetricExporter =
       ApplicationSignalsExporterProvider.Instance.createExporter();
     const periodicExportingMetricReader: PeriodicExportingMetricReader = new PeriodicExportingMetricReader({
       exporter: applicationSignalsMetricExporter,
-      exportIntervalMillis: exportIntervalMillis,
+      exportIntervalMillis: AwsOpentelemetryConfigurator.geMetricExportInterval(),
     });
 
     // Register BatchUnsampledSpanProcessor to export unsampled traces in Lambda
@@ -279,6 +307,22 @@ export class AwsOpentelemetryConfigurator {
         ).build()
       );
     }
+  }
+
+  static createEmfExporterMetricReader() {
+    const headersResult = validateLogsHeaders();
+    if (!headersResult.logGroup) {
+      diag.warn('Log group is not set. Set Log Group with OTEL_EXPORTER_OTLP_LOGS_HEADERS=<EMF Log Group>');
+      return;
+    }
+
+    const emfExporter = createEmfExporter(headersResult.logGroup, headersResult.logStream, headersResult.namespace);
+    const periodicExportingMetricReader = new PeriodicExportingMetricReader({
+      exporter: emfExporter,
+      exportIntervalMillis: AwsOpentelemetryConfigurator.geMetricExportInterval(),
+    });
+
+    return periodicExportingMetricReader;
   }
 
   static customizeSampler(sampler: Sampler): Sampler {
@@ -428,7 +472,7 @@ export class AwsSpanProcessorProvider {
   private resource: Resource;
 
   static configureOtlp(): SpanExporter {
-    const otlp_exporter_traces_endpoint = process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'];
+    const otlpExporterTracesEndpoint = process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'];
     // eslint-disable-next-line @typescript-eslint/typedef
     let protocol = this.getOtlpProtocol();
 
@@ -445,9 +489,9 @@ export class AwsSpanProcessorProvider {
       case 'http/json':
         return new OTLPHttpTraceExporter();
       case 'http/protobuf':
-        if (otlp_exporter_traces_endpoint && isXrayOtlpEndpoint(otlp_exporter_traces_endpoint)) {
+        if (otlpExporterTracesEndpoint && isAwsOtlpEndpoint(otlpExporterTracesEndpoint, 'xray')) {
           diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
-          return new OTLPAwsSpanExporter(otlp_exporter_traces_endpoint);
+          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint);
         }
         return new OTLPProtoTraceExporter();
       case 'udp':
@@ -455,9 +499,9 @@ export class AwsSpanProcessorProvider {
         return new OTLPUdpSpanExporter(getXrayDaemonEndpoint(), FORMAT_OTEL_SAMPLED_TRACES_BINARY_PREFIX);
       default:
         diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
-        if (otlp_exporter_traces_endpoint && isXrayOtlpEndpoint(otlp_exporter_traces_endpoint)) {
+        if (otlpExporterTracesEndpoint && isAwsOtlpEndpoint(otlpExporterTracesEndpoint, 'xray')) {
           diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
-          return new OTLPAwsSpanExporter(otlp_exporter_traces_endpoint);
+          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint);
         }
         return new OTLPProtoTraceExporter();
     }
@@ -647,6 +691,8 @@ function getSamplerProbabilityFromEnv(environment: Required<ENVIRONMENT>): numbe
   return probability;
 }
 
+// END The OpenTelemetry Authors code
+
 function getSpanExportBatchSize() {
   if (isLambdaEnvironment()) {
     return LAMBDA_SPAN_EXPORT_BATCH_SIZE;
@@ -667,8 +713,95 @@ function getXrayDaemonEndpoint() {
   return process.env[AWS_XRAY_DAEMON_ADDRESS_CONFIG];
 }
 
-function isXrayOtlpEndpoint(otlpEndpoint: string | undefined) {
-  return otlpEndpoint && new RegExp(XRAY_OTLP_ENDPOINT_PATTERN).test(otlpEndpoint.toLowerCase());
+/**
+ * Determines if the given endpoint is either the AWS OTLP Traces or Logs endpoint.
+ */
+
+export function isAwsOtlpEndpoint(otlpEndpoint: string, service: string): boolean {
+  const pattern = service === 'xray' ? AWS_TRACES_OTLP_ENDPOINT_PATTERN : AWS_LOGS_OTLP_ENDPOINT_PATTERN;
+
+  return new RegExp(pattern).test(otlpEndpoint.toLowerCase());
 }
 
-// END The OpenTelemetry Authors code
+export function checkEmfExporterEnabled(): boolean {
+  const exporterValue = process.env.OTEL_METRICS_EXPORTER;
+  if (exporterValue === undefined) {
+    return false;
+  }
+
+  const exporters = exporterValue.split(',').map(exporter => exporter.trim());
+
+  const index = exporters.indexOf('awsemf');
+  if (index === -1) {
+    return false;
+  }
+
+  exporters.splice(index, 1);
+
+  const newValue = exporters ? exporters.join(',') : undefined;
+
+  if (typeof newValue === 'string' && newValue !== '') {
+    process.env.OTEL_METRICS_EXPORTER = newValue;
+  } else {
+    delete process.env.OTEL_METRICS_EXPORTER;
+  }
+
+  return true;
+}
+
+export function createEmfExporter(
+  logGroupName: string,
+  logStreamName?: string,
+  namespace?: string
+): AWSCloudWatchEMFExporter {
+  return new AWSCloudWatchEMFExporter(namespace, logGroupName, logStreamName, AggregationTemporality.DELTA, {});
+}
+
+/**
+ * Checks if x-aws-log-group and x-aws-log-stream are present in the headers in order to send logs to
+ * AWS OTLP Logs endpoint.
+ */
+export function validateLogsHeaders(): OtlpLogHeaderSetting {
+  const logHeaders = process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
+
+  let logGroup: string | undefined = undefined;
+  let logStream: string | undefined = undefined;
+  let namespace: string | undefined = undefined;
+
+  if (!logHeaders) {
+    diag.warn(
+      'Improper configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to include x-aws-log-group and x-aws-log-stream'
+    );
+    return { isValid: false };
+  }
+
+  for (const pair of logHeaders.split(',')) {
+    const splitIndex = pair.indexOf('=');
+    if (splitIndex > -1) {
+      const key = pair.substring(0, splitIndex);
+      const value = pair.substring(splitIndex + 1);
+
+      if (key === AWS_OTLP_LOGS_GROUP_HEADER && value !== '') {
+        logGroup = value;
+      } else if (key === AWS_OTLP_LOGS_STREAM_HEADER && value !== '') {
+        logStream = value;
+      } else if (key === AWS_EMF_METRICS_NAMESPACE && value !== '') {
+        namespace = value;
+      }
+    }
+  }
+
+  const isValid = !!logGroup && !!logStream;
+  if (!isValid) {
+    diag.warn(
+      'Improper configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for x-aws-log-group and x-aws-log-stream'
+    );
+  }
+
+  return {
+    logGroup: logGroup,
+    logStream: logStream,
+    namespace: namespace,
+    isValid: isValid,
+  };
+}

@@ -84,9 +84,6 @@ try {
   diag.info('Setting TraceProvider for instrumentations at the end of initialization');
   for (const instrumentation of instrumentations) {
     instrumentation.setTracerProvider(trace.getTracerProvider());
-    if (instrumentation.setLoggerProvider) {
-      instrumentation.setLoggerProvider(logs.getLoggerProvider());
-    }
   }
 
   diag.debug(`Environment variable OTEL_PROPAGATORS is set to '${process.env.OTEL_PROPAGATORS}'`);

@@ -7,6 +7,7 @@ import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
 import { getResourceDetectors as getResourceDetectorsFromEnv } from '@opentelemetry/auto-instrumentations-node';
 import { ENVIRONMENT, TracesSamplerValues, getEnv, getEnvWithoutDefaults } from '@opentelemetry/core';
 import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
+import { CompressionAlgorithm } from '@opentelemetry/otlp-exporter-base';
 import {
   AggregationTemporalityPreference,
   OTLPMetricExporter as OTLPHttpOTLPMetricExporter,
@@ -474,7 +475,9 @@ export class AwsLoggerProcessorProvider {
               validateLogsHeaders()
             ) {
               diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
-              exporters.push(new OTLPAwsLogExporter(otlpExporterLogsEndpoint));
+              exporters.push(
+                new OTLPAwsLogExporter(otlpExporterLogsEndpoint, { compression: CompressionAlgorithm.GZIP })
+              );
             } else {
               exporters.push(new OTLPProtoLogExporter());
             }
@@ -491,7 +494,9 @@ export class AwsLoggerProcessorProvider {
               validateLogsHeaders()
             ) {
               diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
-              exporters.push(new OTLPAwsLogExporter(otlpExporterLogsEndpoint));
+              exporters.push(
+                new OTLPAwsLogExporter(otlpExporterLogsEndpoint, { compression: CompressionAlgorithm.GZIP })
+              );
             } else {
               exporters.push(new OTLPProtoLogExporter());
             }

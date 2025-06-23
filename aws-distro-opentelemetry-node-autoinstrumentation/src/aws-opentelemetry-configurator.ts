@@ -608,7 +608,7 @@ export class AwsSpanProcessorProvider {
       case 'http/protobuf':
         if (otlpExporterTracesEndpoint && isAwsOtlpEndpoint(otlpExporterTracesEndpoint, 'xray')) {
           diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
-          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint);
+          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint, { compression: CompressionAlgorithm.GZIP });
         }
         return new OTLPProtoTraceExporter();
       case 'udp':
@@ -618,7 +618,7 @@ export class AwsSpanProcessorProvider {
         diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
         if (otlpExporterTracesEndpoint && isAwsOtlpEndpoint(otlpExporterTracesEndpoint, 'xray')) {
           diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
-          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint);
+          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint, { compression: CompressionAlgorithm.GZIP });
         }
         return new OTLPProtoTraceExporter();
     }
@@ -853,21 +853,24 @@ function validateLogsHeaders() {
     return false;
   }
 
-  let filteredLogHeadersCount = 0;
+  let hasLogGroup = false;
+  let hasLogStream = false;
 
   for (const pair of logsHeaders.split(',')) {
     if (pair.includes('=')) {
       const [key, value] = pair.split('=', 2);
-      if ((key === AWS_OTLP_LOGS_GROUP_HEADER || key === AWS_OTLP_LOGS_STREAM_HEADER) && value) {
-        filteredLogHeadersCount += 1;
+      if (key === AWS_OTLP_LOGS_GROUP_HEADER && value) {
+        hasLogGroup = true;
+      } else if (key === AWS_OTLP_LOGS_STREAM_HEADER && value) {
+        hasLogStream = true;
       }
     }
   }
 
-  if (filteredLogHeadersCount !== 2) {
+  if (!hasLogGroup || !hasLogStream) {
     diag.warn(
-      'Improper configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS ' +
-        'to have values for x-aws-log-group and x-aws-log-stream'
+      `Improper configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS ' +
+        'to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}`
     );
     return false;
   }

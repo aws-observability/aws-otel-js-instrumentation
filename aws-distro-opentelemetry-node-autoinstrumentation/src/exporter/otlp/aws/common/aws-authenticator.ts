@@ -23,36 +23,37 @@ if (getNodeVersion() >= 16) {
   diag.error('SigV4 signing requires at least Node major version 16');
 }
 
+// See: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html
+export const AUTHORIZATION_HEADER = 'authorization';
+export const X_AMZ_DATE_HEADER = 'x-amz-date';
+export const X_AMZ_SECURITY_TOKEN_HEADER = 'x-amz-security-token';
+export const X_AMZ_CONTENT_SHA256_HEADER = 'x-amz-content-sha256';
+
 export class AwsAuthenticator {
+  private endpoint: URL;
   private region: string;
   private service: string;
 
-  constructor(region: string, service: string) {
-    this.region = region;
+  constructor(endpoint: string, service: string) {
+    this.endpoint = new URL(endpoint);
+    this.region = endpoint.split('.')[1];
     this.service = service;
   }
 
-  public async authenticate(endpoint: string, headers: Record<string, string>, serializedData: Uint8Array | undefined) {
+  public async authenticate(headers: Record<string, string>, serializedData: Uint8Array | undefined) {
     // Only do SigV4 Signing if the required dependencies are installed.
-    if (dependenciesLoaded) {
-      const url = new URL(endpoint);
-
-      if (serializedData === undefined) {
-        diag.error('Given serialized data is undefined. Not authenticating.');
-        return headers;
-      }
-
+    if (dependenciesLoaded && serializedData) {
       const cleanedHeaders = this.removeSigV4Headers(headers);
 
       const request = new HttpRequest({
         method: 'POST',
         protocol: 'https',
-        hostname: url.hostname,
-        path: url.pathname,
+        hostname: this.endpoint.hostname,
+        path: this.endpoint.pathname,
         body: serializedData,
         headers: {
           ...cleanedHeaders,
-          host: url.hostname,
+          host: this.endpoint.hostname,
         },
       });
 
@@ -68,22 +69,27 @@ export class AwsAuthenticator {
 
         return signedRequest.headers;
       } catch (exception) {
-        diag.debug(
-          `Failed to sign/authenticate the given exported Span request to OTLP XRay endpoint with error: ${exception}`
-        );
+        diag.debug(`Failed to sign/authenticate the given export request with error: ${exception}`);
+        return undefined;
       }
     }
 
-    return headers;
+    diag.debug('No serialized data provided. Not authenticating.');
+    return undefined;
   }
 
   // Cleans up Sigv4 from headers to avoid accidentally copying them to the new headers
   private removeSigV4Headers(headers: Record<string, string>) {
     const newHeaders: Record<string, string> = {};
-    const sigV4Headers = ['x-amz-date', 'authorization', 'x-amz-content-sha256', 'x-amz-security-token'];
+    const sigv4Headers = [
+      AUTHORIZATION_HEADER,
+      X_AMZ_CONTENT_SHA256_HEADER,
+      X_AMZ_DATE_HEADER,
+      X_AMZ_CONTENT_SHA256_HEADER,
+    ];
 
     for (const key in headers) {
-      if (!sigV4Headers.includes(key.toLowerCase())) {
+      if (!sigv4Headers.includes(key.toLowerCase())) {
         newHeaders[key] = headers[key];
       }
     }

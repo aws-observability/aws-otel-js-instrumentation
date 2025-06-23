@@ -14,7 +14,6 @@ if (process.env.OTEL_TRACES_SAMPLER === 'xray') {
 }
 
 import { diag, DiagConsoleLogger, trace } from '@opentelemetry/api';
-import { logs } from '@opentelemetry/api-logs';
 import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';

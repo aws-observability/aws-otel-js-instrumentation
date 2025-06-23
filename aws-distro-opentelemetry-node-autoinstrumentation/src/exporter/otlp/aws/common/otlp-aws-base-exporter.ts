@@ -6,13 +6,16 @@ import { ExportResult, ExportResultCode } from '@opentelemetry/core';
 import { AwsAuthenticator } from './aws-authenticator';
 import { PassthroughSerializer } from './passthrough-serializer';
 import { ISerializer } from '@opentelemetry/otlp-transformer';
+import { diag } from '@opentelemetry/api';
 
 /**
  * Base class for AWS OTLP exporters
  */
 export abstract class OTLPAwsBaseExporter<Payload, Response> {
   protected parentExporter: OTLPExporterBase<Payload>;
-  private compression?: CompressionAlgorithm;
+  private readonly originalHeaders?: Record<string, string>;
+  private readonly compression?: CompressionAlgorithm;
+  private newHeaders: Record<string, string> = {};
   private endpoint: string;
   private serializer: PassthroughSerializer<Response>;
   private authenticator: AwsAuthenticator;
@@ -37,8 +40,8 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> {
     // To see why this works:
     // https://github.com/open-telemetry/opentelemetry-js/blob/ec17ce48d0e5a99a122da5add612a20e2dd84ed5/experimental/packages/otlp-exporter-base/src/otlp-export-delegate.ts#L69
     this.serializer = new PassthroughSerializer<Response>(this.parentSerializer.deserializeResponse);
-
     this.parentExporter['_delegate']._serializer = this.serializer;
+    this.originalHeaders = this.getHeaders();
   }
 
   /**
@@ -49,52 +52,82 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> {
    * @param resultCallback - Callback function to handle export result
    */
   public async export(items: Payload, resultCallback: (result: ExportResult) => void): Promise<void> {
-    let serializedData: Uint8Array | undefined = this.parentSerializer.serializeRequest(items);
+    if (this.originalHeaders) {
+      let serializedData: Uint8Array | undefined = this.parentSerializer.serializeRequest(items);
 
-    if (!serializedData) {
-      resultCallback({
-        code: ExportResultCode.FAILED,
-        error: new Error('Nothing to send'),
-      });
-      return;
-    }
-
-    const headers = this.parentExporter['_delegate']._transport?._transport?._parameters?.headers();
-
-    // This should never be reached as upstream always sets the header.
-    if (!headers) {
-      resultCallback({
-        code: ExportResultCode.FAILED,
-        error: new Error(`Request headers are undefined - unable to export to ${this.endpoint}`),
-      });
-
-      return;
-    }
-
-    delete headers['Content-Encoding'];
-    const shouldCompress = this.compression && this.compression !== CompressionAlgorithm.NONE;
-
-    if (shouldCompress) {
-      try {
-        serializedData = gzipSync(serializedData);
-        headers['Content-Encoding'] = 'gzip';
-      } catch (exception) {
+      if (!serializedData) {
         resultCallback({
           code: ExportResultCode.FAILED,
-          error: new Error(`Failed to compress: ${exception}`),
+          error: new Error('Nothing to send'),
         });
         return;
       }
+
+      const shouldCompress = this.compression && this.compression !== CompressionAlgorithm.NONE;
+
+      if (shouldCompress) {
+        try {
+          serializedData = gzipSync(serializedData);
+          this.addHeader('Content-Encoding', 'gzip');
+        } catch (exception) {
+          resultCallback({
+            code: ExportResultCode.FAILED,
+            error: new Error(`Failed to compress: ${exception}`),
+          });
+          return;
+        }
+      }
+
+      this.serializer.setSerializedData(serializedData);
+
+      const mergedHeaders = { ...this.newHeaders, ...this.originalHeaders };
+      const signedHeaders = await this.authenticator.authenticate(mergedHeaders, serializedData);
+
+      if (signedHeaders) {
+        this.setTransportHeaders(signedHeaders);
+      }
+
+      this.parentExporter.export(items, resultCallback);
+
+      this.setTransportHeaders(this.originalHeaders);
+      this.newHeaders = {};
+      return;
     }
 
-    this.serializer.setSerializedData(serializedData);
+    resultCallback({
+      code: ExportResultCode.FAILED,
+      error: new Error('No headers found, cannot sign request. Not exporting.'),
+    });
+  }
 
-    const signedRequestHeaders = await this.authenticator.authenticate(headers, serializedData);
+  // This is a bit ugly but need it in order safely set any new headers
 
-    if (signedRequestHeaders) {
-      this.parentExporter['_delegate']._transport._transport._parameters.headers = () => signedRequestHeaders;
+  /**
+   * Adds a header to the exporter's transport parameters
+   */
+  protected addHeader(key: string, value: string): void {
+    this.newHeaders[key] = value;
+  }
+
+  /**
+   * Gets headers in the transport parameters
+   */
+  private getHeaders(): Record<string, string> | undefined {
+    const headersFunc = this.parentExporter['_delegate']._transport?._transport?._parameters?.headers;
+    if (!headersFunc) {
+      diag.debug('No existing headers found, using empty headers.');
+      return undefined;
     }
+    return headersFunc();
+  }
 
-    this.parentExporter.export(items, resultCallback);
+  /**
+   * Sets headers in the transport parameters
+   */
+  private setTransportHeaders(headers: Record<string, string>): void {
+    const parameters = this.parentExporter['_delegate']._transport?._transport?._parameters;
+    if (parameters) {
+      parameters.headers = () => headers;
+    }
   }
 }

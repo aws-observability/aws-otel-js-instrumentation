@@ -27,10 +27,6 @@ export class OTLPAwsLogExporter
       compression: CompressionAlgorithm.NONE,
     };
 
-    const parentExporter = new OTLPProtoLogExporter(modifiedConfig);
-    super(endpoint, 'logs', parentExporter, ProtobufLogsSerializer, config?.compression);
-  }
-  shutdown(): Promise<void> {
-    return this.parentExporter.shutdown();
+    super(endpoint, 'logs', new OTLPProtoLogExporter(modifiedConfig), ProtobufLogsSerializer, config?.compression);
   }
 }

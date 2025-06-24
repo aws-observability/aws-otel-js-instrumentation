@@ -28,11 +28,6 @@ export class OTLPAwsSpanExporter
       compression: CompressionAlgorithm.NONE,
     };
 
-    const parentExporter = new OTLPProtoTraceExporter(modifiedConfig);
-    super(endpoint, 'xray', parentExporter, ProtobufTraceSerializer, config?.compression);
-  }
-
-  shutdown(): Promise<void> {
-    return this.parentExporter.shutdown();
+    super(endpoint, 'xray', new OTLPProtoTraceExporter(modifiedConfig), ProtobufTraceSerializer, config?.compression);
   }
 }

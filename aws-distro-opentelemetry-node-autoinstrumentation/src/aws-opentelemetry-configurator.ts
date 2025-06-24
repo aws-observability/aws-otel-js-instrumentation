@@ -608,7 +608,7 @@ export class AwsSpanProcessorProvider {
       case 'http/protobuf':
         if (otlpExporterTracesEndpoint && isAwsOtlpEndpoint(otlpExporterTracesEndpoint, 'xray')) {
           diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
-          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint, { compression: CompressionAlgorithm.GZIP });
+          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint);
         }
         return new OTLPProtoTraceExporter();
       case 'udp':
@@ -618,7 +618,7 @@ export class AwsSpanProcessorProvider {
         diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
         if (otlpExporterTracesEndpoint && isAwsOtlpEndpoint(otlpExporterTracesEndpoint, 'xray')) {
           diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
-          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint, { compression: CompressionAlgorithm.GZIP });
+          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint);
         }
         return new OTLPProtoTraceExporter();
     }

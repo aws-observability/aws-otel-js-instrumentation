@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { AttributeValue } from '@opentelemetry/api';
+import { isAccountId } from './utils';
 
 const HTTP_SCHEMA: string = 'http://';
 const HTTPS_SCHEMA: string = 'https://';
@@ -22,9 +23,9 @@ export class SqsUrlParser {
     if (typeof url !== 'string') {
       return undefined;
     }
-    url = url.replace(HTTP_SCHEMA, '').replace(HTTPS_SCHEMA, '');
-    const splitUrl: string[] = url.split('/');
-    if (splitUrl.length === 3 && this.isAccountId(splitUrl[1]) && this.isValidQueueName(splitUrl[2])) {
+    const urlWithoutProtocol = this.removeProtocol(url);
+    const splitUrl: string[] = urlWithoutProtocol.split('/');
+    if (splitUrl.length === 3 && isAccountId(splitUrl[1]) && this.isValidQueueName(splitUrl[2])) {
       return splitUrl[2];
     }
     return undefined;
@@ -38,9 +39,9 @@ export class SqsUrlParser {
       return undefined;
     }
 
-    url = url.replace(HTTP_SCHEMA, '').replace(HTTPS_SCHEMA, '');
     if (this.isValidSqsUrl(url)) {
-      const splitUrl: string[] = url.split('/');
+      const urlWithoutProtocol = this.removeProtocol(url);
+      const splitUrl: string[] = urlWithoutProtocol.split('/');
       return splitUrl[1];
     }
 
@@ -55,9 +56,9 @@ export class SqsUrlParser {
       return undefined;
     }
 
-    url = url.replace(HTTP_SCHEMA, '').replace(HTTPS_SCHEMA, '');
     if (this.isValidSqsUrl(url)) {
-      const splitUrl: string[] = url.split('/');
+      const urlWithoutProtocol = this.removeProtocol(url);
+      const splitUrl: string[] = urlWithoutProtocol.split('/');
       const domain: string = splitUrl[0];
       const domainParts: string[] = domain.split('.');
       if (domainParts.length === 4) {
@@ -68,33 +69,22 @@ export class SqsUrlParser {
     return undefined;
   }
 
+  private static removeProtocol(url: string): string {
+    return url.replace(HTTP_SCHEMA, '').replace(HTTPS_SCHEMA, '');
+  }
+
   /**
    * Checks if the URL is a valid SQS URL.
    */
   private static isValidSqsUrl(url: string): boolean {
-    const splitUrl: string[] = url.split('/');
+    const urlWithoutProtocol = this.removeProtocol(url);
+    const splitUrl: string[] = urlWithoutProtocol.split('/');
     return (
       splitUrl.length === 3 &&
       splitUrl[0].toLowerCase().startsWith('sqs') &&
-      this.isAccountId(splitUrl[1]) &&
+      isAccountId(splitUrl[1]) &&
       this.isValidQueueName(splitUrl[2])
     );
-  }
-
-  private static isAccountId(input: string): boolean {
-    if (input == null || input.length !== 12) {
-      return false;
-    }
-
-    if (!this._checkDigits(input)) {
-      return false;
-    }
-
-    return true;
-  }
-
-  private static _checkDigits(str: string): boolean {
-    return /^\d+$/.test(str);
   }
 
   private static isValidQueueName(input: string): boolean {

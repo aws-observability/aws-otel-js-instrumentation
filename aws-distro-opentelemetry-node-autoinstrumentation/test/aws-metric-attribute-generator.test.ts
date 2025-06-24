@@ -62,7 +62,7 @@ const UNKNOWN_REMOTE_OPERATION: string = 'UnknownRemoteOperation';
 const INTERNAL_OPERATION: string = 'InternalOperation';
 const LOCAL_ROOT: string = 'LOCAL_ROOT';
 const AWS_REMOTE_RESOURCE_REGION: string = 'us-east-1';
-const AWS_REMOTE_RESOURCE_ACCESS_KEY: string = 'AWS access key';
+const AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY: string = 'AWS access key';
 
 const GENERATOR: AwsMetricAttributeGenerator = new AwsMetricAttributeGenerator();
 
@@ -733,16 +733,17 @@ describe('AwsMetricAttributeGeneratorTest', () => {
 
   it('testSdkClientSpanWithRemoteResourceAttributes', () => {
     mockAttribute(SEMATTRS_RPC_SYSTEM, 'aws-api');
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCESS_KEY, AWS_REMOTE_RESOURCE_ACCESS_KEY);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, AWS_REMOTE_RESOURCE_REGION);
     // Validate behaviour of aws bucket name attribute, then remove it.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET, 'aws_s3_bucket_name');
     validateRemoteResourceAttributes(
       'AWS::S3::Bucket',
       'aws_s3_bucket_name',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET, undefined);
 
@@ -751,9 +752,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::SQS::Queue',
       'aws_queue_name',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, undefined);
 
@@ -761,7 +763,14 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     // them. Queue name is more reliable than queue URL, so we prefer to use name over URL.
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, 'https://sqs.us-east-2.amazonaws.com/123456789012/Queue');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, 'aws_queue_name');
-    validateRemoteResourceAttributes('AWS::SQS::Queue', 'aws_queue_name', 'us-east-2', '123456789012', undefined);
+    validateRemoteResourceAttributes(
+      'AWS::SQS::Queue',
+      'aws_queue_name',
+      undefined,
+      'us-east-2',
+      '123456789012',
+      undefined
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, undefined);
 
@@ -774,7 +783,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME, undefined);
@@ -784,7 +793,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::SQS::Queue',
       'MyQueue',
-      'https://sqs.us-east-2.amazonaws.com/123456789012/MyQueue'
+      'https://sqs.us-east-2.amazonaws.com/123456789012/MyQueue',
+      'us-east-2',
+      '123456789012',
+      undefined,
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, undefined);
 
@@ -793,9 +805,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::Kinesis::Stream',
       'AWS_KINESIS_STREAM_NAME',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME, undefined);
 
@@ -804,7 +817,14 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN,
       'arn:aws:kinesis:us-west-2:123456789012:stream/aws_stream_name'
     );
-    validateRemoteResourceAttributes('AWS::Kinesis::Stream', 'aws_stream_name', 'us-west-2', '123456789012', undefined);
+    validateRemoteResourceAttributes(
+      'AWS::Kinesis::Stream',
+      'aws_stream_name',
+      undefined,
+      'us-west-2',
+      '123456789012',
+      undefined
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN, undefined);
 
     // Validate behaviour of AWS_SNS_TOPIC_ARN attribute then remove it.
@@ -856,9 +876,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::Lambda::EventSourceMapping',
       'aws_lambda_resource_mapping_id',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID, undefined);
 
@@ -869,7 +890,6 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     );
     validateRemoteResourceAttributes(
       'AWS::StepFunctions::StateMachine',
-
       'testStateMachine',
       'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine',
       'us-east-1',
@@ -884,7 +904,6 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     );
     validateRemoteResourceAttributes(
       'AWS::StepFunctions::Activity',
-
       'testActivity',
       'arn:aws:states:us-east-1:123456789123:activity:testActivity',
       'us-east-1',
@@ -898,9 +917,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::DynamoDB::Table',
       'aws_table_name',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
 
@@ -919,9 +939,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::DynamoDB::Table',
       'aws_table^|name',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
 
@@ -930,9 +951,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::DynamoDB::Table',
       'aws_table^^name',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
 
@@ -941,7 +963,14 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN,
       'arn:aws:dynamodb:us-west-2:123456789012:table/aws_table_name'
     );
-    validateRemoteResourceAttributes('AWS::DynamoDB::Table', 'aws_table_name', 'us-west-2', '123456789012', undefined);
+    validateRemoteResourceAttributes(
+      'AWS::DynamoDB::Table',
+      'aws_table_name',
+      undefined,
+      'us-west-2',
+      '123456789012',
+      undefined
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN, undefined);
 
     // Validate behaviour of AWS_BEDROCK_AGENT_ID attribute, then remove it.
@@ -949,9 +978,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::Bedrock::Agent',
       'test_agent_id',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_NAMES, undefined);
 
@@ -960,9 +990,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::Bedrock::Agent',
       'test_agent_^^id',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENT_ID, undefined);
 
@@ -975,7 +1006,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       'test_kb_id|test_datasource_id',
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, undefined);
@@ -985,12 +1016,11 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, 'test_kb_^id');
     validateRemoteResourceAttributes(
       'AWS::Bedrock::DataSource',
-
       'test_datasource_^^id',
       'test_kb_^^id|test_datasource_^^id',
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_DATA_SOURCE_ID, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, undefined);
@@ -1003,7 +1033,6 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     );
     validateRemoteResourceAttributes(
       'AWS::Bedrock::Guardrail',
-
       'test_guardrail_id',
       'arn:aws:bedrock:us-east-1:123456789012:guardrail/test_guardrail_id',
       'us-east-1',
@@ -1021,7 +1050,6 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     );
     validateRemoteResourceAttributes(
       'AWS::Bedrock::Guardrail',
-
       'test_guardrail_^^id',
       'arn:aws:bedrock:us-east-1:123456789012:guardrail/test_guardrail_^^id',
       'us-east-1',
@@ -1036,9 +1064,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::Bedrock::KnowledgeBase',
       'test_knowledgeBase_id',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, undefined);
 
@@ -1047,9 +1076,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::Bedrock::KnowledgeBase',
       'test_knowledgeBase_^^id',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_KNOWLEDGE_BASE_ID, undefined);
 
@@ -1058,9 +1088,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::Bedrock::Model',
       'test.service_id',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL, undefined);
 
@@ -1069,9 +1100,10 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::Bedrock::Model',
       'test.service_^^id',
+      undefined,
       AWS_REMOTE_RESOURCE_REGION,
       undefined,
-      AWS_REMOTE_RESOURCE_ACCESS_KEY
+      AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY
     );
     mockAttribute(AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL, undefined);
 
@@ -1082,7 +1114,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
 
     // Invalid arn and no account access key
-    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCESS_KEY, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, undefined);
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, 'invalid_arn');
     validateRemoteResourceAttributes(undefined, undefined);
@@ -1101,6 +1133,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::StepFunctions::StateMachine',
       'testStateMachine',
+      'arn:aws:states:us-east-1:123456789123:stateMachine:testStateMachine',
       'us-east-1',
       '123456789123',
       undefined
@@ -1112,7 +1145,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN,
       'arn:aws:states:us-east-1:invalid_account_id:stateMachine:testStateMachine'
     );
-    validateRemoteResourceAttributes('AWS::StepFunctions::StateMachine', 'testStateMachine');
+    validateRemoteResourceAttributes('AWS::StepFunctions::StateMachine', 'testStateMachine', 'arn:aws:states:us-east-1:invalid_account_id:stateMachine:testStateMachine');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
 
     // Arn with invalid region
@@ -1123,6 +1156,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     validateRemoteResourceAttributes(
       'AWS::StepFunctions::StateMachine',
       'testStateMachine',
+      'arn:aws:states:invalid_region:123456789123:stateMachine:testStateMachine',
       'invalid_region',
       '123456789123',
       undefined
@@ -1398,16 +1432,16 @@ describe('AwsMetricAttributeGeneratorTest', () => {
 
       if (accountId !== undefined) {
         expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID]).toEqual(accountId);
-        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCESS_KEY]).toEqual(undefined);
+        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY]).toEqual(undefined);
       } else {
         expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID]).toEqual(undefined);
       }
 
       if (accessKey !== undefined) {
-        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCESS_KEY]).toEqual(accessKey);
+        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY]).toEqual(accessKey);
         expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID]).toEqual(undefined);
       } else {
-        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCESS_KEY]).toEqual(undefined);
+        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY]).toEqual(undefined);
       }
     }
 
@@ -1419,7 +1453,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER]).toEqual(undefined);
     expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_REGION]).toEqual(undefined);
     expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID]).toEqual(undefined);
-    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCESS_KEY]).toEqual(undefined);
+    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY]).toEqual(undefined);
   }
 
   it('testDBUserAttribute', () => {

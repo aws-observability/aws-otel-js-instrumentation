@@ -684,9 +684,9 @@ describe('InstrumentationPatchTest', () => {
         sinon.stub(trace, 'getSpan').returns(mockSpan as unknown as Span);
         const credentialsMiddlewareArgs: any = {};
         await mockedMiddlewareStackInternal[1][0]((arg: any) => Promise.resolve(arg), null)(credentialsMiddlewareArgs);
-        expect(mockedMiddlewareStackInternal[1][1].name).toEqual('_extractSignerCredentials');
+        expect(mockedMiddlewareStackInternal[1][1].name).toEqual('_adotExtractSignerCredentials');
         expect(
-          mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCESS_KEY, 'test-access-key')
+          mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, 'test-access-key')
         ).toBeTruthy();
         expect(mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, 'us-west-2')).toBeTruthy();
       });

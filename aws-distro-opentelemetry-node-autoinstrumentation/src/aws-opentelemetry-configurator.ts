@@ -833,7 +833,14 @@ function getXrayDaemonEndpoint() {
  */
 
 function isAwsOtlpEndpoint(otlpEndpoint: string, service: string): boolean {
-  const pattern = service === 'xray' ? AWS_TRACES_OTLP_ENDPOINT_PATTERN : AWS_LOGS_OTLP_ENDPOINT_PATTERN;
+  let pattern = '';
+  if (service === 'xray') {
+    pattern = AWS_TRACES_OTLP_ENDPOINT_PATTERN;
+  } else if (service === 'logs') {
+    pattern = AWS_LOGS_OTLP_ENDPOINT_PATTERN;
+  } else {
+    return false;
+  }
 
   return new RegExp(pattern).test(otlpEndpoint.toLowerCase());
 }
@@ -847,8 +854,9 @@ function validateLogsHeaders() {
 
   if (!logsHeaders) {
     diag.warn(
-      'Improper configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS ' +
-        'to include x-aws-log-group and x-aws-log-stream'
+      'Missing required configuration: The environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS must be set with ' +
+        `required headers ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. ` +
+        `Example: OTEL_EXPORTER_OTLP_LOGS_HEADERS="${AWS_OTLP_LOGS_GROUP_HEADER}=my-log-group,${AWS_OTLP_LOGS_STREAM_HEADER}=my-log-stream"`
     );
     return false;
   }
@@ -868,9 +876,13 @@ function validateLogsHeaders() {
   }
 
   if (!hasLogGroup || !hasLogStream) {
+    const missingHeaders = [];
+    if (!hasLogGroup) missingHeaders.push(AWS_OTLP_LOGS_GROUP_HEADER);
+    if (!hasLogStream) missingHeaders.push(AWS_OTLP_LOGS_STREAM_HEADER);
+
     diag.warn(
-      `Improper configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS ' +
-        'to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}`
+      'Incomplete configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS ' +
+        `to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}`
     );
     return false;
   }

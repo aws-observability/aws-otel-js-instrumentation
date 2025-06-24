@@ -233,22 +233,23 @@ function patchKinesisServiceExtension(kinesisServiceExtension: any): void {
 function patchDynamoDbServiceExtension(dynamoDbServiceExtension: any): void {
   if (dynamoDbServiceExtension) {
     if (typeof dynamoDbServiceExtension.responseHook === 'function') {
-      const originalResponseHook = dynamoDbServiceExtension.responseHook;
-      dynamoDbServiceExtension.responseHook = (
+      const responseHook = dynamoDbServiceExtension.responseHook;
+
+      const patchedResponseHook = (
         response: NormalizedResponse,
         span: Span,
         tracer: Tracer,
         config: AwsSdkInstrumentationConfig
       ): void => {
-        originalResponseHook.call(dynamoDbServiceExtension, response, span, tracer, config);
+        responseHook.call(dynamoDbServiceExtension, response, span, tracer, config);
 
-        if (response.data && response.data.Table) {
-          const tableArn = response.data.Table.TableArn;
-          if (tableArn) {
-            span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN, tableArn);
-          }
+        const tableArn = response?.data?.Table?.TableArn;
+        if (tableArn) {
+          span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN, tableArn);
         }
       };
+
+      dynamoDbServiceExtension.responseHook = patchedResponseHook;
     }
   }
 }
@@ -400,20 +401,24 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
             if (span) {
               try {
                 const credsProvider = this.config.credentials;
-                if (credsProvider) {
+                if (credsProvider instanceof Function) {
                   const credentials = await credsProvider();
-                  if (credentials.accessKeyId) {
-                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCESS_KEY, credentials.accessKeyId);
+                  if (credentials?.accessKeyId) {
+                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
                   }
                 }
-                if (this.config.region) {
+                if (this.config.region instanceof Function) {
                   const region = await this.config.region();
                   if (region) {
                     span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
                   }
                 }
               } catch (err) {
-                diag.debug('Fail to get auth account access key and region.');
+                diag.debug(
+                  `Failed to get auth account access key and region: ${
+                    err instanceof Error ? err.message : String(err)
+                  }`
+                );
               }
             }
 
@@ -421,7 +426,7 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
           },
           {
             step: 'build',
-            name: '_extractSignerCredentials',
+            name: '_adotExtractSignerCredentials',
             override: true,
           }
         );

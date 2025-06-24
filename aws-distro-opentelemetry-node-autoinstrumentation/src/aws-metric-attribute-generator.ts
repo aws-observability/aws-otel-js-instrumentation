@@ -399,10 +399,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN)) {
         remoteResourceType = NORMALIZED_DYNAMO_DB_SERVICE_NAME + '::Table';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          this.extractResourceNameFromArn(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN])?.replace(
-            'table/',
-            ''
-          )
+          this.extractDynamoDbTableNameFromArn(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN])
         );
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_NAME)) {
         remoteResourceType = NORMALIZED_KINESIS_SERVICE_NAME + '::Stream';
@@ -412,10 +409,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN)) {
         remoteResourceType = NORMALIZED_KINESIS_SERVICE_NAME + '::Stream';
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
-          this.extractResourceNameFromArn(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN])?.replace(
-            'stream/',
-            ''
-          )
+          this.extractKinesisStreamNameFromArn(span.attributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN])
         );
       } else if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_S3_BUCKET)) {
         remoteResourceType = NORMALIZED_S3_SERVICE_NAME + '::Bucket';
@@ -595,9 +589,9 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   }
 
   private static setRemoteResourceAccessKeyAndRegion(span: ReadableSpan, attributes: Attributes): void {
-    if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCESS_KEY)) {
-      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCESS_KEY] =
-        span.attributes[AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCESS_KEY];
+    if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY)) {
+      attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY] =
+        span.attributes[AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY];
     }
     if (AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION)) {
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_REGION] = span.attributes[AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION];
@@ -729,6 +723,14 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
 
     const rpcService = AwsMetricAttributeGenerator.getRemoteService(span, SEMATTRS_RPC_SERVICE);
     return rpcService === 'Lambda' && span.attributes[SEMATTRS_RPC_METHOD] === LAMBDA_INVOKE_OPERATION;
+  }
+
+  private static extractDynamoDbTableNameFromArn(attribute: AttributeValue | undefined): string | undefined {
+    return this.extractResourceNameFromArn(attribute)?.replace('table/', '');
+  }
+
+  private static extractKinesisStreamNameFromArn(attribute: AttributeValue | undefined): string | undefined {
+    return this.extractResourceNameFromArn(attribute)?.replace('stream/', '');
   }
 
   // Extracts the name of the resource from an arn

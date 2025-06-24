@@ -20,7 +20,7 @@ from amazon.utils.application_signals_constants import (
     AWS_REMOTE_SERVICE,
     AWS_SPAN_KIND,
     AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER,
-    AWS_REMOTE_RESOURCE_ACCESS_KEY,
+    AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY,
     AWS_REMOTE_RESOURCE_ACCOUNT_ID,
     AWS_REMOTE_RESOURCE_REGION
 )
@@ -1101,7 +1101,7 @@ class AWSSDKTest(ContractTestBase):
             request_specific_attributes={
                 SpanAttributes.AWS_S3_BUCKET: "cross-account-bucket",
             },
-            remote_resource_access_key="account_b_access_key_id",
+            remote_resource_account_access_key="account_b_access_key_id",
             remote_resource_region="eu-central-1",
             span_name="S3.CreateBucket",
         )
@@ -1167,10 +1167,10 @@ class AWSSDKTest(ContractTestBase):
         if remote_resource_account_id != "None":
             assert remote_resource_identifier != "None"        
             self._assert_str_attribute(attributes_dict, AWS_REMOTE_RESOURCE_ACCOUNT_ID, remote_resource_account_id)
-            self.assertIsNone(attributes_dict.get(AWS_REMOTE_RESOURCE_ACCESS_KEY))
+            self.assertIsNone(attributes_dict.get(AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY))
         if remote_resource_account_access_key != "None":
             assert remote_resource_identifier != "None"        
-            self._assert_str_attribute(attributes_dict, AWS_REMOTE_RESOURCE_ACCESS_KEY, remote_resource_account_access_key)
+            self._assert_str_attribute(attributes_dict, AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY, remote_resource_account_access_key)
             self.assertIsNone(attributes_dict.get(AWS_REMOTE_RESOURCE_ACCOUNT_ID))
         if remote_resource_region != "None":
             self._assert_str_attribute(attributes_dict, AWS_REMOTE_RESOURCE_REGION, remote_resource_region)
@@ -1284,10 +1284,10 @@ class AWSSDKTest(ContractTestBase):
             if remote_resource_account_id != "None":
                 assert remote_resource_identifier != "None"        
                 self._assert_str_attribute(attribute_dict, AWS_REMOTE_RESOURCE_ACCOUNT_ID, remote_resource_account_id)
-                self.assertIsNone(attribute_dict.get(AWS_REMOTE_RESOURCE_ACCESS_KEY))
+                self.assertIsNone(attribute_dict.get(AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY))
             if remote_resource_account_access_key != "None":
                 assert remote_resource_identifier != "None"        
-                self._assert_str_attribute(attribute_dict, AWS_REMOTE_RESOURCE_ACCESS_KEY, remote_resource_account_access_key)
+                self._assert_str_attribute(attribute_dict, AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY, remote_resource_account_access_key)
                 self.assertIsNone(attribute_dict.get(AWS_REMOTE_RESOURCE_ACCOUNT_ID))
             if remote_resource_region != "None":
                 self._assert_str_attribute(attribute_dict, AWS_REMOTE_RESOURCE_REGION, remote_resource_region)
@@ -1322,10 +1322,10 @@ class AWSSDKTest(ContractTestBase):
             if remote_resource_account_id != "None":
                 assert remote_resource_identifier != "None"        
                 self._assert_str_attribute(attribute_dict, AWS_REMOTE_RESOURCE_ACCOUNT_ID, remote_resource_account_id)
-                self.assertIsNone(attribute_dict.get(AWS_REMOTE_RESOURCE_ACCESS_KEY))
+                self.assertIsNone(attribute_dict.get(AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY))
             if remote_resource_account_access_key != "None":
                 assert remote_resource_identifier != "None"        
-                self._assert_str_attribute(attribute_dict, AWS_REMOTE_RESOURCE_ACCESS_KEY, remote_resource_account_access_key)
+                self._assert_str_attribute(attribute_dict, AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY, remote_resource_account_access_key)
                 self.assertIsNone(attribute_dict.get(AWS_REMOTE_RESOURCE_ACCOUNT_ID))
             if remote_resource_region != "None":
                 self._assert_str_attribute(attribute_dict, AWS_REMOTE_RESOURCE_REGION, remote_resource_region)

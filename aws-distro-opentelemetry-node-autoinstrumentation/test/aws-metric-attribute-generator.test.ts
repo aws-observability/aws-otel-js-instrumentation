@@ -796,7 +796,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       'https://sqs.us-east-2.amazonaws.com/123456789012/MyQueue',
       'us-east-2',
       '123456789012',
-      undefined,
+      undefined
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_URL, undefined);
 
@@ -1145,7 +1145,11 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN,
       'arn:aws:states:us-east-1:invalid_account_id:stateMachine:testStateMachine'
     );
-    validateRemoteResourceAttributes('AWS::StepFunctions::StateMachine', 'testStateMachine', 'arn:aws:states:us-east-1:invalid_account_id:stateMachine:testStateMachine');
+    validateRemoteResourceAttributes(
+      'AWS::StepFunctions::StateMachine',
+      'testStateMachine',
+      'arn:aws:states:us-east-1:invalid_account_id:stateMachine:testStateMachine'
+    );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
 
     // Arn with invalid region

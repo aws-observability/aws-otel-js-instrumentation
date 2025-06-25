@@ -11,6 +11,12 @@ const HTTPS_SCHEMA: string = 'https://';
 // eslint-disable-next-line @typescript-eslint/typedef
 const ALPHABET_REGEX = /^[a-zA-Z]+$/;
 
+export interface ParsedSqsUrl { 
+  queueName: string;
+  accountId: string;
+  region?: string;
+}
+
 export class SqsUrlParser {
   /**
    * Best-effort logic to extract queue name from an HTTP url. This method should only be used with
@@ -23,7 +29,7 @@ export class SqsUrlParser {
     if (typeof url !== 'string') {
       return undefined;
     }
-    const urlWithoutProtocol = this.removeProtocol(url);
+    const urlWithoutProtocol = url.replace(HTTP_SCHEMA, '').replace(HTTPS_SCHEMA, '');
     const splitUrl: string[] = urlWithoutProtocol.split('/');
     if (splitUrl.length === 3 && isAccountId(splitUrl[1]) && this.isValidQueueName(splitUrl[2])) {
       return splitUrl[2];
@@ -39,13 +45,8 @@ export class SqsUrlParser {
       return undefined;
     }
 
-    if (this.isValidSqsUrl(url)) {
-      const urlWithoutProtocol = this.removeProtocol(url);
-      const splitUrl: string[] = urlWithoutProtocol.split('/');
-      return splitUrl[1];
-    }
-
-    return undefined;
+    const parsedUrl = this.parseUrl(url);
+    return parsedUrl?.accountId;
   }
 
   /**
@@ -56,37 +57,43 @@ export class SqsUrlParser {
       return undefined;
     }
 
-    if (this.isValidSqsUrl(url)) {
-      const urlWithoutProtocol = this.removeProtocol(url);
-      const splitUrl: string[] = urlWithoutProtocol.split('/');
-      const domain: string = splitUrl[0];
-      const domainParts: string[] = domain.split('.');
-      if (domainParts.length === 4) {
-        return domainParts[1];
-      }
-    }
-
-    return undefined;
+    const parsedUrl = this.parseUrl(url);
+    return parsedUrl?.region;
   }
 
-  private static removeProtocol(url: string): string {
-    return url.replace(HTTP_SCHEMA, '').replace(HTTPS_SCHEMA, '');
+  /**
+   * Parses an SQS URL and extracts its components.
+   * Format: https://sqs.<region>.amazonaws.com/<accountId>/<queueName>
+   * @param url - The SQS URL to parse
+   * @returns Object containing queue name, account ID and region, or undefined if invalid
+   * @private
+   */
+  private static parseUrl(url: string): ParsedSqsUrl | undefined {
+    const urlWithoutProtocol = url.replace(HTTP_SCHEMA, '').replace(HTTPS_SCHEMA, '');
+    const splitUrl = urlWithoutProtocol.split('/');
+
+    if (
+      splitUrl.length !== 3 ||
+      !splitUrl[0].toLowerCase().startsWith('sqs') ||
+      !isAccountId(splitUrl[1]) ||
+      !this.isValidQueueName(splitUrl[2])
+    ) {
+      return undefined;
+    }
+
+    const domain = splitUrl[0];
+    const domainParts = domain.split('.');
+
+    return {
+      queueName: splitUrl[2],
+      accountId: splitUrl[1],
+      region: domainParts.length === 4 ? domainParts[1] : undefined,
+    };
   }
 
   /**
    * Checks if the URL is a valid SQS URL.
    */
-  private static isValidSqsUrl(url: string): boolean {
-    const urlWithoutProtocol = this.removeProtocol(url);
-    const splitUrl: string[] = urlWithoutProtocol.split('/');
-    return (
-      splitUrl.length === 3 &&
-      splitUrl[0].toLowerCase().startsWith('sqs') &&
-      isAccountId(splitUrl[1]) &&
-      this.isValidQueueName(splitUrl[2])
-    );
-  }
-
   private static isValidQueueName(input: string): boolean {
     if (input == null || input.length === 0 || input.length > 80) {
       return false;

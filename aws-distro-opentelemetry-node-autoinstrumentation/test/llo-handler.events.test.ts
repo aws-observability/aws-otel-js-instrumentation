@@ -7,7 +7,7 @@ import * as sinon from 'sinon';
 import { Event } from '@opentelemetry/api-events';
 import { TimedEvent } from '@opentelemetry/sdk-trace-base';
 import { InstrumentationScope } from '@opentelemetry/core';
-import { SPAN_KEY } from '../src/llo-handler';
+import { OTEL_SPAN_KEY } from '../src/llo-handler';
 import { Attributes, HrTime } from '@opentelemetry/api';
 
 /**
@@ -53,7 +53,7 @@ describe('TestLLOHandlerEvents', () => {
 
     expect(emittedEvent.name).toBe('test.scope');
     expect(emittedEvent.timestamp).toEqual(span.endTime);
-    expect(emittedEvent.context?.getValue(SPAN_KEY)).toBe(span);
+    expect(emittedEvent.context?.getValue(OTEL_SPAN_KEY)).toBe(span);
     expect(emittedEvent.data).toBeDefined();
 
     const eventBody = emittedEvent.data as any;

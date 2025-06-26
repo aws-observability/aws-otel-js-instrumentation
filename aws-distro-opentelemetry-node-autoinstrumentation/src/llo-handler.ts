@@ -1,8 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-// Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
-import { diag, Attributes, HrTime, ROOT_CONTEXT } from '@opentelemetry/api';
+import { diag, Attributes, HrTime, ROOT_CONTEXT, createContextKey } from '@opentelemetry/api';
 import { LoggerProvider } from '@opentelemetry/sdk-logs';
 import { EventLoggerProvider } from '@opentelemetry/sdk-events';
 import { Event } from '@opentelemetry/api-events';
@@ -381,17 +380,26 @@ export class LLOHandler {
     const timestamp = eventTimestamp || span.endTime;
     const eventLogger = this.eventLoggerProvider.getEventLogger(span.instrumentationLibrary.name);
 
-    // Workaround to add a Context to an Event.
-    // This is needed because a ReadableSpan only provides its SpanContext,
-    // but does not provide access to the associated Context. An Event can
-    // have a Context, but not a SpanContext. Here we attempt to attach a
-    // custom Context that is associated to the ReadableSpan to mimic the
-    // ReadableSpan's actual Context.
-    const customContext = ROOT_CONTEXT.setValue(SPAN_KEY, span);
+    // Hack - Workaround to add a custom-made Context to an Event so that the emitted event log
+    // has the correct associated traceId and spanId. This is needed because a ReadableSpan only
+    // provides its SpanContext, but does not provide access to its associated Context. We can only
+    // provide a Context to an Event, but not a SpanContext. Here we attach a custom Context that
+    // is associated to the ReadableSpan to mimic the ReadableSpan's actual Context.
+    //
+    // When a log record instance is created from this event, it will use the "custom Context" to
+    // extract the ReadableSpan from the "custom Context", then extract the SpanContext from the
+    // RedableSpan. This way, the emitted log event has the correct SpanContext (traceId, spanId).
+    // - https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/experimental/packages/sdk-logs/src/LogRecord.ts#L101
+    // - https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/api/src/trace/context-utils.ts#L78-L85
+    //
+    // We could omit the context field which is optional, but then the OTel EventLogger will assign
+    // the same `context.active()` and its associated SpanContext to each span from processSpans(),
+    // which would be incorrect since each span should have their own Context with unique SpanContext.
+    // - https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/experimental/packages/sdk-events/src/EventLogger.ts#L34
+    const customContext = ROOT_CONTEXT.setValue(OTEL_SPAN_KEY, span);
     const event: Event = {
       name: span.instrumentationLibrary.name,
       timestamp: timestamp,
-      attributes: {},
       data: eventBody,
       context: customContext,
     };
@@ -545,15 +553,6 @@ export class LLOHandler {
   }
 }
 
-// The OpenTelemetry Authors code
-export const SPAN_KEY = createContextKey('OpenTelemetry Context Key SPAN');
-export function createContextKey(description: string) {
-  // The specification states that for the same input, multiple calls should
-  // return different keys. Due to the nature of the JS dependency management
-  // system, this creates problems where multiple versions of some package
-  // could hold different keys for the same property.
-  //
-  // Therefore, we use Symbol.for which returns the same key for the same input.
-  return Symbol.for(description);
-}
-// END The OpenTelemetry Authors code
+// Defined by OTel in:
+// - https://github.com/open-telemetry/opentelemetry-js/blob/v1.9.0/api/src/trace/context-utils.ts#L24-L27
+export const OTEL_SPAN_KEY = createContextKey('OpenTelemetry Context Key SPAN');

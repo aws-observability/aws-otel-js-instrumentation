@@ -61,7 +61,7 @@ export const checkDigits = (str: string): boolean => {
 };
 
 export const isAccountId = (input: string): boolean => {
-  if (input == null || input.length !== 12) {
+  if (input == null) {
     return false;
   }
 

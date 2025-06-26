@@ -47,7 +47,7 @@ describe('SqsUrlParserTest', () => {
     validateGetQueueName('invalidUrl', undefined);
     validateGetQueueName('https://www.amazon.com', undefined);
     validateGetQueueName('https://sqs.us-east-1.amazonaws.com/123412341234/.', undefined);
-    validateGetQueueName('https://sqs.us-east-1.amazonaws.com/12/Queue', undefined);
+    validateGetQueueName('https://sqs.us-east-1.amazonaws.com/12341234xxxx/.', undefined);
     validateGetQueueName('https://sqs.us-east-1.amazonaws.com/A/A', undefined);
     validateGetQueueName('https://sqs.us-east-1.amazonaws.com/123412341234/A/ThisShouldNotBeHere', undefined);
   });
@@ -63,7 +63,7 @@ describe('SqsUrlParserTest', () => {
     validateGetAccountId('/123412341234/as&df', undefined);
     validateGetAccountId('invalidUrl', undefined);
     validateGetAccountId('https://www.amazon.com', undefined);
-    validateGetAccountId('https://sqs.us-east-1.amazonaws.com/12341234/Queue', undefined);
+    validateGetAccountId('https://sqs.us-east-1.amazonaws.com/12341234/Queue', '12341234');
     validateGetAccountId('https://sqs.us-east-1.amazonaws.com/1234123412xx/Queue', undefined);
     validateGetAccountId('https://sqs.us-east-1.amazonaws.com/1234123412xx', undefined);
     validateGetAccountId('https://sqs.us-east-1.amazonaws.com/123412341234/Q_Namez-5', '123412341234');
@@ -80,7 +80,7 @@ describe('SqsUrlParserTest', () => {
     validateGetRegion('/123412341234/as&df', undefined);
     validateGetRegion('invalidUrl', undefined);
     validateGetRegion('https://www.amazon.com', undefined);
-    validateGetRegion('https://sqs.us-east-1.amazonaws.com/12341234/Queue', undefined);
+    validateGetRegion('https://sqs.us-east-1.amazonaws.com/12341234/Queue', 'us-east-1');
     validateGetRegion('https://sqs.us-east-1.amazonaws.com/1234123412xx/Queue', undefined);
     validateGetRegion('https://sqs.us-east-1.amazonaws.com/1234123412xx', undefined);
     validateGetRegion('https://sqs.us-east-1.amazonaws.com/123412341234/Q_Namez-5', 'us-east-1');

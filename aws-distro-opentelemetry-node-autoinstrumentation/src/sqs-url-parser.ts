@@ -11,7 +11,7 @@ const HTTPS_SCHEMA: string = 'https://';
 // eslint-disable-next-line @typescript-eslint/typedef
 const ALPHABET_REGEX = /^[a-zA-Z]+$/;
 
-export interface ParsedSqsUrl { 
+export interface ParsedSqsUrl {
   queueName: string;
   accountId: string;
   region?: string;
@@ -22,7 +22,7 @@ export class SqsUrlParser {
    * Best-effort logic to extract queue name from an HTTP url. This method should only be used with
    * a string that is, with reasonably high confidence, an SQS queue URL. Handles new/legacy/some
    * custom URLs. Essentially, we require that the URL should have exactly three parts, delimited by
-   * /'s (excluding schema), the second part should be a 12-digit account id, and the third part
+   * /'s (excluding schema), the second part should be a account id consisting of digits, and the third part
    * should be a valid queue name, per SQS naming conventions.
    */
   public static getQueueName(url: AttributeValue | undefined): string | undefined {

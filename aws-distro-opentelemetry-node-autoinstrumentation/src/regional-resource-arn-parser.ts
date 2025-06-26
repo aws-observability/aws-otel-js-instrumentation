@@ -19,6 +19,24 @@ export class RegionalResourceArnParser {
     return undefined;
   }
 
+  public static extractDynamoDbTableNameFromArn(arn: AttributeValue | undefined): string | undefined {
+    return this.extractResourceNameFromArn(arn)?.replace('table/', '');
+  }
+
+  public static extractKinesisStreamNameFromArn(arn: AttributeValue | undefined): string | undefined {
+    return this.extractResourceNameFromArn(arn)?.replace('stream/', '');
+  }
+
+  // Extracts the name of the resource from an arn
+  public static extractResourceNameFromArn(arn: AttributeValue | undefined): string | undefined {
+    if (typeof arn === 'string' && this.isArn(arn)) {
+      const split = arn.split(':');
+      return split[split.length - 1];
+    }
+
+    return undefined;
+  }
+
   public static isArn(arn: string): boolean {
     // Check if arn follows the format:
     // arn:partition:service:region:account-id:resource-type/resource-id or

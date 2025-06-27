@@ -8,7 +8,7 @@ import { Event } from '@opentelemetry/api-events';
 import { TimedEvent } from '@opentelemetry/sdk-trace-base';
 import { InstrumentationScope } from '@opentelemetry/core';
 import { OTEL_SPAN_KEY } from '../src/llo-handler';
-import { Attributes, HrTime } from '@opentelemetry/api';
+import { Attributes, HrTime, trace } from '@opentelemetry/api';
 
 /**
  * Test event emission and formatting functionality.
@@ -54,6 +54,8 @@ describe('TestLLOHandlerEvents', () => {
     expect(emittedEvent.name).toBe('test.scope');
     expect(emittedEvent.timestamp).toEqual(span.endTime);
     expect(emittedEvent.context?.getValue(OTEL_SPAN_KEY)).toBe(span);
+    expect(trace.getSpanContext(emittedEvent.context!)).toBe(span.spanContext());
+
     expect(emittedEvent.data).toBeDefined();
 
     const eventBody = emittedEvent.data as any;

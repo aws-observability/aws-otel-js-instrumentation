@@ -1,9 +1,8 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { context, diag, DiagConsoleLogger, Span, SpanKind } from '@opentelemetry/api';
+import { context, Span, SpanKind } from '@opentelemetry/api';
 import { Resource } from '@opentelemetry/resources';
-import * as opentelemetry from '@opentelemetry/sdk-node';
 import { SamplingDecision, Tracer } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { SEMRESATTRS_CLOUD_PLATFORM, SEMRESATTRS_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
@@ -15,8 +14,6 @@ import { _AwsXRayRemoteSampler, AwsXRayRemoteSampler } from '../../src/sampler/a
 const DATA_DIR_SAMPLING_RULES = __dirname + '/data/test-remote-sampler_sampling-rules-response-sample.json';
 const DATA_DIR_SAMPLING_TARGETS = __dirname + '/data/test-remote-sampler_sampling-targets-response-sample.json';
 const TEST_URL = 'http://localhost:2000';
-
-diag.setLogger(new DiagConsoleLogger(), opentelemetry.core.getEnv().OTEL_LOG_LEVEL);
 
 describe('AwsXrayRemoteSampler', () => {
   it('testCreateRemoteSamplerWithEmptyResource', () => {
@@ -197,7 +194,7 @@ describe('AwsXrayRemoteSampler', () => {
   });
 
   it('generates valid ClientId', () => {
-    const clientId: string = (_AwsXRayRemoteSampler as any).generateClientId();
+    const clientId: string = _AwsXRayRemoteSampler['generateClientId']();
     const match: RegExpMatchArray | null = clientId.match(/[0-9a-z]{24}/g);
     expect(match).not.toBeNull();
   });

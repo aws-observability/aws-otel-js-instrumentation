@@ -17,3 +17,19 @@ export const getNodeVersion = () => {
 
   return majorVersion;
 };
+
+export const checkDigits = (str: string): boolean => {
+  return /^\d+$/.test(str);
+};
+
+export const isAccountId = (input: string): boolean => {
+  if (input == null) {
+    return false;
+  }
+
+  if (!checkDigits(input)) {
+    return false;
+  }
+
+  return true;
+};

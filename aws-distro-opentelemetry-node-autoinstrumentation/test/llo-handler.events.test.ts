@@ -552,4 +552,87 @@ describe('TestLLOHandlerEvents', () => {
     expect(outputMessages[0].content).toBe('Quantum computing is...');
     expect(outputMessages[0].role).toBe('assistant');
   });
+
+  /**
+   * Verify session.id attribute from span is copied to event attributes when present.
+   */
+  it('emitLloAttributes should copy session.id to event attributes when present', () => {
+    const attributes = {
+      'session.id': 'test-session-123',
+      'gen_ai.prompt': 'Hello, AI',
+      'gen_ai.completion': 'Hello! How can I help you?',
+    };
+
+    const span = testBase.createMockSpan(attributes);
+    testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
+    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+
+    testBase.lloHandler['emitLloAttributes'](span, attributes);
+
+    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
+    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
+
+    // Verify session.id was copied to event attributes
+    expect(emittedEvent.attributes).toBeDefined();
+    expect(emittedEvent.attributes?.['session.id']).toBe('test-session-123');
+
+    // Verify event body still contains LLO data
+    const eventBody = emittedEvent.data as any;
+    expect(eventBody.input).toBeDefined();
+    expect(eventBody.output).toBeDefined();
+  });
+
+  /**
+   * Verify event attributes do not contain session.id when not present in span attributes.
+   */
+  it('emitLloAttributes should not include session.id in event attributes when not present', () => {
+    const attributes = {
+      'gen_ai.prompt': 'Hello, AI',
+      'gen_ai.completion': 'Hello! How can I help you?',
+    };
+
+    const span = testBase.createMockSpan(attributes);
+    testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
+    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+
+    testBase.lloHandler['emitLloAttributes'](span, attributes);
+
+    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
+    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
+
+    // Verify session.id is not in event attributes (because the event doesn't have attributes)
+    expect(emittedEvent.attributes).toBeUndefined();
+    expect(emittedEvent).not.toHaveProperty('attributes');
+  });
+
+  /**
+   * Verify only session.id is copied from span attributes when mixed with other attributes.
+   */
+  it('emitLloAttributes should only copy session.id when mixed with other attributes', () => {
+    const attributes = {
+      'session.id': 'session-456',
+      'user.id': 'user-789',
+      'gen_ai.prompt': "What's the weather?",
+      'gen_ai.completion': "I can't check the weather.",
+      'other.attribute': 'some-value',
+    };
+
+    const span = testBase.createMockSpan(attributes);
+    testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
+    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+
+    testBase.lloHandler['emitLloAttributes'](span, attributes);
+
+    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
+    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
+
+    // Verify only session.id was copied to event attributes (plus event.name from Event class)
+    expect(emittedEvent.attributes).toBeDefined();
+    expect(emittedEvent.attributes?.['session.id']).toBe('session-456');
+    // Verify other span attributes were not copied
+    expect(emittedEvent.attributes).not.toHaveProperty('user.id');
+    expect(emittedEvent.attributes).not.toHaveProperty('other.attribute');
+    expect(emittedEvent.attributes).not.toHaveProperty('gen_ai.prompt');
+    expect(emittedEvent.attributes).not.toHaveProperty('gen_ai.completion');
+  });
 });

@@ -8,7 +8,6 @@ import { ExportResult } from '@opentelemetry/core';
 import { LLOHandler } from './llo-handler';
 import { LoggerProvider as APILoggerProvider, logs } from '@opentelemetry/api-logs';
 import { LoggerProvider } from '@opentelemetry/sdk-logs';
-import { LogsAPI } from '@opentelemetry/api-logs/build/src/api/logs';
 import { getNodeVersion, isAgentObservabilityEnabled } from './utils';
 import { diag } from '@opentelemetry/api';
 
@@ -36,7 +35,6 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
 
   private lloHandler: LLOHandler | undefined;
   private loggerProvider: APILoggerProvider | undefined;
-  private logsApi: LogsAPI = logs;
 
   constructor(endpoint: string, config?: OTLPExporterNodeConfigBase, loggerProvider?: APILoggerProvider) {
     super(OTLPAwsSpanExporter.changeUrlConfig(endpoint, config));
@@ -48,14 +46,15 @@ export class OTLPAwsSpanExporter extends OTLPProtoTraceExporter {
     this.loggerProvider = loggerProvider;
   }
 
-  // Lazily initialize LLO handler when needed to avoid initialization order issues"""
+  // Lazily initialize LLO handler when needed to avoid initialization order issues
   private ensureLloHandler(): boolean {
     if (!this.lloHandler && isAgentObservabilityEnabled()) {
       // If loggerProvider wasn't provided, try to get the current one
       if (!this.loggerProvider) {
         try {
-          this.loggerProvider = this.logsApi.getLoggerProvider();
+          this.loggerProvider = logs.getLoggerProvider();
         } catch (e: unknown) {
+          diag.debug('Failed to get logger provider', e);
           return false;
         }
       }

@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { diag, Attributes, HrTime, ROOT_CONTEXT, createContextKey } from '@opentelemetry/api';
+import { Attributes, HrTime, ROOT_CONTEXT, createContextKey } from '@opentelemetry/api';
 import { LoggerProvider } from '@opentelemetry/sdk-logs';
 import { EventLoggerProvider } from '@opentelemetry/sdk-events';
 import { Event } from '@opentelemetry/api-events';
@@ -11,6 +11,7 @@ import { AnyValue } from '@opentelemetry/api-logs';
 const ROLE_SYSTEM = 'system';
 const ROLE_USER = 'user';
 const ROLE_ASSISTANT = 'assistant';
+const SESSION_ID = 'session.id';
 
 // Types of LLO attribute patterns
 export enum PatternType {
@@ -381,14 +382,14 @@ export class LLOHandler {
     const eventLogger = this.eventLoggerProvider.getEventLogger(span.instrumentationLibrary.name);
 
     // Hack - Workaround to add a custom-made Context to an Event so that the emitted event log
-    // has the correct associated traceId and spanId. This is needed because a ReadableSpan only
+    // has the correct associated traceId, spanId, flag. This is needed because a ReadableSpan only
     // provides its SpanContext, but does not provide access to its associated Context. We can only
     // provide a Context to an Event, but not a SpanContext. Here we attach a custom Context that
     // is associated to the ReadableSpan to mimic the ReadableSpan's actual Context.
     //
     // When a log record instance is created from this event, it will use the "custom Context" to
     // extract the ReadableSpan from the "custom Context", then extract the SpanContext from the
-    // RedableSpan. This way, the emitted log event has the correct SpanContext (traceId, spanId).
+    // RedableSpan. This way, the emitted log event has the correct SpanContext (traceId, spanId, flag).
     // - https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/experimental/packages/sdk-logs/src/LogRecord.ts#L101
     // - https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/api/src/trace/context-utils.ts#L78-L85
     //
@@ -404,8 +405,13 @@ export class LLOHandler {
       context: customContext,
     };
 
+    if (span.attributes[SESSION_ID]) {
+      event.attributes = {
+        [SESSION_ID]: span.attributes[SESSION_ID],
+      };
+    }
+
     eventLogger.emit(event);
-    diag.debug('Emitted Gen AI Event with input/output message format');
   }
 
   /**

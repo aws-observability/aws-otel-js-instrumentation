@@ -61,6 +61,9 @@ import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
 import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
+import { isAgentObservabilityEnabled } from './utils';
+import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
+import { logs } from '@opentelemetry/api-logs';
 
 const XRAY_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
 
@@ -223,7 +226,48 @@ export class AwsOpentelemetryConfigurator {
     return isApplicationSignalsEnabled.toLowerCase() === 'true';
   }
 
+  static exportUnsampledSpanForAgentObservability(spanProcessors: SpanProcessor[], resource: Resource): void {
+    if (!isAgentObservabilityEnabled()) {
+      return;
+    }
+
+    // Get the traces endpoint from environment
+    const tracesEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+
+    if (!tracesEndpoint) {
+      // No traces endpoint configured, skip unsampled span export
+      diag.warn('No traces endpoint configured for agent observability unsampled spans');
+      return;
+    }
+
+    let spanExporter: SpanExporter;
+    // Create the appropriate span exporter based on the endpoint
+    if (isXrayOtlpEndpoint(tracesEndpoint)) {
+      spanExporter = new OTLPAwsSpanExporter(tracesEndpoint, undefined, logs.getLoggerProvider());
+    } else {
+      spanExporter = new OTLPAwsSpanExporter(tracesEndpoint);
+    }
+
+    // Add the unsampled span processor
+    spanProcessors.push(new AwsBatchUnsampledSpanProcessor(spanExporter));
+  }
+
   static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
+    if (isAgentObservabilityEnabled()) {
+      // We always send 100% spans to Genesis platform for agent observability because
+      // AI applications typically have low throughput traffic patterns and require
+      // comprehensive monitoring to catch subtle failure modes like hallucinations
+      // and quality degradation that sampling could miss.
+      this.exportUnsampledSpanForAgentObservability(spanProcessors, resource);
+
+      // Add session.id baggage attribute to span attributes to support AI Agent use cases
+      // enabling session ID tracking in spans.
+      const sessionIdPredicate = (baggageKey: string) => {
+        return baggageKey === 'session.id';
+      };
+      spanProcessors.push(new BaggageSpanProcessor(sessionIdPredicate));
+    }
+
     if (!AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
       return;
     }

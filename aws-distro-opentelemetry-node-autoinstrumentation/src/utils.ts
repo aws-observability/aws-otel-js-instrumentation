@@ -5,6 +5,11 @@ import { diag } from '@opentelemetry/api';
 
 const AGENT_OBSERVABILITY_ENABLED = 'AGENT_OBSERVABILITY_ENABLED';
 
+// Bypass `readonly` restriction of a Type.
+// Workaround provided from official TypeScript docs:
+// https://www.typescriptlang.org/docs/handbook/release-notes/typescript-2-8.html#improved-control-over-mapped-type-modifiers
+export type Mutable<T> = { -readonly [P in keyof T]: T[P] };
+
 export const getNodeVersion = () => {
   const nodeVersion = process.versions.node;
   const versionParts = nodeVersion.split('.');

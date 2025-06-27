@@ -16,10 +16,15 @@ import {
   AggregationTemporality,
   DataPoint,
   DataPointType,
+  ExponentialHistogram,
+  ExponentialHistogramMetricData,
   GaugeMetricData,
+  Histogram,
+  HistogramMetricData,
   InstrumentType,
   PushMetricExporter,
   ResourceMetrics,
+  SumMetricData,
 } from '@opentelemetry/sdk-metrics';
 import { Resource } from '@opentelemetry/resources';
 import { ExportResult, ExportResultCode, suppressTracing } from '@opentelemetry/core';
@@ -44,7 +49,25 @@ export interface MetricRecord {
 
   // Only one of the following should be defined
   sumData?: number;
+  histogramData?: HistogramMetricRecordData;
+  expHistogramData?: ExponentialHistogramMetricRecordData;
   value?: number;
+}
+
+interface HistogramMetricRecordData {
+  Count: number;
+  Sum: number;
+  Max: number;
+  Min: number;
+}
+
+interface ExponentialHistogramMetricRecordData {
+  Values: number[];
+  Counts: number[];
+  Count: number;
+  Sum: number;
+  Max: number;
+  Min: number;
 }
 
 interface EMFLog {
@@ -327,6 +350,170 @@ export class AWSCloudWatchEMFExporter implements PushMetricExporter {
   }
 
   /**
+   * Convert a Sum metric datapoint to a metric record.
+   *
+   * @param metric The metric object
+   * @param dataPoint The datapoint to convert
+   * @returns {MetricRecord}
+   */
+  private convertSum(metric: SumMetricData, dataPoint: DataPoint<number>): MetricRecord {
+    const timestampMs = this.normalizeTimestamp(dataPoint.endTime);
+    // Create base record
+    const record: MetricRecord = this.createMetricRecord(
+      metric.descriptor.name,
+      metric.descriptor.unit,
+      metric.descriptor.description,
+      timestampMs,
+      dataPoint.attributes
+    );
+    record.sumData = dataPoint.value;
+
+    return record;
+  }
+
+  /**
+   * Convert a Histogram metric datapoint to a metric record.
+   *
+   * @param metric The metric object
+   * @param dataPoint The datapoint to convert
+   * @returns {MetricRecord}
+   */
+  private convertHistogram(metric: HistogramMetricData, dataPoint: DataPoint<Histogram>): MetricRecord {
+    const timestampMs = this.normalizeTimestamp(dataPoint.endTime);
+
+    // Create base record
+    const record: MetricRecord = this.createMetricRecord(
+      metric.descriptor.name,
+      metric.descriptor.unit,
+      metric.descriptor.description,
+      timestampMs,
+      dataPoint.attributes
+    );
+    record.histogramData = {
+      // For Histogram, set the histogram_data
+      Count: dataPoint.value.count,
+      Sum: dataPoint.value.sum ?? 0,
+      Min: dataPoint.value.min ?? 0,
+      Max: dataPoint.value.max ?? 0,
+    };
+
+    return record;
+  }
+
+  /**
+   * Convert an ExponentialHistogram metric datapoint to a metric record.
+   * This function follows the logic of CalculateDeltaDatapoints in the Go implementation,
+   * converting exponential buckets to their midpoint values.
+   *
+   * @param metric The metric object
+   * @param dataPoint The datapoint to convert
+   * @returns {MetricRecord}
+   */
+  private convertExpHistogram(
+    metric: ExponentialHistogramMetricData,
+    dataPoint: DataPoint<ExponentialHistogram>
+  ): MetricRecord {
+    // Set timestamp
+    const timestampMs = this.normalizeTimestamp(dataPoint.endTime);
+
+    // Initialize arrays for values and counts
+    const arrayValues = [];
+    const arrayCounts = [];
+
+    // Get scale
+    const scale = dataPoint.value.scale;
+    // Calculate base using the formula: 2^(2^(-scale))
+    const base = Math.pow(2, Math.pow(2, -scale));
+
+    // Process positive buckets
+    if (dataPoint.value?.positive?.bucketCounts) {
+      const positiveOffset = dataPoint.value.positive.offset;
+      const positiveBucketCounts = dataPoint.value.positive.bucketCounts;
+
+      let bucketBegin = 0;
+      let bucketEnd = 0;
+
+      for (const [i, count] of positiveBucketCounts.entries()) {
+        const index = i + positiveOffset;
+
+        if (bucketBegin === 0) {
+          bucketBegin = Math.pow(base, index);
+        } else {
+          bucketBegin = bucketEnd;
+        }
+
+        bucketEnd = Math.pow(base, index + 1);
+
+        // Calculate midpoint value of the bucket
+        const metricVal = (bucketBegin + bucketEnd) / 2;
+
+        // Only include buckets with positive counts
+        if (count > 0) {
+          arrayValues.push(metricVal);
+          arrayCounts.push(count);
+        }
+      }
+    }
+
+    // Process zero bucket
+    const zeroCount = dataPoint.value.zeroCount;
+    if (zeroCount > 0) {
+      arrayValues.push(0);
+      arrayCounts.push(zeroCount);
+    }
+
+    // Process negative buckets
+    if (dataPoint.value.negative.bucketCounts) {
+      const negativeOffset = dataPoint.value.negative.offset;
+      const negativeBucketCounts = dataPoint.value.negative.bucketCounts;
+
+      let bucketBegin = 0;
+      let bucketEnd = 0;
+
+      for (const [i, count] of Object.entries(negativeBucketCounts)) {
+        const index = parseInt(i) + negativeOffset;
+
+        if (bucketEnd === 0) {
+          bucketEnd = -Math.pow(base, index);
+        } else {
+          bucketEnd = bucketBegin;
+        }
+
+        bucketBegin = -Math.pow(base, index + 1);
+
+        // Calculate midpoint value of the bucket
+        const metricVal = (bucketBegin + bucketEnd) / 2;
+
+        // Only include buckets with positive counts
+        if (count > 0) {
+          arrayValues.push(metricVal);
+          arrayCounts.push(count);
+        }
+      }
+    }
+
+    // Create base record
+    const metricRecord = this.createMetricRecord(
+      metric.descriptor.name,
+      metric.descriptor.unit,
+      metric.descriptor.description,
+      timestampMs,
+      dataPoint.attributes
+    );
+    metricRecord.expHistogramData = {
+      // Set the histogram data in the format expected by CloudWatch EMF
+      Values: arrayValues,
+      Counts: arrayCounts,
+      Count: dataPoint.value.count,
+      Sum: dataPoint.value.sum ?? 0,
+      Max: dataPoint.value.max ?? 0,
+      Min: dataPoint.value.min ?? 0,
+    };
+
+    return metricRecord;
+  }
+
+  /**
    * Group metric record by attributes and timestamp.
    *
    * @param record The metric record
@@ -382,13 +569,25 @@ export class AWSCloudWatchEMFExporter implements PushMetricExporter {
         continue;
       }
 
-      // Handle Gauge metrics - Store value directly in emfLog
-      // TODO: Handle metrics other than for GAUGE
-      if (record.value) {
-        emfLog[metricName] = record.value;
+      // Process different types of aggregations
+      if (record.expHistogramData) {
+        // Base2 Exponential Histogram - Store value directly in emfLog
+        emfLog[metricName] = record.expHistogramData;
+      } else if (record.histogramData) {
+        // Regular Histogram metrics - Store value directly in emfLog
+        emfLog[metricName] = record.histogramData;
+      } else if (record.sumData) {
+        // Counter/UpDownCounter - Store value directly in emfLog
+        emfLog[metricName] = record.sumData;
       } else {
-        diag.debug(`Skipping metric ${metricName} as it does not have valid metric value`);
-        continue;
+        // Other aggregations (e.g., LastValue)
+        if (record.value) {
+          // Store value directly in emfLog
+          emfLog[metricName] = record.value;
+        } else {
+          diag.debug(`Skipping metric ${metricName} as it does not have valid metric value`);
+          continue;
+        }
       }
 
       // Create metric data
@@ -480,10 +679,27 @@ export class AWSCloudWatchEMFExporter implements PushMetricExporter {
         for (const metric of scopeMetrics.metrics) {
           // Convert metrics to a format compatible with create_emf_log
           // Process metric.dataPoints for different metric types
-          // TODO: Handle DataPointTypes other than GAUGE
           if (metric.dataPointType === DataPointType.GAUGE) {
             for (const dataPoint of metric.dataPoints) {
               const record = this.convertGauge(metric, dataPoint);
+              const [groupAttribute, groupTimestamp] = this.groupByAttributesAndTimestamp(record);
+              this.pushMetricRecordIntoGroupedMetrics(groupedMetrics, groupAttribute, groupTimestamp, record);
+            }
+          } else if (metric.dataPointType === DataPointType.SUM) {
+            for (const dataPoint of metric.dataPoints) {
+              const record = this.convertSum(metric, dataPoint);
+              const [groupAttribute, groupTimestamp] = this.groupByAttributesAndTimestamp(record);
+              this.pushMetricRecordIntoGroupedMetrics(groupedMetrics, groupAttribute, groupTimestamp, record);
+            }
+          } else if (metric.dataPointType === DataPointType.HISTOGRAM) {
+            for (const dataPoint of metric.dataPoints) {
+              const record = this.convertHistogram(metric, dataPoint);
+              const [groupAttribute, groupTimestamp] = this.groupByAttributesAndTimestamp(record);
+              this.pushMetricRecordIntoGroupedMetrics(groupedMetrics, groupAttribute, groupTimestamp, record);
+            }
+          } else if (metric.dataPointType === DataPointType.EXPONENTIAL_HISTOGRAM) {
+            for (const dataPoint of metric.dataPoints) {
+              const record = this.convertExpHistogram(metric, dataPoint);
               const [groupAttribute, groupTimestamp] = this.groupByAttributesAndTimestamp(record);
               this.pushMetricRecordIntoGroupedMetrics(groupedMetrics, groupAttribute, groupTimestamp, record);
             }

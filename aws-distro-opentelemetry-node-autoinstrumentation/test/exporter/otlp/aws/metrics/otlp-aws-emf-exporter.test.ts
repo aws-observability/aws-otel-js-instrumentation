@@ -25,9 +25,14 @@ import {
   AggregationTemporality,
   DataPoint,
   DataPointType,
+  ExponentialHistogram,
+  ExponentialHistogramMetricData,
   GaugeMetricData,
+  Histogram,
+  HistogramMetricData,
   InstrumentType,
   ResourceMetrics,
+  SumMetricData,
 } from '@opentelemetry/sdk-metrics';
 import { ExportResultCode } from '@opentelemetry/core';
 
@@ -270,6 +275,144 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     expect(record.timestamp).toEqual(1003);
   });
 
+  it('TestConvertSum', () => {
+    /* Test sum conversion with the bug fix. */
+    const dp: DataPoint<number> = {
+      startTime: [0, 0],
+      endTime: [1, 3_000_000],
+      attributes: { env: 'test' },
+      value: 100.0,
+    };
+
+    /* Test gauge conversion. */
+    const metric: SumMetricData = {
+      dataPointType: DataPointType.SUM,
+      descriptor: {
+        name: 'sum_metric',
+        unit: 'Count',
+        description: 'Sum description',
+        valueType: ValueType.DOUBLE,
+        type: InstrumentType.COUNTER,
+      },
+      dataPoints: [dp],
+      aggregationTemporality: AggregationTemporality.DELTA,
+      isMonotonic: true,
+    };
+
+    const record = exporter['convertSum'](metric, dp);
+
+    expect(record).not.toBeUndefined();
+    expect(record.name).toEqual('sum_metric');
+    expect(record).toHaveProperty('sumData');
+    expect(record.sumData).toEqual(100.0);
+    expect(record.attributes).toEqual({ env: 'test' });
+    expect(record.timestamp).toEqual(1003);
+  });
+
+  it('TestConvertHistogram', () => {
+    /* Test histogram conversion. */
+    const dp: DataPoint<Histogram> = {
+      startTime: [0, 0],
+      endTime: [1, 3_000_000],
+      attributes: { region: 'us-east-1' },
+      value: {
+        count: 10,
+        sum: 150.0,
+        min: 5.0,
+        max: 25.0,
+        buckets: {
+          boundaries: [],
+          counts: [],
+        },
+      },
+    };
+
+    /* Test gauge conversion. */
+    const metric: HistogramMetricData = {
+      dataPointType: DataPointType.HISTOGRAM,
+      descriptor: {
+        name: 'histogram_metric',
+        unit: 'ms',
+        description: 'Histogram description',
+        valueType: ValueType.DOUBLE,
+        type: InstrumentType.HISTOGRAM,
+      },
+      dataPoints: [dp],
+      aggregationTemporality: AggregationTemporality.DELTA,
+    };
+
+    const record = exporter['convertHistogram'](metric, dp);
+
+    expect(record).not.toBeUndefined();
+    expect(record.name).toEqual('histogram_metric');
+    expect(record).toHaveProperty('histogramData');
+
+    const expectedValue = {
+      Count: 10,
+      Sum: 150.0,
+      Min: 5.0,
+      Max: 25.0,
+    };
+    expect(record.histogramData).toEqual(expectedValue);
+    expect(record.attributes).toEqual({ region: 'us-east-1' });
+    expect(record.timestamp).toEqual(1003);
+  });
+
+  it('TestConvertExpHistogram', () => {
+    /* Test exponential histogram conversion. */
+    const dp: DataPoint<ExponentialHistogram> = {
+      startTime: [0, 0],
+      endTime: [1, 3_000_000],
+      attributes: { service: 'api' },
+      value: {
+        count: 8,
+        sum: 64.0,
+        min: 2.0,
+        max: 32.0,
+        scale: 1,
+        zeroCount: 1,
+        positive: {
+          offset: 1,
+          bucketCounts: [],
+        },
+        negative: {
+          offset: 2,
+          bucketCounts: [],
+        },
+      },
+    };
+
+    /* Test gauge conversion. */
+    const metric: ExponentialHistogramMetricData = {
+      dataPointType: DataPointType.EXPONENTIAL_HISTOGRAM,
+      descriptor: {
+        name: 'exp_histogram_metric',
+        unit: 's',
+        description: 'Exponential histogram description',
+        valueType: ValueType.DOUBLE,
+        type: InstrumentType.HISTOGRAM,
+      },
+      dataPoints: [dp],
+      aggregationTemporality: AggregationTemporality.DELTA,
+    };
+
+    const record = exporter['convertExpHistogram'](metric, dp);
+
+    expect(record).not.toBeUndefined();
+    expect(record.name).toEqual('exp_histogram_metric');
+    expect(record).toHaveProperty('expHistogramData');
+
+    const expData = record.expHistogramData;
+    expect(expData).toHaveProperty('Values');
+    expect(expData).toHaveProperty('Counts');
+    expect(expData?.['Count']).toEqual(8);
+    expect(expData?.['Sum']).toEqual(64.0);
+    expect(expData?.['Min']).toEqual(2.0);
+    expect(expData?.['Max']).toEqual(32.0);
+    expect(record.attributes).toEqual({ service: 'api' });
+    expect(record.timestamp).toEqual(1003);
+  });
+
   it('TestCreateEmfLog', () => {
     /* Test EMF log creation. */
     // Create test records
@@ -278,9 +421,12 @@ describe('TestAWSCloudWatchEMFExporter', () => {
       value: 50.0,
     };
 
-    // TODO: Test Sum metric record
+    const sumRecord: MetricRecord = {
+      ...exporter['createMetricRecord']('sum_metric', 'Count', 'Sum', Date.now(), { env: 'test' }),
+      sumData: 100.0,
+    };
 
-    const records = [gaugeRecord];
+    const records = [gaugeRecord, sumRecord];
     const resource = new Resource({ 'service.name': 'test-service' });
 
     const result = exporter['createEmfLog'](records, resource);
@@ -290,12 +436,15 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     expect(result._aws.CloudWatchMetrics[0].Dimensions[0][0]).toEqual('env');
     expect(result._aws.CloudWatchMetrics[0].Metrics[0].Name).toEqual('gauge_metric');
     expect(result._aws.CloudWatchMetrics[0].Metrics[0].Unit).toEqual('Count');
+    expect(result._aws.CloudWatchMetrics[0].Metrics[1].Name).toEqual('sum_metric');
+    expect(result._aws.CloudWatchMetrics[0].Metrics[1].Unit).toEqual('Count');
     expect(result).toHaveProperty('Version', '1');
     expect(result['otel.resource.service.name']).toEqual('test-service'); // toHaveProperty() doesn't work with '.'
     expect(result).toHaveProperty('gauge_metric', 50);
+    expect(result).toHaveProperty('sum_metric', 100);
     expect(result).toHaveProperty('env', 'test');
 
-    // Sanity check that the result is JSON serializable, and doesn't throw error
+    // // Sanity check that the result is JSON serializable, and doesn't throw error
     JSON.stringify(result);
   });
 

@@ -44,19 +44,19 @@ describe('AwsAuthenticator', () => {
 
     dependencies.forEach(dependency => {
       it(`should not sign headers if missing dependency: ${dependency}`, async () => {
-        Object.keys(require.cache).forEach(key => {
-          delete require.cache[key];
-        });
+        const stubs: { [key: string]: any } = {};
+        stubs[dependency] = new Proxy(
+          {},
+          {
+            get() {
+              throw new Error(`Cannot find module '${dependency}'`);
+            },
+          }
+        );
 
-        const requireStub = sandbox.stub(require('module'), '_load');
-        requireStub.withArgs(dependency).throws(new Error(`Cannot find module '${dependency}'`));
-        requireStub.callThrough();
+        const { AwsAuthenticator } = proxyquire('../../../../../src/exporter/otlp/aws/common/aws-authenticator', stubs);
 
-        const {
-          AwsAuthenticator: MockThrowableModuleAuthenticator,
-        } = require('../../../../../src/exporter/otlp/aws/common/aws-authenticator');
-
-        const result = await new MockThrowableModuleAuthenticator(
+        const result = await new AwsAuthenticator(
           'https://xray.us-east-1.amazonaws.com/v1/traces',
           'xray'
         ).authenticate({}, new Uint8Array());

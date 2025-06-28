@@ -46,7 +46,7 @@ import { setAwsDefaultEnvironmentVariables } from '../src/register';
 import { AwsXRayRemoteSampler } from '../src/sampler/aws-xray-remote-sampler';
 import { AwsXraySamplingClient } from '../src/sampler/aws-xray-sampling-client';
 import { GetSamplingRulesResponse } from '../src/sampler/remote-sampler.types';
-import { LogRecordExporter } from '@opentelemetry/sdk-logs';
+import { BatchLogRecordProcessor, LogRecordExporter, SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { OTLPAwsLogExporter } from '../src/exporter/otlp/aws/logs/otlp-aws-log-exporter';
 import { OTLPAwsSpanExporter } from '../src/exporter/otlp/aws/traces/otlp-aws-span-exporter';
 
@@ -736,7 +736,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         goodConfigs.push(config);
       }
 
-      // Cbad configurations with bad endpoints
+      // bad configurations with bad endpoints
       for (const endpoint of tracesBadEndpoints) {
         const config = {
           [OTEL_TRACES_EXPORTER]: 'otlp',
@@ -758,6 +758,26 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   });
 
   describe('AwsLoggerProcessorProvider', () => {
+
+    it('getlogRecordProcessors', () => {
+      process.env.OTEL_LOGS_EXPORTER = 'otlp';
+      let logRecordProcessors = AwsLoggerProcessorProvider.getlogRecordProcessors();
+      
+      expect(logRecordProcessors).toHaveLength(1);
+      expect(logRecordProcessors[0]).toBeInstanceOf(BatchLogRecordProcessor);
+
+      process.env.OTEL_LOGS_EXPORTER = 'console';      
+      logRecordProcessors = AwsLoggerProcessorProvider.getlogRecordProcessors();
+      
+      expect(logRecordProcessors).toHaveLength(1);
+      expect(logRecordProcessors[0]).toBeInstanceOf(SimpleLogRecordProcessor);
+      
+      delete process.env.OTEL_LOGS_EXPORTER;
+    });
+
+    it('getlogRecordProcessors - console exporter returns SimpleLogRecordProcessor', () => {
+    });
+
     it('configureLogExportersFromEnv', () => {
       let logsExporter: LogRecordExporter[];
 
@@ -847,6 +867,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
       const logsBadHeaders = [
         'x-aws-log-group=,x-aws-log-stream=test',
+        'x-aws-log-group=test,x-aws-log-group=test',
+        'x-aws-log-stream=test,x-aws-log-stream=test',
         'x-aws-log-stream=test',
         'x-aws-log-group=test',
         '',

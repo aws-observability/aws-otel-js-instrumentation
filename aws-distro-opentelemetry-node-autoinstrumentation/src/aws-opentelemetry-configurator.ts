@@ -476,7 +476,9 @@ export class AwsLoggerProcessorProvider {
             ) {
               diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
               exporters.push(
-                new OTLPAwsLogExporter(otlpExporterLogsEndpoint, { compression: CompressionAlgorithm.GZIP })
+                new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
+                  compression: CompressionAlgorithm.GZIP,
+                })
               );
             } else {
               exporters.push(new OTLPProtoLogExporter());
@@ -495,7 +497,9 @@ export class AwsLoggerProcessorProvider {
             ) {
               diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
               exporters.push(
-                new OTLPAwsLogExporter(otlpExporterLogsEndpoint, { compression: CompressionAlgorithm.GZIP })
+                new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
+                  compression: CompressionAlgorithm.GZIP,
+                })
               );
             } else {
               exporters.push(new OTLPProtoLogExporter());
@@ -608,7 +612,7 @@ export class AwsSpanProcessorProvider {
       case 'http/protobuf':
         if (otlpExporterTracesEndpoint && isAwsOtlpEndpoint(otlpExporterTracesEndpoint, 'xray')) {
           diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
-          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint);
+          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint.toLowerCase());
         }
         return new OTLPProtoTraceExporter();
       case 'udp':
@@ -618,7 +622,7 @@ export class AwsSpanProcessorProvider {
         diag.warn(`Unsupported OTLP traces protocol: ${protocol}. Using http/protobuf.`);
         if (otlpExporterTracesEndpoint && isAwsOtlpEndpoint(otlpExporterTracesEndpoint, 'xray')) {
           diag.debug('Detected XRay OTLP Traces endpoint. Switching exporter to OtlpAwsSpanExporter');
-          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint);
+          return new OTLPAwsSpanExporter(otlpExporterTracesEndpoint.toLowerCase());
         }
         return new OTLPProtoTraceExporter();
     }
@@ -876,17 +880,12 @@ function validateLogsHeaders() {
   }
 
   if (!hasLogGroup || !hasLogStream) {
-    const missingHeaders = [];
-    if (!hasLogGroup) missingHeaders.push(AWS_OTLP_LOGS_GROUP_HEADER);
-    if (!hasLogStream) missingHeaders.push(AWS_OTLP_LOGS_STREAM_HEADER);
-
     diag.warn(
       'Incomplete configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS ' +
         `to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}`
     );
     return false;
   }
-
   return true;
 }
 

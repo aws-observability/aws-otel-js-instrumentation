@@ -758,25 +758,23 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   });
 
   describe('AwsLoggerProcessorProvider', () => {
-
     it('getlogRecordProcessors', () => {
       process.env.OTEL_LOGS_EXPORTER = 'otlp';
       let logRecordProcessors = AwsLoggerProcessorProvider.getlogRecordProcessors();
-      
+
       expect(logRecordProcessors).toHaveLength(1);
       expect(logRecordProcessors[0]).toBeInstanceOf(BatchLogRecordProcessor);
 
-      process.env.OTEL_LOGS_EXPORTER = 'console';      
+      process.env.OTEL_LOGS_EXPORTER = 'console';
       logRecordProcessors = AwsLoggerProcessorProvider.getlogRecordProcessors();
-      
+
       expect(logRecordProcessors).toHaveLength(1);
       expect(logRecordProcessors[0]).toBeInstanceOf(SimpleLogRecordProcessor);
-      
+
       delete process.env.OTEL_LOGS_EXPORTER;
     });
 
-    it('getlogRecordProcessors - console exporter returns SimpleLogRecordProcessor', () => {
-    });
+    it('getlogRecordProcessors - console exporter returns SimpleLogRecordProcessor', () => {});
 
     it('configureLogExportersFromEnv', () => {
       let logsExporter: LogRecordExporter[];

@@ -13,6 +13,7 @@ import {
   AttributeValue,
   TextMapSetter,
   INVALID_SPAN_CONTEXT,
+  SpanStatusCode,
 } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
@@ -33,7 +34,7 @@ import { Context } from 'aws-lambda';
 import { SinonStub } from 'sinon';
 import { Lambda } from '@aws-sdk/client-lambda';
 import * as nock from 'nock';
-import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
+import { ReadableSpan, Span as SDKSpan } from '@opentelemetry/sdk-trace-base';
 import { getTestSpans } from '@opentelemetry/contrib-test-utils';
 import { instrumentationConfigs } from '../../src/register';
 
@@ -338,6 +339,14 @@ describe('InstrumentationPatchTest', () => {
     );
     expect(filteredInstrumentations.length).toEqual(1);
     return filteredInstrumentations[0] as AwsInstrumentation;
+  }
+
+  function extractAwsLambdaInstrumentation(instrumentations: Instrumentation[]): AwsLambdaInstrumentation {
+    const filteredInstrumentations: Instrumentation[] = instrumentations.filter(
+      instrumentation => instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-lambda'
+    );
+    expect(filteredInstrumentations.length).toEqual(1);
+    return filteredInstrumentations[0] as AwsLambdaInstrumentation;
   }
 
   function extractServicesFromAwsSdkInstrumentation(awsSdkInstrumentation: AwsInstrumentation): Map<string, any> {
@@ -649,6 +658,19 @@ describe('InstrumentationPatchTest', () => {
           .spanContext()
           .traceId.substring(8, 32)};Parent=${spanId};Sampled=1`
       );
+    });
+
+    it('Tests patched AwsLambdaInstrumentation method with error', done => {
+      const awsLambdaInstrumentation = extractAwsLambdaInstrumentation(PATCHED_INSTRUMENTATIONS);
+      const mockSpan: Span = sinon.createStubInstance(SDKSpan);
+      awsLambdaInstrumentation['_endSpan'](mockSpan, 'SomeError', () => {
+        expect((mockSpan.recordException as any).getCall(0).args[0]).toEqual('SomeError');
+        expect((mockSpan.setStatus as any).getCall(0).args[0]).toEqual({
+          code: SpanStatusCode.ERROR,
+          message: 'SomeError',
+        });
+        done();
+      });
     });
   });
 });

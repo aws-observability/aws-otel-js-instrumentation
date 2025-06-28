@@ -5,6 +5,12 @@ import { CompressionAlgorithm, OTLPExporterNodeConfigBase } from '@opentelemetry
 import { IExportTraceServiceResponse, ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer';
 import { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base';
 import { OTLPAwsBaseExporter } from '../common/otlp-aws-base-exporter';
+import { LLOHandler } from '../../../../llo-handler';
+import { LoggerProvider as APILoggerProvider, logs } from '@opentelemetry/api-logs';
+import { ExportResult } from '@opentelemetry/core';
+import { isAgentObservabilityEnabled } from '../../../../utils';
+import { diag } from '@opentelemetry/api';
+import { LoggerProvider } from '@opentelemetry/sdk-logs';
 
 /**
  * This exporter extends the functionality of the OTLPProtoTraceExporter to allow spans to be exported
@@ -21,7 +27,10 @@ export class OTLPAwsSpanExporter
   extends OTLPAwsBaseExporter<ReadableSpan[], IExportTraceServiceResponse>
   implements SpanExporter
 {
-  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase) {
+  private loggerProvider: APILoggerProvider | undefined;
+  private lloHandler: LLOHandler | undefined;
+
+  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase, loggerProvider?: APILoggerProvider) {
     const modifiedConfig: OTLPExporterNodeConfigBase = {
       ...config,
       url: endpoint,
@@ -29,5 +38,41 @@ export class OTLPAwsSpanExporter
     };
 
     super(endpoint, 'xray', new OTLPProtoTraceExporter(modifiedConfig), ProtobufTraceSerializer, config?.compression);
+
+    this.lloHandler = undefined;
+    this.loggerProvider = loggerProvider;
+  }
+
+  // Lazily initialize LLO handler when needed to avoid initialization order issues
+  private ensureLloHandler(): boolean {
+    if (!this.lloHandler && isAgentObservabilityEnabled()) {
+      // If loggerProvider wasn't provided, try to get the current one
+      if (!this.loggerProvider) {
+        try {
+          this.loggerProvider = logs.getLoggerProvider();
+        } catch (e: unknown) {
+          diag.debug('Failed to get logger provider', e);
+          return false;
+        }
+      }
+
+      if (this.loggerProvider instanceof LoggerProvider) {
+        this.lloHandler = new LLOHandler(this.loggerProvider);
+        return true;
+      }
+    }
+
+    return !!this.lloHandler;
+  }
+
+  public override async export(items: ReadableSpan[], resultCallback: (result: ExportResult) => void): Promise<void> {
+    let itemsToSerialize: ReadableSpan[] = items;
+    if (isAgentObservabilityEnabled() && this.ensureLloHandler() && this.lloHandler) {
+      // items to serialize are now the lloProcessedSpans
+      itemsToSerialize = this.lloHandler.processSpans(items);
+      itemsToSerialize = this.lloHandler.processSpans(items);
+    }
+
+    return super.export(itemsToSerialize, resultCallback);
   }
 }

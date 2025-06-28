@@ -65,7 +65,7 @@ export class OTLPAwsSpanExporter
     return !!this.lloHandler;
   }
 
-  public override async export(items: ReadableSpan[], resultCallback: (result: ExportResult) => void): Promise<void> {
+  override async export(items: ReadableSpan[], resultCallback: (result: ExportResult) => void): Promise<void> {
     let itemsToSerialize: ReadableSpan[] = items;
     if (isAgentObservabilityEnabled() && this.ensureLloHandler() && this.lloHandler) {
       // items to serialize are now the lloProcessedSpans

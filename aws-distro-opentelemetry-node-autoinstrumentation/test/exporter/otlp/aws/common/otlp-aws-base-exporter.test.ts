@@ -80,6 +80,10 @@ export abstract class OTLPAwsBaseExporterTest {
         description: 'Should fail when headers are undefined',
         test: (done: () => void) => this.testUndefinedHeaders(done),
       },
+      {
+        description: 'Should continue when authenticate returns undefined',
+        test: (done: () => void) => this.testSigningFails(done),
+      },
     ];
   }
 
@@ -152,6 +156,22 @@ export abstract class OTLPAwsBaseExporterTest {
         });
         done();
       });
+  }
+
+  private testSigningFails(done: () => void) {
+    this.sandbox.restore();
+    this.sandbox = sinon.createSandbox();
+
+    this.sandbox.stub(AwsAuthenticator.prototype, 'authenticate').resolves(undefined);
+
+    const exporterClass = this.getExporter();
+    const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
+
+    exporter.export([], (result: ExportResult) => {
+      expect(result.code).toBe(ExportResultCode.FAILED);
+      expect(this.scope.isDone()).toBe(true);
+      done();
+    });
   }
 
   private testEmptySerialize(done: () => void) {

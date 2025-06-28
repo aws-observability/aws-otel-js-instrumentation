@@ -87,10 +87,15 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
     this.serializer.setSerializedData(serializedData);
     const signedHeaders = await this.authenticator.authenticate(headers, serializedData);
 
-    if (signedHeaders) {
-      this.parentExporter['_delegate']._transport._transport._parameters.headers = () => signedHeaders;
+    if (!signedHeaders) {
+      resultCallback({
+        code: ExportResultCode.FAILED,
+        error: new Error('Sigv4 Signing Failed. Not exporting'),
+      });
+      return;
     }
 
+    this.parentExporter['_delegate']._transport._transport._parameters.headers = () => signedHeaders;
     this.parentExporter.export(items, resultCallback);
   }
 

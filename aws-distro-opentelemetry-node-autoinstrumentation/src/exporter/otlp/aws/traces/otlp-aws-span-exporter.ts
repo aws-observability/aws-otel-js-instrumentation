@@ -70,7 +70,6 @@ export class OTLPAwsSpanExporter
     if (isAgentObservabilityEnabled() && this.ensureLloHandler() && this.lloHandler) {
       // items to serialize are now the lloProcessedSpans
       itemsToSerialize = this.lloHandler.processSpans(items);
-      itemsToSerialize = this.lloHandler.processSpans(items);
     }
 
     return super.export(itemsToSerialize, resultCallback);

@@ -46,7 +46,12 @@ import { setAwsDefaultEnvironmentVariables } from '../src/register';
 import { AwsXRayRemoteSampler } from '../src/sampler/aws-xray-remote-sampler';
 import { AwsXraySamplingClient } from '../src/sampler/aws-xray-sampling-client';
 import { GetSamplingRulesResponse } from '../src/sampler/remote-sampler.types';
-import { BatchLogRecordProcessor, LogRecordExporter, SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
+import {
+  BatchLogRecordProcessor,
+  ConsoleLogRecordExporter,
+  LogRecordExporter,
+  SimpleLogRecordProcessor,
+} from '@opentelemetry/sdk-logs';
 import { OTLPAwsLogExporter } from '../src/exporter/otlp/aws/logs/otlp-aws-log-exporter';
 import { OTLPAwsSpanExporter } from '../src/exporter/otlp/aws/traces/otlp-aws-span-exporter';
 
@@ -612,6 +617,45 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     delete process.env.OTEL_TRACES_EXPORTER;
   });
 
+  it('OtelLogExporterInputValidationTest', () => {
+    let config;
+
+    // Default scenario where no log exporter is specified
+    process.env.OTEL_LOGS_EXPORTER = 'none';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.logRecordProcessors?.length).toEqual(0);
+
+    // Scenario where otlp log exporter is specified
+    process.env.OTEL_LOGS_EXPORTER = 'otlp';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.logRecordProcessors?.length).toEqual(1);
+    expect((config.logRecordProcessors as any)[0]._exporter).toBeInstanceOf(OTLPProtoLogExporter);
+
+    // Specify invalid exporter, same result as default scenario
+    process.env.OTEL_LOGS_EXPORTER = 'invalid_exporter_name';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.logRecordProcessors?.length).toEqual(0);
+
+    // Test console exporter
+    process.env.OTEL_LOGS_EXPORTER = 'console';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.logRecordProcessors?.length).toEqual(1);
+    expect((config.logRecordProcessors as any)[0]._exporter).toBeInstanceOf(ConsoleLogRecordExporter);
+
+    // Test AWS OTLP logs endpoint uses OTLPAwsLogExporter
+    process.env.OTEL_LOGS_EXPORTER = 'otlp';
+    process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = 'https://logs.us-east-1.amazonaws.com/v1/logs';
+    process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-log-group=my-group,x-aws-log-stream=my-stream';
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.logRecordProcessors?.length).toEqual(1);
+    expect((config.logRecordProcessors as any)[0]._exporter).toBeInstanceOf(OTLPAwsLogExporter);
+
+    // Cleanup
+    delete process.env.OTEL_LOGS_EXPORTER;
+    delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+    delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
+  });
+
   it('ResourceDetectorInputValidationTest', () => {
     let config;
     process.env.OTEL_SERVICE_NAME = 'test_service_name';
@@ -773,8 +817,6 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
       delete process.env.OTEL_LOGS_EXPORTER;
     });
-
-    it('getlogRecordProcessors - console exporter returns SimpleLogRecordProcessor', () => {});
 
     it('configureLogExportersFromEnv', () => {
       let logsExporter: LogRecordExporter[];

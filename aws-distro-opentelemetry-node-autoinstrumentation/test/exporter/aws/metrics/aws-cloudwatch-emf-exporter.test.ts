@@ -35,6 +35,7 @@ import {
   MetricRecord,
 } from '../../../../src/exporter/aws/metrics/aws-cloudwatch-emf-exporter';
 import { Resource } from '@opentelemetry/resources';
+import { LogEventBatch } from '../../../../src/exporter/aws/metrics/cloudwatch-logs-client';
 
 describe('TestAwsCloudWatchEmfExporter', () => {
   let exporter: AWSCloudWatchEMFExporter;
@@ -605,6 +606,77 @@ describe('TestAwsCloudWatchEmfExporter', () => {
     await new Promise<void>(resolve => {
       exporter.export(metricsData, result => {
         expect(result.code).toEqual(ExportResultCode.FAILED);
+        resolve();
+      });
+    });
+  });
+
+  it('TestExportCallsSendLogBatchWithExpectedInput', async () => {
+    const timeInSeconds = Math.round(Date.now() / 1000);
+
+    const resourceMetricsData: ResourceMetrics = {
+      resource: new Resource({}),
+      scopeMetrics: [
+        {
+          scope: {
+            name: 'test',
+          },
+          metrics: [
+            {
+              dataPoints: [
+                {
+                  startTime: [timeInSeconds, 0],
+                  endTime: [timeInSeconds, 1],
+                  value: 3,
+                  attributes: { uniqueKey1: 'uniqueValue1' },
+                },
+                {
+                  startTime: [timeInSeconds, 1],
+                  endTime: [timeInSeconds, 2],
+                  value: 9,
+                  attributes: { uniqueKey2: 'uniqueValue2' },
+                },
+                {
+                  startTime: [timeInSeconds, 2],
+                  endTime: [timeInSeconds, 3],
+                  value: 5,
+                  attributes: { uniqueKey3: 'uniqueValue3' },
+                },
+              ],
+              dataPointType: DataPointType.GAUGE,
+              descriptor: {
+                name: 'descriptorName',
+                description: 'descriptionName',
+                unit: 'ms',
+                type: InstrumentType.GAUGE,
+                valueType: ValueType.INT,
+              },
+              aggregationTemporality: AggregationTemporality.DELTA,
+            },
+          ],
+        },
+      ],
+    };
+
+    const logClientSendLogBatchStub = sinon.stub(exporter['logClient'], 'sendLogBatch' as any);
+    sinon.stub(exporter['logClient'], 'eventBatchExceedsLimit' as any).returns(true);
+
+    await new Promise<void>(resolve => {
+      exporter.export(resourceMetricsData, result => {
+        expect(result.code).toEqual(ExportResultCode.FAILED);
+
+        sinon.assert.calledThrice(logClientSendLogBatchStub);
+        const call1Args = logClientSendLogBatchStub.getCall(0).args[0] as LogEventBatch;
+        const call2Args = logClientSendLogBatchStub.getCall(1).args[0] as LogEventBatch;
+        const call3Args = logClientSendLogBatchStub.getCall(2).args[0] as LogEventBatch;
+
+        expect(call1Args.logEvents.length).toEqual(0);
+        expect(call2Args.logEvents[0].message).toMatch(
+          /^\{"_aws":\{"Timestamp":\d+,"CloudWatchMetrics":\[\{"Namespace":"TestNamespace","Dimensions":\[\["uniqueKey1"\]\],"Metrics":\[\{"Name":"descriptorName","Unit":"Milliseconds"\}\]\}\]},"Version":"1","descriptorName":3,"uniqueKey1":"uniqueValue1"\}$/
+        );
+        expect(call3Args.logEvents[0].message).toMatch(
+          /^\{"_aws":\{"Timestamp":\d+,"CloudWatchMetrics":\[\{"Namespace":"TestNamespace","Dimensions":\[\["uniqueKey2"\]\],"Metrics":\[\{"Name":"descriptorName","Unit":"Milliseconds"\}\]\}\]},"Version":"1","descriptorName":9,"uniqueKey2":"uniqueValue2"\}$/
+        );
         resolve();
       });
     });

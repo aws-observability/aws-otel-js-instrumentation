@@ -15,7 +15,7 @@ import * as Crypto from 'crypto';
 /**
  * Container for a batch of CloudWatch log events with metadata.
  */
-class LogEventBatch {
+export class LogEventBatch {
   public logEvents: Required<LogEvent>[] = [];
   public byteTotal: number = 0;
   public minTimestampMs: number = 0;
@@ -346,11 +346,10 @@ export class CloudWatchLogsClient {
         this.eventBatchExceedsLimit(currentBatch, eventSize) ||
         !this.isBatchActive(currentBatch, logEvent.timestamp)
       ) {
-        // Create a new "this.eventBatch" before "await" to ensure it is
-        // reset if sendLogEvent() is called multiple times synchronously
-        this.eventBatch = this.createEventBatch();
         // Send the current batch
         await this.sendLogBatch(currentBatch);
+        // Create a new batch
+        this.eventBatch = this.createEventBatch();
         currentBatch = this.eventBatch;
       }
 

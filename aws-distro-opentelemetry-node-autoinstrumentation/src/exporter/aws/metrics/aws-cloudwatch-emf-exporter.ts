@@ -558,10 +558,9 @@ export class AWSCloudWatchEMFExporter implements PushMetricExporter {
           }
         }
 
-        const sendLogEventPromises: Promise<void>[] = [];
         // Now process each group separately to create one EMF log per group
-        groupedMetrics.forEach((metricsRecordsGroupedByTimestamp: Map<number, MetricRecord[]>, attrsKey: string) => {
-          metricsRecordsGroupedByTimestamp.forEach((metricRecords: MetricRecord[], timestampMs: number) => {
+        for (const [_, metricsRecordsGroupedByTimestamp] of groupedMetrics) {
+          for (const [timestampMs, metricRecords] of metricsRecordsGroupedByTimestamp) {
             if (metricRecords) {
               // Create and send EMF log for this batch of metrics
 
@@ -572,11 +571,10 @@ export class AWSCloudWatchEMFExporter implements PushMetricExporter {
               };
 
               // Send to CloudWatch Logs
-              sendLogEventPromises.push(this.sendLogEvent(logEvent));
+              await this.sendLogEvent(logEvent);
             }
-          });
-        });
-        await Promise.all(sendLogEventPromises);
+          }
+        }
       }
 
       resultCallback({ code: ExportResultCode.SUCCESS });

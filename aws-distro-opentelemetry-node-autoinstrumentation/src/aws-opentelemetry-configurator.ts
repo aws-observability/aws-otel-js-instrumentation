@@ -250,6 +250,7 @@ export class AwsOpentelemetryConfigurator {
     let exportIntervalMillis: number = Number(process.env[METRIC_EXPORT_INTERVAL_CONFIG]);
     diag.debug(`AWS Application Signals Metrics export interval: ${exportIntervalMillis}`);
 
+    // Cap export interval to 60 seconds. This is currently required for metrics-trace correlation to work correctly.
     if (isNaN(exportIntervalMillis) || exportIntervalMillis.valueOf() > DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS) {
       exportIntervalMillis = DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS;
 

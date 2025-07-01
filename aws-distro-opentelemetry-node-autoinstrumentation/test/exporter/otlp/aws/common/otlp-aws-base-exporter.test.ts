@@ -148,12 +148,12 @@ export abstract class OTLPAwsBaseExporterTest {
         expect(result.code).toBe(ExportResultCode.SUCCESS);
         expect(serializeStub.callCount).toBe(1);
         expect(gzipStub.callCount).toBe(1);
-        done();
       })
       .then(() => {
         this.scope.on('request', (req, interceptor, body) => {
           this.assertHeaders(req.headers);
           expect(req.headers['content-encoding']).toBe('gzip');
+          done();
         });
       });
   }

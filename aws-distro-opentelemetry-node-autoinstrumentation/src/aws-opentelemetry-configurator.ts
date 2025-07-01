@@ -915,7 +915,6 @@ function getXrayDaemonEndpoint() {
   return process.env[AWS_XRAY_DAEMON_ADDRESS_CONFIG];
 }
 
-
 /**
  * Determines if the given endpoint is either the AWS OTLP Traces or Logs endpoint.
  */

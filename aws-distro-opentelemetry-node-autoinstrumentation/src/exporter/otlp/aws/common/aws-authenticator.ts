@@ -35,6 +35,8 @@ export class AwsAuthenticator {
   private service: string;
 
   constructor(endpoint: string, service: string) {
+    // The endpoint is pre-validated by the config with isAwsOtlpEndpoint, so then endpoint is guaranteed to be well formatted and
+    //  new URL() will not throw
     this.endpoint = new URL(endpoint);
     this.region = endpoint.split('.')[1];
     this.service = service;

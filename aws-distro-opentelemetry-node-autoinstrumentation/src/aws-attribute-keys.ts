@@ -4,7 +4,7 @@
 import { SEMATTRS_AWS_DYNAMODB_TABLE_NAMES } from '@opentelemetry/semantic-conventions';
 
 // Utility class holding attribute keys with special meaning to AWS components
-export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
+export const AWS_ATTRIBUTE_KEYS = {
   AWS_SPAN_KIND: 'aws.span.kind',
   AWS_LOCAL_SERVICE: 'aws.local.service',
   AWS_LOCAL_OPERATION: 'aws.local.operation',
@@ -45,4 +45,5 @@ export const AWS_ATTRIBUTE_KEYS: { [key: string]: string } = {
   AWS_LAMBDA_FUNCTION_NAME: 'aws.lambda.function.name',
   AWS_LAMBDA_RESOURCE_MAPPING_ID: 'aws.lambda.resource_mapping.id',
   AWS_LAMBDA_FUNCTION_ARN: 'aws.lambda.function.arn',
+  AWS_SERVICE_TYPE: 'aws.service.type',
 };

@@ -44,6 +44,8 @@ import { AwsXraySamplingClient } from '../src/sampler/aws-xray-sampling-client';
 import { GetSamplingRulesResponse } from '../src/sampler/remote-sampler.types';
 import { OTLPAwsSpanExporter } from '../src/otlp-aws-span-exporter';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
+import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+import { AWS_ATTRIBUTE_KEYS } from '../src/aws-attribute-keys';
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -817,5 +819,39 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       // Cleanup
       delete process.env.AGENT_OBSERVABILITY_ENABLED;
     }
+  });
+
+  it('CustomizeResourceWithoutAgentObservability', () => {
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+
+    let resource = new Resource({ [ATTR_SERVICE_NAME]: 'test-service' });
+    resource = awsOtelConfigurator['customizeResource'](resource);
+    expect(resource.attributes[ATTR_SERVICE_NAME]).toEqual('test-service');
+    expect(resource.attributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE);
+  });
+
+  it('CustomizeResourceWithAgentObservabilityDefault', () => {
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+
+    let resource = new Resource({ [ATTR_SERVICE_NAME]: 'test-service' });
+    resource = awsOtelConfigurator['customizeResource'](resource);
+    expect(resource.attributes[ATTR_SERVICE_NAME]).toEqual('test-service');
+    expect(resource.attributes[AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE]).toEqual('gen_ai_agent');
+
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+  });
+
+  it('CustomizeResourceWithoutAgentObservability', () => {
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+
+    let resource = new Resource({
+      [ATTR_SERVICE_NAME]: 'test-service',
+      [AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE]: 'existing-agent',
+    });
+    resource = awsOtelConfigurator['customizeResource'](resource);
+    expect(resource.attributes[ATTR_SERVICE_NAME]).toEqual('test-service');
+    expect(resource.attributes[AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE]).toEqual('existing-agent');
+
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
   });
 });

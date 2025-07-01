@@ -155,7 +155,6 @@ export abstract class OTLPAwsBaseExporterTest {
           this.assertHeaders(req.headers);
           expect(req.headers['content-encoding']).toBe('gzip');
         });
-        done();
       });
   }
 

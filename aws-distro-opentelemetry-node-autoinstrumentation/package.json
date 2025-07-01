@@ -101,6 +101,7 @@
     "@opentelemetry/auto-configuration-propagators": "0.3.2",
     "@opentelemetry/auto-instrumentations-node": "0.56.0",
     "@opentelemetry/api-events": "0.57.1",
+    "@opentelemetry/baggage-span-processor": "0.3.1",
     "@opentelemetry/sdk-events": "0.57.1",
     "@opentelemetry/sdk-logs": "0.57.1",
     "@opentelemetry/core": "1.30.1",

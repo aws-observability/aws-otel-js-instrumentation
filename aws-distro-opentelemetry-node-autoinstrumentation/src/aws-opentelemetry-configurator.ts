@@ -82,9 +82,6 @@ import { logs } from '@opentelemetry/api-logs';
 const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
 const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/logs$';
 
-const AWS_OTLP_LOGS_GROUP_HEADER = 'x-aws-log-group';
-const AWS_OTLP_LOGS_STREAM_HEADER = 'x-aws-log-stream';
-
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
 const METRIC_EXPORT_INTERVAL_CONFIG: string = 'OTEL_METRIC_EXPORT_INTERVAL';
@@ -104,8 +101,8 @@ const AWS_OTLP_LOGS_STREAM_HEADER = 'x-aws-log-stream';
 const AWS_EMF_METRICS_NAMESPACE = 'x-aws-metric-namespace';
 
 interface OtlpLogHeaderSetting {
-  logGroup: string;
-  logStream: string;
+  logGroup?: string;
+  logStream?: string;
   namespace?: string;
   isValid: boolean;
 }
@@ -553,7 +550,7 @@ export class AwsLoggerProcessorProvider {
             if (
               otlpExporterLogsEndpoint &&
               isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs') &&
-              validateLogsHeaders()
+              validateAndFetchLogsHeader().isValid
             ) {
               diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
               exporters.push(
@@ -574,7 +571,7 @@ export class AwsLoggerProcessorProvider {
             if (
               otlpExporterLogsEndpoint &&
               isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs') &&
-              validateLogsHeaders()
+              validateAndFetchLogsHeader().isValid
             ) {
               diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
               exporters.push(
@@ -935,40 +932,60 @@ export function isAwsOtlpEndpoint(otlpEndpoint: string, service: string): boolea
  * Checks if x-aws-log-group and x-aws-log-stream are present in the headers in order to send logs to
  * AWS OTLP Logs endpoint.
  */
-function validateLogsHeaders() {
-  const logsHeaders = process.env['OTEL_EXPORTER_OTLP_LOGS_HEADERS'];
+export function validateAndFetchLogsHeader(): OtlpLogHeaderSetting {
+  const logHeaders = process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
 
-  if (!logsHeaders) {
+  if (!logHeaders) {
     diag.warn(
       'Missing required configuration: The environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS must be set with ' +
         `required headers ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. ` +
         `Example: OTEL_EXPORTER_OTLP_LOGS_HEADERS="${AWS_OTLP_LOGS_GROUP_HEADER}=my-log-group,${AWS_OTLP_LOGS_STREAM_HEADER}=my-log-stream"`
     );
-    return false;
+    return {
+      logGroup: '',
+      logStream: '',
+      namespace: '',
+      isValid: false,
+    };
   }
 
-  let hasLogGroup = false;
-  let hasLogStream = false;
+  let logGroup: string | undefined = undefined;
+  let logStream: string | undefined = undefined;
+  let namespace: string | undefined = undefined;
+  let filteredLogHeadersCount: number = 0;
 
-  for (const pair of logsHeaders.split(',')) {
-    if (pair.includes('=')) {
-      const [key, value] = pair.split('=', 2);
+  for (const pair of logHeaders.split(',')) {
+    const splitIndex = pair.indexOf('=');
+    if (splitIndex > -1) {
+      const key = pair.substring(0, splitIndex);
+      const value = pair.substring(splitIndex + 1);
+
       if (key === AWS_OTLP_LOGS_GROUP_HEADER && value) {
-        hasLogGroup = true;
+        logGroup = value;
+        filteredLogHeadersCount++;
       } else if (key === AWS_OTLP_LOGS_STREAM_HEADER && value) {
-        hasLogStream = true;
+        logStream = value;
+        filteredLogHeadersCount++;
+      } else if (key === AWS_EMF_METRICS_NAMESPACE && value) {
+        namespace = value;
       }
     }
   }
 
-  if (!hasLogGroup || !hasLogStream) {
+  const isValid = filteredLogHeadersCount === 2 && !!logGroup && !!logStream;
+  if (!isValid) {
     diag.warn(
       'Incomplete configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS ' +
         `to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}`
     );
-    return false;
   }
-  return true;
+
+  return {
+    logGroup: logGroup,
+    logStream: logStream,
+    namespace: namespace,
+    isValid: isValid,
+  };
 }
 
 export function checkEmfExporterEnabled(): boolean {
@@ -1003,62 +1020,10 @@ export function createEmfExporter(): AWSCloudWatchEMFExporter | undefined {
     return undefined;
   }
 
-  return new AWSCloudWatchEMFExporter(headersResult.namespace, headersResult.logGroup, headersResult.logStream);
-}
-
-/**
- * Checks if x-aws-log-group and x-aws-log-stream are present in the headers in order to send logs to
- * AWS OTLP Logs endpoint.
- */
-export function validateAndFetchLogsHeader(): OtlpLogHeaderSetting {
-  const logHeaders = process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
-
-  if (!logHeaders) {
-    diag.warn(
-      'Improper configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to include x-aws-log-group and x-aws-log-stream'
-    );
-    return {
-      logGroup: '',
-      logStream: '',
-      namespace: '',
-      isValid: false,
-    };
-  }
-
-  let logGroup: string | undefined = undefined;
-  let logStream: string | undefined = undefined;
-  let namespace: string | undefined = undefined;
-  let filteredLogHeadersCount: number = 0;
-
-  for (const pair of logHeaders.split(',')) {
-    const splitIndex = pair.indexOf('=');
-    if (splitIndex > -1) {
-      const key = pair.substring(0, splitIndex);
-      const value = pair.substring(splitIndex + 1);
-
-      if (key === AWS_OTLP_LOGS_GROUP_HEADER && value !== '') {
-        logGroup = value;
-        filteredLogHeadersCount++;
-      } else if (key === AWS_OTLP_LOGS_STREAM_HEADER && value !== '') {
-        logStream = value;
-        filteredLogHeadersCount++;
-      } else if (key === AWS_EMF_METRICS_NAMESPACE && value !== '') {
-        namespace = value;
-      }
-    }
-  }
-
-  const isValid = filteredLogHeadersCount === 2 && !!logGroup && !!logStream;
-  if (!isValid) {
-    diag.warn(
-      'Improper configuration: The environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS has invalid value(s) for x-aws-log-group or x-aws-log-stream'
-    );
-  }
-
-  return {
-    logGroup: logGroup as string,
-    logStream: logStream as string,
-    namespace: namespace,
-    isValid: isValid,
-  };
+  // If headersResult.isValid is true, then headersResult.logGroup and headersResult.logStream are guaranteed to be strings
+  return new AWSCloudWatchEMFExporter(
+    headersResult.namespace,
+    headersResult.logGroup as string,
+    headersResult.logStream as string
+  );
 }

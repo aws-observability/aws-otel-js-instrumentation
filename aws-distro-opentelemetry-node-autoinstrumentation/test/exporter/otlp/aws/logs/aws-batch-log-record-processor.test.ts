@@ -6,7 +6,7 @@ import {
   AwsCloudWatchOtlpBatchLogRecordProcessor,
   BASE_LOG_BUFFER_BYTE_SIZE,
   MAX_LOG_REQUEST_BYTE_SIZE,
-} from '../../../../../src/exporter/otlp/aws/logs/aws-batch-log-record-processor';
+} from '../../../../../src/exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
 import { OTLPAwsLogExporter } from '../../../../../src/exporter/otlp/aws/logs/otlp-aws-log-exporter';
 import expect from 'expect';
 import { ExportResultCode } from '@opentelemetry/core';
@@ -90,8 +90,8 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
     });
 
     it('should handle primitive types', () => {
-      const primitives: AnyValue[] = ['test', new Uint8Array([116, 101, 115, 116]), 1, 1.2, true, false, null];
-      const expectedSizes = [4, 4, 1, 3, 4, 5, 0];
+      const primitives: AnyValue[] = ['test', new Uint8Array([116, 101, 115, 116]), 1, 1.2, true, false, null, '深入 Python', 'calfé'];
+      const expectedSizes = [4, 4, 1, 3, 4, 5, 0, 2 * 4 + ' Python'.length, 1 * 4 + 'calf'.length];
 
       primitives.forEach((primitive, index) => {
         const log = generateTestLogData(primitive, 'key', 0, 1, true);
@@ -120,7 +120,7 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
     });
   });
 
-  describe('_flushOneBatchIntermediary', () => {
+  describe('_flushSizeLimitedBatch', () => {
     let sandbox!: sinon.SinonSandbox;
     let mockExporter: sinon.SinonStubbedInstance<OTLPAwsLogExporter>;
     let processor: any; // Setting it to any instead of AwsCloudWatchOtlpBatchLogRecordProcessor since we need to stub a few of its methods

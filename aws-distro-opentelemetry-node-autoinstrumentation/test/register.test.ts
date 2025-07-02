@@ -23,18 +23,31 @@ describe('Register', function () {
     NodeSDK.prototype.start = originalPrototypeStart;
   });
 
-  it('Tests AWS Default Environment Variables', () => {
-    this.beforeEach(() => {
+  describe('Tests AWS Default Environment Variables', () => {
+    beforeEach(() => {
       delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
       delete process.env.OTEL_PROPAGATORS;
       delete process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+
+      delete process.env.AWS_REGION;
+      delete process.env.AWS_DEFAULT_REGION;
+      delete process.env.AGENT_OBSERVABILITY_ENABLED;
+      delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+      delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+      delete process.env.OTEL_TRACES_EXPORTER;
+      delete process.env.OTEL_LOGS_EXPORTER;
+      delete process.env.OTEL_METRICS_EXPORTER;
+
+      delete process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT;
+      delete process.env.OTEL_TRACES_SAMPLER;
+      delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     });
 
     it('sets AWS Default Environment Variables', () => {
       setAwsDefaultEnvironmentVariables();
       expect(process.env.OTEL_EXPORTER_OTLP_PROTOCOL).toEqual('http/protobuf');
       expect(process.env.OTEL_PROPAGATORS).toEqual('xray,tracecontext');
-      expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs');
+      expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs,dns');
     });
 
     it('Does not set AWS Default Environment Variables', () => {
@@ -45,6 +58,81 @@ describe('Register', function () {
       expect(process.env.OTEL_EXPORTER_OTLP_PROTOCOL).toEqual('customProtocol');
       expect(process.env.OTEL_PROPAGATORS).toEqual('customPropagators');
       expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('customDisabledInstrumentations');
+    });
+
+    it('Configures with AgentObservabilityEnabled with unset region', () => {
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toBeUndefined();
+      expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toBeUndefined();
+    });
+
+    it('Configures with AgentObservabilityEnabled with set region', () => {
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      process.env.AWS_REGION = 'us-west-2';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual('https://xray.us-west-2.amazonaws.com/v1/traces');
+      expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.us-west-2.amazonaws.com/v1/logs');
+
+      delete process.env.AWS_REGION;
+      delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+      delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+      process.env.AWS_DEFAULT_REGION = 'us-east-2';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual('https://xray.us-east-2.amazonaws.com/v1/traces');
+      expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.us-east-2.amazonaws.com/v1/logs');
+    });
+
+    it('Configures defaults when AgentObservabilityEnabled is true', () => {
+      process.env.AWS_REGION = 'us-east-1';
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_TRACES_EXPORTER).toEqual('otlp');
+      expect(process.env.OTEL_LOGS_EXPORTER).toEqual('otlp');
+      expect(process.env.OTEL_METRICS_EXPORTER).toEqual('awsemf');
+      expect(process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT).toEqual('true');
+      expect(process.env.OTEL_TRACES_SAMPLER).toEqual('parentbased_always_on');
+      expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual(
+        'amqplib,aws-lambda,aws-sdk,bunyan,cassandra-driver,connect,cucumber,dataloader,dns,express,fastify,fs,generic-pool,graphql,grpc,hapi,http,ioredis,kafkajs,knex,koa,lru-memoizer,memcached,mongodb,mongoose,mysql2,mysql,nestjs-core,net,pg,pino,redis,redis-4,restify,router,socket.io,tedious,undici,winston'
+      );
+      expect(process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED).toEqual('false');
+      expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual('https://xray.us-east-1.amazonaws.com/v1/traces');
+      expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.us-east-1.amazonaws.com/v1/logs');
+    });
+
+    it('Respects user configuration when AgentObservabilityEnabled is false', () => {
+      process.env.AWS_REGION = 'us-east-1';
+      delete process.env.AGENT_OBSERVABILITY_ENABLED;
+      process.env.OTEL_TRACES_SAMPLER = 'traceidratio';
+
+      setAwsDefaultEnvironmentVariables();
+      expect(process.env.OTEL_TRACES_SAMPLER).toEqual('traceidratio');
+      expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs,dns');
+      expect(process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED).toBeUndefined();
+    });
+
+    it('Respects user configuration when AgentObservabilityEnabled is true', () => {
+      // Enable agent observability
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+
+      // Set custom values for some environment variables
+      process.env.OTEL_TRACES_SAMPLER = 'traceidratio';
+      process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'a,b,c,d';
+      process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'true';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_TRACES_SAMPLER).toEqual('traceidratio');
+      expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('a,b,c,d');
+      expect(process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED).toEqual('true');
     });
   });
 
@@ -89,7 +177,7 @@ describe('Register', function () {
     );
 
     // eslint-disable-next-line @typescript-eslint/typedef
-    const packageJson = require('./../../package.json');
+    const packageJson = require('./../package.json');
     const DISTRO_VERSION: string = packageJson.version;
     assert.ok(
       proc.stdout.includes(`'telemetry.auto.version': '${DISTRO_VERSION}-aws'`),

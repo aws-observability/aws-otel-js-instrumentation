@@ -354,8 +354,6 @@ export class LLOHandler {
       return;
     }
 
-    //[] maybe add sanity check here from Python "has_llo_attrs"
-
     const allMessages = this.collectAllLloMessages(span, attributes);
     if (allMessages.length === 0) {
       return;

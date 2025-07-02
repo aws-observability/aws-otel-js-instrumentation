@@ -78,6 +78,7 @@ import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-export
 import { isAgentObservabilityEnabled } from './utils';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { logs } from '@opentelemetry/api-logs';
+import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 
 const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
 const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/logs$';
@@ -168,8 +169,8 @@ export class AwsOpentelemetryConfigurator {
       if (!resourceDetectorsFromEnv.includes('env')) {
         defaultDetectors.push(envDetectorSync);
       }
-    } else if (isLambdaEnvironment()) {
-      // If in Lambda environment, only keep env detector as default
+    } else if (isLambdaEnvironment() || isAgentObservabilityEnabled()) {
+      // Only keep env detector here
       defaultDetectors.push(envDetectorSync);
     } else {
       /*
@@ -193,7 +194,7 @@ export class AwsOpentelemetryConfigurator {
       detectors: defaultDetectors,
     };
 
-    autoResource = autoResource.merge(detectResourcesSync(internalConfig));
+    autoResource = this.customizeResource(autoResource.merge(detectResourcesSync(internalConfig)));
     this.resource = autoResource;
 
     this.instrumentations = instrumentations;
@@ -226,6 +227,17 @@ export class AwsOpentelemetryConfigurator {
       `@aws/aws-distro-opentelemetry-node-autoinstrumentation - version: ${autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION]}`
     );
     return autoResource;
+  }
+
+  private customizeResource(resource: Resource) {
+    if (isAgentObservabilityEnabled()) {
+      // Add aws.service.type if it doesn't exist in the resource
+      if (!resource.attributes[AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE]) {
+        // Set a default agent type for AI agent observability
+        resource.attributes[AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE] = 'gen_ai_agent';
+      }
+    }
+    return resource;
   }
 
   public configure(): Partial<NodeSDKConfiguration> {

@@ -479,11 +479,9 @@ export class AwsLoggerProcessorProvider {
       if (exporter instanceof ConsoleLogRecordExporter) {
         return new SimpleLogRecordProcessor(exporter);
       }
-
       if (exporter instanceof OTLPAwsLogExporter && isAgentObservabilityEnabled()) {
         return new AwsCloudWatchOtlpBatchLogRecordProcessor(exporter);
       }
-
       return new BatchLogRecordProcessor(exporter);
     });
   }

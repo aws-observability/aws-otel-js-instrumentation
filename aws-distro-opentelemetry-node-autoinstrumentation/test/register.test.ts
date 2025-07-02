@@ -30,6 +30,7 @@ describe('Register', function () {
       delete process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
 
       delete process.env.AWS_REGION;
+      delete process.env.AWS_DEFAULT_REGION;
       delete process.env.AGENT_OBSERVABILITY_ENABLED;
       delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
       delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
@@ -69,13 +70,23 @@ describe('Register', function () {
     });
 
     it('Configures with AgentObservabilityEnabled with set region', () => {
-      process.env.AWS_REGION = 'us-west-2';
       process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      process.env.AWS_REGION = 'us-west-2';
 
       setAwsDefaultEnvironmentVariables();
 
       expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual('https://xray.us-west-2.amazonaws.com/v1/traces');
       expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.us-west-2.amazonaws.com/v1/logs');
+
+      delete process.env.AWS_REGION;
+      delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+      delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+      process.env.AWS_DEFAULT_REGION = 'us-east-2';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual('https://xray.us-east-2.amazonaws.com/v1/traces');
+      expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.us-east-2.amazonaws.com/v1/logs');
     });
 
     it('Configures defaults when AgentObservabilityEnabled is true', () => {

@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-import { LogRecord, BatchLogRecordProcessor, BufferConfig } from '@opentelemetry/sdk-logs';
+import { LogRecord, BufferConfig, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { AnyValue, AnyValueMap } from '@opentelemetry/api-logs';
 import { callWithTimeout } from '@opentelemetry/core';
 import { OTLPAwsLogExporter } from './otlp-aws-log-exporter';
@@ -67,16 +67,12 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
   }
 
   /**
-   * Explicitly overrides upstream _flushOneBatch method to add AWS CloudWatch size-based batching
-   * See:
-   * https://github.com/open-telemetry/opentelemetry-python/blob/bb21ebd46d070c359eee286c97bdf53bfd06759d/opentelemetry-sdk/src/opentelemetry/sdk/_shared_internal/__init__.py#L143
+   * Explicitly overrides upstream _flushOneBatch method to add AWS CloudWatch size-based batching.
+   * Returns a list of promise export requests where each promise will be estimated to be at or under
+   * the 1 MB limit for CloudWatch Logs OTLP endpoint.
    *
-   * Preserves existing batching behavior but will intermediarly export small log batches if
-   * the size of the data in the batch is estimated to be at or above AWS CloudWatch's
-   * maximum request size limit of 1 MB.
-   *
-   * - Estimated data size of exported batches will typically be <= 1 MB except for the case below:
-   * - If the estimated data size of an exported batch is ever > 1 MB then the batch size is guaranteed to be 1
+   * Estimated data size of exported batches will typically be <= 1 MB except for the case below:
+   * If the estimated data size of an exported batch is ever > 1 MB then the batch size is guaranteed to be 1
    */
   private _flushOneBatchIntermediary(): Promise<void> {
     const processor = this as any;
@@ -176,9 +172,10 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
 
         // nextVal must be Array or AnyValueMap
         if (currentDepth <= depth) {
-          if (typeof nextVal === 'object' && !visited.has(nextVal)) {
-            visited.add(nextVal);
+          if (visited.has(nextVal)) {
+            continue;
           }
+          visited.add(nextVal);
 
           if (Array.isArray(nextVal)) {
             for (const content of nextVal) {

@@ -55,6 +55,7 @@ import {
 } from '@opentelemetry/sdk-logs';
 import { OTLPAwsLogExporter } from '../src/exporter/otlp/aws/logs/otlp-aws-log-exporter';
 import { OTLPAwsSpanExporter } from '../src/exporter/otlp/aws/traces/otlp-aws-span-exporter';
+import { AwsCloudWatchOtlpBatchLogRecordProcessor } from '../src/exporter/otlp/aws/logs/aws-batch-log-record-processor';
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -729,10 +730,19 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(config.logRecordProcessors?.length).toEqual(1);
     expect((config.logRecordProcessors as any)[0]._exporter).toBeInstanceOf(OTLPAwsLogExporter);
 
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+
+    // Test Agent Observability for AWS OTLP logs endpoint uses OTLPAwsLogExporter and AwsCloudWatchOtlpBatchLogRecordProcessor
+    config = new AwsOpentelemetryConfigurator([]).configure();
+    expect(config.logRecordProcessors?.length).toEqual(1);
+    expect(config.logRecordProcessors![0]).toBeInstanceOf(AwsCloudWatchOtlpBatchLogRecordProcessor);
+    expect((config.logRecordProcessors as any)[0]._exporter).toBeInstanceOf(OTLPAwsLogExporter);
+
     // Cleanup
     delete process.env.OTEL_LOGS_EXPORTER;
     delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
     delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
   });
 
   it('ResourceDetectorInputValidationTest', () => {
@@ -968,7 +978,21 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       expect(logRecordProcessors).toHaveLength(1);
       expect(logRecordProcessors[0]).toBeInstanceOf(SimpleLogRecordProcessor);
 
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      process.env.OTEL_LOGS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = 'https://logs.us-east-1.amazonaws.com/v1/logs';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-log-group=my-group,x-aws-log-stream=my-stream';
+
+      logRecordProcessors = AwsLoggerProcessorProvider.getlogRecordProcessors();
+
+      expect(logRecordProcessors).toHaveLength(1);
+      expect(logRecordProcessors[0]).toBeInstanceOf(AwsCloudWatchOtlpBatchLogRecordProcessor);
+
       delete process.env.OTEL_LOGS_EXPORTER;
+      delete process.env.AGENT_OBSERVABILITY_ENABLED;
+      delete process.env.OTEL_LOGS_EXPORTER;
+      delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+      delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
     });
 
     it('configureLogExportersFromEnv', () => {

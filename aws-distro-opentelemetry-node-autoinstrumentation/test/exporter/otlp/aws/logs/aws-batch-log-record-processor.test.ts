@@ -103,13 +103,20 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
 
     it('should handle circular references only once', () => {
       const cyclicDict: any = { data: 'test' };
+      const cyclicArray: any = ['test'];
       cyclicDict.self_ref = cyclicDict;
+      cyclicArray.push(cyclicArray);
 
-      const log = generateTestLogData(cyclicDict, 'key', 0, 1, true);
-      const expectedSize = BASE_LOG_BUFFER_BYTE_SIZE + 'data'.length + 'self_ref'.length + 'test'.length;
-      const actualSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(log[0]);
+      const dictLog = generateTestLogData(cyclicDict, 'key', 0, 1, true);
+      const expectedDictSize = BASE_LOG_BUFFER_BYTE_SIZE + 'data'.length + 'self_ref'.length + 'test'.length;
+      const actualDictSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(dictLog[0]);
 
-      expect(actualSize).toBe(expectedSize);
+      const arrayLog = generateTestLogData(cyclicArray, 'key', 0, 1, true);
+      const expectedArraySize = BASE_LOG_BUFFER_BYTE_SIZE + 'test'.length;
+      const actualArraySize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(arrayLog[0]);
+
+      expect(expectedDictSize).toBe(actualDictSize);
+      expect(expectedArraySize).toBe(actualArraySize);
     });
   });
 
@@ -127,7 +134,7 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
         maxExportBatchSize: 50,
         exportTimeoutMillis: 5000,
       });
-      processor = processor._clearTimer = sinon.stub();
+      processor._clearTimer = sandbox.stub();
       processor._export = sandbox.stub().resolves();
     });
 
@@ -137,61 +144,73 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
       const logCount = 10;
       const logBody = 'test';
       const testLogs = generateTestLogData(logBody, 'key', 0, logCount, true);
-
       processor._finishedLogRecords = testLogs;
 
-      await processor._flushOneBatchIntermediary();
+      await (processor as AwsCloudWatchOtlpBatchLogRecordProcessor).forceFlush();
 
       expect(processor._finishedLogRecords.length).toBe(0);
       expect(processor._export.callCount).toBe(1);
-      expect(processor._export.calledWith(testLogs)).toBe(true);
+
+      const exportedLogs = processor._export.getCall(0).args[0];
+      expect(exportedLogs.length).toBe(logCount);
+      exportedLogs.forEach((log: LogRecord) => {
+        expect(log.body).toBe(logBody);
+      });
     });
 
-    // it('should make multiple export calls for logs over size limit', async () => {
-    //   const largeLogBody = 'X'.repeat(1048577); // > 1MB
-    //   const testLogs = generateTestLogData(largeLogBody, 'key', 0, 3, true);
+    it('should make multiple export calls for logs over size limit', async () => {
+      const largeLogBody = 'X'.repeat(1048577); // > 1MB
+      const logCount = 10;
+      const testLogs = generateTestLogData(largeLogBody, 'key', 0, logCount, true);
 
-    //   processorAny.parentProcessor._finishedLogRecords = testLogs;
+      processor._finishedLogRecords = testLogs;
 
-    //   await processorAny._flushOneBatchIntermediary();
+      await (processor as AwsCloudWatchOtlpBatchLogRecordProcessor).forceFlush();
 
-    //   expect(processorAny.parentProcessor._finishedLogRecords.length).toBe(0);
-    //   expect(processorAny.parentProcessor._export.callCount).toBe(3);
+      expect(processor._finishedLogRecords.length).toBe(0);
+      expect(processor._export.callCount).toBe(logCount);
 
-    //   processorAny.parentProcessor._export.getCalls().forEach((call: any) => {
-    //     expect(call.args[0].length).toBe(1);
-    //   });
-    // });
+      processor._export.getCalls().forEach((call: any) => {
+        expect(call.args.length).toBe(1);
+        const logBatch = call.args[0];
+        expect(logBatch.length).toBe(1);
+      });
+    });
 
-    // it('should handle mixed log sizes', async () => {
-    //   const largeLogBody = 'X'.repeat(1048577); // > 1MB
-    //   const smallLogBody = 'X'.repeat(Math.floor(1048576 / 10) - 2000); // Small log
+    it('should handle mixed log sizes', async () => {
+      const largeLogBody = 'X'.repeat(1048577); // > 1MB
+      const smallLogBody = 'X'.repeat(Math.floor(1048576 / 10) - BASE_LOG_BUFFER_BYTE_SIZE); // Small log
 
-    //   const largeLogs = generateTestLogData(largeLogBody, 'key', 0, 3, true);
-    //   const smallLogs = generateTestLogData(smallLogBody, 'key', 0, 12, true);
-    //   const testLogs = [...largeLogs, ...smallLogs];
+      const largeLogs = generateTestLogData(largeLogBody, 'key', 0, 3, true);
+      const smallLogs = generateTestLogData(smallLogBody, 'key', 0, 12, true);
 
-    //   processorAny.parentProcessor._finishedLogRecords = testLogs;
+      // 15 total logs. First 3 logs are oversized, next 12 logs are about 1/10 the size of a MB.
+      // We should expect a total of 5 exports, the first 3 exports should be of batch size 1 containing just a single oversized log,
+      // the next export should contain 10 logs each of which are 1/10 MB,
+      // the last export should contain 2 logs each of which are 1/10 MB
+      const testLogs = [...largeLogs, ...smallLogs];
 
-    //   await processorAny._flushOneBatchIntermediary();
+      processor._finishedLogRecords = testLogs;
 
-    //   expect(processorAny.parentProcessor._finishedLogRecords.length).toBe(0);
-    //   expect(processorAny.parentProcessor._export.callCount).toBe(5);
+      await (processor as AwsCloudWatchOtlpBatchLogRecordProcessor).forceFlush();
 
-    //   const calls = processorAny.parentProcessor._export.getCalls();
-    //   const expectedSizes = [1, 1, 1, 10, 2];
+      expect(processor._finishedLogRecords.length).toBe(0);
+      expect(processor._export.callCount).toBe(5);
 
-    //   calls.forEach((call: any, index: number) => {
-    //     expect(call.args[0].length).toBe(expectedSizes[index]);
-    //   });
-    // });
+      const calls = processor._export.getCalls();
+      const expectedBatchSizes = [1, 1, 1, 10, 2];
+
+      calls.forEach((call: any, index: number) => {
+        expect(call.args[0].length).toBe(expectedBatchSizes[index]);
+      });
+    });
   });
 
   function generateTestLogData(
     logBody: AnyValue,
     logKey: string = 'key',
     logBodyDepth: number = 0,
-    count: number = 5,
+    count: number = 1,
     createMap: boolean = true
   ): LogRecord[] {
     function generateNestedValue(depth: number, value: AnyValue, createMap: boolean = true): AnyValue {

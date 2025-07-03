@@ -414,11 +414,7 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
                   }
                 }
               } catch (err) {
-                diag.debug(
-                  `Failed to get auth account access key and region: ${
-                    err instanceof Error ? err.message : String(err)
-                  }`
-                );
+                diag.debug('Failed to get auth account access key and region:', err);
               }
             }
 

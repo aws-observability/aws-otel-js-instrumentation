@@ -1427,21 +1427,21 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       if (region !== undefined) {
         expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_REGION]).toEqual(region);
       } else {
-        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_REGION]).toEqual(undefined);
+        expect(actualAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_REGION);
       }
 
       if (accountId !== undefined) {
         expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID]).toEqual(accountId);
-        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY]).toEqual(undefined);
+        expect(actualAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY);
       } else {
-        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID]).toEqual(undefined);
+        expect(actualAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID);
       }
 
       if (accessKey !== undefined) {
         expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY]).toEqual(accessKey);
-        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID]).toEqual(undefined);
+        expect(actualAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID);
       } else {
-        expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY]).toEqual(undefined);
+        expect(actualAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY);
       }
     }
 
@@ -1451,9 +1451,9 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_TYPE]).toEqual(undefined);
     expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER]).toEqual(undefined);
     expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_CLOUDFORMATION_PRIMARY_IDENTIFIER]).toEqual(undefined);
-    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_REGION]).toEqual(undefined);
-    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID]).toEqual(undefined);
-    expect(actualAttributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY]).toEqual(undefined);
+    expect(actualAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_REGION);
+    expect(actualAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ID);
+    expect(actualAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_ACCOUNT_ACCESS_KEY);
   }
 
   it('testDBUserAttribute', () => {

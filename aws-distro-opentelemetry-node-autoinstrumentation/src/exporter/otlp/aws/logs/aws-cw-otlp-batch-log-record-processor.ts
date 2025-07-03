@@ -60,10 +60,11 @@ export const MAX_LOG_REQUEST_BYTE_SIZE: number = 1048576;
  * A unique case is if the sub-batch is of data size > 1 MB, then the sub-batch will have exactly 1 log in it.
  *
  */
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProcessor {
   constructor(exporter: OTLPAwsLogExporter, config?: BufferConfig) {
     super(exporter, config);
-    (this as any)._flushOneBatch = () => this._flushSizeLimitedBatch();
   }
 
   /**
@@ -74,26 +75,23 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
    * Estimated data size of exported batches will typically be <= 1 MB except for the case below:
    * If the estimated data size of an exported batch is ever > 1 MB then the batch size is guaranteed to be 1
    */
-  private _flushSizeLimitedBatch(): Promise<void> {
-    const processor = this as any;
+  override _flushOneBatch(): Promise<void> {
+    this['_clearTimer']();
 
-    processor._clearTimer();
-
-    if (processor._finishedLogRecords.length === 0) {
+    if (this['_finishedLogRecords'].length === 0) {
       return Promise.resolve();
     }
 
-    const logsToExport: LogRecord[] = processor._finishedLogRecords.splice(0, processor._maxExportBatchSize);
+    const logsToExport: LogRecord[] = this['_finishedLogRecords'].splice(0, this['_maxExportBatchSize']);
     let batch: LogRecord[] = [];
     let batchDataSize = 0;
     const exportPromises: Promise<void>[] = [];
 
-    for (let i = 0; i < logsToExport.length; i += 1) {
-      const logData = logsToExport[i];
+    for (const logData of logsToExport) {
       const logSize = AwsCloudWatchOtlpBatchLogRecordProcessor.estimateLogSize(logData);
 
       if (batch.length > 0 && batchDataSize + logSize > MAX_LOG_REQUEST_BYTE_SIZE) {
-        exportPromises.push(callWithTimeout(processor._export(batch), processor._exportTimeoutMillis));
+        exportPromises.push(callWithTimeout(this['_export'](batch), this['_exportTimeoutMillis']));
         batchDataSize = 0;
         batch = [];
       }
@@ -103,14 +101,12 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
     }
 
     if (batch.length > 0) {
-      exportPromises.push(callWithTimeout(processor._export(batch), processor._exportTimeoutMillis));
+      exportPromises.push(callWithTimeout(this['_export'](batch), this['_exportTimeoutMillis']));
     }
-
-    return new Promise((resolve, reject) => {
-      Promise.all(exportPromises)
-        .then(() => resolve())
-        .catch(reject);
-    });
+    // Explicitly returns Promise<void> because of upstream's method signature for this function
+    return Promise.all(exportPromises)
+      .then(() => {})
+      .catch();
   }
 
   /**
@@ -121,11 +117,33 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
    * If the depth limit of the log structure is exceeded, returns the truncated calculation
    * to everything up to that point.
    *
+   * We set depth to 3 as this is the minimum required depth to estimate our consolidated Gen AI log events:
+   *
+   * Example structure:
+   * {
+   *     "output": {
+   *         "messages": [
+   *             {
+   *                 "content": "Hello, World!",
+   *                 "role": "assistant"
+   *             }
+   *         ]
+   *     },
+   *     "input": {
+   *         "messages": [
+   *             {
+   *                 "content": "Say Hello, World!",
+   *                 "role": "user"
+   *             }
+   *         ]
+   *     }
+   * }
+   *
    * @param log - The Log object to calculate size for
    * @param depth - Maximum depth to traverse in nested structures (default: 3)
    * @returns The estimated size of the log object in bytes
    */
-  private static estimateLogSize(log: LogRecord, depth: number = 3): number {
+  private static estimateLogSize(log: LogRecord, maxDepth: number = 3): number {
     // Queue contains tuples of [log_content, depth] where:
     // - log_content is the current piece of log data being processed
     // - depth tracks how many levels deep we've traversed to reach this content
@@ -151,7 +169,7 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
           return size;
         }
 
-        if (nextVal === null || nextVal === undefined) {
+        if (nextVal == null) {
           continue;
         }
 
@@ -166,10 +184,7 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
         }
 
         // nextVal must be Array or AnyValueMap
-        if (currentDepth <= depth) {
-          if (visited.has(nextVal)) {
-            continue;
-          }
+        if (currentDepth <= maxDepth && !visited.has(nextVal)) {
           visited.add(nextVal);
 
           if (Array.isArray(nextVal)) {
@@ -178,11 +193,11 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
             }
             continue;
           }
-          // It's an AnyValueMap
-          const map = nextVal as AnyValueMap;
-          for (const key in map) {
-            size += AwsCloudWatchOtlpBatchLogRecordProcessor.estimateUtf8Size(key);
-            newQueue.push([map[key], currentDepth + 1]);
+          if (typeof nextVal === 'object') {
+            for (const key in nextVal) {
+              size += AwsCloudWatchOtlpBatchLogRecordProcessor.estimateUtf8Size(key);
+              newQueue.push([nextVal[key], currentDepth + 1]);
+            }
           }
         }
       }

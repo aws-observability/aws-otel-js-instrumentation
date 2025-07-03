@@ -90,7 +90,17 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
     });
 
     it('should handle primitive types', () => {
-      const primitives: AnyValue[] = ['test', new Uint8Array([116, 101, 115, 116]), 1, 1.2, true, false, null, '深入 Python', 'calfé'];
+      const primitives: AnyValue[] = [
+        'test',
+        new Uint8Array([116, 101, 115, 116]),
+        1,
+        1.2,
+        true,
+        false,
+        null,
+        '深入 Python',
+        'calfé',
+      ];
       const expectedSizes = [4, 4, 1, 3, 4, 5, 0, 2 * 4 + ' Python'.length, 1 * 4 + 'calf'.length];
 
       primitives.forEach((primitive, index) => {

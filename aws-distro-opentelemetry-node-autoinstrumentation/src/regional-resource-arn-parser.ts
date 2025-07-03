@@ -5,6 +5,10 @@ import { AttributeValue } from '@opentelemetry/api';
 import { isAccountId } from './utils';
 
 export class RegionalResourceArnParser {
+  /** Parses ARN with formats:
+   * arn:partition:service:region:account-id:resource-type/resource-id or
+   * arn:partition:service:region:account-id:resource-type:resource-id
+   */
   private static parseArn(arn: AttributeValue | undefined): string[] | undefined {
     if (typeof arn !== 'string') return undefined;
     const parts = arn.split(':');

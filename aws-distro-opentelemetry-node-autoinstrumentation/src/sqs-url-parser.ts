@@ -24,7 +24,7 @@ export class SqsUrlParser {
    * custom URLs. Essentially, we require that the URL should have exactly three parts, delimited by
    * /'s (excluding schema), the second part should be a account id consisting of digits, and the third part
    * should be a valid queue name, per SQS naming conventions.
-   * 
+   *
    * Unlike parseUrl which only handles new URLs and their queuename parsing, this
    * implements its own queue name parsing logic to support multiple URL formats.
    */

@@ -190,7 +190,7 @@ describe('InstrumentationPatchTest', () => {
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
     expect(() => doExtractKinesisAttributes(services)).not.toThrow();
     const kinesisAttributes: Attributes = doExtractKinesisAttributes(services);
-    expect(kinesisAttributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN]).toBeUndefined();
+    expect(kinesisAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN);
   });
 
   it('SNS with patching', () => {

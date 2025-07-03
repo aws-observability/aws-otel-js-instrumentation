@@ -13,22 +13,28 @@ import { ExportResultCode } from '@opentelemetry/core';
 
 describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
   describe('estimateLogSize', () => {
-    it('should handle nested structures (dict/array)', () => {
+    it('should handle nested structures (object/array)', () => {
       const logBody = 'X'.repeat(400);
       const logKey = 'test';
       const logDepth = 2;
 
-      const nestedDictLog = generateTestLogData(logBody, logKey, logDepth, 1, true)[0];
+      const nestedObjectLog = generateTestLogData(logBody, logKey, logDepth, 1, true)[0];
       const nestedArrayLog = generateTestLogData(logBody, logKey, logDepth, 1, false)[0];
 
-      const expectedDictSize = logKey.length * logDepth + logBody.length + BASE_LOG_BUFFER_BYTE_SIZE;
+      const expectedObjectSize = logKey.length * logDepth + logBody.length + BASE_LOG_BUFFER_BYTE_SIZE;
       const expectedArraySize = logBody.length + BASE_LOG_BUFFER_BYTE_SIZE;
 
-      const dictSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(nestedDictLog, logDepth);
-      const arraySize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(nestedArrayLog, logDepth);
+      const actualObjectSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(
+        nestedObjectLog,
+        logDepth
+      );
+      const actualArraySize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(
+        nestedArrayLog,
+        logDepth
+      );
 
-      expect(dictSize).toBe(expectedDictSize);
-      expect(arraySize).toBe(expectedArraySize);
+      expect(actualObjectSize).toBe(expectedObjectSize);
+      expect(actualArraySize).toBe(expectedArraySize);
     });
 
     it('should handle both body and attributes', () => {
@@ -69,9 +75,9 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
         'thisDataWillNotBeIncludedInSizeCalculation'.length;
 
       const testLogs = generateTestLogData(logBody, 'key', 0, 1, true);
-      const dictSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(testLogs[0], maxDepth);
+      const objectSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(testLogs[0], maxDepth);
 
-      expect(dictSize).toBe(expectedSize);
+      expect(objectSize).toBe(expectedSize);
     });
 
     it('should return prematurely if size exceeds MAX_LOG_REQUEST_BYTE_SIZE', () => {
@@ -82,14 +88,14 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
 
       const expectedSize = BASE_LOG_BUFFER_BYTE_SIZE + MAX_LOG_REQUEST_BYTE_SIZE + 'bigKey'.length + 'biggerKey'.length;
 
-      const nestDictLog = generateTestLogData(logBody, 'key', 0, 1, true);
+      const nestObjectLog = generateTestLogData(logBody, 'key', 0, 1, true);
       const nestArrayLog = generateTestLogData(logBody, 'key', 0, 1, false);
 
-      const dictSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(nestDictLog[0]);
-      const arraySize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(nestArrayLog[0]);
+      const actualObjectSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(nestObjectLog[0]);
+      const actualArraySize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(nestArrayLog[0]);
 
-      expect(dictSize).toBe(expectedSize);
-      expect(arraySize).toBe(expectedSize);
+      expect(actualObjectSize).toBe(expectedSize);
+      expect(actualArraySize).toBe(expectedSize);
     });
 
     it('should handle primitive types', () => {
@@ -115,20 +121,20 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
     });
 
     it('should handle circular references only once', () => {
-      const cyclicDict: any = { data: 'test' };
+      const cyclicObject: any = { data: 'test' };
       const cyclicArray: any = ['test'];
-      cyclicDict.self_ref = cyclicDict;
+      cyclicObject.self_ref = cyclicObject;
       cyclicArray.push(cyclicArray);
 
-      const dictLog = generateTestLogData(cyclicDict, 'key', 0, 1, true);
-      const expectedDictSize = BASE_LOG_BUFFER_BYTE_SIZE + 'data'.length + 'self_ref'.length + 'test'.length;
-      const actualDictSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(dictLog[0]);
+      const objectLog = generateTestLogData(cyclicObject, 'key', 0, 1, true);
+      const expectedObjectSize = BASE_LOG_BUFFER_BYTE_SIZE + 'data'.length + 'self_ref'.length + 'test'.length;
+      const actualObjectSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(objectLog[0]);
 
       const arrayLog = generateTestLogData(cyclicArray, 'key', 0, 1, true);
       const expectedArraySize = BASE_LOG_BUFFER_BYTE_SIZE + 'test'.length;
       const actualArraySize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(arrayLog[0]);
 
-      expect(expectedDictSize).toBe(actualDictSize);
+      expect(expectedObjectSize).toBe(actualObjectSize);
       expect(expectedArraySize).toBe(actualArraySize);
     });
   });

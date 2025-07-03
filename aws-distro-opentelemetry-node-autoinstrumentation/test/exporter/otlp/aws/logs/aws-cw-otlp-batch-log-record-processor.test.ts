@@ -21,14 +21,14 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
       const nestedDictLog = generateTestLogData(logBody, logKey, logDepth, 1, true)[0];
       const nestedArrayLog = generateTestLogData(logBody, logKey, logDepth, 1, false)[0];
 
-      const expectedDictSize = logKey.length * logDepth + logBody.length;
-      const expectedArraySize = logBody.length;
+      const expectedDictSize = logKey.length * logDepth + logBody.length + BASE_LOG_BUFFER_BYTE_SIZE;
+      const expectedArraySize = logBody.length + BASE_LOG_BUFFER_BYTE_SIZE;
 
       const dictSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(nestedDictLog, logDepth);
       const arraySize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(nestedArrayLog, logDepth);
 
-      expect(dictSize - BASE_LOG_BUFFER_BYTE_SIZE).toBe(expectedDictSize);
-      expect(arraySize - BASE_LOG_BUFFER_BYTE_SIZE).toBe(expectedArraySize);
+      expect(dictSize).toBe(expectedDictSize);
+      expect(arraySize).toBe(expectedArraySize);
     });
 
     it('should handle both body and attributes', () => {
@@ -44,10 +44,10 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
         attributes: { [attrKey]: attrValue },
       };
 
-      const expectedSize = logBody.length + attrKey.length + attrValue.length;
+      const expectedSize = logBody.length + attrKey.length + attrValue.length + BASE_LOG_BUFFER_BYTE_SIZE;
       const actualSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(record);
 
-      expect(actualSize - BASE_LOG_BUFFER_BYTE_SIZE).toBe(expectedSize);
+      expect(actualSize).toBe(expectedSize);
     });
 
     it('should cut off calculation for nested structure that exceeds depth limit', () => {
@@ -55,7 +55,7 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
       const calculatedBody = 'X'.repeat(400);
       const logBody = {
         calculated: 'X'.repeat(400),
-        restOfThisLogWillBeTruncated: {
+        thisDataWillNotBeIncludedInSizeCalculation: {
           truncated: {
             test: 'X'.repeat(MAX_LOG_REQUEST_BYTE_SIZE),
           },
@@ -63,7 +63,10 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
       };
 
       const expectedSize =
-        BASE_LOG_BUFFER_BYTE_SIZE + 'calculated'.length + calculatedBody.length + 'restOfThisLogWillBeTruncated'.length;
+        BASE_LOG_BUFFER_BYTE_SIZE +
+        'calculated'.length +
+        calculatedBody.length +
+        'thisDataWillNotBeIncludedInSizeCalculation'.length;
 
       const testLogs = generateTestLogData(logBody, 'key', 0, 1, true);
       const dictSize = (AwsCloudWatchOtlpBatchLogRecordProcessor as any).estimateLogSize(testLogs[0], maxDepth);

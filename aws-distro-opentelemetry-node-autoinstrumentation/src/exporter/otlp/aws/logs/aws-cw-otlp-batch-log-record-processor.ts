@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 import { LogRecord, BufferConfig, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
-import { AnyValue, AnyValueMap } from '@opentelemetry/api-logs';
+import { AnyValue } from '@opentelemetry/api-logs';
 import { callWithTimeout } from '@opentelemetry/core';
 import { OTLPAwsLogExporter } from './otlp-aws-log-exporter';
 

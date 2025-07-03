@@ -81,6 +81,8 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
         patchSqsServiceExtension(services.get('SQS'));
         patchSnsServiceExtension(services.get('SNS'));
         patchLambdaServiceExtension(services.get('Lambda'));
+        patchKinesisServiceExtension(services.get('Kinesis'));
+        patchDynamoDbServiceExtension(services.get('DynamoDB'));
       }
     } else if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-lambda') {
       diag.debug('Patching aws lambda instrumentation');
@@ -187,6 +189,69 @@ function patchSnsServiceExtension(snsServiceExtension: any): void {
     };
 
     snsServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
+  }
+}
+
+/*
+ * This patch extends the existing upstream extension for Kinesis. Extensions allow for custom logic for adding
+ * service-specific information to spans, such as attributes. Specifically, we are adding logic to add
+ * `aws.kinesis.stream.arn` attribute, to be used to generate RemoteTarget and achieve parity with the Java/Python instrumentation.
+ *
+ *
+ * @param kinesisServiceExtension Kinesis Service Extension obtained the service extension list from the AWS SDK OTel Instrumentation
+ */
+function patchKinesisServiceExtension(kinesisServiceExtension: any): void {
+  if (kinesisServiceExtension) {
+    const requestPreSpanHook = kinesisServiceExtension.requestPreSpanHook;
+    kinesisServiceExtension._requestPreSpanHook = requestPreSpanHook;
+
+    const patchedRequestPreSpanHook = (
+      request: NormalizedRequest,
+      _config: AwsSdkInstrumentationConfig
+    ): RequestMetadata => {
+      const requestMetadata: RequestMetadata = kinesisServiceExtension._requestPreSpanHook(request, _config);
+      if (requestMetadata.spanAttributes) {
+        const streamArn = request.commandInput?.StreamARN;
+        if (streamArn) {
+          requestMetadata.spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN] = streamArn;
+        }
+      }
+      return requestMetadata;
+    };
+
+    kinesisServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
+  }
+}
+
+/*
+ * This patch extends the existing upstream extension for DynamoDB. Extensions allow for custom logic for adding
+ * service-specific information to spans, such as attributes. Specifically, we are adding logic to add
+ * `aws.dynamodb.table.arn` attribute, to be used to generate RemoteTarget and achieve parity with the Java/Python instrumentation.
+ *
+ *
+ * @param dynamoDbServiceExtension DynamoDB Service Extension obtained the service extension list from the AWS SDK OTel Instrumentation
+ */
+function patchDynamoDbServiceExtension(dynamoDbServiceExtension: any): void {
+  if (dynamoDbServiceExtension) {
+    if (typeof dynamoDbServiceExtension.responseHook === 'function') {
+      const responseHook = dynamoDbServiceExtension.responseHook;
+
+      const patchedResponseHook = (
+        response: NormalizedResponse,
+        span: Span,
+        tracer: Tracer,
+        config: AwsSdkInstrumentationConfig
+      ): void => {
+        responseHook.call(dynamoDbServiceExtension, response, span, tracer, config);
+
+        const tableArn = response?.data?.Table?.TableArn;
+        if (tableArn) {
+          span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN, tableArn);
+        }
+      };
+
+      dynamoDbServiceExtension.responseHook = patchedResponseHook;
+    }
   }
 }
 
@@ -346,7 +411,7 @@ function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
   }
 }
 
-// Override the upstream private _getV3SmithyClientSendPatch method to add middleware to inject X-Ray Trace Context into HTTP Headers
+// Override the upstream private _getV3SmithyClientSendPatch method to add middlewares to inject X-Ray Trace Context into HTTP Headers and to extract account access key id and region for cross-account support
 // https://github.com/open-telemetry/opentelemetry-js-contrib/blob/instrumentation-aws-sdk-v0.48.0/plugins/node/opentelemetry-instrumentation-aws-sdk/src/aws-sdk.ts#L373-L384
 const V3_CLIENT_CONFIG_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.client.config');
 type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
@@ -376,6 +441,40 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
           {
             step: 'build',
             name: '_adotInjectXrayContextMiddleware',
+            override: true,
+          }
+        );
+
+        this.middlewareStack?.add(
+          (next: any, context: any) => async (middlewareArgs: any) => {
+            const activeContext = otelContext.active();
+            const span = trace.getSpan(activeContext);
+
+            if (span) {
+              try {
+                const credsProvider = this.config.credentials;
+                if (credsProvider instanceof Function) {
+                  const credentials = await credsProvider();
+                  if (credentials?.accessKeyId) {
+                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
+                  }
+                }
+                if (this.config.region instanceof Function) {
+                  const region = await this.config.region();
+                  if (region) {
+                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
+                  }
+                }
+              } catch (err) {
+                diag.debug('Failed to get auth account access key and region:', err);
+              }
+            }
+
+            return await next(middlewareArgs);
+          },
+          {
+            step: 'build',
+            name: '_adotExtractSignerCredentials',
             override: true,
           }
         );

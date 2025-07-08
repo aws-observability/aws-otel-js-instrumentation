@@ -42,7 +42,7 @@ export function setAwsDefaultEnvironmentVariables() {
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
   }
   if (!process.env.OTEL_PROPAGATORS) {
-    process.env.OTEL_PROPAGATORS = 'xray,tracecontext';
+    process.env.OTEL_PROPAGATORS = 'tracecontext,baggage,xray';
   }
   if (!process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS) {
     if (isAgentObservabilityEnabled()) {

@@ -42,6 +42,8 @@ export function setAwsDefaultEnvironmentVariables() {
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
   }
   if (!process.env.OTEL_PROPAGATORS) {
+    // Propagators are run in the order they are configured.
+    // xray is set after baggage in case xray propagator depends on the result of the baggage header extraction.
     process.env.OTEL_PROPAGATORS = 'tracecontext,baggage,xray';
   }
   if (!process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS) {

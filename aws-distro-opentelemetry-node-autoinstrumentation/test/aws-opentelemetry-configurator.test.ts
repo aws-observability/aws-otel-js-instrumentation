@@ -63,6 +63,7 @@ import {
 import { OTLPAwsLogExporter } from '../src/exporter/otlp/aws/logs/otlp-aws-log-exporter';
 import { OTLPAwsSpanExporter } from '../src/exporter/otlp/aws/traces/otlp-aws-span-exporter';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from '../src/exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
+import { TRACE_PARENT_HEADER } from '@opentelemetry/core';
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -175,6 +176,51 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
       expect(spanContext.traceId).toEqual('5759e988bd862e3fe1bf46a994270000');
       expect((span as any).parentSpanId).toEqual('53945c3f42cd0000');
+      expect(spanContext.traceFlags).toEqual(1);
+    });
+
+    it('Default Propagator extraction of Trace Context prioritizes W3C Trace Header over X-Ray Trace Header for span context if they mismatch', () => {
+      const carrier: Record<string, string> = {
+        'X-Amzn-Trace-Id':
+          'Root=1-5759e988-bd862e3fe1bf46a994270000;Parent=53945c3f42cd0000;Sampled=0;Lineage=a87bd80c:1|68fd508a:5|c512fbe3:2',
+        [TRACE_PARENT_HEADER]: '00-11111111222222223333333344444444-5555555566666666-01',
+      };
+      const textMapGetter: TextMapGetter = {
+        keys: (carrier: Record<string, string>): string[] => {
+          return Object.keys(carrier);
+        },
+        get: (carrier: Record<string, string>, key: string) => {
+          return carrier?.[key];
+        },
+      };
+
+      // Create configurator with default settings and AgentObservability enabled for this test case
+      setAwsDefaultEnvironmentVariables();
+      const customAwsOtelConfigurator = new AwsOpentelemetryConfigurator([]);
+      const customAwsOtelConfiguration = customAwsOtelConfigurator.configure();
+
+      const tracerProvider: NodeTracerProvider = new NodeTracerProvider(customAwsOtelConfiguration);
+      const tracer: Tracer = tracerProvider.getTracer('test');
+
+      const contextAfterExtraction = customAwsOtelConfiguration.textMapPropagator?.extract(
+        ROOT_CONTEXT,
+        carrier,
+        textMapGetter
+      );
+
+      // Test Trace Context extraction directly
+      const spanContextAfterExtraction = trace.getSpanContext(contextAfterExtraction!);
+      expect(spanContextAfterExtraction?.traceId).toEqual('11111111222222223333333344444444');
+      expect(spanContextAfterExtraction?.spanId).toEqual('5555555566666666');
+      expect(spanContextAfterExtraction?.traceFlags).toEqual(1);
+
+      // Test Trace Context extraction indirectly through span creation
+      const span: Span = tracer.startSpan('test', undefined, contextAfterExtraction);
+      span.end();
+      const spanContext = span.spanContext();
+
+      expect(spanContext.traceId).toEqual('11111111222222223333333344444444');
+      expect((span as any).parentSpanId).toEqual('5555555566666666');
       expect(spanContext.traceFlags).toEqual(1);
     });
 
@@ -712,7 +758,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   function validateConfiguratorEnviron() {
     // Set by register.ts
     expect(process.env).toHaveProperty('OTEL_EXPORTER_OTLP_PROTOCOL', 'http/protobuf');
-    expect(process.env).toHaveProperty('OTEL_PROPAGATORS', 'tracecontext,baggage,xray');
+    expect(process.env).toHaveProperty('OTEL_PROPAGATORS', 'baggage,xray,tracecontext');
 
     // Not set
     expect(process.env).not.toHaveProperty('OTEL_TRACES_SAMPLER');

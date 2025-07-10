@@ -30,6 +30,6 @@ export OTEL_TRACES_SAMPLER_ARG=endpoint=http://localhost:2000,polling_interval=3
 | Environment Variable | Description | Example |
 | -------------------- | ----------- | ------- |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | Leave unset so that ADOT JS will use a recommended OTLP protocol | `http/protobuf` |
-| `OTEL_PROPAGATORS` | Leave unset so that ADOT JS will use a recommended list of propagators | `xray,tracecontext,b3,b3multi` |
+| `OTEL_PROPAGATORS` | Leave unset so that ADOT JS will use a recommended list of propagators | `baggage,xray,tracecontext` |
 | `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | Leave unset so that ADOT JS will disable a recommended list of instrumentations | `fs,dns` |
 | `OTEL_NODE_RESOURCE_DETECTORS` | Leave unset so that ADOT JS will use a recommended list of Resource Detectors. If set, `env` should be at the end of the list | `aws,env` |

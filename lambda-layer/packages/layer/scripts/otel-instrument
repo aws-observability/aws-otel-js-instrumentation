@@ -68,7 +68,7 @@ fi
 
 # - Set the propagators
 if [[ -z "$OTEL_PROPAGATORS" ]]; then
-  export OTEL_PROPAGATORS="xray,tracecontext,baggage"
+  export OTEL_PROPAGATORS="baggage,xray,tracecontext"
 fi
 
 # - Set Application Signals configuration

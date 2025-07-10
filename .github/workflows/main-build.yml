@@ -2,9 +2,6 @@
 name: NodeJS Instrumentation Main Build
 on:
   push:
-    branches:
-      - main
-      - "release/v*"
 
 env:
   AWS_DEFAULT_REGION: us-east-1

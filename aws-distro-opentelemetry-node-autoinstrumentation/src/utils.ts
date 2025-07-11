@@ -55,11 +55,3 @@ export const getAwsRegionFromEnvironment = (): string | undefined => {
 
   return undefined;
 };
-
-export const checkDigits = (str: string): boolean => {
-  return /^\d+$/.test(str);
-};
-
-export const isAccountId = (input: string): boolean => {
-  return input != null && checkDigits(input);
-};

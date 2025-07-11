@@ -105,6 +105,7 @@ jobs:
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" aws-distro-opentelemetry-node-autoinstrumentation/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" docker-utils/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" package.json
+          sed -i'' -e "s/aws-aws-distro-opentelemetry-node-autoinstrumentation-[0-9]\+\.[0-9]\+\.[0-9]\+\([0-9A-Za-z-]\+\)\?\.tgz/aws-aws-distro-opentelemetry-node-autoinstrumentation-${DEV_VERSION}.tgz/" lambda-layer/packages/layer/package.json
           VERSION="${{ github.event.inputs.version }}"
           npm install
           sed -i  "s|\(/aws-observability/adot-autoinstrumentation-node:\)v[0-9]\+\.[0-9]\+\.[0-9]\+|\1v${{github.event.inputs.version}}|g" .github/workflows/daily-scan.yml

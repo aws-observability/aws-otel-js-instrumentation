@@ -42,22 +42,24 @@ export function setAwsDefaultEnvironmentVariables() {
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
   }
   if (!process.env.OTEL_PROPAGATORS) {
-    process.env.OTEL_PROPAGATORS = 'xray,tracecontext';
+    // Propagators are run in the order they are configured.
+    // xray is set after baggage in case xray propagator depends on the result of the baggage header extraction.
+    process.env.OTEL_PROPAGATORS = 'baggage,xray,tracecontext';
   }
   if (!process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS) {
-    if (isAgentObservabilityEnabled()) {
-      // Assume users only need instrumentations that are manually set-up outside of OpenTelemetry
-      process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS =
-        'amqplib,aws-lambda,aws-sdk,bunyan,cassandra-driver,connect,cucumber,dataloader,dns,express,fastify,fs,generic-pool,graphql,grpc,hapi,http,ioredis,kafkajs,knex,koa,lru-memoizer,memcached,mongodb,mongoose,mysql2,mysql,nestjs-core,net,pg,pino,redis,redis-4,restify,router,socket.io,tedious,undici,winston';
-    } else {
-      // Disable the following instrumentations by default
-      // This auto-instrumentation for the `fs` module generates many low-value spans. `dns` is similar.
-      // https://github.com/open-telemetry/opentelemetry-js-contrib/issues/1344#issuecomment-1618993178
-      process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'fs,dns';
-    }
+    // Disable the following instrumentations by default
+    // This auto-instrumentation for the `fs` module generates many low-value spans. `dns` is similar.
+    // https://github.com/open-telemetry/opentelemetry-js-contrib/issues/1344#issuecomment-1618993178
+    process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'fs,dns';
   }
 
   if (isAgentObservabilityEnabled()) {
+    if (!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
+      // Assume users only need aws-sdk and aws-lambda instrumentations, as well as
+      // instrumentations that are manually set-up outside of OpenTelemetry
+      process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = 'aws-lambda,aws-sdk';
+    }
+
     // Set exporter defaults
     if (!process.env.OTEL_TRACES_EXPORTER) {
       process.env.OTEL_TRACES_EXPORTER = 'otlp';

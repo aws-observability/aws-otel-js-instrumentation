@@ -28,6 +28,7 @@ describe('Register', function () {
       delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
       delete process.env.OTEL_PROPAGATORS;
       delete process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+      delete process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS;
 
       delete process.env.AWS_REGION;
       delete process.env.AWS_DEFAULT_REGION;
@@ -46,7 +47,7 @@ describe('Register', function () {
     it('sets AWS Default Environment Variables', () => {
       setAwsDefaultEnvironmentVariables();
       expect(process.env.OTEL_EXPORTER_OTLP_PROTOCOL).toEqual('http/protobuf');
-      expect(process.env.OTEL_PROPAGATORS).toEqual('xray,tracecontext');
+      expect(process.env.OTEL_PROPAGATORS).toEqual('baggage,xray,tracecontext');
       expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs,dns');
     });
 
@@ -100,9 +101,8 @@ describe('Register', function () {
       expect(process.env.OTEL_METRICS_EXPORTER).toEqual('awsemf');
       expect(process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT).toEqual('true');
       expect(process.env.OTEL_TRACES_SAMPLER).toEqual('parentbased_always_on');
-      expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual(
-        'amqplib,aws-lambda,aws-sdk,bunyan,cassandra-driver,connect,cucumber,dataloader,dns,express,fastify,fs,generic-pool,graphql,grpc,hapi,http,ioredis,kafkajs,knex,koa,lru-memoizer,memcached,mongodb,mongoose,mysql2,mysql,nestjs-core,net,pg,pino,redis,redis-4,restify,router,socket.io,tedious,undici,winston'
-      );
+      expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs,dns');
+      expect(process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS).toEqual('aws-lambda,aws-sdk');
       expect(process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED).toEqual('false');
       expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual('https://xray.us-east-1.amazonaws.com/v1/traces');
       expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.us-east-1.amazonaws.com/v1/logs');
@@ -167,7 +167,7 @@ describe('Register', function () {
 
     assert.ok(proc.stdout.includes('AWS Distro of OpenTelemetry automatic instrumentation started successfully'));
     assert.ok(proc.stdout.includes("Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to 'http/protobuf'"));
-    assert.ok(proc.stdout.includes("Environment variable OTEL_PROPAGATORS is set to 'xray,tracecontext'"));
+    assert.ok(proc.stdout.includes("Environment variable OTEL_PROPAGATORS is set to 'baggage,xray,tracecontext'"));
 
     // Check a span has been generated for the GET request done in app.js
     assert.ok(proc.stdout.includes("name: 'GET'"), 'console span output in stdout - validate Span Name');

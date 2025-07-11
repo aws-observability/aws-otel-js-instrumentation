@@ -57,7 +57,7 @@ export function setAwsDefaultEnvironmentVariables() {
     if (!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
       // Assume users only need aws-sdk and aws-lambda instrumentations, as well as
       // instrumentations that are manually set-up outside of OpenTelemetry
-      process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = 'aws-lambda,aws-sdk';
+      process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = 'aws-lambda,aws-sdk,http';
     }
 
     // Set exporter defaults

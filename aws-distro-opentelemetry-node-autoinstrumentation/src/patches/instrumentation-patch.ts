@@ -400,15 +400,15 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
 
             if (span) {
               try {
-                const credsProvider = this.config?.credentials;
+                const credsProvider = this.config.credentials;
                 if (credsProvider instanceof Function) {
                   const credentials = await credsProvider();
                   if (credentials?.accessKeyId) {
                     span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
                   }
                 }
-                if (this.config?.region instanceof Function) {
-                  const region = await this.config?.region();
+                if (this.config.region instanceof Function) {
+                  const region = await this.config.region();
                   if (region) {
                     span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
                   }

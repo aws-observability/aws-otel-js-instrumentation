@@ -400,18 +400,16 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
 
             if (span) {
               try {
-                const credsProvider = this.config.credentials;
-                if (credsProvider instanceof Function) {
-                  const credentials = await credsProvider();
-                  if (credentials?.accessKeyId) {
-                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
-                  }
+                const [credentials, region] = await Promise.all([
+                  this.config.credentials instanceof Function ? this.config.credentials() : null,
+                  this.config.region instanceof Function ? this.config.region() : null,
+                ]);
+
+                if (credentials?.accessKeyId) {
+                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
                 }
-                if (this.config.region instanceof Function) {
-                  const region = await this.config.region();
-                  if (region) {
-                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
-                  }
+                if (region) {
+                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
                 }
               } catch (err) {
                 diag.debug('Failed to get auth account access key and region:', err);

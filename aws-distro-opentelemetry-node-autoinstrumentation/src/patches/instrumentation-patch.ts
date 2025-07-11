@@ -395,11 +395,11 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
 
         this.middlewareStack?.add(
           (next: any, context: any) => async (middlewareArgs: any) => {
-            const activeContext = otelContext.active();
-            const span = trace.getSpan(activeContext);
+            try {
+              const activeContext = otelContext.active();
+              const span = trace.getSpan(activeContext);
 
-            if (span) {
-              try {
+              if (span) {
                 const credsProvider = this.config?.credentials;
                 if (credsProvider instanceof Function) {
                   const credentials = await credsProvider();
@@ -413,9 +413,9 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
                     span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
                   }
                 }
-              } catch (err) {
-                diag.debug('Failed to get auth account access key and region:', err);
               }
+            } catch (err) {
+              diag.debug('Failed to get auth account access key and region:', err);
             }
 
             return await next(middlewareArgs);

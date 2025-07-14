@@ -362,6 +362,7 @@ function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
 // https://github.com/open-telemetry/opentelemetry-js-contrib/blob/instrumentation-aws-sdk-v0.48.0/plugins/node/opentelemetry-instrumentation-aws-sdk/src/aws-sdk.ts#L373-L384
 const awsXrayPropagator = new AWSXRayPropagator();
 const V3_CLIENT_CONFIG_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.client.config');
+const MIDDLEWARE_ADDED_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.middleware.added');
 type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
   [V3_CLIENT_CONFIG_KEY]?: any;
 };
@@ -392,38 +393,41 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
             override: true,
           }
         );
+        if (!(this as any)[MIDDLEWARE_ADDED_KEY]) {
+          this.middlewareStack?.add(
+            (next: any, context: any) => async (middlewareArgs: any) => {
+              const activeContext = otelContext.active();
+              const span = trace.getSpan(activeContext);
 
-        this.middlewareStack?.add(
-          (next: any, context: any) => async (middlewareArgs: any) => {
-            const activeContext = otelContext.active();
-            const span = trace.getSpan(activeContext);
+              if (span) {
+                try {
+                  const [credentials, region] = await Promise.all([
+                    this.config.credentials instanceof Function ? this.config.credentials() : null,
+                    this.config.region instanceof Function ? this.config.region() : null,
+                  ]);
 
-            if (span) {
-              try {
-                const [credentials, region] = await Promise.all([
-                  this.config.credentials instanceof Function ? this.config.credentials() : null,
-                  this.config.region instanceof Function ? this.config.region() : null,
-                ]);
-
-                if (credentials?.accessKeyId) {
-                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
+                  if (credentials?.accessKeyId) {
+                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
+                  }
+                  if (region) {
+                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
+                  }
+                } catch (err) {
+                  diag.debug('Failed to get auth account access key and region:', err);
                 }
-                if (region) {
-                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
-                }
-              } catch (err) {
-                diag.debug('Failed to get auth account access key and region:', err);
               }
-            }
 
-            return await next(middlewareArgs);
-          },
-          {
-            step: 'build',
-            name: '_adotExtractSignerCredentials',
-            override: true,
-          }
-        );
+              return await next(middlewareArgs);
+            },
+            {
+              step: 'build',
+              name: '_adotExtractSignerCredentials',
+              override: true,
+            }
+          );
+
+          (this as any)[MIDDLEWARE_ADDED_KEY] = true;
+        }
 
         command[V3_CLIENT_CONFIG_KEY] = this.config;
         return original.apply(this, [command, ...args]);

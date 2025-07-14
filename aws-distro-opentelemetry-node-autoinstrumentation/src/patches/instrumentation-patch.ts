@@ -327,6 +327,8 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
           }
         );
 
+
+        
         command[V3_CLIENT_CONFIG_KEY] = this.config;
         return original.apply(this, [command, ...args]);
       };

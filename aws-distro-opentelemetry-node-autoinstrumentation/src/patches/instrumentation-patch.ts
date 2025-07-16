@@ -35,7 +35,11 @@ import {
 import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
 import { StepFunctionsServiceExtension } from './aws/services/step-functions';
 import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
-import type { Command as AwsV3Command } from '@aws-sdk/types';
+import type {
+  Command as AwsV3Command,
+  HandlerExecutionContext,
+  Handler as AwsV3MiddlewareHandler,
+} from '@aws-sdk/types';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 export const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
@@ -64,6 +68,7 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
     if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-sdk') {
       diag.debug('Patching aws sdk instrumentation');
       patchAwsSdkInstrumentation(instrumentation);
+      patchAwsSdkCredentialExtraction(instrumentation);
 
       // Access private property servicesExtensions of AwsInstrumentation
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -362,7 +367,6 @@ function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
 // https://github.com/open-telemetry/opentelemetry-js-contrib/blob/instrumentation-aws-sdk-v0.48.0/plugins/node/opentelemetry-instrumentation-aws-sdk/src/aws-sdk.ts#L373-L384
 const awsXrayPropagator = new AWSXRayPropagator();
 const V3_CLIENT_CONFIG_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.client.config');
-const MIDDLEWARE_ADDED_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.middleware.added');
 type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
   [V3_CLIENT_CONFIG_KEY]?: any;
 };
@@ -372,6 +376,7 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
       original: (...args: unknown[]) => Promise<any>
     ) {
       return function send(this: any, command: V3PluginCommand, ...args: unknown[]): Promise<any> {
+        command[V3_CLIENT_CONFIG_KEY] = this.config;
         this.middlewareStack?.add(
           (next: any, context: any) => async (middlewareArgs: any) => {
             awsXrayPropagator.inject(otelContext.active(), middlewareArgs.request.headers, defaultTextMapSetter);
@@ -393,44 +398,51 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
             override: true,
           }
         );
-        if (!(this as any)[MIDDLEWARE_ADDED_KEY]) {
-          this.middlewareStack?.add(
-            (next: any, context: any) => async (middlewareArgs: any) => {
-              const activeContext = otelContext.active();
-              const span = trace.getSpan(activeContext);
 
+        return original.apply(this, [command, ...args]);
+      };
+    };
+  }
+}
+
+function patchAwsSdkCredentialExtraction(instrumentation: Instrumentation): void {
+  if (instrumentation) {
+    const originalPatch = (instrumentation as AwsInstrumentation)['_getV3MiddlewareStackResolvePatch'];
+
+    (instrumentation as AwsInstrumentation)['_getV3MiddlewareStackResolvePatch'] = function (
+      moduleVersion: string | undefined,
+      original: (_handler: any, context: HandlerExecutionContext) => AwsV3MiddlewareHandler<any, any>
+    ) {
+      const originalHandler = originalPatch.call(this, moduleVersion, original);
+
+      return function (this: any, _handler: any, awsExecutionContext: HandlerExecutionContext) {
+        const origPatchedHandler = originalHandler.call(this, _handler, awsExecutionContext);
+
+        return function (this: any, command: any): Promise<any> {
+          const clientConfig = command[V3_CLIENT_CONFIG_KEY];
+          const credentialPromise = clientConfig?.credentials?.();
+          const regionPromise = clientConfig?.region?.();
+
+          const originalPromise = origPatchedHandler.call(this, command);
+
+          Promise.all([Promise.resolve(credentialPromise), Promise.resolve(regionPromise)])
+            .then(([credentials, region]) => {
+              const span = trace.getActiveSpan();
               if (span) {
-                try {
-                  const [credentials, region] = await Promise.all([
-                    this.config.credentials instanceof Function ? this.config.credentials() : null,
-                    this.config.region instanceof Function ? this.config.region() : null,
-                  ]);
-
-                  if (credentials?.accessKeyId) {
-                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
-                  }
-                  if (region) {
-                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
-                  }
-                } catch (err) {
-                  diag.debug('Failed to get auth account access key and region:', err);
+                if (credentials?.accessKeyId) {
+                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
+                }
+                if (region) {
+                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
                 }
               }
+            })
+            .catch(() => {
+              // Ignore extraction errors
+            });
 
-              return await next(middlewareArgs);
-            },
-            {
-              step: 'build',
-              name: '_adotExtractSignerCredentials',
-              override: true,
-            }
-          );
-
-          (this as any)[MIDDLEWARE_ADDED_KEY] = true;
-        }
-
-        command[V3_CLIENT_CONFIG_KEY] = this.config;
-        return original.apply(this, [command, ...args]);
+          return originalPromise;
+        };
       };
     };
   }

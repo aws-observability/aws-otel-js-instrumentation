@@ -36,6 +36,7 @@ import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
 import { StepFunctionsServiceExtension } from './aws/services/step-functions';
 import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import type { Command as AwsV3Command } from '@aws-sdk/types';
+import { CloudWatchLogsClient } from "@aws-sdk/client-cloudwatch-logs";
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 export const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
@@ -365,6 +366,7 @@ const V3_CLIENT_CONFIG_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.clien
 type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
   [V3_CLIENT_CONFIG_KEY]?: any;
 };
+const credClient = new CloudWatchLogsClient({});
 function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
   if (instrumentation) {
     (instrumentation as AwsInstrumentation)['_getV3SmithyClientSendPatch'] = function (
@@ -400,27 +402,18 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
 
             if (span) {
               try {
-                if (this.config.credentialDefaultProvider instanceof Function) {
-                  const credentialsProvider = this.config.credentialDefaultProvider();
-                  const credentials = await credentialsProvider();
-                  if (credentials?.accessKeyId) {
-                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
-                  }
-                } else if (this.config.credentials instanceof Function) {
-                  const credentials = await this.config.credentials();
+                const credsProvider = credClient.config.credentials;
+                if (credsProvider instanceof Function) {
+                  const credentials = await credsProvider();
                   if (credentials?.accessKeyId) {
                     span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
                   }
                 }
-                
-                // Handle region
                 if (this.config.region instanceof Function) {
                   const region = await this.config.region();
                   if (region) {
                     span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
                   }
-                } else if (typeof this.config.region === 'string') {
-                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, this.config.region);
                 }
               } catch (err) {
                 diag.debug('Failed to get auth account access key and region:', err);

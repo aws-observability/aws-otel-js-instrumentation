@@ -39,6 +39,7 @@ import type {
   Command as AwsV3Command,
   HandlerExecutionContext,
   Handler as AwsV3MiddlewareHandler,
+  AwsCredentialIdentity,
 } from '@aws-sdk/types';
 import { suppressTracing } from '@opentelemetry/core';
 
@@ -406,6 +407,7 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
   }
 }
 
+let invocationCount = 0;
 function patchAwsSdkCredentialExtraction(instrumentation: Instrumentation): void {
   if (instrumentation) {
     const originalPatch = (instrumentation as AwsInstrumentation)['_getV3MiddlewareStackResolvePatch'];
@@ -418,32 +420,41 @@ function patchAwsSdkCredentialExtraction(instrumentation: Instrumentation): void
 
       return function (this: any, _handler: any, awsExecutionContext: HandlerExecutionContext) {
         const origPatchedHandler = originalHandler.call(this, _handler, awsExecutionContext);
-
         return async function (this: any, command: any): Promise<any> {
+          invocationCount++;
+          diag.info(`[patchAwsSdkCredentialExtraction] Invocation #${invocationCount}`);
           const clientConfig = command[V3_CLIENT_CONFIG_KEY];
-          const originalPromise = origPatchedHandler.call(this, command);
+          const activeCtx = otelContext.active();
+          let credentials: AwsCredentialIdentity | undefined;
+          let region: string | undefined;
 
-          await otelContext.with(suppressTracing(otelContext.active()), async () => {
+          // 1. Suppress tracing while resolving credentials (avoids recursion)
+          await otelContext.with(suppressTracing(activeCtx), async () => {
             try {
-              const [credentials, region] = await Promise.all([
-                clientConfig?.credentials?.(),
-                clientConfig?.region?.(),
-              ]);
-
-              const span = trace.getActiveSpan();
-              if (span) {
-                if (credentials?.accessKeyId) {
-                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
-                }
-                if (region) {
-                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
-                }
-              }
-            } catch (e) {
-              // Don't crash or log unless debugging
+              diag.info('[patchAwsSdkCredentialExtraction] Resolving credentials...');
+              credentials = (await clientConfig?.credentials?.()) as AwsCredentialIdentity | undefined;
+              diag.info('[patchAwsSdkCredentialExtraction] Credentials resolved');
+              region = await clientConfig?.region?.();
+            } catch (err) {
+              diag.error('[patchAwsSdkCredentialExtraction] Error during credential/region resolution:', err);
             }
           });
-          return originalPromise;
+
+          // 2. Now call the actual SDK operation (span will be created here)
+          const result = await origPatchedHandler.call(this, command);
+
+          // 3. Annotate the current span (which was created just now)
+          const span = trace.getSpan(activeCtx);
+          if (span) {
+            if (credentials?.accessKeyId) {
+              span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
+            }
+            if (region) {
+              span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
+            }
+          }
+
+          return result;
         };
       };
     };

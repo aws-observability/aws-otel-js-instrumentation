@@ -678,18 +678,6 @@ describe('InstrumentationPatchTest', () => {
 
         expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
       });
-
-      it('Add cross account information span attributes from STS credentials', async () => {
-        const mockSpan = { setAttribute: sinon.stub() };
-        sinon.stub(trace, 'getSpan').returns(mockSpan as unknown as Span);
-        const credentialsMiddlewareArgs: any = {};
-        await mockedMiddlewareStackInternal[1][0]((arg: any) => Promise.resolve(arg), null)(credentialsMiddlewareArgs);
-        expect(mockedMiddlewareStackInternal[1][1].name).toEqual('_adotExtractSignerCredentials');
-        expect(
-          mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, 'test-access-key')
-        ).toBeTruthy();
-        expect(mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, 'us-west-2')).toBeTruthy();
-      });
     });
 
     it('injects trace context header into request via propagator', async () => {

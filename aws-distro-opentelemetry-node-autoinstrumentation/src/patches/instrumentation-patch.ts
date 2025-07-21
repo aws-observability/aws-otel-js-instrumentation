@@ -417,20 +417,20 @@ function patchAwsSdkCredentialExtraction(instrumentation: Instrumentation): void
       const originalHandler = originalPatch.call(this, moduleVersion, original);
 
       return function (this: any, _handler: any, awsExecutionContext: HandlerExecutionContext) {
-        const resolvedHandler = originalHandler.call(this, _handler, awsExecutionContext);
+        const origPatchedHandler = originalHandler.call(this, _handler, awsExecutionContext);
 
-        return function (this: any, command: any): Promise<any> {
-          // Suppress tracing **before** resolving credentials to avoid recursive send() triggering our instrumentation again
-          return otelContext.with(suppressTracing(otelContext.active()), async () => {
+        return async function (this: any, command: any): Promise<any> {
+          const clientConfig = command[V3_CLIENT_CONFIG_KEY];
+          const originalPromise = origPatchedHandler.call(this, command);
+
+          await otelContext.with(suppressTracing(otelContext.active()), async () => {
             try {
-              const clientConfig = command[V3_CLIENT_CONFIG_KEY];
               const [credentials, region] = await Promise.all([
                 clientConfig?.credentials?.(),
                 clientConfig?.region?.(),
               ]);
 
-              const activeContext = otelContext.active();
-              const span = trace.getSpan(activeContext);
+              const span = trace.getActiveSpan();
               if (span) {
                 if (credentials?.accessKeyId) {
                   span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
@@ -442,10 +442,8 @@ function patchAwsSdkCredentialExtraction(instrumentation: Instrumentation): void
             } catch (e) {
               // Don't crash or log unless debugging
             }
-
-            // Now proceed with the handler (unsuppressed, so actual span can record API call)
-            return resolvedHandler.call(this, command);
           });
+          return originalPromise;
         };
       };
     };

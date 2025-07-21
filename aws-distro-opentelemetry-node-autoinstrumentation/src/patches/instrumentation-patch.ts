@@ -35,7 +35,12 @@ import {
 import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
 import { StepFunctionsServiceExtension } from './aws/services/step-functions';
 import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
-import type { Command as AwsV3Command } from '@aws-sdk/types';
+import type {
+  Command as AwsV3Command,
+  HandlerExecutionContext,
+  Handler as AwsV3MiddlewareHandler,
+} from '@aws-sdk/types';
+import { suppressTracing } from '@opentelemetry/core';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 export const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
@@ -64,6 +69,7 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
     if (instrumentation.instrumentationName === '@opentelemetry/instrumentation-aws-sdk') {
       diag.debug('Patching aws sdk instrumentation');
       patchAwsSdkInstrumentation(instrumentation);
+      patchAwsSdkCredentialExtraction(instrumentation);
 
       // Access private property servicesExtensions of AwsInstrumentation
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -365,7 +371,6 @@ const V3_CLIENT_CONFIG_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.clien
 type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
   [V3_CLIENT_CONFIG_KEY]?: any;
 };
-let recursionDepth = 0;
 function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
   if (instrumentation) {
     (instrumentation as AwsInstrumentation)['_getV3SmithyClientSendPatch'] = function (
@@ -394,49 +399,54 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
           }
         );
 
-        this.middlewareStack?.add(
-          (next: any, context: any) => async (middlewareArgs: any) => {
-            const activeContext = otelContext.active();
-            const span = trace.getSpan(activeContext);
-
-            const err = new Error('Middleware entered');
-            diag.info(`[INSTRUMENTATION] Stack trace:\n${err.stack}`);
-            recursionDepth++;
-            diag.info(`[Middleware] Depth: ${recursionDepth}`);
-
-            if (span) {
-              try {
-                const credsProvider = this.config.credentials;
-                if (credsProvider instanceof Function) {
-                  const credentials = await credsProvider();
-                  if (credentials?.accessKeyId) {
-                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
-                  }
-                }
-                if (this.config.region instanceof Function) {
-                  const region = await this.config.region();
-                  if (region) {
-                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
-                  }
-                }
-              } catch (err) {
-                diag.debug('Failed to get auth account access key and region:', err);
-              }
-            }
-
-            const result = await next(middlewareArgs);
-            recursionDepth--;
-            return result;
-          },
-          {
-            step: 'build',
-            name: '_adotExtractSignerCredentials',
-            override: true,
-          }
-        );
-
         command[V3_CLIENT_CONFIG_KEY] = this.config;
         return original.apply(this, [command, ...args]);
+      };
+    };
+  }
+}
+
+function patchAwsSdkCredentialExtraction(instrumentation: Instrumentation): void {
+  if (instrumentation) {
+    const originalPatch = (instrumentation as AwsInstrumentation)['_getV3MiddlewareStackResolvePatch'];
+
+    (instrumentation as AwsInstrumentation)['_getV3MiddlewareStackResolvePatch'] = function (
+      moduleVersion: string | undefined,
+      original: (_handler: any, context: HandlerExecutionContext) => AwsV3MiddlewareHandler<any, any>
+    ) {
+      const originalHandler = originalPatch.call(this, moduleVersion, original);
+
+      return function (this: any, _handler: any, awsExecutionContext: HandlerExecutionContext) {
+        const resolvedHandler = originalHandler.call(this, _handler, awsExecutionContext);
+
+        return function (this: any, command: any): Promise<any> {
+          // Suppress tracing **before** resolving credentials to avoid recursive send() triggering our instrumentation again
+          return otelContext.with(suppressTracing(otelContext.active()), async () => {
+            try {
+              const clientConfig = command[V3_CLIENT_CONFIG_KEY];
+              const [credentials, region] = await Promise.all([
+                clientConfig?.credentials?.(),
+                clientConfig?.region?.(),
+              ]);
+
+              const activeContext = otelContext.active();
+              const span = trace.getSpan(activeContext);
+              if (span) {
+                if (credentials?.accessKeyId) {
+                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
+                }
+                if (region) {
+                  span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
+                }
+              }
+            } catch (e) {
+              // Don't crash or log unless debugging
+            }
+
+            // Now proceed with the handler (unsuppressed, so actual span can record API call)
+            return resolvedHandler.call(this, command);
+          });
+        };
       };
     };
   }

@@ -36,6 +36,7 @@ import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
 import { StepFunctionsServiceExtension } from './aws/services/step-functions';
 import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import type { Command as AwsV3Command } from '@aws-sdk/types';
+import { suppressTracing } from '@opentelemetry/core';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 export const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
@@ -399,23 +400,27 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
             const span = trace.getSpan(activeContext);
 
             if (span) {
-              try {
-                const credsProvider = this.config.credentials;
-                if (credsProvider instanceof Function) {
-                  const credentials = await credsProvider();
-                  if (credentials?.accessKeyId) {
-                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
+              const suppressedContext = suppressTracing(activeContext);
+
+              await otelContext.with(suppressedContext, async () => {
+                try {
+                  const credsProvider = this.config.credentials;
+                  if (credsProvider instanceof Function) {
+                    const credentials = await credsProvider();
+                    if (credentials?.accessKeyId) {
+                      span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
+                    }
                   }
-                }
-                if (this.config.region instanceof Function) {
-                  const region = await this.config.region();
-                  if (region) {
-                    span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
+                  if (this.config.region instanceof Function) {
+                    const region = await this.config.region();
+                    if (region) {
+                      span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
+                    }
                   }
+                } catch (err) {
+                  diag.debug('Failed to get auth account access key and region:', err);
                 }
-              } catch (err) {
-                diag.debug('Failed to get auth account access key and region:', err);
-              }
+              });
             }
 
             return await next(middlewareArgs);

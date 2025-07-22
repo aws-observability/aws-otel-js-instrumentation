@@ -366,6 +366,7 @@ const V3_CLIENT_CONFIG_KEY = Symbol('opentelemetry.instrumentation.aws-sdk.clien
 type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
   [V3_CLIENT_CONFIG_KEY]?: any;
 };
+const SKIP_CREDENTIAL_CAPTURE_KEY = Symbol('skipCredentialCapture');
 function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
   if (instrumentation) {
     (instrumentation as AwsInstrumentation)['_getV3SmithyClientSendPatch'] = function (
@@ -398,10 +399,13 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
           this.middlewareStack?.add(
             (next: any, context: any) => async (middlewareArgs: any) => {
               const activeContext = otelContext.active();
+              if (activeContext.getValue(SKIP_CREDENTIAL_CAPTURE_KEY)) {
+                return await next(middlewareArgs);
+              }
               const span = trace.getSpan(activeContext);
 
               if (span) {
-                const suppressedContext = suppressTracing(activeContext);
+                const suppressedContext = suppressTracing(activeContext).setValue(SKIP_CREDENTIAL_CAPTURE_KEY, true);
                 await otelContext.with(suppressedContext, async () => {
                   try {
                     const credsProvider = this.config.credentials;

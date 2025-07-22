@@ -412,7 +412,7 @@ describe('TestAwsCloudWatchEmfExporter', () => {
 
     expect(result).toHaveProperty('_aws');
     expect(result._aws.CloudWatchMetrics[0].Namespace).toEqual('TestNamespace');
-    expect(result._aws.CloudWatchMetrics[0].Dimensions[0][0]).toEqual('env');
+    expect(result._aws.CloudWatchMetrics[0].Dimensions![0][0]).toEqual('env');
     expect(result._aws.CloudWatchMetrics[0].Metrics[0].Name).toEqual('gauge_metric');
     expect(result._aws.CloudWatchMetrics[0].Metrics[0].Unit).toEqual('Count');
     expect(result._aws.CloudWatchMetrics[0].Metrics[1].Name).toEqual('sum_metric');
@@ -672,10 +672,10 @@ describe('TestAwsCloudWatchEmfExporter', () => {
 
         expect(call1Args.logEvents.length).toEqual(0);
         expect(call2Args.logEvents[0].message).toMatch(
-          /^\{"_aws":\{"Timestamp":\d+,"CloudWatchMetrics":\[\{"Namespace":"TestNamespace","Dimensions":\[\["uniqueKey1"\]\],"Metrics":\[\{"Name":"descriptorName","Unit":"Milliseconds"\}\]\}\]},"Version":"1","descriptorName":3,"uniqueKey1":"uniqueValue1"\}$/
+          /^\{"_aws":\{"Timestamp":\d+,"CloudWatchMetrics":\[\{"Namespace":"TestNamespace","Metrics":\[\{"Name":"descriptorName","Unit":"Milliseconds"\}\],"Dimensions":\[\["uniqueKey1"\]\]\}\]},"Version":"1","descriptorName":3,"uniqueKey1":"uniqueValue1"\}$/
         );
         expect(call3Args.logEvents[0].message).toMatch(
-          /^\{"_aws":\{"Timestamp":\d+,"CloudWatchMetrics":\[\{"Namespace":"TestNamespace","Dimensions":\[\["uniqueKey2"\]\],"Metrics":\[\{"Name":"descriptorName","Unit":"Milliseconds"\}\]\}\]},"Version":"1","descriptorName":9,"uniqueKey2":"uniqueValue2"\}$/
+          /^\{"_aws":\{"Timestamp":\d+,"CloudWatchMetrics":\[\{"Namespace":"TestNamespace","Metrics":\[\{"Name":"descriptorName","Unit":"Milliseconds"\}\],"Dimensions":\[\["uniqueKey2"\]\]\}\]},"Version":"1","descriptorName":9,"uniqueKey2":"uniqueValue2"\}$/
         );
         resolve();
       });
@@ -747,8 +747,42 @@ describe('TestAwsCloudWatchEmfExporter', () => {
     // Check CloudWatch metrics structure
     const cwMetrics = result._aws.CloudWatchMetrics[0];
     expect(cwMetrics.Namespace).toEqual('TestNamespace');
-    expect(cwMetrics.Dimensions[0]).toContain('env');
-    expect(cwMetrics.Dimensions[0]).toContain('service');
+    expect(cwMetrics).toHaveProperty('Dimensions');
+    expect(cwMetrics.Dimensions![0]).toContain('env');
+    expect(cwMetrics.Dimensions![0]).toContain('service');
+    expect(cwMetrics.Metrics[0].Name).toEqual('gauge_metric');
+  });
+
+  it('TestCreateEmfLogWithoutDimensions', () => {
+    /* Test EMF log creation with metrics but no dimensions. */
+    // Create test record with empty attributes (no dimensions)
+    const gaugeRecord: MetricRecord = {
+      ...exporter['createMetricRecord']('gauge_metric', 'Count', 'Gauge', Date.now(), {}),
+      value: 75.0,
+    };
+
+    const records = [gaugeRecord];
+    const resource = new Resource({ 'service.name': 'test-service', 'service.version': '1.0.0' });
+
+    const result = exporter['createEmfLog'](records, resource, 1234567890);
+
+    // Verify EMF log structure
+    expect(result).toHaveProperty('_aws');
+    expect(result._aws).toHaveProperty('CloudWatchMetrics');
+    expect(result._aws.Timestamp).toEqual(1234567890);
+    expect(result.Version).toEqual('1');
+
+    // Check resource attributes are prefixed
+    expect(result['otel.resource.service.name']).toEqual('test-service');
+    expect(result['otel.resource.service.version']).toEqual('1.0.0');
+
+    // Check metric value
+    expect(result.gauge_metric).toEqual(75.0);
+
+    // Check CloudWatch metrics structure
+    const cwMetrics = result._aws.CloudWatchMetrics[0];
+    expect(cwMetrics.Namespace).toEqual('TestNamespace');
+    expect(cwMetrics).not.toHaveProperty('Dimensions');
     expect(cwMetrics.Metrics[0].Name).toEqual('gauge_metric');
   });
 

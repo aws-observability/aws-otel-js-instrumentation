@@ -71,7 +71,7 @@ interface _Aws {
 
 interface CloudWatchMetric {
   Namespace: string;
-  Dimensions: string[][];
+  Dimensions?: string[][];
   Metrics: Metric[];
 }
 
@@ -449,16 +449,23 @@ export class AWSCloudWatchEMFExporter implements PushMetricExporter {
 
     const dimensionNames = this.getDimensionNames(allAttributes);
 
+    // Add attribute values to the root of the EMF log
     for (const [name, value] of Object.entries(allAttributes)) {
       emfLog[name] = value?.toString() ?? 'undefined';
     }
 
-    if (dimensionNames && metricDefinitions.length > 0) {
-      emfLog._aws.CloudWatchMetrics.push({
+    // Add CloudWatch Metrics if we have metrics, include dimensions only if they exist
+    if (metricDefinitions.length > 0) {
+      const cloudWatchMetric: CloudWatchMetric = {
         Namespace: this.namespace,
-        Dimensions: [dimensionNames],
         Metrics: metricDefinitions,
-      });
+      };
+
+      if (dimensionNames.length > 0) {
+        cloudWatchMetric.Dimensions = [dimensionNames];
+      }
+
+      emfLog._aws.CloudWatchMetrics.push(cloudWatchMetric);
     }
 
     return emfLog;

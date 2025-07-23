@@ -47,7 +47,7 @@ describe('Utils', function () {
     expect(getAwsRegionFromEnvironment()).toEqual('us-west-2');
   });
 
-  it('Test getAwsRegion from AWS_REGION env var', () => {
+  it('Test getAwsRegion from AWS_DEFAULT_REGION env var', () => {
     delete process.env.AWS_REGION;
     process.env.AWS_DEFAULT_REGION = 'eu-west-1';
     expect(getAwsRegionFromEnvironment()).toEqual('eu-west-1');

@@ -34,7 +34,7 @@ import {
 } from './aws/services/bedrock';
 import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
 import { StepFunctionsServiceExtension } from './aws/services/step-functions';
-import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
+import type { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import type { Command as AwsV3Command } from '@aws-sdk/types';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
@@ -280,11 +280,18 @@ function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
       span.end();
 
       const flushers = [];
-      if ((this as any)._traceForceFlusher) {
-        flushers.push((this as any)._traceForceFlusher());
+      if (this['_traceForceFlusher']) {
+        flushers.push(this['_traceForceFlusher']());
       } else {
         diag.error(
           'Spans may not be exported for the lambda function because we are not force flushing before callback.'
+        );
+      }
+      if (this['_metricForceFlusher']) {
+        flushers.push(this['_metricForceFlusher']());
+      } else {
+        diag.debug(
+          'Metrics may not be exported for the lambda function because we are not force flushing before callback.'
         );
       }
 

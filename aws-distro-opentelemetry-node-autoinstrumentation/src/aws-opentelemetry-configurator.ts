@@ -80,6 +80,8 @@ import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { logs } from '@opentelemetry/api-logs';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
+import { ConsoleEMFExporter } from './exporter/aws/metrics/console-emf-exporter';
+import { EMFExporterBase } from './exporter/aws/metrics/emf-exporter-base';
 
 const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
 const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/logs$';
@@ -382,14 +384,17 @@ export class AwsOpentelemetryConfigurator {
   }
 
   private customizeMetricReader(isEmfEnabled: boolean) {
+    let exporter: PushMetricExporter | undefined = undefined;
+
     if (isEmfEnabled) {
-      const emfExporter = createEmfExporter();
-      if (emfExporter) {
-        const periodicExportingMetricReader = new PeriodicExportingMetricReader({
-          exporter: emfExporter,
-        });
-        this.metricReader = periodicExportingMetricReader;
-      }
+      exporter = createEmfExporter();
+    }
+
+    if (exporter) {
+      const periodicExportingMetricReader = new PeriodicExportingMetricReader({
+        exporter: exporter,
+      });
+      this.metricReader = periodicExportingMetricReader;
     }
   }
 
@@ -523,8 +528,7 @@ export class AwsLoggerProcessorProvider {
     return exporters.map(exporter => {
       if (exporter instanceof ConsoleLogRecordExporter) {
         return new SimpleLogRecordProcessor(exporter);
-      }
-      if (exporter instanceof OTLPAwsLogExporter && isAgentObservabilityEnabled()) {
+      } else if (exporter instanceof OTLPAwsLogExporter && isAgentObservabilityEnabled()) {
         return new AwsCloudWatchOtlpBatchLogRecordProcessor(exporter);
       }
       return new BatchLogRecordProcessor(exporter);
@@ -951,15 +955,17 @@ export function validateAndFetchLogsHeader(): OtlpLogHeaderSetting {
   const logHeaders = process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
 
   if (!logHeaders) {
-    diag.warn(
-      'Missing required configuration: The environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS must be set with ' +
-        `required headers ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. ` +
-        `Example: OTEL_EXPORTER_OTLP_LOGS_HEADERS="${AWS_OTLP_LOGS_GROUP_HEADER}=my-log-group,${AWS_OTLP_LOGS_STREAM_HEADER}=my-log-stream"`
-    );
+    if (!isLambdaEnvironment()) {
+      diag.warn(
+        'Missing required configuration: The environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS must be set with ' +
+          `required headers ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. ` +
+          `Example: OTEL_EXPORTER_OTLP_LOGS_HEADERS="${AWS_OTLP_LOGS_GROUP_HEADER}=my-log-group,${AWS_OTLP_LOGS_STREAM_HEADER}=my-log-stream"`
+      );
+    }
     return {
-      logGroup: '',
-      logStream: '',
-      namespace: '',
+      logGroup: undefined,
+      logStream: undefined,
+      namespace: undefined,
       isValid: false,
     };
   }
@@ -1029,8 +1035,30 @@ export function checkEmfExporterEnabled(): boolean {
   return true;
 }
 
-export function createEmfExporter(): AWSCloudWatchEMFExporter | undefined {
-  const headersResult = validateAndFetchLogsHeader();
+/**
+ * Create the appropriate EMF exporter based on the environment and configuration.
+ *
+ * @returns {EMFExporterBase | undefined}
+ */
+export function createEmfExporter(): EMFExporterBase | undefined {
+  let exporter: EMFExporterBase | undefined = undefined;
+  const otlpLogHeaderSetting = validateAndFetchLogsHeader();
+
+  if (isLambdaEnvironment() && !otlpLogHeaderSetting.isValid) {
+    // Lambda without valid logs http headers - use Console EMF exporter
+    exporter = new ConsoleEMFExporter(otlpLogHeaderSetting.namespace);
+  } else {
+    // Non-Lambda environment - use CloudWatch EMF exporter
+    exporter = createCloudWatchEmfExporter(otlpLogHeaderSetting);
+  }
+
+  return exporter;
+}
+
+export function createCloudWatchEmfExporter(
+  otlpLogHeaderSetting?: OtlpLogHeaderSetting
+): AWSCloudWatchEMFExporter | undefined {
+  const headersResult = otlpLogHeaderSetting ?? validateAndFetchLogsHeader();
   if (!headersResult.isValid) {
     return undefined;
   }

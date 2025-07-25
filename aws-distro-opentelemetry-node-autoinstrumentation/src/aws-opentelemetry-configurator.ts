@@ -571,7 +571,7 @@ export class AwsLoggerProcessorProvider {
                 });
               } else {
                 diag.warn(
-                  `Invalid configuration for OTLPAwsLogExporter, falling back to OTLPProtoLogExporter. Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}`
+                  `Invalid configuration for OTLPAwsLogExporter, please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. Falling back to OTLPProtoLogExporter`
                 );
               }
             }
@@ -597,7 +597,7 @@ export class AwsLoggerProcessorProvider {
                 });
               } else {
                 diag.warn(
-                  `Invalid configuration for OTLPAwsLogExporter, falling back to OTLPProtoLogExporter. Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}`
+                  `Invalid configuration for OTLPAwsLogExporter, please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. Falling back to OTLPProtoLogExporter`
                 );
               }
             }
@@ -977,7 +977,6 @@ export function validateAndFetchLogsHeader(): OtlpLogHeaderSetting {
   let logGroup: string | undefined = undefined;
   let logStream: string | undefined = undefined;
   let namespace: string | undefined = undefined;
-  let filteredLogHeadersCount: number = 0;
 
   for (const pair of logHeaders.split(',')) {
     const splitIndex = pair.indexOf('=');
@@ -987,17 +986,15 @@ export function validateAndFetchLogsHeader(): OtlpLogHeaderSetting {
 
       if (key === AWS_OTLP_LOGS_GROUP_HEADER && value) {
         logGroup = value;
-        filteredLogHeadersCount++;
       } else if (key === AWS_OTLP_LOGS_STREAM_HEADER && value) {
         logStream = value;
-        filteredLogHeadersCount++;
       } else if (key === AWS_EMF_METRICS_NAMESPACE && value) {
         namespace = value;
       }
     }
   }
 
-  const isValid = filteredLogHeadersCount === 2 && !!logGroup && !!logStream;
+  const isValid = !!logGroup && !!logStream;
 
   return {
     logGroup: logGroup,

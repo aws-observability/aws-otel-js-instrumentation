@@ -40,6 +40,7 @@ import {
   AwsOpentelemetryConfigurator,
   AwsSpanProcessorProvider,
   checkEmfExporterEnabled,
+  createCloudWatchEmfExporter,
   createEmfExporter,
   customBuildSamplerFromEnv,
   isAwsOtlpEndpoint,
@@ -64,6 +65,7 @@ import { OTLPAwsLogExporter } from '../src/exporter/otlp/aws/logs/otlp-aws-log-e
 import { OTLPAwsSpanExporter } from '../src/exporter/otlp/aws/traces/otlp-aws-span-exporter';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from '../src/exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
 import { TRACE_PARENT_HEADER } from '@opentelemetry/core';
+import { ConsoleEMFExporter } from '../src/exporter/aws/metrics/console-emf-exporter';
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -1307,10 +1309,10 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(process.env.OTEL_METRICS_EXPORTER).toEqual('first,third');
   });
 
-  it('testCreateEmfExporter', async () => {
+  it('testCreateCloudWatchEmfExporter', async () => {
     process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS =
       'x-aws-log-group=/test/log/group/name,x-aws-log-stream=test_log_stream_name,x-aws-metric-namespace=TEST_NAMESPACE';
-    const exporter = createEmfExporter();
+    const exporter = createCloudWatchEmfExporter();
     expect(exporter).toBeInstanceOf(AWSCloudWatchEMFExporter);
     delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
   });
@@ -1339,9 +1341,9 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     headerSettings = validateAndFetchLogsHeader();
     expect(headerSettings).toEqual({
       isValid: false,
-      logGroup: '',
-      logStream: '',
-      namespace: '',
+      logGroup: undefined,
+      logStream: undefined,
+      namespace: undefined,
     });
   });
 
@@ -1395,5 +1397,57 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(resource.attributes[AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE]).toEqual('existing-agent');
 
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
+  });
+
+  describe('Test createEmfExporter', () => {
+    beforeEach(() => {
+      delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
+      delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('Test createEmfExporter in Lambda with valid headers', () => {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'lambdaFunctionName';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS =
+        'x-aws-log-group=test-group,x-aws-log-stream=test-stream,x-aws-metric-namespace=test-namespace';
+
+      const result = createEmfExporter();
+      expect(result).toBeInstanceOf(AWSCloudWatchEMFExporter);
+    });
+
+    it('creates Console EMF exporter in Lambda with invalid headers', () => {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'lambdaFunctionName';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-metric-namespace=test-namespace';
+
+      const result = createEmfExporter();
+      expect(result).toBeInstanceOf(ConsoleEMFExporter);
+    });
+
+    it('creates Console EMF exporter in Lambda with invalid headers and no namespace defaults to "default" namespace', () => {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'lambdaFunctionName';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'nothing=here';
+
+      const result = createEmfExporter();
+      expect(result).toBeInstanceOf(ConsoleEMFExporter);
+      expect(result!['namespace']).toEqual('default');
+    });
+
+    it('creates CloudWatch EMF exporter in non-Lambda environment', () => {
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS =
+        'x-aws-log-group=test-group,x-aws-log-stream=test-stream,x-aws-metric-namespace=test-namespace';
+
+      const result = createEmfExporter();
+      expect(result).toBeInstanceOf(AWSCloudWatchEMFExporter);
+    });
+
+    it('returns undefined when CloudWatch EMF exporter creation fails in non-Lambda environment due to invalid headers', () => {
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-log-stream=test-stream';
+
+      const result = createEmfExporter();
+      expect(result).toBeUndefined();
+    });
   });
 });

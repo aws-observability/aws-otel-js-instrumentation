@@ -30,12 +30,10 @@ import {
 import { ExportResultCode } from '@opentelemetry/core';
 import { expect } from 'expect';
 import * as sinon from 'sinon';
-import {
-  AWSCloudWatchEMFExporter,
-  MetricRecord,
-} from '../../../../src/exporter/aws/metrics/aws-cloudwatch-emf-exporter';
+import { MetricRecord } from '../../../../src/exporter/aws/metrics/emf-exporter-base';
 import { Resource } from '@opentelemetry/resources';
 import { LogEventBatch } from '../../../../src/exporter/aws/metrics/cloudwatch-logs-client';
+import { AWSCloudWatchEMFExporter } from '../../../../src/exporter/aws/metrics/aws-cloudwatch-emf-exporter';
 
 describe('TestAwsCloudWatchEmfExporter', () => {
   let exporter: AWSCloudWatchEMFExporter;

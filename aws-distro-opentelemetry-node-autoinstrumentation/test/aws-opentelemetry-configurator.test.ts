@@ -40,7 +40,6 @@ import {
   AwsOpentelemetryConfigurator,
   AwsSpanProcessorProvider,
   checkEmfExporterEnabled,
-  createCloudWatchEmfExporter,
   createEmfExporter,
   customBuildSamplerFromEnv,
   isAwsOtlpEndpoint,
@@ -1307,14 +1306,6 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.OTEL_METRICS_EXPORTER = 'first,awsemf,third';
     checkEmfExporterEnabled();
     expect(process.env.OTEL_METRICS_EXPORTER).toEqual('first,third');
-  });
-
-  it('testCreateCloudWatchEmfExporter', async () => {
-    process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS =
-      'x-aws-log-group=/test/log/group/name,x-aws-log-stream=test_log_stream_name,x-aws-metric-namespace=TEST_NAMESPACE';
-    const exporter = createCloudWatchEmfExporter();
-    expect(exporter).toBeInstanceOf(AWSCloudWatchEMFExporter);
-    delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
   });
 
   it('testIsAwsOtlpEndpoint', () => {

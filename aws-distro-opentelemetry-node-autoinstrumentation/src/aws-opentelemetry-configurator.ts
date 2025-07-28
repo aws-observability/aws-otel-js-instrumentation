@@ -1048,26 +1048,15 @@ export function createEmfExporter(): EMFExporterBase | undefined {
   if (isLambdaEnvironment() && !otlpLogHeaderSetting.isValid) {
     // Lambda without valid logs http headers - use Console EMF exporter
     exporter = new ConsoleEMFExporter(otlpLogHeaderSetting.namespace);
-  } else {
+  } else if (otlpLogHeaderSetting.isValid) {
     // Non-Lambda environment - use CloudWatch EMF exporter
-    exporter = createCloudWatchEmfExporter(otlpLogHeaderSetting);
+    // If headersResult.isValid is true, then headersResult.logGroup and headersResult.logStream are guaranteed to be strings
+    exporter = new AWSCloudWatchEMFExporter(
+      otlpLogHeaderSetting.namespace,
+      otlpLogHeaderSetting.logGroup as string,
+      otlpLogHeaderSetting.logStream as string
+    );
   }
 
   return exporter;
-}
-
-export function createCloudWatchEmfExporter(
-  otlpLogHeaderSetting?: OtlpLogHeaderSetting
-): AWSCloudWatchEMFExporter | undefined {
-  const headersResult = otlpLogHeaderSetting ?? validateAndFetchLogsHeader();
-  if (!headersResult.isValid) {
-    return undefined;
-  }
-
-  // If headersResult.isValid is true, then headersResult.logGroup and headersResult.logStream are guaranteed to be strings
-  return new AWSCloudWatchEMFExporter(
-    headersResult.namespace,
-    headersResult.logGroup as string,
-    headersResult.logStream as string
-  );
 }

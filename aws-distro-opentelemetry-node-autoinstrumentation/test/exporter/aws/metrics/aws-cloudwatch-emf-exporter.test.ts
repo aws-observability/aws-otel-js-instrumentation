@@ -35,7 +35,7 @@ import { Resource } from '@opentelemetry/resources';
 import { LogEventBatch } from '../../../../src/exporter/aws/metrics/cloudwatch-logs-client';
 import { AWSCloudWatchEMFExporter } from '../../../../src/exporter/aws/metrics/aws-cloudwatch-emf-exporter';
 
-describe('TestAwsCloudWatchEmfExporter', () => {
+describe('TestAWSCloudWatchEMFExporter', () => {
   let exporter: AWSCloudWatchEMFExporter;
   const { CloudWatchLogs } = require('@aws-sdk/client-cloudwatch-logs');
 

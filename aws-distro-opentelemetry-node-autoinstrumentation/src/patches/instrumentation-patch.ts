@@ -423,7 +423,7 @@ type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
 // (e.g., sts:AssumeRoleWithWebIdentity) which go through the same instrumented 'send' method.
 // Without this flag, each credential request would trigger another credential extraction attempt,
 // creating an infinite loop of nested AWS SDK calls.
-const SKIP_CREDENTIAL_CAPTURE_KEY = Symbol('skip-credential-capture');
+export const SKIP_CREDENTIAL_CAPTURE_KEY = Symbol('skip-credential-capture');
 function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
   if (instrumentation) {
     (instrumentation as AwsInstrumentation)['_getV3SmithyClientSendPatch'] = function (

@@ -5,6 +5,7 @@ import {
   Attributes,
   diag,
   Context as OtelContext,
+  context as otelContext,
   trace,
   context,
   propagation,
@@ -28,6 +29,7 @@ import {
   customExtractor,
   ExtendedAwsLambdaInstrumentation,
   headerGetter,
+  SKIP_CREDENTIAL_CAPTURE_KEY,
 } from './../../src/patches/instrumentation-patch';
 import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
@@ -39,6 +41,7 @@ import { ReadableSpan, Span as SDKSpan } from '@opentelemetry/sdk-trace-base';
 import { getTestSpans } from '@opentelemetry/contrib-test-utils';
 import { instrumentationConfigs } from '../../src/register';
 import { LoggerProvider } from '@opentelemetry/api-logs';
+import { STS } from '@aws-sdk/client-sts';
 
 // It is assumed that bedrock.test.ts has already registered the
 // necessary instrumentations for testing by calling:
@@ -692,6 +695,54 @@ describe('InstrumentationPatchTest', () => {
         ).toBeTruthy();
         expect(mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, 'us-west-2')).toBeTruthy();
       });
+    });
+
+    it('prevents recursion when credentials provider makes STS calls', async () => {
+      let credentialsCallCount = 0;
+      let skipCredentialCaptureValue = false;
+
+      // Create recursive credentials provider
+      const recursiveCredentialsProvider = async (): Promise<any> => {
+        credentialsCallCount++;
+        if (otelContext.active().getValue(SKIP_CREDENTIAL_CAPTURE_KEY)) {
+          skipCredentialCaptureValue = true;
+        }
+
+        const credentialsStsClient = new STS({
+          region: 'us-east-1',
+          credentials: recursiveCredentialsProvider,
+        });
+        await credentialsStsClient
+          .assumeRoleWithWebIdentity({
+            RoleArn: 'arn:aws:iam::123456789012:role/test-role',
+            RoleSessionName: 'test-session',
+            WebIdentityToken: 'mock-token',
+          })
+          .catch((err: any) => {});
+        return { accessKeyId: 'sts-access-key', secretAccessKey: 'secret' };
+      };
+
+      // Create main client with recursive credentials provider
+      const mainClient = new STS({
+        region: 'us-east-1',
+        credentials: recursiveCredentialsProvider,
+      });
+
+      // Mock HTTP responses
+      nock('https://sts.us-east-1.amazonaws.com')
+        .post('/')
+        .reply(200, '<GetCallerIdentityResponse></GetCallerIdentityResponse>');
+
+      // Make Lambda call - this triggers credential extraction which calls STS
+      await mainClient.getCallerIdentity({}).catch((err: any) => {});
+
+      const testSpans = getTestSpans();
+      const stsSpans = testSpans.filter(s => s.name.includes('GetCallerIdentity'));
+
+      expect(stsSpans.length).toBe(1);
+      expect(credentialsCallCount).toBe(2); // 1. Main client needs credentials 2. Nested STS client needs credentials
+      expect(skipCredentialCaptureValue).toBe(true); // Should detect skip key in context
+      expect(stsSpans[0].attributes[AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY]).toBe('sts-access-key');
     });
 
     it('injects trace context header into request via propagator', async () => {

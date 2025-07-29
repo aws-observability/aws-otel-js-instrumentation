@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Attributes, DiagLogger, Span, SpanKind, Tracer } from '@opentelemetry/api';
+import { Attributes, DiagLogger, Span, SpanKind, Tracer, diag } from '@opentelemetry/api';
 import {
   AwsSdkInstrumentationConfig,
   NormalizedRequest,
@@ -331,7 +331,23 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
   responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
     const currentModelId = response.request.commandInput?.modelId;
     if (response.data?.body) {
-      const decodedResponseBody = new TextDecoder().decode(response.data.body);
+      let decodedResponseBody: string;
+
+      if (typeof response.data.body === 'string') {
+        // Already converted by AWS SDK middleware by Uint8ArrayBlobAdapter
+        decodedResponseBody = response.data.body;
+      } else if (response.data.body instanceof Uint8Array) {
+        // Raw Uint8Array from AWS
+        decodedResponseBody = new TextDecoder().decode(response.data.body);
+      } else if (Buffer.isBuffer(response.data.body)) {
+        // Node.js Buffer convert with toString('utf8')
+        decodedResponseBody = response.data.body.toString('utf8');
+      } else {
+        // Handle unexpected types - log and skip processing
+        diag.debug(`Unexpected body type in Bedrock response: ${typeof response.data.body}`, response.data.body);
+        return;
+      }
+
       const responseBody = JSON.parse(decodedResponseBody);
       if (currentModelId.includes('amazon.titan')) {
         if (responseBody.inputTextTokenCount !== undefined) {

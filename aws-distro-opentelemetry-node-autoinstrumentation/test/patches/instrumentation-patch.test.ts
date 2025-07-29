@@ -26,6 +26,7 @@ import {
   applyInstrumentationPatches,
   AWSXRAY_TRACE_ID_HEADER_CAPITALIZED,
   customExtractor,
+  ExtendedAwsLambdaInstrumentation,
   headerGetter,
 } from './../../src/patches/instrumentation-patch';
 import * as sinon from 'sinon';
@@ -37,6 +38,7 @@ import * as nock from 'nock';
 import { ReadableSpan, Span as SDKSpan } from '@opentelemetry/sdk-trace-base';
 import { getTestSpans } from '@opentelemetry/contrib-test-utils';
 import { instrumentationConfigs } from '../../src/register';
+import { LoggerProvider } from '@opentelemetry/api-logs';
 
 // It is assumed that bedrock.test.ts has already registered the
 // necessary instrumentations for testing by calling:
@@ -669,6 +671,124 @@ describe('InstrumentationPatchTest', () => {
           code: SpanStatusCode.ERROR,
           message: 'SomeError',
         });
+        done();
+      });
+    });
+  });
+
+  describe('AwsLambdaInstrumentationPatchTest', () => {
+    let awsLambdaInstrumentation: ExtendedAwsLambdaInstrumentation;
+    beforeEach(() => {
+      const instrumentationsToTest = [
+        new AwsLambdaInstrumentation(instrumentationConfigs['@opentelemetry/instrumentation-aws-lambda']),
+      ];
+      applyInstrumentationPatches(instrumentationsToTest);
+      awsLambdaInstrumentation = instrumentationsToTest[0] as ExtendedAwsLambdaInstrumentation;
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('Tests setLoggerProvider method', () => {
+      const resolvedPromise = Promise.resolve();
+      const mockLoggerProvider = {
+        getDelegate: () => ({
+          forceFlush: () => resolvedPromise,
+        }),
+        getLogger: () => {
+          return {
+            emit: () => {},
+          };
+        },
+      };
+
+      awsLambdaInstrumentation.setLoggerProvider(mockLoggerProvider as LoggerProvider);
+      expect(awsLambdaInstrumentation['_logForceFlusher']!()).toBe(resolvedPromise);
+    });
+
+    it('Tests _logForceFlush with provider that has getDelegate', () => {
+      const mockForceFlush = sinon.stub().resolves();
+      const mockLoggerProvider = {
+        getDelegate: () => ({
+          forceFlush: mockForceFlush,
+        }),
+        getLogger: () => {
+          return {
+            emit: () => {},
+          };
+        },
+      };
+
+      const flusher = awsLambdaInstrumentation['_logForceFlush'](mockLoggerProvider as LoggerProvider);
+      expect(flusher).toBeDefined();
+      flusher?.();
+      expect(mockForceFlush.called).toBeTruthy();
+    });
+
+    it('Tests _logForceFlush with provider that has direct forceFlush', () => {
+      const mockForceFlush = sinon.stub().resolves();
+      const mockLoggerProvider = {
+        forceFlush: mockForceFlush,
+        getLogger: () => {
+          return {
+            emit: () => {},
+          };
+        },
+      };
+
+      const flusher = awsLambdaInstrumentation['_logForceFlush'](mockLoggerProvider as LoggerProvider);
+      expect(flusher).toBeDefined();
+      flusher?.();
+      expect(mockForceFlush.called).toBeTruthy();
+    });
+
+    it('Tests _logForceFlush with undefined provider', () => {
+      const flusher = awsLambdaInstrumentation['_logForceFlush'](undefined as unknown as LoggerProvider);
+      expect(flusher).toBeUndefined();
+    });
+
+    it('Tests _endSpan with all flushers', done => {
+      const mockSpan: Span = sinon.createStubInstance(SDKSpan);
+
+      // Setup mock flushers
+      const mockTraceFlush = sinon.stub().resolves();
+      const mockMetricFlush = sinon.stub().resolves();
+      const mockLogFlush = sinon.stub().resolves();
+
+      awsLambdaInstrumentation['_traceForceFlusher'] = mockTraceFlush;
+      awsLambdaInstrumentation['_metricForceFlusher'] = mockMetricFlush;
+      awsLambdaInstrumentation['_logForceFlusher'] = mockLogFlush;
+
+      awsLambdaInstrumentation['_endSpan'](mockSpan, null, () => {
+        expect(mockTraceFlush.called).toBeTruthy();
+        expect(mockMetricFlush.called).toBeTruthy();
+        expect(mockLogFlush.called).toBeTruthy();
+        done();
+      });
+    });
+
+    it('Tests _endSpan handles missing flushers gracefully', done => {
+      const mockSpan: Span = sinon.createStubInstance(SDKSpan);
+      const mockDiag = sinon.spy(diag, 'debug');
+      const mockDiagError = sinon.spy(diag, 'error');
+
+      awsLambdaInstrumentation['_endSpan'](mockSpan, null, () => {
+        expect(
+          mockDiagError.calledWith(
+            'Spans may not be exported for the lambda function because we are not force flushing before callback.'
+          )
+        ).toBeTruthy();
+        expect(
+          mockDiag.calledWith(
+            'Metrics may not be exported for the lambda function because we are not force flushing before callback.'
+          )
+        ).toBeTruthy();
+        expect(
+          mockDiag.calledWith(
+            'Logs may not be exported for the lambda function because we are not force flushing before callback.'
+          )
+        ).toBeTruthy();
         done();
       });
     });

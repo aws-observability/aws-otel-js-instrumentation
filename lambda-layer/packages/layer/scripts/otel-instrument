@@ -81,6 +81,11 @@ if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
     export OTEL_METRICS_EXPORTER="awsemf";
 fi
 
+# - Disable logs exporter by default
+if [ -z "${OTEL_LOGS_EXPORTER}" ]; then
+    export OTEL_LOGS_EXPORTER="none";
+fi
+
 # - Append Lambda Resource Attributes to OTel Resource Attribute List
 if [ -z "${OTEL_RESOURCE_ATTRIBUTES}" ]; then
     export OTEL_RESOURCE_ATTRIBUTES=$LAMBDA_RESOURCE_ATTRIBUTES;

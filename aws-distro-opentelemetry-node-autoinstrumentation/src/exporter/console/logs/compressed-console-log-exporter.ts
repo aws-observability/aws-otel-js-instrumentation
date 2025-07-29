@@ -1,0 +1,17 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+import { ExportResult, ExportResultCode } from '@opentelemetry/core';
+import { ConsoleLogRecordExporter, ReadableLogRecord } from '@opentelemetry/sdk-logs';
+
+export class CompressedConsoleLogRecordExporter extends ConsoleLogRecordExporter {
+  override export(logs: ReadableLogRecord[], resultCallback: (result: ExportResult) => void): void {
+    this._sendLogRecordsToLambdaConsole(logs, resultCallback);
+  }
+
+  private _sendLogRecordsToLambdaConsole(logRecords: ReadableLogRecord[], done?: (result: ExportResult) => void): void {
+    for (const logRecord of logRecords) {
+      console.log(this['_exportInfo'](logRecord));
+    }
+    done?.({ code: ExportResultCode.SUCCESS });
+  }
+}

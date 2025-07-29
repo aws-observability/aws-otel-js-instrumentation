@@ -54,7 +54,6 @@ import {
   SpanProcessor,
   TraceIdRatioBasedSampler,
 } from '@opentelemetry/sdk-trace-base';
-
 import {
   BatchLogRecordProcessor,
   ConsoleLogRecordExporter,
@@ -82,6 +81,7 @@ import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
 import { ConsoleEMFExporter } from './exporter/aws/metrics/console-emf-exporter';
 import { EMFExporterBase } from './exporter/aws/metrics/emf-exporter-base';
+import { CompressedConsoleLogRecordExporter } from './exporter/console/logs/compressed-console-log-exporter';
 
 const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
 const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/logs$';
@@ -613,7 +613,14 @@ export class AwsLoggerProcessorProvider {
           }
         }
       } else if (exporter === 'console') {
-        exporters.push(new ConsoleLogRecordExporter());
+        let logExporter: LogRecordExporter | undefined = undefined;
+        if (isLambdaEnvironment()) {
+          diag.debug('Lambda environment detected, using CompressedConsoleLogRecordExporter instead of ConsoleLogRecordExporter');
+          logExporter = new CompressedConsoleLogRecordExporter();
+        } else {
+          logExporter = new ConsoleLogRecordExporter();
+        }
+        exporters.push(logExporter);
       } else {
         diag.warn(`Unsupported OTEL_LOGS_EXPORTER value: "${exporter}". Supported values are: otlp, console, none.`);
       }

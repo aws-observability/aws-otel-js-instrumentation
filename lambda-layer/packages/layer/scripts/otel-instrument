@@ -76,8 +76,9 @@ if [ -z "${OTEL_AWS_APPLICATION_SIGNALS_ENABLED}" ]; then
     export OTEL_AWS_APPLICATION_SIGNALS_ENABLED="true";
 fi
 
+# - Enable emf exporter by default
 if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
-    export OTEL_METRICS_EXPORTER="none";
+    export OTEL_METRICS_EXPORTER="awsemf";
 fi
 
 # - Append Lambda Resource Attributes to OTel Resource Attribute List

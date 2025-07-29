@@ -15,6 +15,7 @@ import {
   TextMapSetter,
   INVALID_SPAN_CONTEXT,
   SpanStatusCode,
+  ROOT_CONTEXT,
 } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
@@ -694,6 +695,50 @@ describe('InstrumentationPatchTest', () => {
           mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, 'test-access-key')
         ).toBeTruthy();
         expect(mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, 'us-west-2')).toBeTruthy();
+      });
+
+      it('Skips credential extraction with non-injectable NoOp context', async () => {
+        let credentialsProviderCallCount = 0;
+        const NoOpContext = Object.create(ROOT_CONTEXT);
+        NoOpContext.setValue = function () {
+          return this;
+        };
+        NoOpContext.deleteValue = function () {
+          return this;
+        };
+
+        const mockSpan = sinon.createStubInstance(SDKSpan);
+        const ctx = trace.setSpan(NoOpContext, mockSpan as unknown as Span);
+
+        sinon.stub(otelContext, 'active').returns(ctx);
+        sinon.stub(trace, 'getSpan').returns(mockSpan as unknown as Span);
+
+        const middlewareStack: any[] = [];
+        const recursiveSdkSend = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
+          ['_getV3SmithyClientSendPatch'](() => Promise.resolve())
+          .bind({
+            middlewareStack: { add: (middleware: any, config: any) => middlewareStack.push([middleware, config]) },
+            config: {
+              // Credentials provider that recursively calls SDK (simulates STS)
+              credentials: async () => {
+                credentialsProviderCallCount++;
+                await middlewareStack[1][0](() => Promise.resolve(), null)({});
+                return { accessKeyId: 'test-access-key' };
+              },
+              region: () => Promise.resolve('us-west-2'),
+            },
+          });
+
+        // Initial SDK call triggers middleware setup
+        await recursiveSdkSend({}, null);
+
+        // Execute credentials extraction middleware
+        await middlewareStack[1][0](() => Promise.resolve(), null)({});
+
+        expect(credentialsProviderCallCount).toBe(0);
+        expect(
+          mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, 'test-access-key')
+        ).toBeFalsy();
       });
     });
 

@@ -470,25 +470,28 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
                 // suppressTracing prevents span generation for internal credential extraction calls
                 // which are implementation details and not relevant to the application's telemetry
                 const suppressedContext = suppressTracing(activeContext).setValue(SKIP_CREDENTIAL_CAPTURE_KEY, true);
-                await otelContext.with(suppressedContext, async () => {
-                  try {
-                    const credsProvider = this.config.credentials;
-                    if (credsProvider instanceof Function) {
-                      const credentials = await credsProvider();
-                      if (credentials?.accessKeyId) {
-                        span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
+                // Skip credential extraction if the context is not injectable
+                if (suppressedContext.getValue(SKIP_CREDENTIAL_CAPTURE_KEY)) {
+                  await otelContext.with(suppressedContext, async () => {
+                    try {
+                      const credsProvider = this.config.credentials;
+                      if (credsProvider instanceof Function) {
+                        const credentials = await credsProvider();
+                        if (credentials?.accessKeyId) {
+                          span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, credentials.accessKeyId);
+                        }
                       }
-                    }
-                    if (this.config.region instanceof Function) {
-                      const region = await this.config.region();
-                      if (region) {
-                        span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
+                      if (this.config.region instanceof Function) {
+                        const region = await this.config.region();
+                        if (region) {
+                          span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, region);
+                        }
                       }
+                    } catch (err) {
+                      diag.debug('Failed to get auth account access key and region:', err);
                     }
-                  } catch (err) {
-                    diag.debug('Failed to get auth account access key and region:', err);
-                  }
-                });
+                  });
+                }
               }
 
               return await next(middlewareArgs);

@@ -80,6 +80,8 @@ import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { logs } from '@opentelemetry/api-logs';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
+import { ConsoleEMFExporter } from './exporter/aws/metrics/console-emf-exporter';
+import { EMFExporterBase } from './exporter/aws/metrics/emf-exporter-base';
 
 const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
 const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/logs$';
@@ -382,14 +384,17 @@ export class AwsOpentelemetryConfigurator {
   }
 
   private customizeMetricReader(isEmfEnabled: boolean) {
+    let exporter: PushMetricExporter | undefined = undefined;
+
     if (isEmfEnabled) {
-      const emfExporter = createEmfExporter();
-      if (emfExporter) {
-        const periodicExportingMetricReader = new PeriodicExportingMetricReader({
-          exporter: emfExporter,
-        });
-        this.metricReader = periodicExportingMetricReader;
-      }
+      exporter = createEmfExporter();
+    }
+
+    if (exporter) {
+      const periodicExportingMetricReader = new PeriodicExportingMetricReader({
+        exporter: exporter,
+      });
+      this.metricReader = periodicExportingMetricReader;
     }
   }
 
@@ -523,8 +528,7 @@ export class AwsLoggerProcessorProvider {
     return exporters.map(exporter => {
       if (exporter instanceof ConsoleLogRecordExporter) {
         return new SimpleLogRecordProcessor(exporter);
-      }
-      if (exporter instanceof OTLPAwsLogExporter && isAgentObservabilityEnabled()) {
+      } else if (exporter instanceof OTLPAwsLogExporter && isAgentObservabilityEnabled()) {
         return new AwsCloudWatchOtlpBatchLogRecordProcessor(exporter);
       }
       return new BatchLogRecordProcessor(exporter);
@@ -561,42 +565,52 @@ export class AwsLoggerProcessorProvider {
           case 'http/json':
             exporters.push(new OTLPHttpLogExporter());
             break;
-          case 'http/protobuf':
-            if (
-              otlpExporterLogsEndpoint &&
-              isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs') &&
-              validateAndFetchLogsHeader().isValid
-            ) {
+          case 'http/protobuf': {
+            let logExporter: LogRecordExporter | undefined = undefined;
+            if (otlpExporterLogsEndpoint && isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs')) {
               diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
-              exporters.push(
-                new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
+              if (validateAndFetchLogsHeader().isValid) {
+                logExporter = new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
                   compression: CompressionAlgorithm.GZIP,
-                })
-              );
-            } else {
-              exporters.push(new OTLPProtoLogExporter());
+                });
+              } else {
+                diag.warn(
+                  `Invalid configuration for OTLPAwsLogExporter, please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. Falling back to OTLPProtoLogExporter`
+                );
+              }
             }
+
+            if (!logExporter) {
+              logExporter = new OTLPProtoLogExporter();
+            }
+            exporters.push(logExporter);
             break;
+          }
           case undefined:
           case '':
             exporters.push(new OTLPProtoLogExporter());
             break;
-          default:
+          default: {
             diag.warn(`Unsupported OTLP logs protocol: "${protocol}". Using http/protobuf.`);
-            if (
-              otlpExporterLogsEndpoint &&
-              isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs') &&
-              validateAndFetchLogsHeader().isValid
-            ) {
+            let logExporter: LogRecordExporter | undefined = undefined;
+            if (otlpExporterLogsEndpoint && isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs')) {
               diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
-              exporters.push(
-                new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
+              if (validateAndFetchLogsHeader().isValid) {
+                logExporter = new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
                   compression: CompressionAlgorithm.GZIP,
-                })
-              );
-            } else {
-              exporters.push(new OTLPProtoLogExporter());
+                });
+              } else {
+                diag.warn(
+                  `Invalid configuration for OTLPAwsLogExporter, please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. Falling back to OTLPProtoLogExporter`
+                );
+              }
             }
+
+            if (!logExporter) {
+              logExporter = new OTLPProtoLogExporter();
+            }
+            exporters.push(logExporter);
+          }
         }
       } else if (exporter === 'console') {
         exporters.push(new ConsoleLogRecordExporter());
@@ -951,15 +965,17 @@ export function validateAndFetchLogsHeader(): OtlpLogHeaderSetting {
   const logHeaders = process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
 
   if (!logHeaders) {
-    diag.warn(
-      'Missing required configuration: The environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS must be set with ' +
-        `required headers ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. ` +
-        `Example: OTEL_EXPORTER_OTLP_LOGS_HEADERS="${AWS_OTLP_LOGS_GROUP_HEADER}=my-log-group,${AWS_OTLP_LOGS_STREAM_HEADER}=my-log-stream"`
-    );
+    if (!isLambdaEnvironment()) {
+      diag.warn(
+        'Missing required configuration: The environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS must be set with ' +
+          `required headers ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. ` +
+          `Example: OTEL_EXPORTER_OTLP_LOGS_HEADERS="${AWS_OTLP_LOGS_GROUP_HEADER}=my-log-group,${AWS_OTLP_LOGS_STREAM_HEADER}=my-log-stream"`
+      );
+    }
     return {
-      logGroup: '',
-      logStream: '',
-      namespace: '',
+      logGroup: undefined,
+      logStream: undefined,
+      namespace: undefined,
       isValid: false,
     };
   }
@@ -967,7 +983,6 @@ export function validateAndFetchLogsHeader(): OtlpLogHeaderSetting {
   let logGroup: string | undefined = undefined;
   let logStream: string | undefined = undefined;
   let namespace: string | undefined = undefined;
-  let filteredLogHeadersCount: number = 0;
 
   for (const pair of logHeaders.split(',')) {
     const splitIndex = pair.indexOf('=');
@@ -977,23 +992,15 @@ export function validateAndFetchLogsHeader(): OtlpLogHeaderSetting {
 
       if (key === AWS_OTLP_LOGS_GROUP_HEADER && value) {
         logGroup = value;
-        filteredLogHeadersCount++;
       } else if (key === AWS_OTLP_LOGS_STREAM_HEADER && value) {
         logStream = value;
-        filteredLogHeadersCount++;
       } else if (key === AWS_EMF_METRICS_NAMESPACE && value) {
         namespace = value;
       }
     }
   }
 
-  const isValid = filteredLogHeadersCount === 2 && !!logGroup && !!logStream;
-  if (!isValid) {
-    diag.warn(
-      'Incomplete configuration: Please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS ' +
-        `to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}`
-    );
-  }
+  const isValid = !!logGroup && !!logStream;
 
   return {
     logGroup: logGroup,
@@ -1029,16 +1036,27 @@ export function checkEmfExporterEnabled(): boolean {
   return true;
 }
 
-export function createEmfExporter(): AWSCloudWatchEMFExporter | undefined {
-  const headersResult = validateAndFetchLogsHeader();
-  if (!headersResult.isValid) {
-    return undefined;
+/**
+ * Create the appropriate EMF exporter based on the environment and configuration.
+ *
+ * @returns {EMFExporterBase | undefined}
+ */
+export function createEmfExporter(): EMFExporterBase | undefined {
+  let exporter: EMFExporterBase | undefined = undefined;
+  const otlpLogHeaderSetting = validateAndFetchLogsHeader();
+
+  if (isLambdaEnvironment() && !otlpLogHeaderSetting.isValid) {
+    // Lambda without valid logs http headers - use Console EMF exporter
+    exporter = new ConsoleEMFExporter(otlpLogHeaderSetting.namespace);
+  } else if (otlpLogHeaderSetting.isValid) {
+    // Non-Lambda environment - use CloudWatch EMF exporter
+    // If headersResult.isValid is true, then headersResult.logGroup and headersResult.logStream are guaranteed to be strings
+    exporter = new AWSCloudWatchEMFExporter(
+      otlpLogHeaderSetting.namespace,
+      otlpLogHeaderSetting.logGroup as string,
+      otlpLogHeaderSetting.logStream as string
+    );
   }
 
-  // If headersResult.isValid is true, then headersResult.logGroup and headersResult.logStream are guaranteed to be strings
-  return new AWSCloudWatchEMFExporter(
-    headersResult.namespace,
-    headersResult.logGroup as string,
-    headersResult.logStream as string
-  );
+  return exporter;
 }

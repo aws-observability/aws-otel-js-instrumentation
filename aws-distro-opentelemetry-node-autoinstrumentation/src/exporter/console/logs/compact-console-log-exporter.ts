@@ -10,7 +10,7 @@ export class CompactConsoleLogRecordExporter extends ConsoleLogRecordExporter {
 
   private _sendLogRecordsToLambdaConsole(logRecords: ReadableLogRecord[], done?: (result: ExportResult) => void): void {
     for (const logRecord of logRecords) {
-      console.log(this['_exportInfo'](logRecord));
+      process.stdout.write(JSON.stringify(this['_exportInfo'](logRecord)) + '\n');
     }
     done?.({ code: ExportResultCode.SUCCESS });
   }

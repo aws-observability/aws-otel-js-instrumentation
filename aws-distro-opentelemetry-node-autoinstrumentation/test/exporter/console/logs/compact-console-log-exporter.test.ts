@@ -11,7 +11,7 @@ import { Attributes } from '@opentelemetry/api';
 
 describe('CompactConsoleLogRecordExporter', () => {
   let exporter: CompactConsoleLogRecordExporter;
-  let consoleLogSpy: sinon.SinonSpy;
+  let stdoutWriteSpy: sinon.SinonSpy;
 
   const createMockLogRecord = (body: string, attributes: Attributes = {}): ReadableLogRecord => ({
     hrTime: [1640995200, 0],
@@ -26,7 +26,7 @@ describe('CompactConsoleLogRecordExporter', () => {
 
   beforeEach(() => {
     exporter = new CompactConsoleLogRecordExporter();
-    consoleLogSpy = sinon.spy(console, 'log');
+    stdoutWriteSpy = sinon.spy(process.stdout, 'write');
   });
 
   afterEach(() => {
@@ -39,10 +39,13 @@ describe('CompactConsoleLogRecordExporter', () => {
 
     exporter.export(logs, result => {
       expect(result.code).toBe(ExportResultCode.SUCCESS);
-      expect(consoleLogSpy.calledOnce).toBeTruthy();
+      expect(stdoutWriteSpy.calledOnce).toBeTruthy();
 
-      const loggedContent = consoleLogSpy.firstCall.args[0];
-      expect(typeof loggedContent).toBe('object');
+      const writtenData = stdoutWriteSpy.firstCall.args[0];
+      expect(typeof writtenData).toBe('string');
+      expect(writtenData.endsWith('\n')).toBeTruthy();
+
+      const loggedContent = JSON.parse(writtenData.trim());
       expect(loggedContent.body).toBe('test log message');
       expect(loggedContent.severityText).toBe('INFO');
       expect(loggedContent.instrumentationScope.name).toBe('test');
@@ -57,10 +60,10 @@ describe('CompactConsoleLogRecordExporter', () => {
 
     exporter.export(mockLogRecords, result => {
       expect(result.code).toBe(ExportResultCode.SUCCESS);
-      expect(consoleLogSpy.callCount).toBe(2);
+      expect(stdoutWriteSpy.callCount).toBe(2);
 
-      const firstLogContent = consoleLogSpy.firstCall.args[0];
-      const secondLogContent = consoleLogSpy.secondCall.args[0];
+      const firstLogContent = JSON.parse(stdoutWriteSpy.firstCall.args[0].trim());
+      const secondLogContent = JSON.parse(stdoutWriteSpy.secondCall.args[0].trim());
 
       expect(firstLogContent.body).toBe('log 1');
       expect(secondLogContent.body).toBe('log 2');
@@ -72,7 +75,7 @@ describe('CompactConsoleLogRecordExporter', () => {
   it('should handle empty logs array', done => {
     exporter.export([], result => {
       expect(result.code).toBe(ExportResultCode.SUCCESS);
-      expect(consoleLogSpy.called).toBeFalsy();
+      expect(stdoutWriteSpy.called).toBeFalsy();
       done();
     });
   });
@@ -83,9 +86,9 @@ describe('CompactConsoleLogRecordExporter', () => {
     expect(() => {
       exporter.export([mockLogRecord], () => {});
     }).not.toThrow();
-    expect(consoleLogSpy.calledOnce).toBeTruthy();
+    expect(stdoutWriteSpy.calledOnce).toBeTruthy();
 
-    const loggedContent = consoleLogSpy.firstCall.args[0];
+    const loggedContent = JSON.parse(stdoutWriteSpy.firstCall.args[0].trim());
     expect(loggedContent.body).toBe('test log message');
   });
 
@@ -95,9 +98,9 @@ describe('CompactConsoleLogRecordExporter', () => {
     expect(() => {
       exporter['_sendLogRecordsToLambdaConsole']([mockLogRecord]);
     }).not.toThrow();
-    expect(consoleLogSpy.calledOnce).toBeTruthy();
+    expect(stdoutWriteSpy.calledOnce).toBeTruthy();
 
-    const loggedContent = consoleLogSpy.firstCall.args[0];
+    const loggedContent = JSON.parse(stdoutWriteSpy.firstCall.args[0].trim());
     expect(loggedContent.body).toBe('test log message');
   });
 
@@ -110,8 +113,8 @@ describe('CompactConsoleLogRecordExporter', () => {
     exporter.export([mockLogRecord], result => {
       expect(result.code).toBe(ExportResultCode.SUCCESS);
 
-      const loggedContent = consoleLogSpy.firstCall.args[0];
-      expect(typeof loggedContent).toBe('object');
+      const writtenData = stdoutWriteSpy.firstCall.args[0];
+      const loggedContent = JSON.parse(writtenData.trim());
       expect(loggedContent.body).toBe('detailed test message');
       expect(loggedContent.severityText).toBe('INFO');
       expect(loggedContent.instrumentationScope.name).toBe('test');

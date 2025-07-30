@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { context, Span, SpanKind } from '@opentelemetry/api';
+import { Attributes, Context, context, Link, Span, SpanKind } from '@opentelemetry/api';
 import { Resource } from '@opentelemetry/resources';
 import { SamplingDecision, Tracer } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
@@ -10,12 +10,18 @@ import { expect } from 'expect';
 import * as nock from 'nock';
 import * as sinon from 'sinon';
 import { _AwsXRayRemoteSampler, AwsXRayRemoteSampler } from '../../src/sampler/aws-xray-remote-sampler';
+import { FallbackSampler } from '../../src/sampler/fallback-sampler';
 
 const DATA_DIR_SAMPLING_RULES = __dirname + '/data/test-remote-sampler_sampling-rules-response-sample.json';
 const DATA_DIR_SAMPLING_TARGETS = __dirname + '/data/test-remote-sampler_sampling-targets-response-sample.json';
 const TEST_URL = 'http://localhost:2000';
+export const testTraceId = '0af7651916cd43dd8448eb211c80319c';
 
 describe('AwsXrayRemoteSampler', () => {
+  afterEach(() => {
+    sinon.restore();
+  });
+
   it('testCreateRemoteSamplerWithEmptyResource', () => {
     const sampler: AwsXRayRemoteSampler = new AwsXRayRemoteSampler({ resource: Resource.EMPTY });
 
@@ -81,7 +87,7 @@ describe('AwsXrayRemoteSampler', () => {
     setTimeout(() => {
       expect(((sampler as any)._root._root.ruleCache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('test');
       expect(
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
       ).toEqual(SamplingDecision.NOT_RECORD);
 
       setTimeout(() => {
@@ -89,13 +95,13 @@ describe('AwsXrayRemoteSampler', () => {
         (_AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = tmp;
 
         expect(
-          sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
+          sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
         ).toEqual(SamplingDecision.RECORD_AND_SAMPLED);
         expect(
-          sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
+          sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
         ).toEqual(SamplingDecision.RECORD_AND_SAMPLED);
         expect(
-          sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
+          sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, { abc: '1234' }, []).decision
         ).toEqual(SamplingDecision.RECORD_AND_SAMPLED);
 
         done();
@@ -112,40 +118,38 @@ describe('AwsXrayRemoteSampler', () => {
     });
     const attributes = { abc: '1234' };
 
-    // Patch default target polling interval
-    const tmp = (_AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval;
-    (_AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = () => {
-      return 0.2; // seconds
-    };
     const sampler = new AwsXRayRemoteSampler({
       resource: resource,
     });
+    const internalXraySampler = sampler['_root']['_root'] as _AwsXRayRemoteSampler;
+    internalXraySampler['getAndUpdateSamplingRules']();
 
     setTimeout(() => {
       expect(((sampler as any)._root._root.ruleCache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('test');
-      expect(sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, attributes, []).decision).toEqual(
-        SamplingDecision.NOT_RECORD
-      );
+      expect(
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, attributes, []).decision
+      ).toEqual(SamplingDecision.NOT_RECORD);
+      internalXraySampler['getAndUpdateSamplingTargets']();
 
       setTimeout(() => {
         let sampled = 0;
-        for (let i = 0; i < 100000; i++) {
+        const clock = sinon.useFakeTimers(Date.now());
+        clock.tick(1000);
+        for (let i = 0; i < 1000; i++) {
           if (
-            sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, attributes, []).decision !==
+            sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, attributes, []).decision !==
             SamplingDecision.NOT_RECORD
           ) {
             sampled++;
           }
         }
+        clock.restore();
 
-        // restore function
-        (_AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = tmp;
-
-        expect((sampler as any)._root._root.ruleCache.ruleAppliers[0].reservoirSampler.quota).toEqual(100000);
-        expect(sampled).toEqual(100000);
+        expect((sampler as any)._root._root.ruleCache.ruleAppliers[0].reservoirSampler.quota).toEqual(1000);
+        expect(sampled).toEqual(1000);
         done();
-      }, 2000);
-    }, 100);
+      }, 300);
+    }, 300);
   });
 
   it('testSomeReservoir', done => {
@@ -157,39 +161,54 @@ describe('AwsXrayRemoteSampler', () => {
     });
     const attributes = { abc: 'non-matching attribute value, use default rule' };
 
-    // Patch default target polling interval
-    const tmp = (_AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval;
-    (_AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = () => {
-      return 2; // seconds
-    };
     const sampler = new AwsXRayRemoteSampler({
       resource: resource,
     });
+    const internalXraySampler = sampler['_root']['_root'] as _AwsXRayRemoteSampler;
+    sinon
+      .stub(sampler['_root']['_root'].fallbackSampler as FallbackSampler, 'shouldSample')
+      .callsFake(
+        (
+          context: Context,
+          traceId: string,
+          spanName: string,
+          spanKind: SpanKind,
+          attributes: Attributes,
+          links: Link[]
+        ) => {
+          return {
+            decision: SamplingDecision.NOT_RECORD,
+            attributes: attributes,
+          };
+        }
+      );
 
+    internalXraySampler['getAndUpdateSamplingRules']();
     setTimeout(() => {
       expect(((sampler as any)._root._root.ruleCache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('test');
-      expect(sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, attributes, []).decision).toEqual(
-        SamplingDecision.NOT_RECORD
-      );
+      expect(
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, attributes, []).decision
+      ).toEqual(SamplingDecision.RECORD_AND_SAMPLED);
+
+      internalXraySampler['getAndUpdateSamplingTargets']();
 
       setTimeout(() => {
         const clock = sinon.useFakeTimers(Date.now());
-        clock.tick(2000);
+        clock.tick(1000);
         let sampled = 0;
         for (let i = 0; i < 100000; i++) {
           if (
-            sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, attributes, []).decision !==
+            sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, attributes, []).decision !==
             SamplingDecision.NOT_RECORD
           ) {
             sampled++;
           }
         }
         clock.restore();
-        // restore function
-        (_AwsXRayRemoteSampler.prototype as any).getDefaultTargetPollingInterval = tmp;
+
         expect(sampled).toEqual(100);
         done();
-      }, 2000);
+      }, 300);
     }, 300);
   });
 

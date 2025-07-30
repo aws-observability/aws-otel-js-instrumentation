@@ -6,12 +6,14 @@ import { SamplingDecision } from '@opentelemetry/sdk-trace-base';
 import { expect } from 'expect';
 import * as sinon from 'sinon';
 import { FallbackSampler } from '../../src/sampler/fallback-sampler';
+import { testTraceId } from './aws-xray-remote-sampler.test';
 
 let clock: sinon.SinonFakeTimers;
 describe('FallBackSampler', () => {
   beforeEach(() => {
     clock = sinon.useFakeTimers(Date.now());
   });
+
   afterEach(() => {
     try {
       clock.restore();
@@ -19,16 +21,18 @@ describe('FallBackSampler', () => {
       // do nothing
     }
   });
-  it('testShouldSample', () => {
-    const sampler = new FallbackSampler();
 
-    sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []);
+  it('testShouldSampleWithQuotaOnly', () => {
+    // Ensure FallbackSampler's internal TraceIdRatioBasedSampler will always return SamplingDecision.NOT_RECORD
+    const sampler = new FallbackSampler(0);
+
+    sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []);
 
     // 0 seconds passed, 0 quota available
     let sampled = 0;
     for (let i = 0; i < 30; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -41,7 +45,7 @@ describe('FallBackSampler', () => {
     clock.tick(0.4 * 1000);
     for (let i = 0; i < 30; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -54,7 +58,7 @@ describe('FallBackSampler', () => {
     clock.tick(0.4 * 1000);
     for (let i = 0; i < 30; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -67,7 +71,7 @@ describe('FallBackSampler', () => {
     clock.tick(0.4 * 1000);
     for (let i = 0; i < 30; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -80,7 +84,7 @@ describe('FallBackSampler', () => {
     clock.tick(0.4 * 1000);
     for (let i = 0; i < 30; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -93,7 +97,7 @@ describe('FallBackSampler', () => {
     clock.tick(0.4 * 1000);
     for (let i = 0; i < 30; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -106,7 +110,7 @@ describe('FallBackSampler', () => {
     clock.tick(0.4 * 1000);
     for (let i = 0; i < 30; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -119,7 +123,7 @@ describe('FallBackSampler', () => {
     clock.tick(100 * 1000);
     for (let i = 0; i < 30; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;

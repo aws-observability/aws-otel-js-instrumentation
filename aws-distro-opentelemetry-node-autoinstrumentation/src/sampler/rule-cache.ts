@@ -94,15 +94,15 @@ export class RuleCache {
 
   // Update ruleAppliers based on the targets fetched from X-Ray service
   public updateTargets(targetDocuments: TargetMap, lastRuleModification: number): [boolean, number] {
-    let minPollingInteral: number | undefined = undefined;
+    let minPollingInterval: number | undefined = undefined;
     let nextPollingInterval: number = DEFAULT_TARGET_POLLING_INTERVAL_SECONDS;
     this.ruleAppliers.forEach((rule: SamplingRuleApplier, index: number) => {
       const target: SamplingTargetDocument = targetDocuments[rule.samplingRule.RuleName];
       if (target) {
         this.ruleAppliers[index] = rule.withTarget(target);
-        if (target.Interval) {
-          if (minPollingInteral === undefined || minPollingInteral > target.Interval) {
-            minPollingInteral = target.Interval;
+        if (typeof target.Interval === 'number') {
+          if (minPollingInterval === undefined || minPollingInterval > target.Interval) {
+            minPollingInterval = target.Interval;
           }
         }
       } else {
@@ -110,8 +110,8 @@ export class RuleCache {
       }
     });
 
-    if (minPollingInteral) {
-      nextPollingInterval = minPollingInteral;
+    if (typeof minPollingInterval === 'number') {
+      nextPollingInterval = minPollingInterval;
     }
 
     const refreshSamplingRules: boolean = lastRuleModification * 1000 > this.lastUpdatedEpochMillis;

@@ -6,6 +6,7 @@ import { SamplingDecision } from '@opentelemetry/sdk-trace-base';
 import { expect } from 'expect';
 import * as sinon from 'sinon';
 import { RateLimitingSampler } from '../../src/sampler/rate-limiting-sampler';
+import { testTraceId } from './aws-xray-remote-sampler.test';
 
 let clock: sinon.SinonFakeTimers;
 
@@ -22,7 +23,7 @@ describe('RateLimitingSampler', () => {
     let sampled = 0;
     for (let i = 0; i < 100; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -35,7 +36,7 @@ describe('RateLimitingSampler', () => {
     sampled = 0;
     for (let i = 0; i < 100; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -48,7 +49,7 @@ describe('RateLimitingSampler', () => {
     sampled = 0;
     for (let i = 0; i < 100; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -61,7 +62,7 @@ describe('RateLimitingSampler', () => {
     sampled = 0;
     for (let i = 0; i < 100; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -74,7 +75,7 @@ describe('RateLimitingSampler', () => {
     sampled = 0;
     for (let i = 0; i < 100; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -89,7 +90,7 @@ describe('RateLimitingSampler', () => {
     let sampled = 0;
     for (let i = 0; i < 50; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -102,7 +103,7 @@ describe('RateLimitingSampler', () => {
     sampled = 0;
     for (let i = 0; i < 50; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -115,7 +116,7 @@ describe('RateLimitingSampler', () => {
     sampled = 0;
     for (let i = 0; i < 50; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;
@@ -128,7 +129,7 @@ describe('RateLimitingSampler', () => {
     sampled = 0;
     for (let i = 0; i < 50; i++) {
       if (
-        sampler.shouldSample(context.active(), '1234', 'name', SpanKind.CLIENT, {}, []).decision !==
+        sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, {}, []).decision !==
         SamplingDecision.NOT_RECORD
       ) {
         sampled += 1;

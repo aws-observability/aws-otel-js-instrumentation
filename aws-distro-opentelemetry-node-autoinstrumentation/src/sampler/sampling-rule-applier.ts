@@ -57,17 +57,17 @@ export class SamplingRuleApplier {
 
     if (target) {
       this.borrowingEnabled = false;
-      if (target.ReservoirQuota) {
+      if (typeof target.ReservoirQuota === 'number') {
         this.reservoirSampler = new RateLimitingSampler(target.ReservoirQuota);
       }
 
-      if (target.ReservoirQuotaTTL) {
+      if (typeof target.ReservoirQuotaTTL === 'number') {
         this.reservoirExpiryTimeInMillis = new Date(target.ReservoirQuotaTTL * 1000).getTime();
       } else {
         this.reservoirExpiryTimeInMillis = Date.now();
       }
 
-      if (target.FixedRate) {
+      if (typeof target.FixedRate === 'number') {
         this.fixedRateSampler = new TraceIdRatioBasedSampler(target.FixedRate);
       }
     }

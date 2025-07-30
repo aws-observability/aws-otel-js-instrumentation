@@ -81,7 +81,7 @@ import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
 import { ConsoleEMFExporter } from './exporter/aws/metrics/console-emf-exporter';
 import { EMFExporterBase } from './exporter/aws/metrics/emf-exporter-base';
-import { CompressedConsoleLogRecordExporter } from './exporter/console/logs/compressed-console-log-exporter';
+import { CompactConsoleLogRecordExporter } from './exporter/console/logs/compact-console-log-exporter';
 
 const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
 const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/logs$';
@@ -616,9 +616,9 @@ export class AwsLoggerProcessorProvider {
         let logExporter: LogRecordExporter | undefined = undefined;
         if (isLambdaEnvironment()) {
           diag.debug(
-            'Lambda environment detected, using CompressedConsoleLogRecordExporter instead of ConsoleLogRecordExporter'
+            'Lambda environment detected, using CompactConsoleLogRecordExporter instead of ConsoleLogRecordExporter'
           );
-          logExporter = new CompressedConsoleLogRecordExporter();
+          logExporter = new CompactConsoleLogRecordExporter();
         } else {
           logExporter = new ConsoleLogRecordExporter();
         }

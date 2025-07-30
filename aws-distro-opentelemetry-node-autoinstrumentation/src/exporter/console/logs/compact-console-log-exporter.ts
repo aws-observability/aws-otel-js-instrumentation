@@ -3,7 +3,7 @@
 import { ExportResult, ExportResultCode } from '@opentelemetry/core';
 import { ConsoleLogRecordExporter, ReadableLogRecord } from '@opentelemetry/sdk-logs';
 
-export class CompressedConsoleLogRecordExporter extends ConsoleLogRecordExporter {
+export class CompactConsoleLogRecordExporter extends ConsoleLogRecordExporter {
   override export(logs: ReadableLogRecord[], resultCallback: (result: ExportResult) => void): void {
     this._sendLogRecordsToLambdaConsole(logs, resultCallback);
   }

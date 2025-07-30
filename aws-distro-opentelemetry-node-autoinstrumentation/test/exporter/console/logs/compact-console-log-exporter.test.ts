@@ -6,11 +6,11 @@ import * as sinon from 'sinon';
 import { ExportResultCode } from '@opentelemetry/core';
 import { ReadableLogRecord } from '@opentelemetry/sdk-logs';
 import { Resource } from '@opentelemetry/resources';
-import { CompressedConsoleLogRecordExporter } from '../../../../src/exporter/console/logs/compressed-console-log-exporter';
+import { CompactConsoleLogRecordExporter } from '../../../../src/exporter/console/logs/compact-console-log-exporter';
 import { Attributes } from '@opentelemetry/api';
 
-describe('CompressedConsoleLogRecordExporter', () => {
-  let exporter: CompressedConsoleLogRecordExporter;
+describe('CompactConsoleLogRecordExporter', () => {
+  let exporter: CompactConsoleLogRecordExporter;
   let consoleLogSpy: sinon.SinonSpy;
 
   const createMockLogRecord = (body: string, attributes: Attributes = {}): ReadableLogRecord => ({
@@ -25,7 +25,7 @@ describe('CompressedConsoleLogRecordExporter', () => {
   });
 
   beforeEach(() => {
-    exporter = new CompressedConsoleLogRecordExporter();
+    exporter = new CompactConsoleLogRecordExporter();
     consoleLogSpy = sinon.spy(console, 'log');
   });
 

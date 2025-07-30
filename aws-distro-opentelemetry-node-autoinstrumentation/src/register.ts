@@ -13,7 +13,8 @@ if (process.env.OTEL_TRACES_SAMPLER === 'xray') {
   useXraySampler = true;
 }
 
-import { diag, DiagConsoleLogger, trace } from '@opentelemetry/api';
+import { diag, DiagConsoleLogger, metrics, trace } from '@opentelemetry/api';
+import { logs } from '@opentelemetry/api-logs';
 import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
@@ -136,6 +137,10 @@ try {
   diag.info('Setting TraceProvider for instrumentations at the end of initialization');
   for (const instrumentation of instrumentations) {
     instrumentation.setTracerProvider(trace.getTracerProvider());
+    instrumentation.setMeterProvider(metrics.getMeterProvider());
+    if (instrumentation.setLoggerProvider) {
+      instrumentation.setLoggerProvider(logs.getLoggerProvider());
+    }
   }
 
   diag.debug(`Environment variable OTEL_PROPAGATORS is set to '${process.env.OTEL_PROPAGATORS}'`);

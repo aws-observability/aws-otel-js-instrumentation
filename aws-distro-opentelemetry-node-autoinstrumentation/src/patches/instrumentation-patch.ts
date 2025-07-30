@@ -34,8 +34,9 @@ import {
 } from './aws/services/bedrock';
 import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
 import { StepFunctionsServiceExtension } from './aws/services/step-functions';
-import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
+import type { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import type { Command as AwsV3Command } from '@aws-sdk/types';
+import { LoggerProvider } from '@opentelemetry/api-logs';
 
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 export const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
@@ -251,11 +252,49 @@ function patchLambdaServiceExtension(lambdaServiceExtension: any): void {
   }
 }
 
-// Override the upstream private _endSpan method to remove the unnecessary metric force-flush error message
-// https://github.com/open-telemetry/opentelemetry-js-contrib/blob/main/plugins/node/opentelemetry-instrumentation-aws-lambda/src/instrumentation.ts#L358-L398
+export type ExtendedAwsLambdaInstrumentation = AwsLambdaInstrumentation & {
+  _setLoggerProvider: (loggerProvider: LoggerProvider) => void;
+  _logForceFlusher?: () => Promise<void>;
+  _logForceFlush: (loggerProvider: LoggerProvider) => any;
+};
+
+// Patch AWS Lambda Instrumentation
+// 1. Override the upstream private _endSpan method to remove the unnecessary metric force-flush error message
+//    https://github.com/open-telemetry/opentelemetry-js-contrib/blob/main/plugins/node/opentelemetry-instrumentation-aws-lambda/src/instrumentation.ts#L358-L398
+// 2. Support setting logger provider and force flushing logs
 function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
   if (instrumentation) {
-    (instrumentation as AwsLambdaInstrumentation)['_endSpan'] = function (
+    const _setLoggerProvider = (instrumentation as ExtendedAwsLambdaInstrumentation)['setLoggerProvider'];
+    (instrumentation as ExtendedAwsLambdaInstrumentation)['_setLoggerProvider'] = _setLoggerProvider;
+    (instrumentation as ExtendedAwsLambdaInstrumentation)['_logForceFlusher'] = undefined;
+
+    instrumentation['setLoggerProvider'] = function (loggerProvider: LoggerProvider) {
+      (this as ExtendedAwsLambdaInstrumentation)['_setLoggerProvider'](loggerProvider);
+      (this as ExtendedAwsLambdaInstrumentation)['_logForceFlusher'] = (this as ExtendedAwsLambdaInstrumentation)[
+        '_logForceFlush'
+      ](loggerProvider);
+    };
+
+    (instrumentation as ExtendedAwsLambdaInstrumentation)['_logForceFlush'] = function (
+      loggerProvider: LoggerProvider
+    ) {
+      if (!loggerProvider) return undefined;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let currentProvider: any = loggerProvider;
+
+      if (typeof currentProvider.getDelegate === 'function') {
+        currentProvider = currentProvider.getDelegate();
+      }
+
+      if (typeof currentProvider.forceFlush === 'function') {
+        return currentProvider.forceFlush.bind(currentProvider);
+      }
+
+      return undefined;
+    };
+
+    (instrumentation as ExtendedAwsLambdaInstrumentation)['_endSpan'] = function (
       span: Span,
       err: string | Error | null | undefined,
       callback: () => void
@@ -280,11 +319,25 @@ function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
       span.end();
 
       const flushers = [];
-      if ((this as any)._traceForceFlusher) {
-        flushers.push((this as any)._traceForceFlusher());
+      if (this['_traceForceFlusher']) {
+        flushers.push(this['_traceForceFlusher']());
       } else {
         diag.error(
           'Spans may not be exported for the lambda function because we are not force flushing before callback.'
+        );
+      }
+      if (this['_metricForceFlusher']) {
+        flushers.push(this['_metricForceFlusher']());
+      } else {
+        diag.debug(
+          'Metrics may not be exported for the lambda function because we are not force flushing before callback.'
+        );
+      }
+      if (this['_logForceFlusher']) {
+        flushers.push(this['_logForceFlusher']());
+      } else {
+        diag.debug(
+          'Logs may not be exported for the lambda function because we are not force flushing before callback.'
         );
       }
 

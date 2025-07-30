@@ -78,6 +78,7 @@
     "@aws-sdk/client-s3": "3.632.0",
     "@aws-sdk/client-secrets-manager": "3.632.0",
     "@aws-sdk/client-sfn": "3.632.0",
+    "@aws-sdk/client-sts": "3.632.0",
     "@aws-sdk/client-sns": "3.632.0",
     "@opentelemetry/contrib-test-utils": "^0.45.0",
     "@smithy/protocol-http": "^5.0.1",

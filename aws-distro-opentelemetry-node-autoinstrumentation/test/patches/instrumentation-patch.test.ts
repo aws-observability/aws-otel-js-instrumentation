@@ -5,6 +5,7 @@ import {
   Attributes,
   diag,
   Context as OtelContext,
+  context as otelContext,
   trace,
   context,
   propagation,
@@ -14,6 +15,7 @@ import {
   TextMapSetter,
   INVALID_SPAN_CONTEXT,
   SpanStatusCode,
+  ROOT_CONTEXT,
 } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
@@ -28,6 +30,7 @@ import {
   customExtractor,
   ExtendedAwsLambdaInstrumentation,
   headerGetter,
+  SKIP_CREDENTIAL_CAPTURE_KEY,
 } from './../../src/patches/instrumentation-patch';
 import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
@@ -39,6 +42,7 @@ import { ReadableSpan, Span as SDKSpan } from '@opentelemetry/sdk-trace-base';
 import { getTestSpans } from '@opentelemetry/contrib-test-utils';
 import { instrumentationConfigs } from '../../src/register';
 import { LoggerProvider } from '@opentelemetry/api-logs';
+import { STS } from '@aws-sdk/client-sts';
 
 // It is assumed that bedrock.test.ts has already registered the
 // necessary instrumentations for testing by calling:
@@ -60,6 +64,8 @@ const _BEDROCK_GUARDRAIL_ARN: string = 'arn:aws:bedrock:us-east-1:123456789012:g
 const _BEDROCK_KNOWLEDGEBASE_ID: string = 'KnowledgeBaseId';
 const _GEN_AI_SYSTEM: string = 'aws.bedrock';
 const _GEN_AI_REQUEST_MODEL: string = 'genAiReuqestModelId';
+const _STREAM_ARN: string = 'arn:aws:kinesis:us-west-2:123456789012:stream/testStream';
+const _TABLE_ARN: string = 'arn:aws:dynamodb:us-west-2:123456789012:table/testTable';
 
 const mockHeaders = {
   'x-test-header': 'test-value',
@@ -92,6 +98,8 @@ describe('InstrumentationPatchTest', () => {
     expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
     expect(services.get('SQS')._requestPreSpanHook).toBeFalsy();
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
+    expect(services.get('Kinesis')._requestPreSpanHook).toBeFalsy();
+    expect(services.get('Kinesis').requestPreSpanHook).toBeTruthy();
     expect(services.has('Bedrock')).toBeFalsy();
     expect(services.has('BedrockAgent')).toBeFalsy();
     expect(services.get('BedrockAgentRuntime')).toBeFalsy();
@@ -121,6 +129,8 @@ describe('InstrumentationPatchTest', () => {
     expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
     expect(services.get('SQS')._requestPreSpanHook).toBeTruthy();
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
+    expect(services.get('Kinesis')._requestPreSpanHook).toBeTruthy();
+    expect(services.get('Kinesis').requestPreSpanHook).toBeTruthy();
     expect(services.has('Bedrock')).toBeTruthy();
     expect(services.has('BedrockAgent')).toBeTruthy();
     expect(services.get('BedrockAgentRuntime')).toBeTruthy();
@@ -181,6 +191,14 @@ describe('InstrumentationPatchTest', () => {
     expect(() => doExtractBedrockAttributes(services, 'Bedrock')).toThrow();
   });
 
+  it('Kinesis without patching', () => {
+    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
+    expect(() => doExtractKinesisAttributes(services)).not.toThrow();
+    const kinesisAttributes: Attributes = doExtractKinesisAttributes(services);
+    expect(kinesisAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN);
+  });
+
   it('SNS with patching', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
@@ -233,6 +251,20 @@ describe('InstrumentationPatchTest', () => {
     const responseHookSecretsManagerAttributes = doResponseHookSecretsManager(services);
 
     expect(responseHookSecretsManagerAttributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(_SECRETS_ARN);
+  });
+
+  it('Kinesis with patching', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const requestKinesisAttributes: Attributes = doExtractKinesisAttributes(services);
+    expect(requestKinesisAttributes[AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN]).toEqual(_STREAM_ARN);
+  });
+
+  it('DynamoDB with patching', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const responseDynamoDbAttributes: Attributes = doResponseHookDynamoDb(services);
+    expect(responseDynamoDbAttributes[AWS_ATTRIBUTE_KEYS.AWS_DYNAMODB_TABLE_ARN]).toEqual(_TABLE_ARN);
   });
 
   it('Bedrock with patching', () => {
@@ -448,6 +480,18 @@ describe('InstrumentationPatchTest', () => {
     return doExtractAttributes(services, serviceName, params);
   }
 
+  function doExtractKinesisAttributes(services: Map<string, ServiceExtension>): Attributes {
+    const serviceName: string = 'Kinesis';
+    const params: NormalizedRequest = {
+      serviceName: serviceName,
+      commandName: 'mockCommandName',
+      commandInput: {
+        StreamARN: _STREAM_ARN,
+      },
+    };
+    return doExtractAttributes(services, serviceName, params);
+  }
+
   function doExtractAttributes(
     services: Map<string, ServiceExtension>,
     serviceName: string,
@@ -492,6 +536,23 @@ describe('InstrumentationPatchTest', () => {
     };
 
     return doResponseHook(services, 'Lambda', results as NormalizedResponse);
+  }
+
+  function doResponseHookDynamoDb(services: Map<string, ServiceExtension>): Attributes {
+    const results: Partial<NormalizedResponse> = {
+      data: {
+        Table: {
+          TableArn: _TABLE_ARN,
+        },
+      },
+      request: {
+        commandInput: {},
+        commandName: 'dummy_operation',
+        serviceName: 'DynamoDB',
+      },
+    };
+
+    return doResponseHook(services, 'DynamoDB', results as NormalizedResponse);
   }
 
   function doResponseHookBedrock(
@@ -565,9 +626,13 @@ describe('InstrumentationPatchTest', () => {
         mockedMiddlewareStack = {
           add: (arg1: any, arg2: any) => mockedMiddlewareStackInternal.push([arg1, arg2]),
         };
+        const mockConfig = {
+          credentials: () => Promise.resolve({ accessKeyId: 'test-access-key' }),
+          region: () => Promise.resolve('us-west-2'),
+        };
         const send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
           ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
-          .bind({ middlewareStack: mockedMiddlewareStack });
+          .bind({ middlewareStack: mockedMiddlewareStack, config: mockConfig });
 
         middlewareArgsHeader = {
           request: {
@@ -619,6 +684,110 @@ describe('InstrumentationPatchTest', () => {
 
         expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
       });
+
+      it('Add cross account information span attributes from STS credentials', async () => {
+        const mockSpan = { setAttribute: sinon.stub() };
+        sinon.stub(trace, 'getSpan').returns(mockSpan as unknown as Span);
+        const credentialsMiddlewareArgs: any = {};
+        await mockedMiddlewareStackInternal[1][0]((arg: any) => Promise.resolve(arg), null)(credentialsMiddlewareArgs);
+        expect(mockedMiddlewareStackInternal[1][1].name).toEqual('_adotExtractSignerCredentials');
+        expect(
+          mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, 'test-access-key')
+        ).toBeTruthy();
+        expect(mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_REGION, 'us-west-2')).toBeTruthy();
+      });
+
+      it('Skips credential extraction with non-injectable NoOp context', async () => {
+        let credentialsProviderCallCount = 0;
+        const NoOpContext = Object.create(ROOT_CONTEXT);
+        NoOpContext.setValue = function () {
+          return this;
+        };
+        NoOpContext.deleteValue = function () {
+          return this;
+        };
+
+        const mockSpan = sinon.createStubInstance(SDKSpan);
+        const ctx = trace.setSpan(NoOpContext, mockSpan as unknown as Span);
+
+        sinon.stub(otelContext, 'active').returns(ctx);
+        sinon.stub(trace, 'getSpan').returns(mockSpan as unknown as Span);
+
+        const middlewareStack: any[] = [];
+        const recursiveSdkSend = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
+          ['_getV3SmithyClientSendPatch'](() => Promise.resolve())
+          .bind({
+            middlewareStack: { add: (middleware: any, config: any) => middlewareStack.push([middleware, config]) },
+            config: {
+              // Credentials provider that recursively calls SDK (simulates STS)
+              credentials: async () => {
+                credentialsProviderCallCount++;
+                await middlewareStack[1][0](() => Promise.resolve(), null)({});
+                return { accessKeyId: 'test-access-key' };
+              },
+              region: () => Promise.resolve('us-west-2'),
+            },
+          });
+
+        // Initial SDK call triggers middleware setup
+        await recursiveSdkSend({}, null);
+
+        // Execute credentials extraction middleware
+        await middlewareStack[1][0](() => Promise.resolve(), null)({});
+
+        expect(credentialsProviderCallCount).toBe(0);
+        expect(
+          mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, 'test-access-key')
+        ).toBeFalsy();
+      });
+    });
+
+    it('prevents recursion when credentials provider makes STS calls', async () => {
+      let credentialsCallCount = 0;
+      let skipCredentialCaptureValue = false;
+
+      // Create recursive credentials provider
+      const recursiveCredentialsProvider = async (): Promise<any> => {
+        credentialsCallCount++;
+        if (otelContext.active().getValue(SKIP_CREDENTIAL_CAPTURE_KEY)) {
+          skipCredentialCaptureValue = true;
+        }
+
+        const credentialsStsClient = new STS({
+          region: 'us-east-1',
+          credentials: recursiveCredentialsProvider,
+        });
+        await credentialsStsClient
+          .assumeRoleWithWebIdentity({
+            RoleArn: 'arn:aws:iam::123456789012:role/test-role',
+            RoleSessionName: 'test-session',
+            WebIdentityToken: 'mock-token',
+          })
+          .catch((err: any) => {});
+        return { accessKeyId: 'sts-access-key', secretAccessKey: 'secret' };
+      };
+
+      // Create main client with recursive credentials provider
+      const mainClient = new STS({
+        region: 'us-east-1',
+        credentials: recursiveCredentialsProvider,
+      });
+
+      // Mock HTTP responses
+      nock('https://sts.us-east-1.amazonaws.com')
+        .post('/')
+        .reply(200, '<GetCallerIdentityResponse></GetCallerIdentityResponse>');
+
+      // Make Lambda call - this triggers credential extraction which calls STS
+      await mainClient.getCallerIdentity({}).catch((err: any) => {});
+
+      const testSpans = getTestSpans();
+      const stsSpans = testSpans.filter(s => s.name.includes('GetCallerIdentity'));
+
+      expect(stsSpans.length).toBe(1);
+      expect(credentialsCallCount).toBe(2); // 1. Main client needs credentials 2. Nested STS client needs credentials
+      expect(skipCredentialCaptureValue).toBe(true); // Should detect skip key in context
+      expect(stsSpans[0].attributes[AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY]).toBe('sts-access-key');
     });
 
     it('injects trace context header into request via propagator', async () => {

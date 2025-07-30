@@ -331,20 +331,28 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
   responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
     const currentModelId = response.request.commandInput?.modelId;
     if (response.data?.body) {
-      let decodedResponseBody: string;
+      // Check if this is a streaming response (SmithyMessageDecoderStream)
+      // Intend to not using instanceOf to avoid import smithy as new dep for this file
+      // https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/bedrock-runtime/command/InvokeModelWithResponseStreamCommand
+      if (response.data.body.constructor?.name === 'SmithyMessageDecoderStream') {
+        // TODO: support InvokeModel Streaming API and Converse APIs later
+        diag.debug('Streaming API for invoking model is not supported', response.request.commandName);
+        return;
+      }
 
-      if (typeof response.data.body === 'string') {
-        // Already converted by AWS SDK middleware by Uint8ArrayBlobAdapter
-        decodedResponseBody = response.data.body;
-      } else if (response.data.body instanceof Uint8Array) {
+      let decodedResponseBody: string;
+      // For InvokeModel API which should always have reponse body with Uint8Array type
+      // https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/bedrock-runtime/command/InvokeModelCommand/
+      if (response.data.body instanceof Uint8Array) {
         // Raw Uint8Array from AWS
         decodedResponseBody = new TextDecoder().decode(response.data.body);
-      } else if (Buffer.isBuffer(response.data.body)) {
-        // Node.js Buffer convert with toString('utf8')
-        decodedResponseBody = response.data.body.toString('utf8');
       } else {
         // Handle unexpected types - log and skip processing
-        diag.debug(`Unexpected body type in Bedrock response: ${typeof response.data.body}`, response.data.body);
+        diag.debug(
+          `Unexpected body type in Bedrock response: ${typeof response.data.body} for commandName ${
+            response.request.commandName
+          }`
+        );
         return;
       }
 

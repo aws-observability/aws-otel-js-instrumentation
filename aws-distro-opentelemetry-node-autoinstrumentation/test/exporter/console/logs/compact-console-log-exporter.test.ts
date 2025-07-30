@@ -42,10 +42,11 @@ describe('CompactConsoleLogRecordExporter', () => {
       expect(stdoutWriteSpy.calledOnce).toBeTruthy();
 
       const writtenData = stdoutWriteSpy.firstCall.args[0];
-      expect(typeof writtenData).toBe('string');
-      expect(writtenData.endsWith('\n')).toBeTruthy();
+      expect(writtenData).toBe(
+        '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"test log message","attributes":{}}\n'
+      );
 
-      const loggedContent = JSON.parse(writtenData.trim());
+      const loggedContent = JSON.parse(writtenData);
       expect(loggedContent.body).toBe('test log message');
       expect(loggedContent.severityText).toBe('INFO');
       expect(loggedContent.instrumentationScope.name).toBe('test');
@@ -62,8 +63,17 @@ describe('CompactConsoleLogRecordExporter', () => {
       expect(result.code).toBe(ExportResultCode.SUCCESS);
       expect(stdoutWriteSpy.callCount).toBe(2);
 
-      const firstLogContent = JSON.parse(stdoutWriteSpy.firstCall.args[0].trim());
-      const secondLogContent = JSON.parse(stdoutWriteSpy.secondCall.args[0].trim());
+      const firstWrittenData = stdoutWriteSpy.firstCall.args[0];
+      const secondWrittenData = stdoutWriteSpy.secondCall.args[0];
+      expect(firstWrittenData).toBe(
+        '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"log 1","attributes":{}}\n'
+      );
+      expect(secondWrittenData).toBe(
+        '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"log 2","attributes":{}}\n'
+      );
+
+      const firstLogContent = JSON.parse(firstWrittenData);
+      const secondLogContent = JSON.parse(secondWrittenData);
 
       expect(firstLogContent.body).toBe('log 1');
       expect(secondLogContent.body).toBe('log 2');
@@ -88,7 +98,12 @@ describe('CompactConsoleLogRecordExporter', () => {
     }).not.toThrow();
     expect(stdoutWriteSpy.calledOnce).toBeTruthy();
 
-    const loggedContent = JSON.parse(stdoutWriteSpy.firstCall.args[0].trim());
+    const writtenData = stdoutWriteSpy.firstCall.args[0];
+    expect(writtenData).toBe(
+      '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"test log message","attributes":{}}\n'
+    );
+
+    const loggedContent = JSON.parse(writtenData);
     expect(loggedContent.body).toBe('test log message');
   });
 
@@ -100,7 +115,12 @@ describe('CompactConsoleLogRecordExporter', () => {
     }).not.toThrow();
     expect(stdoutWriteSpy.calledOnce).toBeTruthy();
 
-    const loggedContent = JSON.parse(stdoutWriteSpy.firstCall.args[0].trim());
+    const writtenData = stdoutWriteSpy.firstCall.args[0];
+    expect(writtenData).toBe(
+      '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"test log message","attributes":{}}\n'
+    );
+
+    const loggedContent = JSON.parse(writtenData);
     expect(loggedContent.body).toBe('test log message');
   });
 
@@ -114,7 +134,11 @@ describe('CompactConsoleLogRecordExporter', () => {
       expect(result.code).toBe(ExportResultCode.SUCCESS);
 
       const writtenData = stdoutWriteSpy.firstCall.args[0];
-      const loggedContent = JSON.parse(writtenData.trim());
+      expect(writtenData).toBe(
+        '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"detailed test message","attributes":{"customKey":"customValue","requestId":"12345"}}\n'
+      );
+
+      const loggedContent = JSON.parse(writtenData);
       expect(loggedContent.body).toBe('detailed test message');
       expect(loggedContent.severityText).toBe('INFO');
       expect(loggedContent.instrumentationScope.name).toBe('test');

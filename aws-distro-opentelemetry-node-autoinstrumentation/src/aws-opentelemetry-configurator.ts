@@ -615,7 +615,9 @@ export class AwsLoggerProcessorProvider {
       } else if (exporter === 'console') {
         let logExporter: LogRecordExporter | undefined = undefined;
         if (isLambdaEnvironment()) {
-          diag.debug('Lambda environment detected, using CompressedConsoleLogRecordExporter instead of ConsoleLogRecordExporter');
+          diag.debug(
+            'Lambda environment detected, using CompressedConsoleLogRecordExporter instead of ConsoleLogRecordExporter'
+          );
           logExporter = new CompressedConsoleLogRecordExporter();
         } else {
           logExporter = new ConsoleLogRecordExporter();

@@ -9,9 +9,9 @@ const fetch = require('node-fetch');
 const JSZip = require('jszip');
 
 const { S3Client, CreateBucketCommand, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-const { DynamoDBClient, CreateTableCommand, PutItemCommand } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBClient, CreateTableCommand, PutItemCommand, DescribeTableCommand } = require('@aws-sdk/client-dynamodb');
 const { SQSClient, CreateQueueCommand, SendMessageCommand, ReceiveMessageCommand } = require('@aws-sdk/client-sqs');
-const { KinesisClient, CreateStreamCommand, PutRecordCommand } = require('@aws-sdk/client-kinesis');
+const { KinesisClient, CreateStreamCommand, PutRecordCommand, DescribeStreamCommand } = require('@aws-sdk/client-kinesis');
 const { BedrockClient, GetGuardrailCommand } = require('@aws-sdk/client-bedrock');
 const { BedrockAgentClient, GetKnowledgeBaseCommand, GetDataSourceCommand, GetAgentCommand } = require('@aws-sdk/client-bedrock-agent');
 const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
@@ -194,6 +194,8 @@ async function handleGetRequest(req, res, path) {
     await handleSnsRequest(req, res, path);
   } else if (path.includes('lambda')) {
     await handleLambdaRequest(req, res, path);
+  } else if (path.includes('cross-account')) {
+    await handleCrossAccountRequest(req, res, path);
   } else {
     res.writeHead(404);
     res.end();
@@ -383,6 +385,19 @@ async function handleDdbRequest(req, res, path) {
       res.statusCode = 500;
     }
     res.end();
+  } else if (path.includes('describe/some-table')) {
+    try {
+      const response = await ddbClient.send(
+          new DescribeTableCommand({
+            TableName: 'put_test_table'
+          })
+        );
+      res.statusCode = 200;
+    } catch (err) {
+      console.log('Error describing the table', err);
+      res.statusCode = 500;
+    }
+    res.end();
   } else {
     res.statusCode = 404;
     res.end();
@@ -529,6 +544,20 @@ async function handleKinesisRequest(req, res, path) {
       res.statusCode = 200;
     } catch (err) {
       console.log('Error putting record', err);
+      res.statusCode = 500;
+    }
+    res.end();
+  } else if (path.includes('describe/my-stream')) {
+    try {
+      await kinesisClient.send(
+        new DescribeStreamCommand ({
+          StreamName: 'test_stream',
+          StreamARN: 'arn:aws:kinesis:us-west-2:000000000000:stream/test_stream' 
+        })
+      );
+      res.statusCode = 200;
+    } catch (err) {
+      console.log('Error describing the stream', err);
       res.statusCode = 500;
     }
     res.end();
@@ -1039,6 +1068,35 @@ async function handleLambdaRequest(req, res, path) {
     ); 
   }
   res.end();
+}
+
+async function handleCrossAccountRequest(req, res, path) {
+  const s3Client = new S3Client({
+    endpoint: _AWS_SDK_S3_ENDPOINT,
+    forcePathStyle: true,
+    region: "eu-central-1",
+    credentials: {
+      accessKeyId: "account_b_access_key_id",
+      secretAccessKey: "account_b_secret_access_key",
+      sessionToken: "account_b_token"
+    }
+  });
+
+  if (path.includes('createbucket/account_b')) {
+    try {
+      await s3Client.send(
+        new CreateBucketCommand({
+          Bucket: "cross-account-bucket",
+          CreateBucketConfiguration: { LocationConstraint: "eu-central-1" }
+        })
+      );
+      res.statusCode = 200;
+    } catch (err) {
+      console.log('Error creating a bucket in another account', err);
+      res.statusCode = 500;
+    }
+    res.end();
+  }
 }
 
 async function setupLambda() {

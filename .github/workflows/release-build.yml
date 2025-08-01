@@ -21,7 +21,20 @@ permissions:
   contents: write
 
 jobs:
+  wait-for-main-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for main-build workflow to succeed
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.ref }}
+          check-name: 'NodeJS Instrumentation Main Build'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 30
+          allowed-conclusions: success
+
   build:
+    needs: wait-for-main-build
     environment: Release
     runs-on: ubuntu-latest
     steps:

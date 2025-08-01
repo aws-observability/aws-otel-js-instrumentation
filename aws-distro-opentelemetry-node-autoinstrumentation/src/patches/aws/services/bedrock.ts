@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Attributes, DiagLogger, Span, SpanKind, Tracer } from '@opentelemetry/api';
+import { Attributes, DiagLogger, Span, SpanKind, Tracer, diag } from '@opentelemetry/api';
 import {
   AwsSdkInstrumentationConfig,
   NormalizedRequest,
@@ -331,7 +331,31 @@ export class BedrockRuntimeServiceExtension implements ServiceExtension {
   responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
     const currentModelId = response.request.commandInput?.modelId;
     if (response.data?.body) {
-      const decodedResponseBody = new TextDecoder().decode(response.data.body);
+      // Check if this is a streaming response (SmithyMessageDecoderStream)
+      // Intend to not using instanceOf to avoid import smithy as new dep for this file
+      // https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/bedrock-runtime/command/InvokeModelWithResponseStreamCommand
+      if (response.data.body.constructor?.name === 'SmithyMessageDecoderStream') {
+        // TODO: support InvokeModel Streaming API and Converse APIs later
+        diag.debug('Streaming API for invoking model is not supported', response.request.commandName);
+        return;
+      }
+
+      let decodedResponseBody: string;
+      // For InvokeModel API which should always have reponse body with Uint8Array type
+      // https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/bedrock-runtime/command/InvokeModelCommand/
+      if (response.data.body instanceof Uint8Array) {
+        // Raw Uint8Array from AWS
+        decodedResponseBody = new TextDecoder().decode(response.data.body);
+      } else {
+        // Handle unexpected types - log and skip processing
+        diag.debug(
+          `Unexpected body type in Bedrock response: ${typeof response.data.body} for commandName ${
+            response.request.commandName
+          }`
+        );
+        return;
+      }
+
       const responseBody = JSON.parse(decodedResponseBody);
       if (currentModelId.includes('amazon.titan')) {
         if (responseBody.inputTextTokenCount !== undefined) {

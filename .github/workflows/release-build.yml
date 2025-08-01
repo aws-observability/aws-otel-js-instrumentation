@@ -25,10 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Wait for main-build workflow to succeed
-        uses: lewagon/wait-on-check-action@v1.3.4
+        uses: ezhang6811/wait-on-check-action@master
         with:
           ref: ${{ github.ref }}
-          check-name: 'NodeJS Instrumentation Main Build'
+          check-name: 'Application Signals E2E Test'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 30
           allowed-conclusions: success

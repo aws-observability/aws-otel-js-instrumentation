@@ -10,9 +10,9 @@ export class FallbackSampler implements Sampler {
   private fixedRateSampler: TraceIdRatioBasedSampler;
   private rateLimitingSampler: RateLimitingSampler;
 
-  constructor() {
-    this.fixedRateSampler = new TraceIdRatioBasedSampler(0.05);
-    this.rateLimitingSampler = new RateLimitingSampler(1);
+  constructor(ratio: number = 0.05, quota: number = 1) {
+    this.fixedRateSampler = new TraceIdRatioBasedSampler(ratio);
+    this.rateLimitingSampler = new RateLimitingSampler(quota);
   }
 
   shouldSample(

@@ -24,7 +24,7 @@ jobs:
   wait-for-main-build:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for main-build workflow to succeed
+      - name: Wait for E2E test to succeed
         uses: ezhang6811/wait-on-check-action@master
         with:
           ref: ${{ github.ref }}

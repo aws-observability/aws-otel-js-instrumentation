@@ -125,3 +125,6 @@ jobs:
       node-version: 22
       staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
       caller-workflow-name: 'main-build'
+
+  validate-all-tests-are-accounted-for:
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/validate-e2e-tests-are-accounted-for.yml@main

@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Wait for E2E test to succeed
-        uses: ezhang6811/wait-on-check-action@master
+        uses: ezhang6811/wait-on-check-action@6275ea93847ce5952ab8ceeac8fb1111820cf44d
         with:
           ref: ${{ github.ref }}
           check-name: 'Application Signals E2E Test'

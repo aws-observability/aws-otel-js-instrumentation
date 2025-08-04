@@ -76,9 +76,9 @@ if [ -z "${OTEL_AWS_APPLICATION_SIGNALS_ENABLED}" ]; then
     export OTEL_AWS_APPLICATION_SIGNALS_ENABLED="true";
 fi
 
-# - Enable emf exporter by default
+# - Disable otel metrics export by default
 if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
-    export OTEL_METRICS_EXPORTER="awsemf";
+    export OTEL_METRICS_EXPORTER="none";
 fi
 
 # - Disable logs exporter by default

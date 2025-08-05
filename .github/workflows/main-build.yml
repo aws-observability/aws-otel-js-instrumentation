@@ -104,3 +104,24 @@ jobs:
     with:
       staging-instrumentation-name: ${{ needs.build.outputs.staging_tarball_file }}
       adot-image-name: ${{ needs.build.outputs.staging_registry }}/aws-observability/adot-autoinstrumentation-node-staging:${{ needs.build.outputs.node_image_tag }}
+
+  publish-main-build-status:
+    name: "Publish Main Build Status"
+    needs: [ build, application-signals-e2e-test ]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Configure AWS Credentials for emitting metrics
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.MONITORING_ROLE_ARN }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Publish main build status
+        run: |
+          success="${{ needs.build.result == 'success' && needs.application-signals-e2e-test.result == 'success' }}"
+          value="${success}" == "true" && "0.0" || "1.0"
+          aws cloudwatch put-metric-data --namespace 'ADOT/GitHubActions' \
+            --metric-name Failure \
+            --dimensions repository=${{ github.repository }},workflow=main_build \
+            --value $value

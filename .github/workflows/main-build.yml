@@ -123,5 +123,5 @@ jobs:
           value="${success}" == "true" && "0.0" || "1.0"
           aws cloudwatch put-metric-data --namespace 'ADOT/GitHubActions' \
             --metric-name Failure \
-            --dimensions repository=${{ github.repository }},workflow=main_build \
+            --dimensions repository=${{ github.repository }},branch=${{ github.ref_name }},workflow=main_build \
             --value $value

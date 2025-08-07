@@ -1,6 +1,6 @@
 {
   "name": "@aws/aws-distro-opentelemetry-node-autoinstrumentation",
-  "version": "0.6.0-dev0",
+  "version": "0.7.0-dev0",
   "private": true,
   "scripts": {
     "clean": "rimraf build/*",

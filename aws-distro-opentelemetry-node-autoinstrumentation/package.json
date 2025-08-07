@@ -1,6 +1,6 @@
 {
   "name": "@aws/aws-distro-opentelemetry-node-autoinstrumentation",
-  "version": "0.7.0",
+  "version": "0.7.0-dev0",
   "description": "This package provides Amazon Web Services distribution of the OpenTelemetry Node Instrumentation, which allows for auto-instrumentation of NodeJS applications.",
   "author": {
     "name": "Amazon Web Services",

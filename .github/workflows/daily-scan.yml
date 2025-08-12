@@ -66,6 +66,7 @@ jobs:
       - name: Print dependency scan results on failure
         if: ${{ steps.dep_scan.outcome != 'success' }}
         run: less dependency-check-report.html
+      
       - name: Configure AWS credentials for image scan
         uses: aws-actions/configure-aws-credentials@v4
         with:

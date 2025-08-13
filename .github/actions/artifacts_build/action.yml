@@ -80,6 +80,15 @@ runs:
       env:
         AWS_REGION: ${{ inputs.aws-region }}
 
+    # Per https://docs.aws.amazon.com/AmazonECR/latest/public/docker-pull-ecr-image.html, it is possible to
+    # make unauthorized calls to get public ECR images (needed to build the ADOT Node docker image), but
+    # it can fail if you previously authenticated to a public repo. Adding this step to log out, so we
+    # ensure we can make unauthenticated call. This is important for making the pr_build workflow run on
+    # PRs created from forked repos.
+    - name: Logout of public AWS ECR
+      shell: bash
+      run: docker logout public.ecr.aws
+
     - name: Build and push image according to input
       uses: docker/build-push-action@v5
       with:

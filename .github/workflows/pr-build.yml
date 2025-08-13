@@ -38,6 +38,15 @@ jobs:
         run: npm ci
       - name: Compile all NPM projects
         run: npm run compile
+      - name: Build Tarball and Image Files
+        uses: ./.github/actions/artifacts_build
+        with:
+          image_uri_with_tag: pr-build/${{ matrix.node }}
+          push_image: false
+          load_image: true
+          node_version: ${{ matrix.node }}
+          package_name: aws-distro-opentelemetry-node-autoinstrumentation
+          os: ubuntu-latest
       - name: Build Lambda Layer
         run: npm run build-lambda
       - name: Unit tests (Full)

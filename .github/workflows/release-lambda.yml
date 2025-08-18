@@ -24,6 +24,8 @@ jobs:
   check-draft:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@v4
       - name: Check for release draft
         run: |
           TAG="v${{ github.event.inputs.version }}"
@@ -34,9 +36,10 @@ jobs:
           fi
           echo "Found draft release for tag $TAG. Proceeding with Lambda layer release."
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   build-layer:
     environment: Release
+    needs: check-draft
     runs-on: ubuntu-latest
     outputs:
       aws_regions_json: ${{ steps.set-matrix.outputs.aws_regions_json }}
@@ -232,13 +235,13 @@ jobs:
             layer_arns.tf \
             --clobber
       - name: Update Release Notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ github.event.inputs.version }}"
           # Get current release notes
           current_notes=$(gh release view $TAG --json body -q .body)
-          echo "## Lambda Layer" > lambda_notes.md
-          echo "" >> lambda_notes.md
-          echo "AWS OpenTelemetry Lambda Layer for JavaScript version ${{ github.event.inputs.version }}-${{ steps.commit.outputs.sha_short }}" > lambda_notes.md
+          echo "This release also includes the AWS OpenTelemetry Lambda Layer for JavaScript version ${{ github.event.inputs.version }}-${{ steps.commit.outputs.sha_short }}." >> lambda_notes.md
           echo "" >> lambda_notes.md
           echo "Lambda Layer ARNs:" >> lambda_notes.md
           echo "" >> lambda_notes.md

@@ -104,8 +104,40 @@ jobs:
           gh release download "$LATEST_SDK_VERSION" --repo "aws-observability/aws-otel-js-instrumentation" --pattern "layer.zip" --dir layer_artifact
           shasum -a 256 layer_artifact/layer.zip > layer_artifact/layer.zip.sha256
 
+          # Create release notes template
+          cat > release_notes.md << 'EOF'
+          This release contains the following upstream components:
+
+          - `@opentelemetry/api` - <dependency version number>
+          - `@opentelemetry/auto-configuration-propagators` - <dependency version number>
+          - `@opentelemetry/auto-instrumentations-node` - <dependency version number>
+          - `@opentelemetry/core` - <dependency version number>
+          - `@opentelemetry/exporter-metrics-otlp-grpc` - <dependency version number>
+          - `@opentelemetry/exporter-metrics-otlp-http` - <dependency version number>
+          - `@opentelemetry/exporter-trace-otlp-proto` - <dependency version number>
+          - `@opentelemetry/exporter-zipkin` - <dependency version number>
+          - `@opentelemetry/id-generator-aws-xray` - <dependency version number>
+          - `@opentelemetry/instrumentation` - <dependency version number>
+          - `@opentelemetry/instrumentation-aws-sdk` - <dependency version number>
+          - `@opentelemetry/propagator-aws-xray` - <dependency version number>
+          - `@opentelemetry/resource-detector-aws` - <dependency version number>
+          - `@opentelemetry/resources` - <dependency version number>
+          - `@opentelemetry/sdk-metrics` - <dependency version number>
+          - `@opentelemetry/sdk-node` - <dependency version number>
+          - `@opentelemetry/sdk-trace-base` - <dependency version number>
+          - `@opentelemetry/semantic-conventions` - <dependency version number>
+          - `<ANY NEW DEPENDENCIES>` - <new dependency version number>
+
+          This release also publishes to public ECR and NPM.
+          * See ADOT node auto-instrumentation Docker image v${{ github.event.inputs.version }} in our public ECR repository:
+          https://gallery.ecr.aws/aws-observability/adot-autoinstrumentation-node
+          * See version ${{ github.event.inputs.version }} in our NPM repository:
+          https://www.npmjs.com/package/@aws/aws-distro-opentelemetry-node-autoinstrumentation
+          EOF
+
           gh release create --target "$GITHUB_REF_NAME" \
              --title "Release v${{ github.event.inputs.version }}" \
+             --notes-file release_notes.md \
              --draft \
              "v${{ github.event.inputs.version }}" \
              aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }} \

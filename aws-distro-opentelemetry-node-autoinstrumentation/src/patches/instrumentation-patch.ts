@@ -3,7 +3,6 @@
 
 import {
   diag,
-  isSpanContextValid,
   Context as OtelContext,
   context as otelContext,
   propagation,
@@ -22,7 +21,7 @@ import {
   NormalizedRequest,
   NormalizedResponse,
 } from '@opentelemetry/instrumentation-aws-sdk';
-import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
+import { AWSXRAY_TRACE_ID_HEADER } from '@opentelemetry/propagator-aws-xray';
 import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
 import { AWS_ATTRIBUTE_KEYS } from '../aws-attribute-keys';
 import { RequestMetadata } from '../third-party/otel/aws/services/ServiceExtension';
@@ -42,13 +41,26 @@ import { suppressTracing } from '@opentelemetry/core';
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 export const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
 
-const awsPropagator = new AWSXRayPropagator();
-export const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
-  keys(carrier: any): string[] {
-    return Object.keys(carrier);
+interface LambdaCarrier {
+  lambdaEventHeaders: APIGatewayProxyEventHeaders;
+  lambdaContext?: Context;
+}
+
+export const headerGetter: TextMapGetter<LambdaCarrier> = {
+  keys(carrier: LambdaCarrier): string[] {
+    const carrierKeys = Object.keys(carrier.lambdaEventHeaders);
+    if (carrier.lambdaContext && typeof (carrier.lambdaContext as any)[lambdaContextXrayTraceIdKey] === 'string') {
+      carrierKeys.push(AWSXRAY_TRACE_ID_HEADER);
+    }
+    return carrierKeys;
   },
-  get(carrier: any, key: string) {
-    return carrier[key];
+  get(carrier: LambdaCarrier, key: string) {
+    if (key === AWSXRAY_TRACE_ID_HEADER) {
+      if (carrier.lambdaContext && typeof (carrier.lambdaContext as any)[lambdaContextXrayTraceIdKey] === 'string') {
+        return (carrier.lambdaContext as any)[lambdaContextXrayTraceIdKey];
+      }
+    }
+    return carrier.lambdaEventHeaders[key];
   },
 };
 
@@ -94,29 +106,29 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
 
 /*
  * This function `customExtractor` is used to extract SpanContext for AWS Lambda functions.
- * It first attempts to extract the trace context from the AWS X-Ray header, which is stored in the Lambda environment variables.
+ * It first attempts to extract the trace context from the Lambda Handler Context object (_handlerContext.xRayTraceId)
+ * If above approach fails, attempt to extract the trace context from the AWS X-Ray header, which is stored in the Lambda environment variables.
  * If a valid span context is extracted from the environment, it uses this as the parent context for the function's tracing.
  * If the X-Ray header is missing or invalid, it falls back to extracting trace context from the Lambda handler's event headers.
  * If neither approach succeeds, it defaults to using the root Otel context, ensuring the function is still instrumented for tracing.
  */
+const lambdaContextXrayTraceIdKey = 'xRayTraceId';
 export const customExtractor = (event: any, _handlerContext: Context): OtelContext => {
-  let parent: OtelContext | undefined = undefined;
-  const lambdaTraceHeader = process.env[traceContextEnvironmentKey];
-  if (lambdaTraceHeader) {
-    parent = awsPropagator.extract(
-      otelContext.active(),
-      { [AWSXRAY_TRACE_ID_HEADER]: lambdaTraceHeader },
-      headerGetter
-    );
-  }
-  if (parent) {
-    const spanContext = trace.getSpan(parent)?.spanContext();
-    if (spanContext && isSpanContextValid(spanContext)) {
-      return parent;
-    }
-  }
+  const xrayTraceIdFromLambdaEnv = process.env[traceContextEnvironmentKey];
+
   const httpHeaders = event.headers || {};
-  const extractedContext = propagation.extract(otelContext.active(), httpHeaders, headerGetter);
+  if (xrayTraceIdFromLambdaEnv) {
+    httpHeaders[AWSXRAY_TRACE_ID_HEADER] = xrayTraceIdFromLambdaEnv;
+  }
+
+  const extractedContext = propagation.extract(
+    otelContext.active(),
+    {
+      lambdaEventHeaders: httpHeaders,
+      lambdaContext: _handlerContext,
+    },
+    headerGetter
+  );
   if (trace.getSpan(extractedContext)?.spanContext()) {
     return extractedContext;
   }

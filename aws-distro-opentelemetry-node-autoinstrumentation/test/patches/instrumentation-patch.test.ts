@@ -17,6 +17,7 @@ import {
   SpanStatusCode,
   ROOT_CONTEXT,
 } from '@opentelemetry/api';
+import * as api from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import { AwsInstrumentation, NormalizedRequest, NormalizedResponse } from '@opentelemetry/instrumentation-aws-sdk';
@@ -35,7 +36,6 @@ import {
 import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { Context } from 'aws-lambda';
-import { SinonStub } from 'sinon';
 import { Lambda } from '@aws-sdk/client-lambda';
 import * as nock from 'nock';
 import { ReadableSpan, Span as SDKSpan } from '@opentelemetry/sdk-trace-base';
@@ -43,6 +43,7 @@ import { getTestSpans } from '@opentelemetry/contrib-test-utils';
 import { instrumentationConfigs } from '../../src/register';
 import { LoggerProvider } from '@opentelemetry/api-logs';
 import { STS } from '@aws-sdk/client-sts';
+import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
 
 // It is assumed that bedrock.test.ts has already registered the
 // necessary instrumentations for testing by calling:
@@ -71,6 +72,7 @@ const mockHeaders = {
   'x-test-header': 'test-value',
   'content-type': 'application/json',
 };
+const mockCarrier = { lambdaEventHeaders: mockHeaders };
 
 const UNPATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
@@ -965,22 +967,28 @@ describe('InstrumentationPatchTest', () => {
 });
 
 describe('customExtractor', () => {
+  let lambdaPropagator: api.TextMapPropagator;
   const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
-  const MOCK_XRAY_TRACE_ID = '8a3c60f7d188f8fa79d48a391a778fa6';
-  const MOCK_XRAY_TRACE_ID_STR = '1-8a3c60f7-d188f8fa79d48a391a778fa6';
-  const MOCK_XRAY_PARENT_SPAN_ID = '53995c3f42cd8ad8';
+  const MOCK_XRAY_TRACE_ID_0 = '8a3c0000d188f8fa79d48a391a770000';
+  const MOCK_XRAY_TRACE_ID_1 = '8a3c0001d188f8fa79d48a391a770001';
+  const MOCK_XRAY_TRACE_ID_STR_0 = '8a3c0000-d188f8fa79d48a391a770000';
+  const MOCK_XRAY_TRACE_ID_STR_1 = '8a3c0001-d188f8fa79d48a391a770001';
+  const MOCK_XRAY_PARENT_SPAN_ID_0 = '53995c3f42cd0000';
+  const MOCK_XRAY_PARENT_SPAN_ID_1 = '53995c3f42cd0001';
   const MOCK_XRAY_LAMBDA_LINEAGE = 'Lineage=01cfa446:0';
 
   const TRACE_ID_VERSION = '1'; // Assuming TRACE_ID_VERSION is defined somewhere in the code
 
   // Common part of the XRAY trace context
-  const MOCK_XRAY_TRACE_CONTEXT_COMMON = `Root=${TRACE_ID_VERSION}-${MOCK_XRAY_TRACE_ID_STR};Parent=${MOCK_XRAY_PARENT_SPAN_ID}`;
+  const MOCK_XRAY_TRACE_CONTEXT_0_COMMON = `Root=${TRACE_ID_VERSION}-${MOCK_XRAY_TRACE_ID_STR_0};Parent=${MOCK_XRAY_PARENT_SPAN_ID_0}`;
+  const MOCK_XRAY_TRACE_CONTEXT_1_COMMON = `Root=${TRACE_ID_VERSION}-${MOCK_XRAY_TRACE_ID_STR_1};Parent=${MOCK_XRAY_PARENT_SPAN_ID_1}`;
 
   // Different versions of the XRAY trace context
-  const MOCK_XRAY_TRACE_CONTEXT_SAMPLED = `${MOCK_XRAY_TRACE_CONTEXT_COMMON};Sampled=1;${MOCK_XRAY_LAMBDA_LINEAGE}`;
+  const MOCK_XRAY_TRACE_CONTEXT_0_SAMPLED = `${MOCK_XRAY_TRACE_CONTEXT_0_COMMON};Sampled=1;${MOCK_XRAY_LAMBDA_LINEAGE}`;
+  const MOCK_XRAY_TRACE_CONTEXT_1_UNSAMPLED = `${MOCK_XRAY_TRACE_CONTEXT_1_COMMON};Sampled=0;${MOCK_XRAY_LAMBDA_LINEAGE}`;
   //   const MOCK_XRAY_TRACE_CONTEXT_PASSTHROUGH = (
-  //     `Root=${TRACE_ID_VERSION}-${MOCK_XRAY_TRACE_ID_STR.slice(0, TRACE_ID_FIRST_PART_LENGTH)}` +
-  //     `-${MOCK_XRAY_TRACE_ID_STR.slice(TRACE_ID_FIRST_PART_LENGTH)};${MOCK_XRAY_LAMBDA_LINEAGE}`
+  //     `Root=${TRACE_ID_VERSION}-${MOCK_XRAY_TRACE_ID_STR_0.slice(0, TRACE_ID_FIRST_PART_LENGTH)}` +
+  //     `-${MOCK_XRAY_TRACE_ID_STR_0.slice(TRACE_ID_FIRST_PART_LENGTH)};${MOCK_XRAY_LAMBDA_LINEAGE}`
   //   );
 
   // Create the W3C Trace Context (Sampled)
@@ -991,11 +999,22 @@ describe('customExtractor', () => {
   const MOCK_W3C_TRACE_STATE_VALUE = 'test_value';
   const MOCK_TRACE_STATE = `${MOCK_W3C_TRACE_STATE_KEY}=${MOCK_W3C_TRACE_STATE_VALUE},foo=1,bar=2`;
 
-  let awsPropagatorStub: SinonStub;
-  let traceGetSpanStub: SinonStub;
-  // let propagationStub: SinonStub;
+  let awsPropagatorSpy: sinon.SinonSpy;
+  let traceGetSpanSpy: sinon.SinonSpy;
+  let propagationStub: sinon.SinonStub;
+
+  before(() => {
+    process.env.OTEL_PROPAGATORS = 'baggage,xray,tracecontext';
+    lambdaPropagator = getPropagator();
+    delete process.env.OTEL_PROPAGATORS;
+  });
 
   beforeEach(() => {
+    propagationStub = sinon
+      .stub(propagation, 'extract')
+      .callsFake((context: OtelContext, carrier: unknown, getter?: api.TextMapGetter<unknown> | undefined) => {
+        return lambdaPropagator.extract(context, carrier, getter!);
+      });
     // Clear environment variables before each test
     delete process.env[traceContextEnvironmentKey];
   });
@@ -1005,41 +1024,145 @@ describe('customExtractor', () => {
     sinon.restore();
   });
 
-  it('should extract context from lambda trace header when present', () => {
-    const mockLambdaTraceHeader = MOCK_XRAY_TRACE_CONTEXT_SAMPLED;
-    process.env[traceContextEnvironmentKey] = mockLambdaTraceHeader;
+  it('should extract context from handler context xRayTraceId property when present', () => {
+    const mockLambdaTraceHeader = MOCK_XRAY_TRACE_CONTEXT_0_SAMPLED;
+    const mockHandlerContext = {
+      xRayTraceId: mockLambdaTraceHeader,
+    } as unknown as Context;
 
-    const mockParentContext = {} as OtelContext;
-
-    // Partial mock of the Span object
-    const mockSpan: Partial<Span> = {
-      spanContext: sinon.stub().returns({
-        traceId: MOCK_XRAY_TRACE_ID,
-        spanId: MOCK_XRAY_PARENT_SPAN_ID,
-      }),
+    // Mock of the Span Context for validation
+    const mockParentSpanContext: api.SpanContext = {
+      isRemote: true,
+      traceFlags: 1,
+      traceId: MOCK_XRAY_TRACE_ID_0,
+      spanId: MOCK_XRAY_PARENT_SPAN_ID_0,
     };
 
-    // Stub awsPropagator.extract to return the mockParentContext
-    awsPropagatorStub = sinon.stub(AWSXRayPropagator.prototype, 'extract').returns(mockParentContext);
-
-    // Stub trace.getSpan to return the mock span
-    traceGetSpanStub = sinon.stub(trace, 'getSpan').returns(mockSpan as Span);
+    sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
+    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
+    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
 
     // Call the customExtractor function
+    const event = { headers: {} };
+    const result = customExtractor(event, mockHandlerContext);
+
+    // Assertions
+    expect(awsPropagatorSpy.calledOnce).toBe(true);
+    expect(
+      awsPropagatorSpy.calledWith(
+        sinon.match.any,
+        {
+          lambdaEventHeaders: event.headers,
+          lambdaContext: mockHandlerContext,
+        },
+        sinon.match.any
+      )
+    ).toBe(true);
+    expect(traceGetSpanSpy.calledOnce).toBe(true);
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the parent context when valid
+  });
+
+  it('should prioritize extract context from handler context xRayTraceId property instead of environment variable', () => {
+    const mockLambdaContextTraceHeader = MOCK_XRAY_TRACE_CONTEXT_1_UNSAMPLED;
+    const mockLambdEnvVarTraceHeader = MOCK_XRAY_TRACE_CONTEXT_0_SAMPLED;
+
+    process.env[traceContextEnvironmentKey] = mockLambdEnvVarTraceHeader;
+
+    const mockHandlerContext = {
+      xRayTraceId: mockLambdaContextTraceHeader,
+    } as unknown as Context;
+
+    // Mock of the Span Context for validation
+    const mockParentSpanContext: api.SpanContext = {
+      isRemote: true,
+      traceFlags: 0,
+      traceId: MOCK_XRAY_TRACE_ID_1,
+      spanId: MOCK_XRAY_PARENT_SPAN_ID_1,
+    };
+
+    sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
+    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
+    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
+
+    // Call the customExtractor function
+    const event = { headers: {} };
+    const result = customExtractor(event, mockHandlerContext);
+
+    // Assertions
+    expect(awsPropagatorSpy.calledOnce).toBe(true);
+    expect(
+      awsPropagatorSpy.calledWith(
+        sinon.match.any,
+        {
+          lambdaEventHeaders: event.headers,
+          lambdaContext: mockHandlerContext,
+        },
+        sinon.match.any
+      )
+    ).toBe(true);
+    expect(traceGetSpanSpy.calledOnce).toBe(true);
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the parent context when valid
+  });
+
+  it('should fallback to environment variable when handler context xRayTraceId is not available', () => {
+    const mockLambdaTraceHeader = MOCK_XRAY_TRACE_CONTEXT_0_SAMPLED;
+    process.env[traceContextEnvironmentKey] = mockLambdaTraceHeader;
+
+    // Mock of the Span Context for validation
+    const mockParentSpanContext: api.SpanContext = {
+      isRemote: true,
+      traceFlags: 1,
+      traceId: MOCK_XRAY_TRACE_ID_0,
+      spanId: MOCK_XRAY_PARENT_SPAN_ID_0,
+    };
+
+    sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
+    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
+    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
+
+    // Call the customExtractor function with handler context without xRayTraceId
     const event = { headers: {} };
     const result = customExtractor(event, {} as Context);
 
     // Assertions
-    expect(awsPropagatorStub.calledOnce).toBe(true);
+    expect(awsPropagatorSpy.calledOnce).toBe(true);
     expect(
-      awsPropagatorStub.calledWith(
+      awsPropagatorSpy.calledWith(
         sinon.match.any,
-        { [AWSXRAY_TRACE_ID_HEADER]: mockLambdaTraceHeader },
+        {
+          lambdaEventHeaders: event.headers,
+          lambdaContext: {},
+        },
         sinon.match.any
       )
     ).toBe(true);
-    expect(traceGetSpanStub.calledOnce).toBe(true);
-    expect(result).toEqual(mockParentContext); // Should return the parent context when valid
+    expect(traceGetSpanSpy.calledOnce).toBe(true);
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the parent context when valid
+  });
+
+  it('should handle undefined handler context and fallback to environment variable', () => {
+    const mockLambdaTraceHeader = MOCK_XRAY_TRACE_CONTEXT_0_SAMPLED;
+    process.env[traceContextEnvironmentKey] = mockLambdaTraceHeader;
+
+    // Mock of the Span Context for validation
+    const mockParentSpanContext: api.SpanContext = {
+      isRemote: true,
+      traceFlags: 1,
+      traceId: MOCK_XRAY_TRACE_ID_0,
+      spanId: MOCK_XRAY_PARENT_SPAN_ID_0,
+    };
+
+    sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
+    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
+    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
+
+    // Call the customExtractor function with undefined handler context
+    const event = { headers: {} };
+    const result = customExtractor(event, undefined as any);
+
+    // Should only be called once (for environment variable)
+    expect(awsPropagatorSpy.calledOnce).toBe(true);
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the valid parent context
   });
 
   it('should extract context from HTTP headers when lambda trace header is not present', () => {
@@ -1056,27 +1179,36 @@ describe('customExtractor', () => {
       }, // Empty function that returns undefined
     } as unknown as OtelContext;
 
-    const propagationStub = sinon.stub(propagation, 'extract').returns(mockExtractedContext);
+    propagationStub.returns(mockExtractedContext);
 
     // Call the customExtractor function
     const mockHttpHeaders = event.headers;
     customExtractor(event, {} as Context);
 
-    expect(propagationStub.calledWith(sinon.match.any, mockHttpHeaders, sinon.match.any)).toBe(true);
+    expect(
+      propagationStub.calledWith(
+        sinon.match.any,
+        {
+          lambdaEventHeaders: mockHttpHeaders,
+          lambdaContext: {},
+        },
+        sinon.match.any
+      )
+    ).toBe(true);
   });
 
   it('should return all header keys from the carrier', () => {
-    const keys = headerGetter.keys(mockHeaders);
+    const keys = headerGetter.keys(mockCarrier);
     expect(keys).toEqual(['x-test-header', 'content-type']);
   });
 
   it('should return the correct header value for a given key', () => {
-    const headerValue = headerGetter.get(mockHeaders, 'x-test-header');
+    const headerValue = headerGetter.get(mockCarrier, 'x-test-header');
     expect(headerValue).toBe('test-value');
   });
 
   it('should return undefined for a key that does not exist', () => {
-    const headerValue = headerGetter.get(mockHeaders, 'non-existent-header');
+    const headerValue = headerGetter.get(mockCarrier, 'non-existent-header');
     expect(headerValue).toBeUndefined();
   });
 });

@@ -98,29 +98,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
         run: |
-          # Create release notes template
+          # Generate dependency versions from package.json
+          DEPS=$(node -e "
+            const pkg = require('./aws-distro-opentelemetry-node-autoinstrumentation/package.json');
+            const deps = Object.entries(pkg.dependencies || {})
+              .map(([name, version]) => \`- \\\`\${name}\\\` - \${version}\`)
+              .join('\n');
+            console.log(deps);
+          ")
+
+          # Create release notes
           cat > release_notes.md << 'EOF'
           This release contains the following upstream components:
 
-          - `@opentelemetry/api` - <dependency version number>
-          - `@opentelemetry/auto-configuration-propagators` - <dependency version number>
-          - `@opentelemetry/auto-instrumentations-node` - <dependency version number>
-          - `@opentelemetry/core` - <dependency version number>
-          - `@opentelemetry/exporter-metrics-otlp-grpc` - <dependency version number>
-          - `@opentelemetry/exporter-metrics-otlp-http` - <dependency version number>
-          - `@opentelemetry/exporter-trace-otlp-proto` - <dependency version number>
-          - `@opentelemetry/exporter-zipkin` - <dependency version number>
-          - `@opentelemetry/id-generator-aws-xray` - <dependency version number>
-          - `@opentelemetry/instrumentation` - <dependency version number>
-          - `@opentelemetry/instrumentation-aws-sdk` - <dependency version number>
-          - `@opentelemetry/propagator-aws-xray` - <dependency version number>
-          - `@opentelemetry/resource-detector-aws` - <dependency version number>
-          - `@opentelemetry/resources` - <dependency version number>
-          - `@opentelemetry/sdk-metrics` - <dependency version number>
-          - `@opentelemetry/sdk-node` - <dependency version number>
-          - `@opentelemetry/sdk-trace-base` - <dependency version number>
-          - `@opentelemetry/semantic-conventions` - <dependency version number>
-          - `<ANY NEW DEPENDENCIES>` - <new dependency version number>
+          $DEPS
 
           This release also publishes to public ECR and NPM.
           * See ADOT node auto-instrumentation Docker image v${{ github.event.inputs.version }} in our public ECR repository:

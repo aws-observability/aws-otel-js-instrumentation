@@ -16,7 +16,7 @@ dependencies = [
     "grpcio==1.60.0",
     "docker==7.1.0",
     "mock-collector==1.0.0",
-    "requests==2.32.2"
+    "requests==2.32.4"
 ]
 
 [project.optional-dependencies]

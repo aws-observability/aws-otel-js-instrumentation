@@ -142,7 +142,6 @@ jobs:
           NPM_CONFIG_PROVENANCE: true
         run: npm publish
   build-layer:
-    environment: Release
     needs: build
     runs-on: ubuntu-latest
     outputs:

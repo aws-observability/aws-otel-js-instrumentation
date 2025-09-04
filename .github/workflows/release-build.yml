@@ -21,25 +21,30 @@ permissions:
   contents: write
 
 jobs:
-  wait-for-main-build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wait for E2E test to succeed
-        uses: ezhang6811/wait-on-check-action@6275ea93847ce5952ab8ceeac8fb1111820cf44d
-        with:
-          ref: ${{ github.ref }}
-          check-name: 'Application Signals E2E Test'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 30
-          allowed-conclusions: success
-
   build:
-    needs: wait-for-main-build
     environment: Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@v4
+
+      - name: Check main build status
+        run: |
+          WORKFLOW_ID=$(gh api repos/${{ github.repository }}/actions/workflows --jq '.workflows[] | select(.name=="NodeJS Instrumentation Main Build") | .id')
+          LATEST_RUN=$(gh api repos/${{ github.repository }}/actions/workflows/$WORKFLOW_ID/runs --jq '.workflow_runs[] | select(.head_branch=="${{ github.ref_name }}") | {conclusion, status}' | head -1)
+          STATUS=$(echo "$LATEST_RUN" | jq -r '.status')
+          CONCLUSION=$(echo "$LATEST_RUN" | jq -r '.conclusion')
+          
+          if [ "$STATUS" = "in_progress" ] || [ "$STATUS" = "queued" ]; then
+            echo "Main build is still running (status: $STATUS). Cannot proceed with release."
+            exit 1
+          elif [ "$CONCLUSION" != "success" ]; then
+            echo "Latest main build on branch ${{ github.ref_name }} conclusion: $CONCLUSION"
+            exit 1
+          fi
+          echo "Main build succeeded, proceeding with release"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Build Tarball and Image Files
         uses: ./.github/actions/artifacts_build

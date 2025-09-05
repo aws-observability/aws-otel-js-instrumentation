@@ -106,11 +106,9 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
 
 /*
  * This function `customExtractor` is used to extract SpanContext for AWS Lambda functions.
- * It first attempts to extract the trace context from the Lambda Handler Context object (_handlerContext.xRayTraceId)
- * If above approach fails, attempt to extract the trace context from the AWS X-Ray header, which is stored in the Lambda environment variables.
- * If a valid span context is extracted from the environment, it uses this as the parent context for the function's tracing.
- * If the X-Ray header is missing or invalid, it falls back to extracting trace context from the Lambda handler's event headers.
- * If neither approach succeeds, it defaults to using the root Otel context, ensuring the function is still instrumented for tracing.
+ * It extracts the X-Ray trace ID from the Lambda environment variable (_X_AMZN_TRACE_ID) and adds it to the event headers.
+ * It then uses OpenTelemetry global propagator to extract trace context from both the event headers and Lambda context.
+ * If a valid span context is extracted, it returns that context; otherwise, it returns the root context.
  */
 const lambdaContextXrayTraceIdKey = 'xRayTraceId';
 export const customExtractor = (event: any, _handlerContext: Context): OtelContext => {

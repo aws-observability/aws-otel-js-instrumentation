@@ -19,7 +19,8 @@ env:
   RELEASE_PRIVATE_REGISTRY: 020628701572.dkr.ecr.us-west-2.amazonaws.com
   PACKAGE_NAME: aws-distro-opentelemetry-node-autoinstrumentation
   ARTIFACT_NAME: aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz
-  COMMERCIAL_REGIONS: us-east-1, us-east-2, us-west-1, us-west-2, ap-south-1, ap-northeast-3, ap-northeast-2, ap-southeast-1, ap-southeast-2, ap-northeast-1, ca-central-1, eu-central-1, eu-west-1, eu-west-2, eu-west-3, eu-north-1, sa-east-1, ap-southeast-5, ap-southeast-7, mx-central-1, ca-west-1, cn-north-1, cn-northwest-1
+  # Legacy list of commercial regions to deploy to. New regions should NOT be added here, and instead should be added to the `aws_region` default input to the workflow.
+  LEGACY_COMMERCIAL_REGIONS: us-east-1, us-east-2, us-west-1, us-west-2, ap-south-1, ap-northeast-3, ap-northeast-2, ap-southeast-1, ap-southeast-2, ap-northeast-1, ca-central-1, eu-central-1, eu-west-1, eu-west-2, eu-west-3, eu-north-1, sa-east-1
   LAYER_NAME: AWSOpenTelemetryDistroJs
 
 permissions:
@@ -33,6 +34,24 @@ jobs:
     steps:
       - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@v4
+
+      - name: Check main build status
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          WORKFLOW_ID=$(gh api repos/${{ github.repository }}/actions/workflows --jq '.workflows[] | select(.name=="NodeJS Instrumentation Main Build") | .id')
+          LATEST_RUN=$(gh api repos/${{ github.repository }}/actions/workflows/$WORKFLOW_ID/runs --jq '[.workflow_runs[] | select(.head_branch=="${{ github.ref_name }}")] | sort_by(.created_at) | .[-1] | {conclusion, status}')
+          STATUS=$(echo "$LATEST_RUN" | jq -r '.status')
+          CONCLUSION=$(echo "$LATEST_RUN" | jq -r '.conclusion')
+          
+          if [ "$STATUS" = "in_progress" ] || [ "$STATUS" = "queued" ]; then
+            echo "Main build is still running (status: $STATUS). Cannot proceed with release."
+            exit 1
+          elif [ "$CONCLUSION" != "success" ]; then
+            echo "Latest main build on branch ${{ github.ref_name }} conclusion: $CONCLUSION"
+            exit 1
+          fi
+          echo "Main build succeeded, proceeding with release"
 
       - name: Build Tarball and Image Files
         uses: ./.github/actions/artifacts_build
@@ -186,21 +205,21 @@ jobs:
     steps:
       - name: role arn
         env:
-          COMMERCIAL_REGIONS: ${{ env.COMMERCIAL_REGIONS }}
+          LEGACY_COMMERCIAL_REGIONS: ${{ env.LEGACY_COMMERCIAL_REGIONS }}
         run: |
-          COMMERCIAL_REGIONS_ARRAY=(${COMMERCIAL_REGIONS//,/ })
+          LEGACY_COMMERCIAL_REGIONS_ARRAY=(${LEGACY_COMMERCIAL_REGIONS//,/ })
           FOUND=false
-          for REGION in "${COMMERCIAL_REGIONS_ARRAY[@]}"; do
+          for REGION in "${LEGACY_COMMERCIAL_REGIONS_ARRAY[@]}"; do
             if [[ "$REGION" == "${{ matrix.aws_region }}" ]]; then
               FOUND=true
               break
             fi
           done
           if [ "$FOUND" = true ]; then
-            echo "Found ${{ matrix.aws_region }} in COMMERCIAL_REGIONS"
+            echo "Found ${{ matrix.aws_region }} in LEGACY_COMMERCIAL_REGIONS"
             SECRET_KEY="LAMBDA_LAYER_RELEASE"
           else
-            echo "Not found ${{ matrix.aws_region }} in COMMERCIAL_REGIONS"
+            echo "Not found ${{ matrix.aws_region }} in LEGACY_COMMERCIAL_REGIONS"
             SECRET_KEY="${{ matrix.aws_region }}_LAMBDA_LAYER_RELEASE"
           fi
           SECRET_KEY=${SECRET_KEY//-/_}

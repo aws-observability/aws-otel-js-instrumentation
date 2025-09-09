@@ -1293,7 +1293,9 @@ describe('AWS Lambda Instrumentation Propagation', () => {
 
     const lambdaEvent = {
       headers: {
+        'x-amzn-trace-ID': sampledAwsHeader,
         'x-amzn-trace-id': sampledAwsHeader,
+        'X-Amzn-Trace-Id': sampledAwsHeader,
       },
     };
     const lambdaCtx2 = {

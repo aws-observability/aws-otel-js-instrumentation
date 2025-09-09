@@ -102,11 +102,17 @@ export const customExtractor = (event: any, _handlerContext: Context): OtelConte
     ? (_handlerContext as any)[lambdaContextXrayTraceIdKey]
     : undefined;
   const xrayTraceIdFromLambdaEnv = process.env[traceContextEnvironmentKey];
-  const xrayTraceId = xrayTraceIdFromLambdaContext || xrayTraceIdFromLambdaEnv;
+  const xrayTraceIdFromLambda = xrayTraceIdFromLambdaContext || xrayTraceIdFromLambdaEnv;
 
   const httpHeaders = event.headers || {};
-  if (xrayTraceId) {
-    httpHeaders[AWSXRAY_TRACE_ID_HEADER] = xrayTraceId;
+  if (xrayTraceIdFromLambda) {
+    // Delete any X-Ray Trace ID via case-insensitive checks since we will overwrite it here.
+    Object.keys(httpHeaders).forEach(key => {
+      if (key.toLowerCase() === AWSXRAY_TRACE_ID_HEADER.toLowerCase()) {
+        delete httpHeaders[key];
+      }
+    });
+    httpHeaders[AWSXRAY_TRACE_ID_HEADER] = xrayTraceIdFromLambda;
   }
 
   const extractedContext = propagation.extract(otelContext.active(), httpHeaders, headerGetter);

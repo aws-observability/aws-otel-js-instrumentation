@@ -242,16 +242,16 @@ jobs:
       #       --principal "*" \
       #       --statement-id publish \
       #       --action lambda:GetLayerVersion
-      # - name: upload layer arn artifact
-      #   if: ${{ success() }}
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: ${{ env.LAYER_NAME }}-${{ matrix.aws_region }}
-      #     path: ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
-      - name: clean s3
-        if: always()
-        run: |
-          aws s3 rb --force s3://${{ env.BUCKET_NAME }}
+      - name: upload layer arn artifact
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.LAYER_NAME }}-${{ matrix.aws_region }}
+          path: ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+      # - name: clean s3
+      #   if: always()
+      #   run: |
+      #     aws s3 rb --force s3://${{ env.BUCKET_NAME }}
 
   generate-lambda-release-note:
     runs-on: ubuntu-latest

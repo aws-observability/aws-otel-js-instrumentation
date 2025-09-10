@@ -224,11 +224,13 @@ jobs:
       #         --query 'LayerVersionArn' \
       #         --output text
       #     )
-      #     echo $layerARN
-      #     echo "LAYER_ARN=${layerARN}" >> $GITHUB_ENV
-      #     mkdir ${{ env.LAYER_NAME }}
-      #     echo $layerARN > ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
-      #     cat ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+          run: |
+            layerARN="arn:aws:lambda:${{ matrix.aws_region }}:123456789012:layer:${{ env.LAYER_NAME }}:1
+            echo $layerARN
+            echo "LAYER_ARN=${layerARN}" >> $GITHUB_ENV
+            mkdir ${{ env.LAYER_NAME }}
+            echo $layerARN > ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+            cat ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
       # - name: public layer
       #   run: |
       #     layerVersion=$(

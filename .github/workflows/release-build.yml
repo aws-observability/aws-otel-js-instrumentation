@@ -28,7 +28,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-sdk:
     environment: Release
     runs-on: ubuntu-latest
     steps:
@@ -74,7 +74,7 @@ jobs:
       # https://github.com/aws-observability/aws-otel-java-instrumentation/tree/93870a550ac30988fbdd5d3bf1e8f9f1b37916f5/smoke-tests
   
   build-layer:
-    needs: build
+    needs: build-sdk
     runs-on: ubuntu-latest
     outputs:
       aws_regions_json: ${{ steps.set-matrix.outputs.aws_regions_json }}
@@ -110,8 +110,8 @@ jobs:
           name: layer.zip
           path: lambda-layer/packages/layer/build/layer.zip
 
-  publish:
-    needs: [build, build-layer]
+  publish-sdk:
+    needs: [build-sdk, build-layer]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo @ SHA - ${{ github.sha }}
@@ -171,7 +171,7 @@ jobs:
 
   publish-layer-prod:
     runs-on: ubuntu-latest
-    needs: [build-layer, publish]
+    needs: [build-layer, publish-sdk]
     strategy:
       matrix:
         aws_region: ${{ fromJson(needs.build-layer.outputs.aws_regions_json) }}
@@ -255,7 +255,7 @@ jobs:
 
   generate-lambda-release-note:
     runs-on: ubuntu-latest
-    needs: [publish, publish-layer-prod]
+    needs: publish-layer-prod
     outputs:
       layer-note: ${{ steps.layer-note.outputs.layer-note }}
     steps:

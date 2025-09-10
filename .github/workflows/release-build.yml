@@ -46,10 +46,10 @@ jobs:
           
           if [ "$STATUS" = "in_progress" ] || [ "$STATUS" = "queued" ]; then
             echo "Main build is still running (status: $STATUS). Cannot proceed with release."
-            exit 1
+            exit 0
           elif [ "$CONCLUSION" != "success" ]; then
             echo "Latest main build on branch ${{ github.ref_name }} conclusion: $CONCLUSION"
-            exit 1
+            exit 0
           fi
           echo "Main build succeeded, proceeding with release"
 

@@ -209,7 +209,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: layer.zip
-      # - name: publish
+      - name: publish
       #   run: |
       #     aws s3 mb s3://${{ env.BUCKET_NAME }}
       #     aws s3 cp layer.zip s3://${{ env.BUCKET_NAME }}
@@ -224,13 +224,13 @@ jobs:
       #         --query 'LayerVersionArn' \
       #         --output text
       #     )
-          run: |
-            layerARN="arn:aws:lambda:${{ matrix.aws_region }}:123456789012:layer:${{ env.LAYER_NAME }}:1
-            echo $layerARN
-            echo "LAYER_ARN=${layerARN}" >> $GITHUB_ENV
-            mkdir ${{ env.LAYER_NAME }}
-            echo $layerARN > ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
-            cat ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+        run: |
+          layerARN="arn:aws:lambda:${{ matrix.aws_region }}:123456789012:layer:${{ env.LAYER_NAME }}:1"
+          echo $layerARN
+          echo "LAYER_ARN=${layerARN}" >> $GITHUB_ENV
+          mkdir ${{ env.LAYER_NAME }}
+          echo $layerARN > ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+          cat ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
       # - name: public layer
       #   run: |
       #     layerVersion=$(

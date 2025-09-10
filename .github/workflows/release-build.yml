@@ -63,15 +63,15 @@ jobs:
           package_name: aws-distro-opentelemetry-node-autoinstrumentation
           os: ubuntu-latest
 
+      # TODO: Add some sort of smoke/integration testing before we go
+      # release the artifacts. adot java for reference:
+      # https://github.com/aws-observability/aws-otel-java-instrumentation/tree/93870a550ac30988fbdd5d3bf1e8f9f1b37916f5/smoke-tests
+      
       - name: Upload SDK Tarball
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}
-
-      # TODO: Add some sort of smoke/integration testing before we go
-      # release the artifacts. adot java for reference:
-      # https://github.com/aws-observability/aws-otel-java-instrumentation/tree/93870a550ac30988fbdd5d3bf1e8f9f1b37916f5/smoke-tests
   
   build-layer:
     needs: build
@@ -140,34 +140,34 @@ jobs:
           registry: public.ecr.aws
 
       # Publish to public ECR
-      - name: Build and push public ECR image
-        uses: docker/build-push-action@v5
-        with:
-          push: true
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ github.event.inputs.version }}
+      # - name: Build and push public ECR image
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     push: true
+      #     context: .
+      #     file: ./Dockerfile
+      #     platforms: linux/amd64,linux/arm64
+      #     tags: |
+      #       ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ github.event.inputs.version }}
 
       # Publish to private ECR
-      - name: Build and push private ECR image
-        uses: docker/build-push-action@v5
-        with:
-          push: true
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
+      # - name: Build and push private ECR image
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     push: true
+      #     context: .
+      #     file: ./Dockerfile
+      #     platforms: linux/amd64,linux/arm64
+      #     tags: |
+      #       ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
 
       # Publish '@aws/aws-distro-opentelemetry-node-autoinstrumentation' to npm
-      - name: Publish autoinstrumentation to npm
-        working-directory: aws-distro-opentelemetry-node-autoinstrumentation
-        env:
-          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
-          NPM_CONFIG_PROVENANCE: true
-        run: npm publish
+      # - name: Publish autoinstrumentation to npm
+      #   working-directory: aws-distro-opentelemetry-node-autoinstrumentation
+      #   env:
+      #     NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+      #     NPM_CONFIG_PROVENANCE: true
+      #   run: npm publish
 
   publish-layer-prod:
     runs-on: ubuntu-latest
@@ -209,45 +209,45 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: layer.zip
-      - name: publish
-        run: |
-          aws s3 mb s3://${{ env.BUCKET_NAME }}
-          aws s3 cp layer.zip s3://${{ env.BUCKET_NAME }}
-          layerARN=$(
-            aws lambda publish-layer-version \
-              --layer-name ${{ env.LAYER_NAME }} \
-              --content S3Bucket=${{ env.BUCKET_NAME }},S3Key=layer.zip \
-              --compatible-runtimes nodejs18.x nodejs20.x nodejs22.x \
-              --compatible-architectures "arm64" "x86_64" \
-              --license-info "Apache-2.0" \
-              --description "AWS Distro of OpenTelemetry Lambda Layer for NodeJs Runtime" \
-              --query 'LayerVersionArn' \
-              --output text
-          )
-          echo $layerARN
-          echo "LAYER_ARN=${layerARN}" >> $GITHUB_ENV
-          mkdir ${{ env.LAYER_NAME }}
-          echo $layerARN > ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
-          cat ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
-      - name: public layer
-        run: |
-          layerVersion=$(
-            aws lambda list-layer-versions \
-              --layer-name ${{ env.LAYER_NAME }} \
-              --query 'max_by(LayerVersions, &Version).Version'
-          )
-          aws lambda add-layer-version-permission \
-            --layer-name ${{ env.LAYER_NAME }} \
-            --version-number $layerVersion \
-            --principal "*" \
-            --statement-id publish \
-            --action lambda:GetLayerVersion
-      - name: upload layer arn artifact
-        if: ${{ success() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.LAYER_NAME }}-${{ matrix.aws_region }}
-          path: ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+      # - name: publish
+      #   run: |
+      #     aws s3 mb s3://${{ env.BUCKET_NAME }}
+      #     aws s3 cp layer.zip s3://${{ env.BUCKET_NAME }}
+      #     layerARN=$(
+      #       aws lambda publish-layer-version \
+      #         --layer-name ${{ env.LAYER_NAME }} \
+      #         --content S3Bucket=${{ env.BUCKET_NAME }},S3Key=layer.zip \
+      #         --compatible-runtimes nodejs18.x nodejs20.x nodejs22.x \
+      #         --compatible-architectures "arm64" "x86_64" \
+      #         --license-info "Apache-2.0" \
+      #         --description "AWS Distro of OpenTelemetry Lambda Layer for NodeJs Runtime" \
+      #         --query 'LayerVersionArn' \
+      #         --output text
+      #     )
+      #     echo $layerARN
+      #     echo "LAYER_ARN=${layerARN}" >> $GITHUB_ENV
+      #     mkdir ${{ env.LAYER_NAME }}
+      #     echo $layerARN > ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+      #     cat ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+      # - name: public layer
+      #   run: |
+      #     layerVersion=$(
+      #       aws lambda list-layer-versions \
+      #         --layer-name ${{ env.LAYER_NAME }} \
+      #         --query 'max_by(LayerVersions, &Version).Version'
+      #     )
+      #     aws lambda add-layer-version-permission \
+      #       --layer-name ${{ env.LAYER_NAME }} \
+      #       --version-number $layerVersion \
+      #       --principal "*" \
+      #       --statement-id publish \
+      #       --action lambda:GetLayerVersion
+      # - name: upload layer arn artifact
+      #   if: ${{ success() }}
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ env.LAYER_NAME }}-${{ matrix.aws_region }}
+      #     path: ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
       - name: clean s3
         if: always()
         run: |

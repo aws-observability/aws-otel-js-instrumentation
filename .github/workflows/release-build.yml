@@ -5,6 +5,10 @@ on:
       version:
         description: The version to tag the release with, e.g., 1.2.0
         required: true
+      aws_region:
+        description: 'Deploy lambda layer to aws regions'
+        required: true
+        default: 'us-east-1, us-east-2, us-west-1, us-west-2, ap-south-1, ap-northeast-3, ap-northeast-2, ap-southeast-1, ap-southeast-2, ap-northeast-1, ca-central-1, eu-central-1, eu-west-1, eu-west-2, eu-west-3, eu-north-1, sa-east-1, af-south-1, ap-east-1, ap-south-2, ap-southeast-3, ap-southeast-4, eu-central-2, eu-south-1, eu-south-2, il-central-1, me-central-1, me-south-1, ap-southeast-5, ap-southeast-7, mx-central-1, ca-west-1, cn-north-1, cn-northwest-1'
 
 env:
   AWS_DEFAULT_REGION: us-east-1
@@ -14,18 +18,21 @@ env:
   RELEASE_PRIVATE_REPOSITORY: 020628701572.dkr.ecr.us-west-2.amazonaws.com/adot-autoinstrumentation-node
   RELEASE_PRIVATE_REGISTRY: 020628701572.dkr.ecr.us-west-2.amazonaws.com
   PACKAGE_NAME: aws-distro-opentelemetry-node-autoinstrumentation
-  ARTIFACT_NAME: aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz 
+  ARTIFACT_NAME: aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz
+  # Legacy list of commercial regions to deploy to. New regions should NOT be added here, and instead should be added to the `aws_region` default input to the workflow.
+  LEGACY_COMMERCIAL_REGIONS: us-east-1, us-east-2, us-west-1, us-west-2, ap-south-1, ap-northeast-3, ap-northeast-2, ap-southeast-1, ap-southeast-2, ap-northeast-1, ca-central-1, eu-central-1, eu-west-1, eu-west-2, eu-west-3, eu-north-1, sa-east-1
+  LAYER_NAME: AWSOpenTelemetryDistroJs
 
 permissions:
   id-token: write
   contents: write
 
 jobs:
-  build:
+  build-sdk:
     environment: Release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
+      - name: Checkout Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@v4
 
       - name: Check main build status
@@ -56,9 +63,59 @@ jobs:
           package_name: aws-distro-opentelemetry-node-autoinstrumentation
           os: ubuntu-latest
 
+      - name: Upload SDK Tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}
+
       # TODO: Add some sort of smoke/integration testing before we go
       # release the artifacts. adot java for reference:
       # https://github.com/aws-observability/aws-otel-java-instrumentation/tree/93870a550ac30988fbdd5d3bf1e8f9f1b37916f5/smoke-tests
+  
+  build-layer:
+    needs: build-sdk
+    runs-on: ubuntu-latest
+    outputs:
+      aws_regions_json: ${{ steps.set-matrix.outputs.aws_regions_json }}
+    steps:
+      - name: Set up regions matrix
+        id: set-matrix
+        run: |
+          IFS=',' read -ra REGIONS <<< "${{ github.event.inputs.aws_region }}"
+          MATRIX="["
+          for region in "${REGIONS[@]}"; do
+            trimmed_region=$(echo "$region" | xargs)
+            MATRIX+="\"$trimmed_region\","
+          done
+          MATRIX="${MATRIX%,}]"
+          echo ${MATRIX}
+          echo "aws_regions_json=${MATRIX}" >> $GITHUB_OUTPUT
+      - name: Checkout Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: NPM Clean Install
+        # https://docs.npmjs.com/cli/v10/commands/npm-ci
+        run: npm ci
+      - name: Compile all NPM projects
+        run: npm run compile
+      - name: Build Lambda Layer
+        run: npm run build-lambda
+      - name: upload layer
+        uses: actions/upload-artifact@v4
+        with:
+          name: layer.zip
+          path: lambda-layer/packages/layer/build/layer.zip
+
+  publish-sdk:
+    needs: [build-sdk, build-layer]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials for private ECR
         uses: aws-actions/configure-aws-credentials@v4
@@ -82,7 +139,6 @@ jobs:
         with:
           registry: public.ecr.aws
 
-
       # Publish to public ECR
       - name: Build and push public ECR image
         uses: docker/build-push-action@v5
@@ -105,32 +161,6 @@ jobs:
           tags: |
             ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
 
-      - name: Get SHA256 checksum of release artifact
-        id: get_sha256
-        run: |
-          shasum -a 256 aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }} | sed "s|aws-distro-opentelemetry-node-autoinstrumentation/||" > ${{ env.ARTIFACT_NAME }}.sha256
-    
-      # Publish to GitHub releases
-      - name: Create GH release
-        id: create_release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
-        run: |
-          # Download layer.zip from existing latest tagged SDK release note
-          LATEST_SDK_VERSION=$(gh release list --repo "aws-observability/aws-otel-js-instrumentation" --json tagName,isLatest -q 'map(select(.isLatest==true)) | .[0].tagName')
-          mkdir -p layer_artifact
-          gh release download "$LATEST_SDK_VERSION" --repo "aws-observability/aws-otel-js-instrumentation" --pattern "layer.zip" --dir layer_artifact
-          shasum -a 256 layer_artifact/layer.zip > layer_artifact/layer.zip.sha256
-
-          gh release create --target "$GITHUB_REF_NAME" \
-             --title "Release v${{ github.event.inputs.version }}" \
-             --draft \
-             "v${{ github.event.inputs.version }}" \
-             aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }} \
-             ${{ env.ARTIFACT_NAME }}.sha256 \
-             layer_artifact/layer.zip \
-             layer_artifact/layer.zip.sha256
-
       # Publish '@aws/aws-distro-opentelemetry-node-autoinstrumentation' to npm
       - name: Publish autoinstrumentation to npm
         working-directory: aws-distro-opentelemetry-node-autoinstrumentation
@@ -138,4 +168,216 @@ jobs:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
           NPM_CONFIG_PROVENANCE: true
         run: npm publish
-    
+
+  publish-layer-prod:
+    runs-on: ubuntu-latest
+    needs: [build-layer, publish-sdk]
+    strategy:
+      matrix:
+        aws_region: ${{ fromJson(needs.build-layer.outputs.aws_regions_json) }}
+    steps:
+      - name: role arn
+        env:
+          LEGACY_COMMERCIAL_REGIONS: ${{ env.LEGACY_COMMERCIAL_REGIONS }}
+        run: |
+          LEGACY_COMMERCIAL_REGIONS_ARRAY=(${LEGACY_COMMERCIAL_REGIONS//,/ })
+          FOUND=false
+          for REGION in "${LEGACY_COMMERCIAL_REGIONS_ARRAY[@]}"; do
+            if [[ "$REGION" == "${{ matrix.aws_region }}" ]]; then
+              FOUND=true
+              break
+            fi
+          done
+          if [ "$FOUND" = true ]; then
+            echo "Found ${{ matrix.aws_region }} in LEGACY_COMMERCIAL_REGIONS"
+            SECRET_KEY="LAMBDA_LAYER_RELEASE"
+          else
+            echo "Not found ${{ matrix.aws_region }} in LEGACY_COMMERCIAL_REGIONS"
+            SECRET_KEY="${{ matrix.aws_region }}_LAMBDA_LAYER_RELEASE"
+          fi
+          SECRET_KEY=${SECRET_KEY//-/_}
+          echo "SECRET_KEY=${SECRET_KEY}" >> $GITHUB_ENV
+      - uses: aws-actions/configure-aws-credentials@v4.0.2
+        with:
+          role-to-assume: ${{ secrets[env.SECRET_KEY] }}
+          role-duration-seconds: 1200
+          aws-region: ${{ matrix.aws_region }}
+      - name: Get s3 bucket name for release 
+        run: |
+          echo BUCKET_NAME=nodejs-lambda-layer-${{ github.run_id }}-${{ matrix.aws_region }} | tee --append $GITHUB_ENV
+      - name: download layer.zip
+        uses: actions/download-artifact@v4
+        with:
+          name: layer.zip
+      - name: publish
+        run: |
+          aws s3 mb s3://${{ env.BUCKET_NAME }}
+          aws s3 cp layer.zip s3://${{ env.BUCKET_NAME }}
+          layerARN=$(
+            aws lambda publish-layer-version \
+              --layer-name ${{ env.LAYER_NAME }} \
+              --content S3Bucket=${{ env.BUCKET_NAME }},S3Key=layer.zip \
+              --compatible-runtimes nodejs18.x nodejs20.x nodejs22.x \
+              --compatible-architectures "arm64" "x86_64" \
+              --license-info "Apache-2.0" \
+              --description "AWS Distro of OpenTelemetry Lambda Layer for NodeJs Runtime" \
+              --query 'LayerVersionArn' \
+              --output text
+          )
+          echo $layerARN
+          echo "LAYER_ARN=${layerARN}" >> $GITHUB_ENV
+          mkdir ${{ env.LAYER_NAME }}
+          echo $layerARN > ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+          cat ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+      - name: public layer
+        run: |
+          layerVersion=$(
+            aws lambda list-layer-versions \
+              --layer-name ${{ env.LAYER_NAME }} \
+              --query 'max_by(LayerVersions, &Version).Version'
+          )
+          aws lambda add-layer-version-permission \
+            --layer-name ${{ env.LAYER_NAME }} \
+            --version-number $layerVersion \
+            --principal "*" \
+            --statement-id publish \
+            --action lambda:GetLayerVersion
+      - name: upload layer arn artifact
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.LAYER_NAME }}-${{ matrix.aws_region }}
+          path: ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
+      - name: clean s3
+        if: always()
+        run: |
+          aws s3 rb --force s3://${{ env.BUCKET_NAME }}
+
+  generate-lambda-release-note:
+    runs-on: ubuntu-latest
+    needs: publish-layer-prod
+    outputs:
+      layer-note: ${{ steps.layer-note.outputs.layer-note }}
+    steps:
+      - name: Checkout Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v2
+      - name: download layerARNs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ env.LAYER_NAME }}-*
+          path: ${{ env.LAYER_NAME }}
+          merge-multiple: true
+      - name: show layerARNs
+        run: |
+          for file in ${{ env.LAYER_NAME }}/*
+          do
+          echo $file
+          cat $file
+          done
+      - name: generate layer-note
+        id: layer-note
+        working-directory: ${{ env.LAYER_NAME }}
+        run: |
+          echo "| Region | Layer ARN |" >> ../layer-note
+          echo "|  ----  | ----  |" >> ../layer-note
+          for file in *
+          do
+          read arn < $file
+          echo "| " $file " | " $arn " |" >> ../layer-note
+          done
+          cd ..
+          {
+            echo "layer-note<<EOF"
+            cat layer-note
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+          cat layer-note
+      - name: generate tf layer
+        working-directory: ${{ env.LAYER_NAME }}
+        run: |
+          echo "locals {" >> ../layer_arns.tf
+          echo "  sdk_layer_arns = {" >> ../layer_arns.tf
+          for file in *
+          do
+          read arn < $file
+          echo "    \""$file"\" = \""$arn"\"" >> ../layer_arns.tf
+          done
+          cd ..
+          echo "  }" >> layer_arns.tf
+          echo "}" >> layer_arns.tf
+          terraform fmt layer_arns.tf
+          cat layer_arns.tf
+      - name: generate layer ARN constants for CDK
+        working-directory: ${{ env.LAYER_NAME }}
+        run: |
+          echo "{" > ../layer_cdk
+          for file in *; do
+            read arn < "$file"
+            echo "    \"$file\": \"$arn\"," >> ../layer_cdk
+          done
+          echo "}" >> ../layer_cdk
+          cat ../layer_cdk
+
+  publish-github:
+    needs: generate-lambda-release-note
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@v4
+      
+      - name: Download SDK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+      
+      - name: Download layer.zip artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: layer.zip
+
+      # Publish to GitHub releases
+      - name: Create GH release
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Generate dependency versions from package.json
+          DEPS=$(node -e "
+            const pkg = require('./aws-distro-opentelemetry-node-autoinstrumentation/package.json');
+            const deps = Object.entries(pkg.dependencies || {})
+              .map(([name, version]) => \`- \\\`\${name}\\\` - \${version}\`)
+              .join('\n');
+            console.log(deps);
+          ")
+
+          # Create release notes
+          cat > release_notes.md << EOF
+          This release contains the following upstream components:
+
+          $DEPS
+
+          This release also publishes to public ECR and NPM.
+          * See ADOT node auto-instrumentation Docker image v${{ github.event.inputs.version }} in our public ECR repository:
+          https://gallery.ecr.aws/aws-observability/adot-autoinstrumentation-node
+          * See version ${{ github.event.inputs.version }} in our NPM repository:
+          https://www.npmjs.com/package/@aws/aws-distro-opentelemetry-node-autoinstrumentation
+
+          This release also includes the AWS OpenTelemetry Lambda Layer for JavaScript version ${{ github.event.inputs.version }}-$(echo $GITHUB_SHA | cut -c1-7).
+
+          Lambda Layer ARNs:
+          ${{ needs.generate-lambda-release-note.outputs.layer-note }}
+          EOF
+
+          shasum -a 256 ${{ env.ARTIFACT_NAME }} > ${{ env.ARTIFACT_NAME }}.sha256
+          shasum -a 256 layer.zip > layer.zip.sha256
+
+          gh release create --target "$GITHUB_REF_NAME" \
+             --title "Release v${{ github.event.inputs.version }}" \
+             --notes-file release_notes.md \
+             --draft \
+             "v${{ github.event.inputs.version }}" \
+             ${{ env.ARTIFACT_NAME }} \
+             ${{ env.ARTIFACT_NAME }}.sha256 \
+             layer.zip \
+             layer.zip.sha256

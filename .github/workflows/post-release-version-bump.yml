@@ -150,5 +150,5 @@ jobs:
           git add CHANGELOG.md
           if ! git diff --quiet --cached; then
             git commit -m "Force our CHANGELOG to override merge conflicts"
-            git push origin "post-release-${VERSION}"
+            git push origin "prepare-main-for-next-dev-cycle-${VERSION}"
           fi

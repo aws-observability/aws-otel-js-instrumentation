@@ -33,7 +33,7 @@ jobs:
       staging_tarball_file: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
     steps:
       - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
 
       - name: Get Node Distro Output
         id: node_output
@@ -73,7 +73,7 @@ jobs:
           aws s3 cp aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL }} s3://${{ env.STAGING_S3_BUCKET }}
 
       - name: Upload Tarball to GitHub Actions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
           name: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
           path: aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
@@ -112,7 +112,7 @@ jobs:
     if: always()
     steps:
       - name: Configure AWS Credentials for emitting metrics
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
         with:
           role-to-assume: ${{ secrets.MONITORING_ROLE_ARN }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}

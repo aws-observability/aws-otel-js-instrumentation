@@ -87,6 +87,6 @@ jobs:
         exit 1
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@16df4fbc19aea13d921737861d6c622bf3cefe23 #v3.30.3
+      uses: github/codeql-action/analyze@16df4fbc19aea13d921737861d6c622bf3cefe23 #v2.30.3
       with:
         category: "/language:${{matrix.language}}"

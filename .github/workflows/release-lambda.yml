@@ -13,7 +13,8 @@ on:
 
 env:
   AWS_REGIONS: ${{ github.event.inputs.aws_region }}
-  COMMERCIAL_REGIONS: us-east-1, us-east-2, us-west-1, us-west-2, ap-south-1, ap-northeast-3, ap-northeast-2, ap-southeast-1, ap-southeast-2, ap-northeast-1, ca-central-1, eu-central-1, eu-west-1, eu-west-2, eu-west-3, eu-north-1, sa-east-1, ap-southeast-5, ap-southeast-7, mx-central-1, ca-west-1, cn-north-1, cn-northwest-1
+  # Legacy list of commercial regions to deploy to. New regions should NOT be added here, and instead should be added to the `aws_region` default input to the workflow.
+  LEGACY_COMMERCIAL_REGIONS: us-east-1, us-east-2, us-west-1, us-west-2, ap-south-1, ap-northeast-3, ap-northeast-2, ap-southeast-1, ap-southeast-2, ap-northeast-1, ca-central-1, eu-central-1, eu-west-1, eu-west-2, eu-west-3, eu-north-1, sa-east-1
   LAYER_NAME: AWSOpenTelemetryDistroJs
 
 permissions:
@@ -40,9 +41,9 @@ jobs:
           echo ${MATRIX}
           echo "aws_regions_json=${MATRIX}" >> $GITHUB_OUTPUT
       - name: Checkout Repo @ SHA - ${{ github.sha }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  #v5.0.0
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 #v5.0.0
         with:
           node-version: 22
       - name: NPM Clean Install
@@ -53,7 +54,7 @@ jobs:
       - name: Build Lambda Layer
         run: npm run build-lambda
       - name: upload layer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
           name: layer.zip
           path: lambda-layer/packages/layer/build/layer.zip
@@ -66,26 +67,26 @@ jobs:
     steps:
       - name: role arn
         env:
-          COMMERCIAL_REGIONS: ${{ env.COMMERCIAL_REGIONS }}
+          LEGACY_COMMERCIAL_REGIONS: ${{ env.LEGACY_COMMERCIAL_REGIONS }}
         run: |
-          COMMERCIAL_REGIONS_ARRAY=(${COMMERCIAL_REGIONS//,/ })
+          LEGACY_COMMERCIAL_REGIONS_ARRAY=(${LEGACY_COMMERCIAL_REGIONS//,/ })
           FOUND=false
-          for REGION in "${COMMERCIAL_REGIONS_ARRAY[@]}"; do
+          for REGION in "${LEGACY_COMMERCIAL_REGIONS_ARRAY[@]}"; do
             if [[ "$REGION" == "${{ matrix.aws_region }}" ]]; then
               FOUND=true
               break
             fi
           done
           if [ "$FOUND" = true ]; then
-            echo "Found ${{ matrix.aws_region }} in COMMERCIAL_REGIONS"
+            echo "Found ${{ matrix.aws_region }} in LEGACY_COMMERCIAL_REGIONS"
             SECRET_KEY="LAMBDA_LAYER_RELEASE"
           else
-            echo "Not found ${{ matrix.aws_region }} in COMMERCIAL_REGIONS"
+            echo "Not found ${{ matrix.aws_region }} in LEGACY_COMMERCIAL_REGIONS"
             SECRET_KEY="${{ matrix.aws_region }}_LAMBDA_LAYER_RELEASE"
           fi
           SECRET_KEY=${SECRET_KEY//-/_}
           echo "SECRET_KEY=${SECRET_KEY}" >> $GITHUB_ENV
-      - uses: aws-actions/configure-aws-credentials@v4.0.2
+      - uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
         with:
           role-to-assume: ${{ secrets[env.SECRET_KEY] }}
           role-duration-seconds: 1200
@@ -94,7 +95,7 @@ jobs:
         run: |
           echo BUCKET_NAME=nodejs-lambda-layer-${{ github.run_id }}-${{ matrix.aws_region }} | tee --append $GITHUB_ENV
       - name: download layer.zip
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
           name: layer.zip
       - name: publish
@@ -132,7 +133,7 @@ jobs:
             --action lambda:GetLayerVersion
       - name: upload layer arn artifact
         if: ${{ success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
           name: ${{ env.LAYER_NAME }}-${{ matrix.aws_region }}
           path: ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
@@ -145,10 +146,10 @@ jobs:
     needs: publish-prod
     steps:
       - name: Checkout Repo @ SHA - ${{ github.sha }}
-        uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd #v3.1.2
       - name: download layerARNs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
           pattern: ${{ env.LAYER_NAME }}-*
           path: ${{ env.LAYER_NAME }}
@@ -198,7 +199,7 @@ jobs:
           echo "}" >> ../layer_cdk
           cat ../layer_cdk
       - name: download layer.zip
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
           name: layer.zip
       - name: Get commit hash

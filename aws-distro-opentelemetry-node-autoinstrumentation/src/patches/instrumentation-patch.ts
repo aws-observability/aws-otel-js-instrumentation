@@ -3,7 +3,6 @@
 
 import {
   diag,
-  isSpanContextValid,
   Context as OtelContext,
   context as otelContext,
   propagation,
@@ -22,7 +21,7 @@ import {
   NormalizedRequest,
   NormalizedResponse,
 } from '@opentelemetry/instrumentation-aws-sdk';
-import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
+import { AWSXRAY_TRACE_ID_HEADER } from '@opentelemetry/propagator-aws-xray';
 import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
 import { AWS_ATTRIBUTE_KEYS } from '../aws-attribute-keys';
 import { RequestMetadata } from '../third-party/otel/aws/services/ServiceExtension';
@@ -42,7 +41,6 @@ import { suppressTracing } from '@opentelemetry/core';
 export const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 export const AWSXRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
 
-const awsPropagator = new AWSXRayPropagator();
 export const headerGetter: TextMapGetter<APIGatewayProxyEventHeaders> = {
   keys(carrier: any): string[] {
     return Object.keys(carrier);
@@ -94,28 +92,29 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
 
 /*
  * This function `customExtractor` is used to extract SpanContext for AWS Lambda functions.
- * It first attempts to extract the trace context from the AWS X-Ray header, which is stored in the Lambda environment variables.
- * If a valid span context is extracted from the environment, it uses this as the parent context for the function's tracing.
- * If the X-Ray header is missing or invalid, it falls back to extracting trace context from the Lambda handler's event headers.
- * If neither approach succeeds, it defaults to using the root Otel context, ensuring the function is still instrumented for tracing.
+ * It extracts the X-Ray trace ID from the Lambda context (xRayTraceId) or environment variable (_X_AMZN_TRACE_ID) into the event headers
+ * It then uses OpenTelemetry global propagator to extract trace context from the event headers
+ * If a valid span context is extracted, it returns that context; otherwise, it returns the root context.
  */
+const lambdaContextXrayTraceIdKey = 'xRayTraceId';
 export const customExtractor = (event: any, _handlerContext: Context): OtelContext => {
-  let parent: OtelContext | undefined = undefined;
-  const lambdaTraceHeader = process.env[traceContextEnvironmentKey];
-  if (lambdaTraceHeader) {
-    parent = awsPropagator.extract(
-      otelContext.active(),
-      { [AWSXRAY_TRACE_ID_HEADER]: lambdaTraceHeader },
-      headerGetter
-    );
-  }
-  if (parent) {
-    const spanContext = trace.getSpan(parent)?.spanContext();
-    if (spanContext && isSpanContextValid(spanContext)) {
-      return parent;
-    }
-  }
+  const xrayTraceIdFromLambdaContext = _handlerContext
+    ? (_handlerContext as any)[lambdaContextXrayTraceIdKey]
+    : undefined;
+  const xrayTraceIdFromLambdaEnv = process.env[traceContextEnvironmentKey];
+  const xrayTraceIdFromLambda = xrayTraceIdFromLambdaContext || xrayTraceIdFromLambdaEnv;
+
   const httpHeaders = event.headers || {};
+  if (xrayTraceIdFromLambda) {
+    // Delete any X-Ray Trace ID via case-insensitive checks since we will overwrite it here.
+    Object.keys(httpHeaders).forEach(key => {
+      if (key.toLowerCase() === AWSXRAY_TRACE_ID_HEADER.toLowerCase()) {
+        delete httpHeaders[key];
+      }
+    });
+    httpHeaders[AWSXRAY_TRACE_ID_HEADER] = xrayTraceIdFromLambda;
+  }
+
   const extractedContext = propagation.extract(otelContext.active(), httpHeaders, headerGetter);
   if (trace.getSpan(extractedContext)?.spanContext()) {
     return extractedContext;

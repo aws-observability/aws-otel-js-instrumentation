@@ -17,6 +17,7 @@ import {
   SpanStatusCode,
   ROOT_CONTEXT,
 } from '@opentelemetry/api';
+import * as api from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import { AwsInstrumentation, NormalizedRequest, NormalizedResponse } from '@opentelemetry/instrumentation-aws-sdk';
@@ -35,7 +36,6 @@ import {
 import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { Context } from 'aws-lambda';
-import { SinonStub } from 'sinon';
 import { Lambda } from '@aws-sdk/client-lambda';
 import * as nock from 'nock';
 import { ReadableSpan, Span as SDKSpan } from '@opentelemetry/sdk-trace-base';
@@ -43,6 +43,11 @@ import { getTestSpans } from '@opentelemetry/contrib-test-utils';
 import { instrumentationConfigs } from '../../src/register';
 import { LoggerProvider } from '@opentelemetry/api-logs';
 import { STS } from '@aws-sdk/client-sts';
+import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
+import { BatchSpanProcessor, InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import { W3CTraceContextPropagator } from '@opentelemetry/core';
+import * as path from 'path';
 
 // It is assumed that bedrock.test.ts has already registered the
 // necessary instrumentations for testing by calling:
@@ -966,21 +971,26 @@ describe('InstrumentationPatchTest', () => {
 
 describe('customExtractor', () => {
   const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
-  const MOCK_XRAY_TRACE_ID = '8a3c60f7d188f8fa79d48a391a778fa6';
-  const MOCK_XRAY_TRACE_ID_STR = '1-8a3c60f7-d188f8fa79d48a391a778fa6';
-  const MOCK_XRAY_PARENT_SPAN_ID = '53995c3f42cd8ad8';
+  const MOCK_XRAY_TRACE_ID_0 = '8a3c0000d188f8fa79d48a391a770000';
+  const MOCK_XRAY_TRACE_ID_1 = '8a3c0001d188f8fa79d48a391a770001';
+  const MOCK_XRAY_TRACE_ID_STR_0 = '8a3c0000-d188f8fa79d48a391a770000';
+  const MOCK_XRAY_TRACE_ID_STR_1 = '8a3c0001-d188f8fa79d48a391a770001';
+  const MOCK_XRAY_PARENT_SPAN_ID_0 = '53995c3f42cd0000';
+  const MOCK_XRAY_PARENT_SPAN_ID_1 = '53995c3f42cd0001';
   const MOCK_XRAY_LAMBDA_LINEAGE = 'Lineage=01cfa446:0';
 
   const TRACE_ID_VERSION = '1'; // Assuming TRACE_ID_VERSION is defined somewhere in the code
 
   // Common part of the XRAY trace context
-  const MOCK_XRAY_TRACE_CONTEXT_COMMON = `Root=${TRACE_ID_VERSION}-${MOCK_XRAY_TRACE_ID_STR};Parent=${MOCK_XRAY_PARENT_SPAN_ID}`;
+  const MOCK_XRAY_TRACE_CONTEXT_0_COMMON = `Root=${TRACE_ID_VERSION}-${MOCK_XRAY_TRACE_ID_STR_0};Parent=${MOCK_XRAY_PARENT_SPAN_ID_0}`;
+  const MOCK_XRAY_TRACE_CONTEXT_1_COMMON = `Root=${TRACE_ID_VERSION}-${MOCK_XRAY_TRACE_ID_STR_1};Parent=${MOCK_XRAY_PARENT_SPAN_ID_1}`;
 
   // Different versions of the XRAY trace context
-  const MOCK_XRAY_TRACE_CONTEXT_SAMPLED = `${MOCK_XRAY_TRACE_CONTEXT_COMMON};Sampled=1;${MOCK_XRAY_LAMBDA_LINEAGE}`;
+  const MOCK_XRAY_TRACE_CONTEXT_0_SAMPLED = `${MOCK_XRAY_TRACE_CONTEXT_0_COMMON};Sampled=1;${MOCK_XRAY_LAMBDA_LINEAGE}`;
+  const MOCK_XRAY_TRACE_CONTEXT_1_UNSAMPLED = `${MOCK_XRAY_TRACE_CONTEXT_1_COMMON};Sampled=0;${MOCK_XRAY_LAMBDA_LINEAGE}`;
   //   const MOCK_XRAY_TRACE_CONTEXT_PASSTHROUGH = (
-  //     `Root=${TRACE_ID_VERSION}-${MOCK_XRAY_TRACE_ID_STR.slice(0, TRACE_ID_FIRST_PART_LENGTH)}` +
-  //     `-${MOCK_XRAY_TRACE_ID_STR.slice(TRACE_ID_FIRST_PART_LENGTH)};${MOCK_XRAY_LAMBDA_LINEAGE}`
+  //     `Root=${TRACE_ID_VERSION}-${MOCK_XRAY_TRACE_ID_STR_0.slice(0, TRACE_ID_FIRST_PART_LENGTH)}` +
+  //     `-${MOCK_XRAY_TRACE_ID_STR_0.slice(TRACE_ID_FIRST_PART_LENGTH)};${MOCK_XRAY_LAMBDA_LINEAGE}`
   //   );
 
   // Create the W3C Trace Context (Sampled)
@@ -991,9 +1001,14 @@ describe('customExtractor', () => {
   const MOCK_W3C_TRACE_STATE_VALUE = 'test_value';
   const MOCK_TRACE_STATE = `${MOCK_W3C_TRACE_STATE_KEY}=${MOCK_W3C_TRACE_STATE_VALUE},foo=1,bar=2`;
 
-  let awsPropagatorStub: SinonStub;
-  let traceGetSpanStub: SinonStub;
-  // let propagationStub: SinonStub;
+  let awsPropagatorSpy: sinon.SinonSpy;
+  let traceGetSpanSpy: sinon.SinonSpy;
+
+  before(() => {
+    process.env.OTEL_PROPAGATORS = 'baggage,xray,tracecontext';
+    propagation.setGlobalPropagator(getPropagator());
+    delete process.env.OTEL_PROPAGATORS;
+  });
 
   beforeEach(() => {
     // Clear environment variables before each test
@@ -1005,41 +1020,118 @@ describe('customExtractor', () => {
     sinon.restore();
   });
 
-  it('should extract context from lambda trace header when present', () => {
-    const mockLambdaTraceHeader = MOCK_XRAY_TRACE_CONTEXT_SAMPLED;
-    process.env[traceContextEnvironmentKey] = mockLambdaTraceHeader;
+  it('should extract context from handler context xRayTraceId property when present', () => {
+    const mockLambdaTraceHeader = MOCK_XRAY_TRACE_CONTEXT_0_SAMPLED;
+    const mockHandlerContext = {
+      xRayTraceId: mockLambdaTraceHeader,
+    } as unknown as Context;
 
-    const mockParentContext = {} as OtelContext;
-
-    // Partial mock of the Span object
-    const mockSpan: Partial<Span> = {
-      spanContext: sinon.stub().returns({
-        traceId: MOCK_XRAY_TRACE_ID,
-        spanId: MOCK_XRAY_PARENT_SPAN_ID,
-      }),
+    // Mock of the Span Context for validation
+    const mockParentSpanContext: api.SpanContext = {
+      isRemote: true,
+      traceFlags: 1,
+      traceId: MOCK_XRAY_TRACE_ID_0,
+      spanId: MOCK_XRAY_PARENT_SPAN_ID_0,
     };
 
-    // Stub awsPropagator.extract to return the mockParentContext
-    awsPropagatorStub = sinon.stub(AWSXRayPropagator.prototype, 'extract').returns(mockParentContext);
-
-    // Stub trace.getSpan to return the mock span
-    traceGetSpanStub = sinon.stub(trace, 'getSpan').returns(mockSpan as Span);
+    sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
+    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
+    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
 
     // Call the customExtractor function
+    const event = { headers: {} };
+    const result = customExtractor(event, mockHandlerContext);
+
+    // Assertions
+    expect(awsPropagatorSpy.calledOnce).toBe(true);
+    expect(awsPropagatorSpy.calledWith(sinon.match.any, event.headers, sinon.match.any)).toBe(true);
+    expect(traceGetSpanSpy.calledOnce).toBe(true);
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the parent context when valid
+  });
+
+  it('should prioritize extract context from handler context xRayTraceId property instead of environment variable', () => {
+    const mockLambdaContextTraceHeader = MOCK_XRAY_TRACE_CONTEXT_1_UNSAMPLED;
+    const mockLambdEnvVarTraceHeader = MOCK_XRAY_TRACE_CONTEXT_0_SAMPLED;
+
+    process.env[traceContextEnvironmentKey] = mockLambdEnvVarTraceHeader;
+
+    const mockHandlerContext = {
+      xRayTraceId: mockLambdaContextTraceHeader,
+    } as unknown as Context;
+
+    // Mock of the Span Context for validation
+    const mockParentSpanContext: api.SpanContext = {
+      isRemote: true,
+      traceFlags: 0,
+      traceId: MOCK_XRAY_TRACE_ID_1,
+      spanId: MOCK_XRAY_PARENT_SPAN_ID_1,
+    };
+
+    sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
+    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
+    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
+
+    // Call the customExtractor function
+    const event = { headers: {} };
+    const result = customExtractor(event, mockHandlerContext);
+
+    // Assertions
+    expect(awsPropagatorSpy.calledOnce).toBe(true);
+    expect(awsPropagatorSpy.calledWith(sinon.match.any, event.headers, sinon.match.any)).toBe(true);
+    expect(traceGetSpanSpy.calledOnce).toBe(true);
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the parent context when valid
+  });
+
+  it('should fallback to environment variable when handler context xRayTraceId is not available', () => {
+    const mockLambdaTraceHeader = MOCK_XRAY_TRACE_CONTEXT_0_SAMPLED;
+    process.env[traceContextEnvironmentKey] = mockLambdaTraceHeader;
+
+    // Mock of the Span Context for validation
+    const mockParentSpanContext: api.SpanContext = {
+      isRemote: true,
+      traceFlags: 1,
+      traceId: MOCK_XRAY_TRACE_ID_0,
+      spanId: MOCK_XRAY_PARENT_SPAN_ID_0,
+    };
+
+    sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
+    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
+    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
+
+    // Call the customExtractor function with handler context without xRayTraceId
     const event = { headers: {} };
     const result = customExtractor(event, {} as Context);
 
     // Assertions
-    expect(awsPropagatorStub.calledOnce).toBe(true);
-    expect(
-      awsPropagatorStub.calledWith(
-        sinon.match.any,
-        { [AWSXRAY_TRACE_ID_HEADER]: mockLambdaTraceHeader },
-        sinon.match.any
-      )
-    ).toBe(true);
-    expect(traceGetSpanStub.calledOnce).toBe(true);
-    expect(result).toEqual(mockParentContext); // Should return the parent context when valid
+    expect(awsPropagatorSpy.calledOnce).toBe(true);
+    expect(awsPropagatorSpy.calledWith(sinon.match.any, event.headers, sinon.match.any)).toBe(true);
+    expect(traceGetSpanSpy.calledOnce).toBe(true);
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the parent context when valid
+  });
+
+  it('should handle undefined handler context and fallback to environment variable', () => {
+    const mockLambdaTraceHeader = MOCK_XRAY_TRACE_CONTEXT_0_SAMPLED;
+    process.env[traceContextEnvironmentKey] = mockLambdaTraceHeader;
+
+    // Mock of the Span Context for validation
+    const mockParentSpanContext: api.SpanContext = {
+      isRemote: true,
+      traceFlags: 1,
+      traceId: MOCK_XRAY_TRACE_ID_0,
+      spanId: MOCK_XRAY_PARENT_SPAN_ID_0,
+    };
+
+    sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
+    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
+    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
+
+    // Call the customExtractor function with undefined handler context
+    const event = { headers: {} };
+    const result = customExtractor(event, undefined as any);
+
+    // Should only be called once (for environment variable)
+    expect(awsPropagatorSpy.calledOnce).toBe(true);
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the valid parent context
   });
 
   it('should extract context from HTTP headers when lambda trace header is not present', () => {
@@ -1050,19 +1142,14 @@ describe('customExtractor', () => {
         tracestate: MOCK_TRACE_STATE,
       },
     };
-    const mockExtractedContext = {
-      getValue: function () {
-        return undefined;
-      }, // Empty function that returns undefined
-    } as unknown as OtelContext;
-
-    const propagationStub = sinon.stub(propagation, 'extract').returns(mockExtractedContext);
 
     // Call the customExtractor function
-    const mockHttpHeaders = event.headers;
-    customExtractor(event, {} as Context);
+    const result = customExtractor(event, {} as Context);
+    const resultSpanContext = trace.getSpan(result)?.spanContext();
 
-    expect(propagationStub.calledWith(sinon.match.any, mockHttpHeaders, sinon.match.any)).toBe(true);
+    expect(resultSpanContext?.spanId).toEqual('00f067aa0ba902b7');
+    expect(resultSpanContext?.traceId).toEqual('4bf92f3577b34da6a3ce929d0e0e4736');
+    expect(resultSpanContext?.traceFlags).toEqual(1);
   });
 
   it('should return all header keys from the carrier', () => {
@@ -1078,5 +1165,153 @@ describe('customExtractor', () => {
   it('should return undefined for a key that does not exist', () => {
     const headerValue = headerGetter.get(mockHeaders, 'non-existent-header');
     expect(headerValue).toBeUndefined();
+  });
+});
+
+describe('AWS Lambda Instrumentation Propagation', () => {
+  const memoryExporter = new InMemorySpanExporter();
+  let oldEnv: NodeJS.ProcessEnv;
+  let instrumentation: AwsLambdaInstrumentation;
+
+  const serializeSpanContext = (spanContext: api.SpanContext, propagator: api.TextMapPropagator): string => {
+    let serialized = '';
+    propagator.inject(
+      trace.setSpan(context.active(), trace.wrapSpanContext(spanContext)),
+      {},
+      {
+        set(carrier: any, key: string, value: string) {
+          serialized = value;
+        },
+      }
+    );
+    return serialized;
+  };
+
+  const sampledAwsSpanContext: api.SpanContext = {
+    traceId: '11111111111111110000000000000000',
+    spanId: '9999999900000000',
+    traceFlags: 1,
+    isRemote: true,
+  };
+  const sampledAwsHeader = serializeSpanContext(sampledAwsSpanContext, new AWSXRayPropagator());
+
+  const sampledAwsSpanContext2: api.SpanContext = {
+    traceId: '11111111111111110000000000000022',
+    spanId: '9999999900000022',
+    traceFlags: 1,
+    isRemote: true,
+  };
+  const sampledAwsHeader2 = serializeSpanContext(sampledAwsSpanContext2, new AWSXRayPropagator());
+
+  const sampledGenericSpanContext: api.SpanContext = {
+    traceId: '00000000000000001111111111111111',
+    spanId: '0000000099999999',
+    traceFlags: 1,
+    isRemote: true,
+  };
+  const sampledGenericSpan = serializeSpanContext(sampledGenericSpanContext, new W3CTraceContextPropagator());
+
+  const lambdaCtx = {
+    functionName: 'my_function',
+    invokedFunctionArn: 'my_arn',
+    awsRequestId: 'aws_request_id',
+    xRayTraceId: sampledAwsHeader,
+  } as unknown as Context;
+
+  const initializeHandler = (propagators: string) => {
+    process.env.LAMBDA_TASK_ROOT = path.resolve(__dirname, '.');
+    process.env._HANDLER = 'lambda-test-handlers/async.handler';
+
+    propagation.disable();
+    process.env.OTEL_PROPAGATORS = propagators;
+    propagation.setGlobalPropagator(getPropagator());
+    delete process.env.OTEL_PROPAGATORS;
+
+    const provider = new NodeTracerProvider({
+      spanProcessors: [new BatchSpanProcessor(memoryExporter)],
+    });
+
+    instrumentation = new AwsLambdaInstrumentation({
+      eventContextExtractor: customExtractor,
+    });
+    applyInstrumentationPatches([instrumentation]);
+    instrumentation.setTracerProvider(provider);
+  };
+
+  const lambdaRequire = (module: string) => require(path.resolve(__dirname, '.', module));
+
+  beforeEach(() => {
+    oldEnv = { ...process.env };
+  });
+
+  afterEach(() => {
+    process.env = oldEnv;
+    instrumentation.disable();
+    memoryExporter.reset();
+  });
+
+  it('Prioritizes W3C Header over X-Ray Trace ID from Lambda Context', async () => {
+    initializeHandler('baggage,xray,tracecontext');
+
+    const lambdaEvent = {
+      headers: {
+        traceparent: sampledGenericSpan,
+      },
+    };
+
+    const result = await lambdaRequire('lambda-test-handlers/async').handler(lambdaEvent, lambdaCtx);
+
+    expect(result).toBe('hello world');
+    const spans = memoryExporter.getFinishedSpans();
+    expect(spans.length).toBe(1);
+    const [span] = spans;
+    expect(span.spanContext().traceId).toBe(sampledGenericSpanContext.traceId);
+    expect(span.parentSpanId).toBe(sampledGenericSpanContext.spanId);
+  });
+
+  it('Prioritizes X-Ray Trace ID from Lambda Context over W3C Header', async () => {
+    initializeHandler('baggage,tracecontext,xray');
+
+    const lambdaEvent = {
+      headers: {
+        traceparent: sampledGenericSpan,
+      },
+    };
+
+    const result = await lambdaRequire('lambda-test-handlers/async').handler(lambdaEvent, lambdaCtx);
+
+    expect(result).toBe('hello world');
+    const spans = memoryExporter.getFinishedSpans();
+    expect(spans.length).toBe(1);
+    const [span] = spans;
+    expect(span.spanContext().traceId).toBe(sampledAwsSpanContext.traceId);
+    expect(span.parentSpanId).toBe(sampledAwsSpanContext.spanId);
+  });
+
+  it('Prioritizes X-Ray Trace ID from Lambda Context over X-Ray Trace ID from Lambda Event headers', async () => {
+    initializeHandler('xray');
+
+    const lambdaEvent = {
+      headers: {
+        'x-amzn-trace-ID': sampledAwsHeader,
+        'x-amzn-trace-id': sampledAwsHeader,
+        'X-Amzn-Trace-Id': sampledAwsHeader,
+      },
+    };
+    const lambdaCtx2 = {
+      functionName: 'my_function',
+      invokedFunctionArn: 'my_arn',
+      awsRequestId: 'aws_request_id',
+      xRayTraceId: sampledAwsHeader2,
+    } as unknown as Context;
+
+    const result = await lambdaRequire('lambda-test-handlers/async').handler(lambdaEvent, lambdaCtx2);
+
+    expect(result).toBe('hello world');
+    const spans = memoryExporter.getFinishedSpans();
+    expect(spans.length).toBe(1);
+    const [span] = spans;
+    expect(span.spanContext().traceId).toBe(sampledAwsSpanContext2.traceId);
+    expect(span.parentSpanId).toBe(sampledAwsSpanContext2.spanId);
   });
 });

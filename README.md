@@ -1,4 +1,4 @@
-# AWS Distro for OpenTelemetry - Instrumentation for JavaScript
+# AWS Distro for OpenTelemetry - Instrumentation for JavaScript 
 
 ## Introduction
 

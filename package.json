@@ -82,6 +82,7 @@
     ]
   },
   "workspaces": [
-    "aws-distro-opentelemetry-node-autoinstrumentation/"
+    "aws-distro-opentelemetry-node-autoinstrumentation/",
+    "exporters/aws-otel-otlp-udp-exporter"
   ]
 }

@@ -1,0 +1,27 @@
+{
+  "name": "simple-express-server-for-local-testing",
+  "version": "1.0.0",
+  "description": "",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@aws/aws-otel-otlp-udp-exporter": "file:../../exporters/aws-otel-otlp-udp-exporter/aws-aws-otel-otlp-udp-exporter-0.0.1.tgz",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/id-generator-aws-xray": "^1.2.2",
+    "@opentelemetry/propagator-aws-xray": "^1.25.1",
+    "@opentelemetry/sdk-node": "^0.52.1",
+    "@opentelemetry/sdk-trace-base": "^1.25.1",
+    "@opentelemetry/sdk-trace-node": "^1.25.1",
+    "@types/express": "^4.17.21",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.1.0"
+  }
+}

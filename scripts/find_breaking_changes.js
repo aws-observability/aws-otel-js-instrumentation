@@ -183,8 +183,8 @@ async function findContribBreakingChanges(currentContribPackages, newContribVers
       console.log(`Processing release: ${release.tag_name}`);
       const tagName = release.tag_name;
       
-      // Extract component name and version from releases like "auto-instrumentations-node: v0.64.4"
-      const match = tagName.match(/^([^:]+):\s*v(.+)$/);
+      // Extract component name and version from releases like "resource-detector-aws-v2.3.0"
+      const match = tagName.match(/^(.+)-v(.+)$/);
       if (match) {
         const componentName = match[1];
         const releaseVersion = match[2];

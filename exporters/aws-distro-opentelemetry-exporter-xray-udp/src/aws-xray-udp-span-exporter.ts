@@ -54,7 +54,7 @@ export class UdpExporter {
   }
 }
 
-export class OTLPUdpSpanExporter implements SpanExporter {
+export class AwsXrayUdpSpanExporter implements SpanExporter {
   private _udpExporter: UdpExporter;
   private _signalPrefix: string;
   private _endpoint: string;

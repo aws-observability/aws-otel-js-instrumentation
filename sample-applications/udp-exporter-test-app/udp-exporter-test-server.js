@@ -8,9 +8,9 @@ const opentelemetry = require("@opentelemetry/sdk-node");
 const { SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base');
 const { AWSXRayPropagator } = require("@opentelemetry/propagator-aws-xray");
 const { AWSXRayIdGenerator } = require("@opentelemetry/id-generator-aws-xray");
-const { OTLPUdpSpanExporter } = require("@aws/aws-otel-otlp-udp-exporter")
+const { AwsXrayUdpSpanExporter } = require("@aws/aws-distro-opentelemetry-exporter-xray-udp")
 
-const _traceExporter = new OTLPUdpSpanExporter();
+const _traceExporter = new AwsXrayUdpSpanExporter();
 const _spanProcessor = new SimpleSpanProcessor(_traceExporter);
 
 const PORT = parseInt(process.env.SAMPLE_APP_PORT || '8080', 10);

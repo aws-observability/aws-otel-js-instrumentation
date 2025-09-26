@@ -5,7 +5,7 @@ import { diag, SpanContext, SpanKind } from '@opentelemetry/api';
 import { ExportResultCode } from '@opentelemetry/core';
 import { Resource } from '@opentelemetry/resources';
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer';
-import { OTLPUdpSpanExporter, UdpExporter } from '../src/otlp-udp-exporter';
+import { AwsXrayUdpSpanExporter, UdpExporter } from '../src/aws-xray-udp-span-exporter';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import * as sinon from 'sinon';
 import expect from 'expect';
@@ -74,8 +74,8 @@ describe('UdpExporterTest', () => {
   });
 });
 
-describe('OTLPUdpSpanExporterTest', () => {
-  let otlpUdpSpanExporter: OTLPUdpSpanExporter;
+describe('AwsXrayUdpSpanExporterTest', () => {
+  let awsXrayUdpSpanExporter: AwsXrayUdpSpanExporter;
   let udpExporterMock: { sendData: any; shutdown: any };
   let diagErrorSpy: sinon.SinonSpy<[message: string, ...args: unknown[]], void>;
   const endpoint = '127.0.0.1:3000';
@@ -123,8 +123,8 @@ describe('OTLPUdpSpanExporterTest', () => {
     // Stub the diag.error method
     diagErrorSpy = sinon.spy(diag, 'error');
 
-    // Create an instance of OTLPUdpSpanExporter
-    otlpUdpSpanExporter = new OTLPUdpSpanExporter(endpoint, prefix);
+    // Create an instance of AwsXrayUdpSpanExporter
+    awsXrayUdpSpanExporter = new AwsXrayUdpSpanExporter(endpoint, prefix);
   });
 
   afterEach(() => {
@@ -137,7 +137,7 @@ describe('OTLPUdpSpanExporterTest', () => {
     // Stub ProtobufTraceSerializer.serializeRequest
     sinon.stub(ProtobufTraceSerializer, 'serializeRequest').returns(serializedData);
 
-    otlpUdpSpanExporter.export(spans, callback);
+    awsXrayUdpSpanExporter.export(spans, callback);
 
     expect(udpExporterMock.sendData.calledOnceWith(serializedData, 'T1')).toBe(true);
     expect(callback.calledOnceWith({ code: ExportResultCode.SUCCESS })).toBe(true);
@@ -149,7 +149,7 @@ describe('OTLPUdpSpanExporterTest', () => {
     sinon.stub(ProtobufTraceSerializer, 'serializeRequest').returns(undefined);
     const callback = sinon.stub();
 
-    otlpUdpSpanExporter.export(spans, callback);
+    awsXrayUdpSpanExporter.export(spans, callback);
 
     expect(callback.notCalled).toBe(true);
     expect(udpExporterMock.sendData.notCalled).toBe(true);
@@ -162,18 +162,18 @@ describe('OTLPUdpSpanExporterTest', () => {
 
     const callback = sinon.stub();
 
-    otlpUdpSpanExporter.export(spans, callback);
+    awsXrayUdpSpanExporter.export(spans, callback);
 
     expect(diagErrorSpy.calledOnceWith('Error exporting spans: %s', sinon.match.instanceOf(Error))).toBe(true);
     expect(callback.calledOnceWith({ code: ExportResultCode.FAILED })).toBe(true);
   });
 
   it('should forceFlush without throwing', async () => {
-    expect(otlpUdpSpanExporter.forceFlush()).resolves.not.toThrow();
+    expect(awsXrayUdpSpanExporter.forceFlush()).resolves.not.toThrow();
   });
 
   it('should shutdown the UDP exporter successfully', async () => {
-    await otlpUdpSpanExporter.shutdown();
+    await awsXrayUdpSpanExporter.shutdown();
     expect(udpExporterMock.shutdown.calledOnce).toBe(true);
   });
 
@@ -181,7 +181,7 @@ describe('OTLPUdpSpanExporterTest', () => {
     process.env.AWS_LAMBDA_FUNCTION_NAME = 'testFunctionName';
     process.env.AWS_XRAY_DAEMON_ADDRESS = 'someaddress:1234';
 
-    const exporter = new OTLPUdpSpanExporter(undefined);
+    const exporter = new AwsXrayUdpSpanExporter(undefined);
     expect(exporter['_endpoint']).toBe('someaddress:1234');
     expect(exporter['_udpExporter']['_host']).toBe('someaddress');
     expect(exporter['_udpExporter']['_port']).toBe(1234);

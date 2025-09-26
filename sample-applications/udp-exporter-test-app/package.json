@@ -11,7 +11,6 @@
   "author": "",
   "license": "Apache-2.0",
   "dependencies": {
-    "@aws/aws-otel-otlp-udp-exporter": "file:../../exporters/aws-otel-otlp-udp-exporter/aws-aws-otel-otlp-udp-exporter-0.0.1.tgz",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/id-generator-aws-xray": "^1.2.2",
     "@opentelemetry/propagator-aws-xray": "^1.25.1",

@@ -1,12 +1,12 @@
 {
-  "name": "@aws/aws-otel-otlp-udp-exporter",
+  "name": "@aws/aws-distro-opentelemetry-exporter-xray-udp",
   "version": "0.0.1",
-  "description": "This package provides an OTLP UDP Exporter for OpenTelemetry.",
+  "description": "This package provides an AWS X-Ray UDP Exporter for OpenTelemetry.",
   "author": {
     "name": "Amazon Web Services",
     "url": "http://aws.amazon.com"
   },
-  "homepage": "https://github.com/aws-observability/aws-otel-js-instrumentation/tree/main/exporters/aws-otel-otlp-udp-exporter#readme",
+  "homepage": "https://github.com/aws-observability/aws-otel-js-instrumentation/tree/main/exporters/aws-distro-opentelemetry-exporter-xray-udp#readme",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=14"
@@ -22,7 +22,7 @@
     "compile": "tsc -p .",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
-    "precompile": "tsc --version && lerna run version:update --scope @aws/aws-otel-otlp-udp-exporter --include-dependencies",
+    "precompile": "tsc --version && lerna run version:update --scope @aws/aws-distro-opentelemetry-exporter-xray-udp --include-dependencies",
     "prewatch": "npm run precompile",
     "prepublishOnly": "npm run compile",
     "tdd": "yarn test -- --watch-extensions ts --watch",

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { getLatestVersionsFromGitHub } = require('./get_upstream_versions.js');
 
 async function httpsGet(url) {
   const https = require('https');
@@ -43,62 +44,6 @@ async function httpsGet(url) {
       resolve(null);
     });
   });
-}
-
-async function getVersionsFromGitHubReleases() {
-  try {
-    // Get versions from opentelemetry-js releases
-    const jsReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js/releases');
-    const contribReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases');
-
-    const versions = {};
-    
-    // Process opentelemetry-js releases
-    if (jsReleases) {
-      for (const release of jsReleases) {
-        const tagName = release.tag_name;
-        
-        // Core packages: v2.0.0 -> 2.0.0
-        if (/^v\d+\.\d+\.\d+$/.test(tagName) && !versions.core) {
-          versions.core = tagName.substring(1);
-        }
-        // Experimental packages: experimental/v0.57.1 -> 0.57.1
-        else if (tagName.startsWith('experimental/v') && !versions.experimental) {
-          versions.experimental = tagName.substring('experimental/v'.length);
-        }
-        // API package: api/v1.9.0 -> 1.9.0
-        else if (tagName.startsWith('api/v') && !versions.api) {
-          versions.api = tagName.substring('api/v'.length);
-        }
-        // Semantic conventions: semconv/v1.28.0 -> 1.28.0
-        else if (tagName.startsWith('semconv/v') && !versions.semconv) {
-          versions.semconv = tagName.substring('semconv/v'.length);
-        }
-      }
-    }
-    
-    // Process opentelemetry-js-contrib releases
-    if (contribReleases) {
-      for (const release of contribReleases) {
-        const tagName = release.tag_name;
-        
-        // Extract component name and version from releases like "auto-instrumentations-node: v0.64.4"
-        const match = tagName.match(/^([^:]+):\s*v(.+)$/);
-        if (match) {
-          const componentName = match[1];
-          const version = match[2];
-          versions[componentName] = version;
-        }
-      }
-    }
-    
-    console.log('Found GitHub release versions:', versions);
-    return versions;
-    
-  } catch (error) {
-    console.warn(`Warning: Could not get GitHub releases: ${error.message}`);
-    return {};
-  }
 }
 
 async function getLatestVersionFromNpm(packageName) {
@@ -156,7 +101,7 @@ async function main() {
     let updated = false;
     
     // Get versions from GitHub releases
-    const githubVersions = await getVersionsFromGitHubReleases();
+    const githubVersions = await getLatestVersionsFromGitHub();
     
     // Get all @opentelemetry packages from dependencies
     const dependencies = packageJson.dependencies || {};

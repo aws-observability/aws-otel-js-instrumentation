@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { getLatestVersionsFromGitHub } = require('./get_upstream_versions.js');
 
 async function httpsGet(url) {
   const https = require('https');
@@ -207,16 +208,10 @@ async function findContribBreakingChanges(currentContribPackages, newContribVers
     return [];
   }
 }
+
 async function main() {
-  const newCoreVersion = process.env.OTEL_CORE_VERSION;
-  const newExperimentalVersion = process.env.OTEL_EXPERIMENTAL_VERSION;
-  const newApiVersion = process.env.OTEL_API_VERSION;
-  const newSemconvVersion = process.env.OTEL_SEMCONV_VERSION;
-  
-  if (!newCoreVersion && !newExperimentalVersion && !newApiVersion && !newSemconvVersion) {
-    console.error('Error: At least one version environment variable required');
-    process.exit(1);
-  }
+  console.log('Getting latest versions from GitHub...');
+  const latestVersions = await getLatestVersionsFromGitHub();
   
   const currentVersions = getCurrentVersionsFromPackageJson();
   
@@ -225,11 +220,11 @@ async function main() {
   let breakingInfo = '';
   
   // Check core releases
-  if (newCoreVersion && currentVersions.core) {
+  if (latestVersions.core && currentVersions.core) {
     const coreBreaking = await findBreakingChangesInReleases(
       'opentelemetry-js', 
       currentVersions.core, 
-      newCoreVersion, 
+      latestVersions.core, 
       'core'
     );
     
@@ -242,11 +237,11 @@ async function main() {
   }
   
   // Check experimental releases
-  if (newExperimentalVersion && currentVersions.experimental) {
+  if (latestVersions.experimental && currentVersions.experimental) {
     const experimentalBreaking = await findBreakingChangesInReleases(
       'opentelemetry-js', 
       currentVersions.experimental, 
-      newExperimentalVersion, 
+      latestVersions.experimental, 
       'experimental'
     );
     
@@ -258,11 +253,43 @@ async function main() {
     }
   }
   
+  // Check API releases
+  if (latestVersions.api && currentVersions.api) {
+    const apiBreaking = await findBreakingChangesInReleases(
+      'opentelemetry-js', 
+      currentVersions.api, 
+      latestVersions.api, 
+      'api'
+    );
+    
+    if (apiBreaking.length > 0) {
+      breakingInfo += '**opentelemetry-js (api):**\n';
+      for (const release of apiBreaking) {
+        breakingInfo += `- [${release.name}](${release.url})\n`;
+      }
+    }
+  }
+  
+  // Check semconv releases
+  if (latestVersions.semconv && currentVersions.semconv) {
+    const semconvBreaking = await findBreakingChangesInReleases(
+      'opentelemetry-js', 
+      currentVersions.semconv, 
+      latestVersions.semconv, 
+      'semconv'
+    );
+    
+    if (semconvBreaking.length > 0) {
+      breakingInfo += '**opentelemetry-js (semconv):**\n';
+      for (const release of semconvBreaking) {
+        breakingInfo += `- [${release.name}](${release.url})\n`;
+      }
+    }
+  }
+  
   // Check contrib releases for packages we actually depend on
   if (currentVersions.contrib) {
-    // We need to get the new contrib versions from the update script
-    // For now, we'll check all contrib packages we depend on
-    const contribBreaking = await findContribBreakingChanges(currentVersions.contrib, {});
+    const contribBreaking = await findContribBreakingChanges(currentVersions.contrib, latestVersions);
     
     if (contribBreaking.length > 0) {
       breakingInfo += '**opentelemetry-js-contrib:**\n';

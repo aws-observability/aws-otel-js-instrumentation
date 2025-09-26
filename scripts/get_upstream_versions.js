@@ -48,10 +48,21 @@ async function getLatestVersionsFromGitHub() {
   try {
     // Get versions from opentelemetry-js releases
     const jsReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js/releases?per_page=100');
-    const contribReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100');
+    const contribReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=1');
+    
+    // Get additional contrib releases (they release more frequently)
+    const contribReleases2 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=2');
+    const contribReleases3 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=3');
+    
+    // Combine contrib releases
+    const allContribReleases = [
+      ...(contribReleases || []),
+      ...(contribReleases2 || []),
+      ...(contribReleases3 || [])
+    ];
     
     console.log('JS releases found:', jsReleases ? jsReleases.length : 'none');
-    console.log('Contrib releases found:', contribReleases ? contribReleases.length : 'none');
+    console.log('Contrib releases found:', allContribReleases.length);
     
     const versions = {};
     
@@ -80,8 +91,8 @@ async function getLatestVersionsFromGitHub() {
     }
     
     // Process opentelemetry-js-contrib releases
-    if (contribReleases) {
-      for (const release of contribReleases) {
+    if (allContribReleases.length > 0) {
+      for (const release of allContribReleases) {
         const tagName = release.tag_name;
         
         // Extract component name and version from releases like "auto-instrumentations-node: v0.64.4"

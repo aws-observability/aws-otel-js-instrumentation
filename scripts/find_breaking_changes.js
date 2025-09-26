@@ -164,12 +164,22 @@ async function findBreakingChangesInReleases(repoName, currentVersion, newVersio
 
 async function findContribBreakingChanges(currentContribPackages, newContribVersions) {
   try {
-    const releases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100');
-    if (!releases) return [];
+    // Fetch multiple pages of contrib releases since they release frequently
+    const releases1 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=1');
+    const releases2 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=2');
+    const releases3 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=3');
+    
+    const allReleases = [
+      ...(releases1 || []),
+      ...(releases2 || []),
+      ...(releases3 || [])
+    ];
+    
+    if (allReleases.length === 0) return [];
     
     const breakingReleases = [];
     
-    for (const release of releases) {
+    for (const release of allReleases) {
       const tagName = release.tag_name;
       
       // Extract component name and version from releases like "auto-instrumentations-node: v0.64.4"

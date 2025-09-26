@@ -140,9 +140,11 @@ async function findBreakingChangesInReleases(repoName, currentVersion, newVersio
         if (compareVersions(releaseVersion, currentVersion) > 0 && 
             compareVersions(releaseVersion, newVersion) <= 0) {
           
-          // Check if release notes mention breaking changes
+          // Check if release notes mention breaking changes (multiple patterns)
           const body = release.body || '';
-          if (body.includes('💥 Breaking Changes')) {
+          if (body.includes('💥 Breaking Changes') || 
+              body.includes('Breaking changes') || 
+              body.includes('BREAKING CHANGES')) {
             breakingReleases.push({
               version: releaseVersion,
               name: release.name || tagName,
@@ -186,9 +188,11 @@ async function findContribBreakingChanges(currentContribPackages, newContribVers
               compareVersions(releaseVersion, currentVersion) > 0 && 
               compareVersions(releaseVersion, newVersion) <= 0) {
             
-            // Check if release notes mention breaking changes
+            // Check if release notes mention breaking changes (multiple patterns)
             const body = release.body || '';
-            if (body.includes('⚠ BREAKING CHANGES')) {
+            if (body.includes('⚠ BREAKING CHANGES') || 
+                body.includes('Breaking changes') || 
+                body.includes('BREAKING CHANGES')) {
               breakingReleases.push({
                 component: componentName,
                 version: releaseVersion,

@@ -187,6 +187,7 @@ async function findContribBreakingChanges(currentContribPackages, newContribVers
       if (match) {
         const componentName = match[1];
         const releaseVersion = match[2];
+        console.log(`Found contrib release: ${componentName} version ${releaseVersion}`);
         
         // Check if this is a package we depend on
         if (currentContribPackages[componentName]) {

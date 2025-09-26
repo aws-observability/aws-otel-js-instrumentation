@@ -140,11 +140,10 @@ async function findBreakingChangesInReleases(repoName, currentVersion, newVersio
         if (compareVersions(releaseVersion, currentVersion) > 0 && 
             compareVersions(releaseVersion, newVersion) <= 0) {
           
-          // Check if release notes mention breaking changes (multiple patterns)
+          // Check if release notes have breaking changes as markdown headers
           const body = release.body || '';
-          if (body.includes('💥 Breaking Changes') || 
-              body.includes('Breaking changes') || 
-              body.includes('BREAKING CHANGES')) {
+          const breakingHeaderRegex = /^#+.*breaking changes/im;
+          if (breakingHeaderRegex.test(body)) {
             breakingReleases.push({
               version: releaseVersion,
               name: release.name || tagName,
@@ -188,11 +187,10 @@ async function findContribBreakingChanges(currentContribPackages, newContribVers
               compareVersions(releaseVersion, currentVersion) > 0 && 
               compareVersions(releaseVersion, newVersion) <= 0) {
             
-            // Check if release notes mention breaking changes (multiple patterns)
+            // Check if release notes have breaking changes as markdown headers
             const body = release.body || '';
-            if (body.includes('⚠ BREAKING CHANGES') || 
-                body.includes('Breaking changes') || 
-                body.includes('BREAKING CHANGES')) {
+            const breakingHeaderRegex = /^#+.*breaking changes/im;
+            if (breakingHeaderRegex.test(body)) {
               breakingReleases.push({
                 component: componentName,
                 version: releaseVersion,

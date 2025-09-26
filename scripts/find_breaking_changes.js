@@ -180,7 +180,6 @@ async function findContribBreakingChanges(currentContribPackages, newContribVers
     const breakingReleases = [];
     
     for (const release of allReleases) {
-      console.log(`Processing release: ${release.tag_name}`);
       const tagName = release.tag_name;
       
       // Extract component name and version from releases like "resource-detector-aws-v2.3.0"
@@ -188,7 +187,6 @@ async function findContribBreakingChanges(currentContribPackages, newContribVers
       if (match) {
         const componentName = match[1];
         const releaseVersion = match[2];
-        console.log(`Found contrib release: ${componentName} version ${releaseVersion}`);
         
         // Check if this is a package we depend on
         if (currentContribPackages[componentName]) {
@@ -243,7 +241,7 @@ async function main() {
     );
     
     if (coreBreaking.length > 0) {
-      breakingInfo += '**opentelemetry-js (core):**\n';
+      breakingInfo += '\n**opentelemetry-js (core):**\n';
       for (const release of coreBreaking) {
         breakingInfo += `- [${release.name}](${release.url})\n`;
       }
@@ -260,7 +258,7 @@ async function main() {
     );
     
     if (experimentalBreaking.length > 0) {
-      breakingInfo += '**opentelemetry-js (experimental):**\n';
+      breakingInfo += '\n**opentelemetry-js (experimental):**\n';
       for (const release of experimentalBreaking) {
         breakingInfo += `- [${release.name}](${release.url})\n`;
       }
@@ -277,7 +275,7 @@ async function main() {
     );
     
     if (apiBreaking.length > 0) {
-      breakingInfo += '**opentelemetry-js (api):**\n';
+      breakingInfo += '\n**opentelemetry-js (api):**\n';
       for (const release of apiBreaking) {
         breakingInfo += `- [${release.name}](${release.url})\n`;
       }
@@ -294,7 +292,7 @@ async function main() {
     );
     
     if (semconvBreaking.length > 0) {
-      breakingInfo += '**opentelemetry-js (semconv):**\n';
+      breakingInfo += '\n**opentelemetry-js (semconv):**\n';
       for (const release of semconvBreaking) {
         breakingInfo += `- [${release.name}](${release.url})\n`;
       }
@@ -306,7 +304,7 @@ async function main() {
     const contribBreaking = await findContribBreakingChanges(currentVersions.contrib, latestVersions);
     
     if (contribBreaking.length > 0) {
-      breakingInfo += '**opentelemetry-js-contrib:**\n';
+      breakingInfo += '\n**opentelemetry-js-contrib:**\n';
       for (const release of contribBreaking) {
         breakingInfo += `- [${release.name}](${release.url})\n`;
       }

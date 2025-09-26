@@ -49,8 +49,6 @@ async function getLatestVersionsFromGitHub() {
     // Get versions from opentelemetry-js releases
     const jsReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js/releases?per_page=100');
     const contribReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=1');
-    
-    // Get additional contrib releases (they release more frequently)
     const contribReleases2 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=2');
     const contribReleases3 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=3');
     
@@ -71,19 +69,19 @@ async function getLatestVersionsFromGitHub() {
       for (const release of jsReleases) {
         const tagName = release.tag_name;
         
-        // Core packages: v2.0.0 -> 2.0.0 (only keep first/newest)
+        // Core packages: v2.0.0 -> 2.0.0
         if (/^v\d+\.\d+\.\d+$/.test(tagName) && !versions.core) {
           versions.core = tagName.substring(1);
         }
-        // Experimental packages: experimental/v0.57.1 -> 0.57.1 (only keep first/newest)
+        // Experimental packages: experimental/v0.57.1 -> 0.57.1
         else if (tagName.startsWith('experimental/v') && !versions.experimental) {
           versions.experimental = tagName.substring('experimental/v'.length);
         }
-        // API package: api/v1.9.0 -> 1.9.0 (only keep first/newest)
+        // API package: api/v1.9.0 -> 1.9.0
         else if (tagName.startsWith('api/v') && !versions.api) {
           versions.api = tagName.substring('api/v'.length);
         }
-        // Semantic conventions: semconv/v1.28.0 -> 1.28.0 (only keep first/newest)
+        // Semantic conventions: semconv/v1.28.0 -> 1.28.0
         else if (tagName.startsWith('semconv/v') && !versions.semconv) {
           versions.semconv = tagName.substring('semconv/v'.length);
         }

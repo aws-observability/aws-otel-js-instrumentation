@@ -81,7 +81,6 @@ function getCurrentVersionsFromPackageJson() {
     for (const [packageName, version] of Object.entries(dependencies)) {
       if (packageName.startsWith('@opentelemetry/') && 
           !['@opentelemetry/api', '@opentelemetry/sdk-trace-base', '@opentelemetry/sdk-node', '@opentelemetry/semantic-conventions'].includes(packageName)) {
-        // Check if it's likely a contrib package (not in core/experimental categories)
         const componentName = packageName.replace('@opentelemetry/', '');
         contribPackages[componentName] = version;
       }

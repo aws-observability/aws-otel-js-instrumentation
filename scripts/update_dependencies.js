@@ -122,7 +122,7 @@ async function main() {
       } else if (PACKAGE_CATEGORIES.semconv.includes(packageName) && githubVersions.semconv) {
         newVersion = githubVersions.semconv;
       } else if (PACKAGE_CATEGORIES.contrib.includes(packageName)) {
-        // Try to get version from contrib releases by stripping @opentelemetry/ prefix
+        // Independently versioned; get package name by stripping @opentelemetry/ prefix
         const componentName = packageName.replace('@opentelemetry/', '');
         if (githubVersions[componentName]) {
           newVersion = githubVersions[componentName];

@@ -32,8 +32,8 @@ jobs:
     environment: Release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repo @ SHA - ${{ github.sha }}
-        uses: actions/checkout@v4
+      - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
 
       - name: Check main build status
         env:
@@ -64,7 +64,7 @@ jobs:
           os: ubuntu-latest
 
       - name: Upload SDK Tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}
@@ -92,9 +92,9 @@ jobs:
           echo ${MATRIX}
           echo "aws_regions_json=${MATRIX}" >> $GITHUB_OUTPUT
       - name: Checkout Repo @ SHA - ${{ github.sha }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  #v5.0.0
         with:
           node-version: 22
       - name: NPM Clean Install
@@ -105,7 +105,7 @@ jobs:
       - name: Build Lambda Layer
         run: npm run build-lambda
       - name: upload layer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
           name: layer.zip
           path: lambda-layer/packages/layer/build/layer.zip
@@ -115,33 +115,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo @ SHA - ${{ github.sha }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
 
       - name: Configure AWS credentials for private ECR
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_ECR_RELEASE }}
           aws-region: ${{ env.AWS_PRIVATE_ECR_REGION }}
 
       - name: Log in to AWS private ECR
-        uses: docker/login-action@v3
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 #v3.5.0
         with:
           registry: ${{ env.RELEASE_PRIVATE_REGISTRY }}
 
       - name: Configure AWS credentials for public ECR
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_ECR_RELEASE }}
           aws-region: ${{ env.AWS_PUBLIC_ECR_REGION }}
 
       - name: Log in to AWS public ECR
-        uses: docker/login-action@v3
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 #v3.5.0
         with:
           registry: public.ecr.aws
 
       # Publish to public ECR
       - name: Build and push public ECR image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
         with:
           push: true
           context: .
@@ -152,7 +152,7 @@ jobs:
 
       # Publish to private ECR
       - name: Build and push private ECR image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
         with:
           push: true
           context: .
@@ -197,7 +197,7 @@ jobs:
           fi
           SECRET_KEY=${SECRET_KEY//-/_}
           echo "SECRET_KEY=${SECRET_KEY}" >> $GITHUB_ENV
-      - uses: aws-actions/configure-aws-credentials@v4.0.2
+      - uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
         with:
           role-to-assume: ${{ secrets[env.SECRET_KEY] }}
           role-duration-seconds: 1200
@@ -206,7 +206,7 @@ jobs:
         run: |
           echo BUCKET_NAME=nodejs-lambda-layer-${{ github.run_id }}-${{ matrix.aws_region }} | tee --append $GITHUB_ENV
       - name: download layer.zip
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
           name: layer.zip
       - name: publish
@@ -244,7 +244,7 @@ jobs:
             --action lambda:GetLayerVersion
       - name: upload layer arn artifact
         if: ${{ success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
           name: ${{ env.LAYER_NAME }}-${{ matrix.aws_region }}
           path: ${{ env.LAYER_NAME }}/${{ matrix.aws_region }}
@@ -260,10 +260,10 @@ jobs:
       layer-note: ${{ steps.layer-note.outputs.layer-note }}
     steps:
       - name: Checkout Repo @ SHA - ${{ github.sha }}
-        uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd #v3.1.2
       - name: download layerARNs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
           pattern: ${{ env.LAYER_NAME }}-*
           path: ${{ env.LAYER_NAME }}
@@ -324,15 +324,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo @ SHA - ${{ github.sha }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
       
       - name: Download SDK artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
           name: ${{ env.ARTIFACT_NAME }}
       
       - name: Download layer.zip artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
           name: layer.zip
 

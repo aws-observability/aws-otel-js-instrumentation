@@ -1,6 +1,6 @@
 {
   "name": "@aws/aws-distro-opentelemetry-exporter-xray-udp",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "This package provides an AWS X-Ray UDP Exporter for OpenTelemetry.",
   "author": {
     "name": "Amazon Web Services",

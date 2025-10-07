@@ -351,19 +351,39 @@ jobs:
             console.log(deps);
           ")
 
+          # Extract CHANGELOG entries for this version
+          CHANGELOG_ENTRIES=$(node -e "
+            const fs = require('fs');
+            const content = fs.readFileSync('CHANGELOG.md', 'utf8');
+            const versionPattern = new RegExp(\`## v\${{ github.event.inputs.version }}.*?\\n(.*?)(?=\\n## |$)\`, 'gs');
+            const versionMatch = content.match(versionPattern);
+            if (versionMatch && versionMatch[0]) {
+              const entries = versionMatch[0].replace(/^## v\${{ github.event.inputs.version }}.*?\\n/, '').trim();
+              if (entries) {
+                console.log(entries);
+              }
+            }
+          ")
+
           # Create release notes
           cat > release_notes.md << EOF
-          This release contains the following upstream components:
+          $(if [ -n "$CHANGELOG_ENTRIES" ]; then echo "## What's Changed"; echo "$CHANGELOG_ENTRIES"; echo ""; fi)
+
+          ## Upstream Components
 
           $DEPS
 
-          This release also publishes to public ECR and NPM.
+          ## Release Artifacts
+
+          This release publishes to public ECR and NPM.
           * See ADOT node auto-instrumentation Docker image v${{ github.event.inputs.version }} in our public ECR repository:
           https://gallery.ecr.aws/aws-observability/adot-autoinstrumentation-node
           * See version ${{ github.event.inputs.version }} in our NPM repository:
           https://www.npmjs.com/package/@aws/aws-distro-opentelemetry-node-autoinstrumentation
 
-          This release also includes the AWS OpenTelemetry Lambda Layer for JavaScript version ${{ github.event.inputs.version }}-$(echo $GITHUB_SHA | cut -c1-7).
+          ## Lambda Layer
+
+          This release includes the AWS OpenTelemetry Lambda Layer for JavaScript version ${{ github.event.inputs.version }}-$(echo $GITHUB_SHA | cut -c1-7).
 
           Lambda Layer ARNs:
           ${{ needs.generate-lambda-release-note.outputs.layer-note }}

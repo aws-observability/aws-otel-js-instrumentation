@@ -328,17 +328,16 @@ jobs:
           ")
 
           # Extract CHANGELOG entries for this version
-          CHANGELOG_ENTRIES=$(node -e "
-            const fs = require('fs');
-            const content = fs.readFileSync('CHANGELOG.md', 'utf8');
-            const versionPattern = new RegExp(\`## v\${{ github.event.inputs.version }}.*?\\n(.*?)(?=\\n## |$)\`, 'gs');
-            const versionMatch = content.match(versionPattern);
-            if (versionMatch && versionMatch[0]) {
-              const entries = versionMatch[0].replace(/^## v\${{ github.event.inputs.version }}.*?\\n/, '').trim();
-              if (entries) {
-                console.log(entries);
-              }
-            }
+          CHANGELOG_ENTRIES=$(python3 -c "
+          import re
+          with open('CHANGELOG.md', 'r') as f:
+              content = f.read()
+          version_pattern = r'## v${{ github.event.inputs.version }}.*?\n(.*?)(?=\n## |\Z)'
+          version_match = re.search(version_pattern, content, re.DOTALL)
+          if version_match:
+              entries = version_match.group(1).strip()
+              if entries:
+                  print(entries)
           ")
 
           # Create release notes

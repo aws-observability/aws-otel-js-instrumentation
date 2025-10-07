@@ -255,7 +255,7 @@ jobs:
 
   generate-lambda-release-note:
     runs-on: ubuntu-latest
-    # needs: publish-layer-prod
+    needs: build-layer
     outputs:
       layer-note: ${{ steps.layer-note.outputs.layer-note }}
     steps:

@@ -17,3 +17,14 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 - Support X-Ray Trace Id extraction from Lambda Context object, and respect user-configured OTEL_PROPAGATORS in AWS Lamdba instrumentation
   ([#259](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/259))
+
+## v0.7.0-dev0
+
+- random change
+  ([#259](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/259))
+
+- another random change
+  ([#259](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/259))
+
+- yet another random change
+  ([#259](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/259))

@@ -119,6 +119,16 @@ jobs:
       - name: Checkout Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
 
+      - name: Build Tarball and Image Files
+        uses: ./.github/actions/artifacts_build
+        with:
+          image_uri_with_tag: "adot-autoinstrumentation-node:test"
+          push_image: false
+          load_image: true
+          node_version: "20"
+          package_name: aws-distro-opentelemetry-node-autoinstrumentation
+          os: ubuntu-latest
+
       - name: Configure AWS credentials for private ECR
         uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
         with:

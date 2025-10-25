@@ -31,7 +31,7 @@ export class UdpExporter {
     try {
       this._socket.send(Buffer.from(message, 'utf-8'), this._port, this._host, err => {
         if (err) {
-          throw err;
+          diag.error('Error sending UDP data: %s', err);
         }
       });
     } catch (err) {

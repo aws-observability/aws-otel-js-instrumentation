@@ -24,20 +24,25 @@ export class UdpExporter {
     this._socket.unref();
   }
 
-  sendData(data: Uint8Array, signalFormatPrefix: string): void {
+  sendData(data: Uint8Array, signalFormatPrefix: string): Promise<void> {
     const base64EncodedString = Buffer.from(data).toString('base64');
     const message = `${PROTOCOL_HEADER}${signalFormatPrefix}${base64EncodedString}`;
 
-    try {
-      this._socket.send(Buffer.from(message, 'utf-8'), this._port, this._host, err => {
-        if (err) {
-          diag.error('Error sending UDP data: %s', err);
-        }
-      });
-    } catch (err) {
-      diag.error('Error sending UDP data: %s', err);
-      throw err;
-    }
+    return new Promise((resolve, reject) => {
+      try {
+        this._socket.send(Buffer.from(message, 'utf-8'), this._port, this._host, err => {
+          if (err) {
+            diag.error('Error sending UDP data: %s', err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      } catch (err) {
+        diag.error('Error sending UDP data: %s', err);
+        reject(err);
+      }
+    });
   }
 
   shutdown(): void {
@@ -70,13 +75,13 @@ export class OTLPUdpSpanExporter implements SpanExporter {
     if (serializedData == null) {
       return;
     }
-    try {
-      this._udpExporter.sendData(serializedData, this._signalPrefix);
-      return resultCallback({ code: ExportResultCode.SUCCESS });
-    } catch (err) {
-      diag.error('Error exporting spans: %s', err);
-      return resultCallback({ code: ExportResultCode.FAILED });
-    }
+    this._udpExporter
+      .sendData(serializedData, this._signalPrefix)
+      .then(() => resultCallback({ code: ExportResultCode.SUCCESS }))
+      .catch(err => {
+        diag.error('Error exporting spans: %s', err);
+        resultCallback({ code: ExportResultCode.FAILED });
+      });
   }
 
   forceFlush(): Promise<void> {

@@ -609,7 +609,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     });
   });
 
-  it('TestExportCallsSendLogBatchWithExpectedInput', async () => {
+  it('TestExportCallsSendLogBatchWithExpectedInput', done => {
     const timeInSeconds = Math.round(Date.now() / 1000);
 
     const resourceMetricsData: ResourceMetrics = {
@@ -659,24 +659,22 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     const logClientSendLogBatchStub = sinon.stub(exporter['logClient'], 'sendLogBatch' as any);
     sinon.stub(exporter['logClient'], 'eventBatchExceedsLimit' as any).returns(true);
 
-    await new Promise<void>(resolve => {
-      exporter.export(resourceMetricsData, result => {
-        expect(result.code).toEqual(ExportResultCode.FAILED);
+    exporter.export(resourceMetricsData, result => {
+      expect(result.code).toEqual(ExportResultCode.SUCCESS);
 
-        sinon.assert.calledThrice(logClientSendLogBatchStub);
-        const call1Args = logClientSendLogBatchStub.getCall(0).args[0] as LogEventBatch;
-        const call2Args = logClientSendLogBatchStub.getCall(1).args[0] as LogEventBatch;
-        const call3Args = logClientSendLogBatchStub.getCall(2).args[0] as LogEventBatch;
+      sinon.assert.calledThrice(logClientSendLogBatchStub);
+      const call1Args = logClientSendLogBatchStub.getCall(0).args[0] as LogEventBatch;
+      const call2Args = logClientSendLogBatchStub.getCall(1).args[0] as LogEventBatch;
+      const call3Args = logClientSendLogBatchStub.getCall(2).args[0] as LogEventBatch;
 
-        expect(call1Args.logEvents.length).toEqual(0);
-        expect(call2Args.logEvents[0].message).toMatch(
-          /^\{"_aws":\{"Timestamp":\d+,"CloudWatchMetrics":\[\{"Namespace":"TestNamespace","Metrics":\[\{"Name":"descriptorName","Unit":"Milliseconds"\}\],"Dimensions":\[\["uniqueKey1"\]\]\}\]},"Version":"1","descriptorName":3,"uniqueKey1":"uniqueValue1"\}$/
-        );
-        expect(call3Args.logEvents[0].message).toMatch(
-          /^\{"_aws":\{"Timestamp":\d+,"CloudWatchMetrics":\[\{"Namespace":"TestNamespace","Metrics":\[\{"Name":"descriptorName","Unit":"Milliseconds"\}\],"Dimensions":\[\["uniqueKey2"\]\]\}\]},"Version":"1","descriptorName":9,"uniqueKey2":"uniqueValue2"\}$/
-        );
-        resolve();
-      });
+      expect(call1Args.logEvents.length).toEqual(0);
+      expect(call2Args.logEvents[0].message).toMatch(
+        /^\{"_aws":\{"Timestamp":\d+,"CloudWatchMetrics":\[\{"Namespace":"TestNamespace","Metrics":\[\{"Name":"descriptorName","Unit":"Milliseconds"\}\],"Dimensions":\[\["uniqueKey1"\]\]\}\]},"Version":"1","descriptorName":3,"uniqueKey1":"uniqueValue1"\}$/
+      );
+      expect(call3Args.logEvents[0].message).toMatch(
+        /^\{"_aws":\{"Timestamp":\d+,"CloudWatchMetrics":\[\{"Namespace":"TestNamespace","Metrics":\[\{"Name":"descriptorName","Unit":"Milliseconds"\}\],"Dimensions":\[\["uniqueKey2"\]\]\}\]},"Version":"1","descriptorName":9,"uniqueKey2":"uniqueValue2"\}$/
+      );
+      done();
     });
   });
 

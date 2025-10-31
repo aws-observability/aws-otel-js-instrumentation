@@ -50,14 +50,32 @@ describe('UdpExporterTest', () => {
     expect(socketSend.getCall(0).args[0]).toEqual(protbufBinary);
   });
 
-  it('should handle errors when sending UDP data', () => {
+  it('should handle errors when sending UDP data', async () => {
     const errorMessage = 'UDP send error';
     socketSend.yields(new Error(errorMessage)); // Simulate an error
 
     const data = new Uint8Array([1, 2, 3]);
-    // Expect the sendData method to throw the error
-    expect(() => udpExporter.sendData(data, 'T1')).toThrow(errorMessage);
+    // Expect the sendData method to reject with the error
+    await expect(udpExporter.sendData(data, 'T1')).rejects.toThrow(errorMessage);
     // Assert that diag.error was called with the correct error message
+    expect(diagErrorSpy.calledOnce).toBe(true);
+    expect(diagErrorSpy.calledWith('Error sending UDP data: %s', sinon.match.instanceOf(Error))).toBe(true);
+  });
+
+  it('should resolve when sending UDP data successfully', async () => {
+    socketSend.yields(null); // Simulate successful send
+
+    const data = new Uint8Array([1, 2, 3]);
+    await expect(udpExporter.sendData(data, 'T1')).resolves.toBeUndefined();
+    expect(diagErrorSpy.notCalled).toBe(true);
+  });
+
+  it('should handle synchronous errors when sending UDP data', async () => {
+    const errorMessage = 'Synchronous UDP send error';
+    socketSend.throws(new Error(errorMessage)); // Simulate synchronous error
+
+    const data = new Uint8Array([1, 2, 3]);
+    await expect(udpExporter.sendData(data, 'T1')).rejects.toThrow(errorMessage);
     expect(diagErrorSpy.calledOnce).toBe(true);
     expect(diagErrorSpy.calledWith('Error sending UDP data: %s', sinon.match.instanceOf(Error))).toBe(true);
   });
@@ -132,16 +150,21 @@ describe('AwsXrayUdpSpanExporterTest', () => {
     sinon.restore();
   });
 
-  it('should export spans successfully', () => {
+  it('should export spans successfully', done => {
     const callback = sinon.stub();
     // Stub ProtobufTraceSerializer.serializeRequest
     sinon.stub(ProtobufTraceSerializer, 'serializeRequest').returns(serializedData);
+    udpExporterMock.sendData.resolves(); // Make sendData resolve successfully
 
     awsXrayUdpSpanExporter.export(spans, callback);
 
-    expect(udpExporterMock.sendData.calledOnceWith(serializedData, 'T1')).toBe(true);
-    expect(callback.calledOnceWith({ code: ExportResultCode.SUCCESS })).toBe(true);
-    expect(diagErrorSpy.notCalled).toBe(true); // Ensure no error was logged
+    // Use setTimeout to allow Promise to resolve
+    setTimeout(() => {
+      expect(udpExporterMock.sendData.calledOnceWith(serializedData, 'T1')).toBe(true);
+      expect(callback.calledOnceWith({ code: ExportResultCode.SUCCESS })).toBe(true);
+      expect(diagErrorSpy.notCalled).toBe(true); // Ensure no error was logged
+      done();
+    }, 0);
   });
 
   it('should handle serialization failure', () => {
@@ -156,16 +179,21 @@ describe('AwsXrayUdpSpanExporterTest', () => {
     expect(diagErrorSpy.notCalled).toBe(true);
   });
 
-  it('should handle errors during export', () => {
+  it('should handle errors during export', done => {
     const error = new Error('Export error');
-    udpExporterMock.sendData.throws(error);
+    udpExporterMock.sendData.rejects(error);
+    sinon.stub(ProtobufTraceSerializer, 'serializeRequest').returns(serializedData);
 
     const callback = sinon.stub();
 
     awsXrayUdpSpanExporter.export(spans, callback);
 
-    expect(diagErrorSpy.calledOnceWith('Error exporting spans: %s', sinon.match.instanceOf(Error))).toBe(true);
-    expect(callback.calledOnceWith({ code: ExportResultCode.FAILED })).toBe(true);
+    // Use setTimeout to allow Promise to reject
+    setTimeout(() => {
+      expect(diagErrorSpy.calledOnceWith('Error exporting spans: %s', error)).toBe(true);
+      expect(callback.calledOnceWith({ code: ExportResultCode.FAILED })).toBe(true);
+      done();
+    }, 0);
   });
 
   it('should forceFlush without throwing', async () => {
@@ -175,6 +203,14 @@ describe('AwsXrayUdpSpanExporterTest', () => {
   it('should shutdown the UDP exporter successfully', async () => {
     await awsXrayUdpSpanExporter.shutdown();
     expect(udpExporterMock.shutdown.calledOnce).toBe(true);
+  });
+
+  it('should handle shutdown errors', async () => {
+    const shutdownError = new Error('Shutdown error');
+    udpExporterMock.shutdown.reset();
+    udpExporterMock.shutdown.throws(shutdownError);
+
+    await expect(awsXrayUdpSpanExporter.shutdown()).rejects.toThrow('Shutdown error');
   });
 
   it('should use expected Environment Variables to configure endpoint', () => {

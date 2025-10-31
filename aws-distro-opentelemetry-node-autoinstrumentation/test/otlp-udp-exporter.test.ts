@@ -69,6 +69,16 @@ describe('UdpExporterTest', () => {
     expect(diagErrorSpy.notCalled).toBe(true);
   });
 
+  it('should handle synchronous errors when sending UDP data', async () => {
+    const errorMessage = 'Synchronous UDP send error';
+    socketSend.throws(new Error(errorMessage)); // Simulate synchronous error
+
+    const data = new Uint8Array([1, 2, 3]);
+    await expect(udpExporter.sendData(data, 'T1')).rejects.toThrow(errorMessage);
+    expect(diagErrorSpy.calledOnce).toBe(true);
+    expect(diagErrorSpy.calledWith('Error sending UDP data: %s', sinon.match.instanceOf(Error))).toBe(true);
+  });
+
   it('should close the socket on shutdown', () => {
     udpExporter.shutdown();
     expect(socketClose.calledOnce).toBe(true);
@@ -182,5 +192,13 @@ describe('OTLPUdpSpanExporterTest', () => {
   it('should shutdown the UDP exporter successfully', async () => {
     await otlpUdpSpanExporter.shutdown();
     expect(udpExporterMock.shutdown.calledOnce).toBe(true);
+  });
+
+  it('should handle shutdown errors', async () => {
+    const shutdownError = new Error('Shutdown error');
+    udpExporterMock.shutdown.reset();
+    udpExporterMock.shutdown.throws(shutdownError);
+
+    await expect(otlpUdpSpanExporter.shutdown()).rejects.toThrow('Shutdown error');
   });
 });

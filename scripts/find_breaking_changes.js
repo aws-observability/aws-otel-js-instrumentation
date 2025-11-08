@@ -196,36 +196,55 @@ async function getSpecificGitHubRelease(componentName, version) {
 
 async function findContribBreakingChanges(currentContribPackages, newContribVersions) {
   try {
+    console.log('Checking contrib packages for breaking changes...');
+    console.log('Current contrib packages:', currentContribPackages);
+    console.log('New contrib versions available:', newContribVersions);
+    
     const breakingReleases = [];
     
     for (const [componentName, currentVersion] of Object.entries(currentContribPackages)) {
       const packageName = `@opentelemetry/${componentName}`;
       const newVersion = newContribVersions[packageName];
       
-      if (!newVersion) continue;
+      console.log(`Checking ${packageName}: ${currentVersion} -> ${newVersion || 'not found'}`);
+      
+      if (!newVersion) {
+        console.log(`Skipping ${packageName} - no new version found`);
+        continue;
+      }
       
       // Get all versions between current and new from npm
+      console.log(`Getting npm versions between ${currentVersion} and ${newVersion} for ${packageName}`);
       const versionsToCheck = await getNpmVersionsBetween(packageName, currentVersion, newVersion);
+      console.log(`Found ${versionsToCheck.length} versions to check:`, versionsToCheck);
       
       // Check each version's GitHub release for breaking changes
       for (const version of versionsToCheck) {
+        console.log(`Checking GitHub release for ${componentName}-v${version}`);
         const release = await getSpecificGitHubRelease(componentName, version);
         
         if (release) {
+          console.log(`Found release for ${componentName}-v${version}`);
           const body = release.body || '';
           const breakingHeaderRegex = /^#+.*breaking changes/im;
           if (breakingHeaderRegex.test(body)) {
+            console.log(`Breaking changes found in ${componentName}-v${version}`);
             breakingReleases.push({
               component: componentName,
               version: version,
               name: release.name || `${componentName}-v${version}`,
               url: release.html_url
             });
+          } else {
+            console.log(`No breaking changes found in ${componentName}-v${version}`);
           }
+        } else {
+          console.log(`No GitHub release found for ${componentName}-v${version}`);
         }
       }
     }
     
+    console.log(`Found ${breakingReleases.length} contrib releases with breaking changes`);
     return breakingReleases;
     
   } catch (error) {
@@ -323,7 +342,11 @@ async function main() {
   }
   
   // Check contrib releases for packages we actually depend on
+  console.log('Current versions object:', currentVersions);
+  console.log('Latest versions object:', latestVersions);
+  
   if (currentVersions.contrib) {
+    console.log('Found contrib packages to check:', Object.keys(currentVersions.contrib));
     const contribBreaking = await findContribBreakingChanges(currentVersions.contrib, latestVersions);
     
     if (contribBreaking.length > 0) {

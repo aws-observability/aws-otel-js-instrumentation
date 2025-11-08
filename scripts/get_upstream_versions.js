@@ -44,20 +44,6 @@ async function httpsGet(url) {
   });
 }
 
-async function getNpmPackageVersion(packageName) {
-  const { exec } = require('child_process');
-  const { promisify } = require('util');
-  const execAsync = promisify(exec);
-  
-  try {
-    const { stdout } = await execAsync(`npm view ${packageName} version`);
-    return stdout.trim();
-  } catch (error) {
-    console.warn(`Warning: Could not get npm version for ${packageName}: ${error.message}`);
-    return null;
-  }
-}
-
 async function getLatestOtelVersions() {
   try {
     // Get versions from opentelemetry-js releases
@@ -88,24 +74,6 @@ async function getLatestOtelVersions() {
         else if (tagName.startsWith('semconv/v') && !versions.semconv) {
           versions.semconv = tagName.substring('semconv/v'.length);
         }
-      }
-    }
-    
-    // Get contrib package versions from npm, since each one is independently versioned.
-    const contribPackages = [
-      '@opentelemetry/auto-instrumentations-node',
-      '@opentelemetry/instrumentation-aws-lambda',
-      '@opentelemetry/instrumentation-aws-sdk',
-      '@opentelemetry/resource-detector-aws'
-    ];
-    
-    console.log('Getting opentelemetry-js-contrib versions from npm...');
-    for (const packageName of contribPackages) {
-      const version = await getNpmPackageVersion(packageName);
-      if (version) {
-        // Use the full package name as the key for consistency
-        versions[packageName] = version;
-        console.log(`Found ${packageName}: ${version}`);
       }
     }
     

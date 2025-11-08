@@ -80,13 +80,18 @@ async function getLatestOtelVersions() {
     return versions;
     
   } catch (error) {
-    console.warn(`Warning: Could not get versions: ${error.message}`);
-    return {};
+    console.error(`Error: Could not get versions: ${error.message}`);
+    process.exit(1);
   }
 }
 
 async function main() {
   const versions = await getLatestOtelVersions();
+  
+  if (!versions || Object.keys(versions).length === 0) {
+    console.error('Failed to get any OpenTelemetry versions');
+    process.exit(1);
+  }
   
   // Set GitHub outputs
   if (process.env.GITHUB_OUTPUT) {

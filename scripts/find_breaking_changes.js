@@ -91,8 +91,8 @@ function getCurrentVersionsFromPackageJson() {
     return currentVersions;
     
   } catch (error) {
-    console.warn(`Error reading current versions: ${error.message}`);
-    return {};
+    console.error(`Error reading current versions: ${error.message}`);
+    process.exit(1);
   }
 }
 
@@ -238,7 +238,17 @@ async function main() {
   console.log('Getting latest versions...');
   const latestVersions = await getLatestOtelVersions();
   
+  if (!latestVersions || Object.keys(latestVersions).length === 0) {
+    console.error('Failed to get latest versions');
+    process.exit(1);
+  }
+  
   const currentVersions = getCurrentVersionsFromPackageJson();
+  
+  if (!currentVersions || Object.keys(currentVersions).length === 0) {
+    console.error('Failed to get current versions from package.json');
+    process.exit(1);
+  }
   
   console.log('Checking for breaking changes in JS releases...');
   

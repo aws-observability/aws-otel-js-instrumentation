@@ -103,6 +103,11 @@ async function main() {
     // Get versions from GitHub and npm
     const githubVersions = await getLatestOtelVersions();
     
+    if (!githubVersions || Object.keys(githubVersions).length === 0) {
+      console.error('Failed to get latest OpenTelemetry versions');
+      process.exit(1);
+    }
+    
     // Get all @opentelemetry packages from dependencies
     const dependencies = packageJson.dependencies || {};
     const otelPackages = Object.keys(dependencies).filter(pkg => pkg.startsWith('@opentelemetry/'));

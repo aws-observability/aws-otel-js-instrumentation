@@ -161,52 +161,66 @@ async function findBreakingChangesInReleases(repoName, currentVersion, newVersio
   }
 }
 
+async function getNpmVersionsBetween(packageName, currentVersion, newVersion) {
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
+  
+  try {
+    const { stdout } = await execAsync(`npm view ${packageName} versions --json`);
+    const allVersions = JSON.parse(stdout);
+    
+    // Filter versions between current and new
+    const relevantVersions = allVersions.filter(version => 
+      compareVersions(version, currentVersion) > 0 && 
+      compareVersions(version, newVersion) <= 0
+    );
+    
+    return relevantVersions;
+  } catch (error) {
+    console.warn(`Warning: Could not get npm versions for ${packageName}: ${error.message}`);
+    return [];
+  }
+}
+
+async function getSpecificGitHubRelease(componentName, version) {
+  try {
+    const tagName = `${componentName}-v${version}`;
+    const release = await httpsGet(`https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases/tags/${tagName}`);
+    return release;
+  } catch (error) {
+    console.warn(`Warning: Could not get GitHub release for ${componentName}-v${version}: ${error.message}`);
+    return null;
+  }
+}
+
 async function findContribBreakingChanges(currentContribPackages, newContribVersions) {
   try {
-    // Fetch multiple pages of contrib releases since they release frequently
-    const releases1 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=1');
-    const releases2 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=2');
-    const releases3 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=3');
-    
-    const allReleases = [
-      ...(releases1 || []),
-      ...(releases2 || []),
-      ...(releases3 || [])
-    ];
-    
-    if (allReleases.length === 0) return [];
-    
     const breakingReleases = [];
     
-    for (const release of allReleases) {
-      const tagName = release.tag_name;
+    for (const [componentName, currentVersion] of Object.entries(currentContribPackages)) {
+      const packageName = `@opentelemetry/${componentName}`;
+      const newVersion = newContribVersions[packageName];
       
-      // Extract component name and version from releases like "resource-detector-aws-v2.3.0"
-      const match = tagName.match(/^(.+)-v(.+)$/);
-      if (match) {
-        const componentName = match[1];
-        const releaseVersion = match[2];
+      if (!newVersion) continue;
+      
+      // Get all versions between current and new from npm
+      const versionsToCheck = await getNpmVersionsBetween(packageName, currentVersion, newVersion);
+      
+      // Check each version's GitHub release for breaking changes
+      for (const version of versionsToCheck) {
+        const release = await getSpecificGitHubRelease(componentName, version);
         
-        // Check if this is a package we depend on
-        if (currentContribPackages[componentName]) {
-          const currentVersion = currentContribPackages[componentName];
-          const newVersion = newContribVersions[componentName];
-          
-          if (newVersion && 
-              compareVersions(releaseVersion, currentVersion) > 0 && 
-              compareVersions(releaseVersion, newVersion) <= 0) {
-            
-            // Check if release notes have breaking changes as markdown headers
-            const body = release.body || '';
-            const breakingHeaderRegex = /^#+.*breaking changes/im;
-            if (breakingHeaderRegex.test(body)) {
-              breakingReleases.push({
-                component: componentName,
-                version: releaseVersion,
-                name: release.name || tagName,
-                url: release.html_url
-              });
-            }
+        if (release) {
+          const body = release.body || '';
+          const breakingHeaderRegex = /^#+.*breaking changes/im;
+          if (breakingHeaderRegex.test(body)) {
+            breakingReleases.push({
+              component: componentName,
+              version: version,
+              name: release.name || `${componentName}-v${version}`,
+              url: release.html_url
+            });
           }
         }
       }

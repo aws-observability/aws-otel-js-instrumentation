@@ -123,7 +123,7 @@ function compareVersions(current, target) {
 
 async function findBreakingChangesInReleases(repoName, currentVersion, newVersion, releasePattern) {
   try {
-    const releases = await httpsGet(`https://api.github.com/repos/open-telemetry/${repoName}/releases?per_page=100`);
+    const releases = await httpsGet(`https://api.github.com/repos/open-telemetry/${repoName}/releases`);
     if (!releases) return [];
     
     const breakingReleases = [];

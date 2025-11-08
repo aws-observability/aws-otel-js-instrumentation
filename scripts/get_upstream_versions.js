@@ -47,7 +47,7 @@ async function httpsGet(url) {
 async function getLatestOtelVersions() {
   try {
     // Get versions from opentelemetry-js releases
-    const jsReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js/releases?per_page=100');
+    const jsReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js/releases');
     
     console.log('opentelemetry-js releases found:', jsReleases ? jsReleases.length : 'none');
     

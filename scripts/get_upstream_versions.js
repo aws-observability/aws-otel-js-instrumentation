@@ -44,23 +44,26 @@ async function httpsGet(url) {
   });
 }
 
-async function getLatestVersionsFromGitHub() {
+async function getNpmPackageVersion(packageName) {
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
+  
+  try {
+    const { stdout } = await execAsync(`npm view ${packageName} version`);
+    return stdout.trim();
+  } catch (error) {
+    console.warn(`Warning: Could not get npm version for ${packageName}: ${error.message}`);
+    return null;
+  }
+}
+
+async function getLatestOtelVersions() {
   try {
     // Get versions from opentelemetry-js releases
     const jsReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js/releases?per_page=100');
-    const contribReleases = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=1');
-    const contribReleases2 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=2');
-    const contribReleases3 = await httpsGet('https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases?per_page=100&page=3');
     
-    // Combine contrib releases
-    const allContribReleases = [
-      ...(contribReleases || []),
-      ...(contribReleases2 || []),
-      ...(contribReleases3 || [])
-    ];
-    
-    console.log('JS releases found:', jsReleases ? jsReleases.length : 'none');
-    console.log('Contrib releases found:', allContribReleases.length);
+    console.log('opentelemetry-js releases found:', jsReleases ? jsReleases.length : 'none');
     
     const versions = {};
     
@@ -88,39 +91,55 @@ async function getLatestVersionsFromGitHub() {
       }
     }
     
-    // Process opentelemetry-js-contrib releases
-    if (allContribReleases.length > 0) {
-      for (const release of allContribReleases) {
-        const tagName = release.tag_name;
-        
-        // Extract component name and version from releases like "resource-detector-aws-v2.3.0"
-        const match = tagName.match(/^(.+)-v(.+)$/);
-        if (match) {
-          const componentName = match[1];
-          const version = match[2];
-          if (!versions[componentName]) {
-            versions[componentName] = version;
-          }
-        }
+    // Get contrib package versions from npm, since each one is independently versioned.
+    const contribPackages = [
+      '@opentelemetry/auto-instrumentations-node',
+      '@opentelemetry/instrumentation-aws-lambda',
+      '@opentelemetry/instrumentation-aws-sdk',
+      '@opentelemetry/resource-detector-aws'
+    ];
+    
+    console.log('Getting opentelemetry-js-contrib versions from npm...');
+    for (const packageName of contribPackages) {
+      const version = await getNpmPackageVersion(packageName);
+      if (version) {
+        // Use the full package name as the key for consistency
+        versions[packageName] = version;
+        console.log(`Found ${packageName}: ${version}`);
       }
     }
-    
-    console.log('Found GitHub release versions:', versions);
     
     return versions;
     
   } catch (error) {
-    console.warn(`Warning: Could not get GitHub releases: ${error.message}`);
+    console.warn(`Warning: Could not get versions: ${error.message}`);
     return {};
   }
 }
 
 async function main() {
-  await getLatestVersionsFromGitHub();
+  const versions = await getLatestOtelVersions();
+  
+  // Set GitHub outputs
+  if (process.env.GITHUB_OUTPUT) {
+    const fs = require('fs');
+    if (versions.core) {
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_core_version=${versions.core}\n`);
+    }
+    if (versions.experimental) {
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_experimental_version=${versions.experimental}\n`);
+    }
+    if (versions.api) {
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_api_version=${versions.api}\n`);
+    }
+    if (versions.semconv) {
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_semconv_version=${versions.semconv}\n`);
+    }
+  }
 }
 
 if (require.main === module) {
   main().catch(console.error);
 }
 
-module.exports = { getLatestVersionsFromGitHub };
+module.exports = { getLatestOtelVersions };

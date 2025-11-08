@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getLatestVersionsFromGitHub } = require('./get_upstream_versions.js');
+const { getLatestOtelVersions } = require('./get_upstream_versions.js');
 
 async function httpsGet(url) {
   const https = require('https');
@@ -100,8 +100,8 @@ async function main() {
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
     let updated = false;
     
-    // Get versions from GitHub releases
-    const githubVersions = await getLatestVersionsFromGitHub();
+    // Get versions from GitHub and npm
+    const githubVersions = await getLatestOtelVersions();
     
     // Get all @opentelemetry packages from dependencies
     const dependencies = packageJson.dependencies || {};
@@ -122,10 +122,9 @@ async function main() {
       } else if (PACKAGE_CATEGORIES.semconv.includes(packageName) && githubVersions.semconv) {
         newVersion = githubVersions.semconv;
       } else if (PACKAGE_CATEGORIES.contrib.includes(packageName)) {
-        // Independently versioned; get package name by stripping @opentelemetry/ prefix
-        const componentName = packageName.replace('@opentelemetry/', '');
-        if (githubVersions[componentName]) {
-          newVersion = githubVersions[componentName];
+        // Independently versioned; check if we have the version from npm
+        if (githubVersions[packageName]) {
+          newVersion = githubVersions[packageName];
         } else {
           // Fall back to npm registry
           newVersion = await getLatestVersionFromNpm(packageName);

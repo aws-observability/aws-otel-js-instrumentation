@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getLatestVersionsFromGitHub } = require('./get_upstream_versions.js');
+const { getLatestOtelVersions } = require('./get_upstream_versions.js');
 
 async function httpsGet(url) {
   const https = require('https');
@@ -221,8 +221,8 @@ async function findContribBreakingChanges(currentContribPackages, newContribVers
 }
 
 async function main() {
-  console.log('Getting latest versions from GitHub...');
-  const latestVersions = await getLatestVersionsFromGitHub();
+  console.log('Getting latest versions...');
+  const latestVersions = await getLatestOtelVersions();
   
   const currentVersions = getCurrentVersionsFromPackageJson();
   

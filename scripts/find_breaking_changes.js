@@ -76,13 +76,22 @@ function getCurrentVersionsFromPackageJson() {
       currentVersions.semconv = dependencies['@opentelemetry/semantic-conventions'];
     }
     
-    // Get all contrib packages we actually depend on
+    // Get only contrib packages (independently versioned packages from opentelemetry-js-contrib)
     const contribPackages = {};
-    for (const [packageName, version] of Object.entries(dependencies)) {
-      if (packageName.startsWith('@opentelemetry/') && 
-          !['@opentelemetry/api', '@opentelemetry/sdk-trace-base', '@opentelemetry/sdk-node', '@opentelemetry/semantic-conventions'].includes(packageName)) {
+    const contribPackageNames = [
+      '@opentelemetry/auto-configuration-propagators',
+      '@opentelemetry/auto-instrumentations-node',
+      '@opentelemetry/baggage-span-processor',
+      '@opentelemetry/instrumentation-aws-sdk',
+      '@opentelemetry/id-generator-aws-xray',
+      '@opentelemetry/propagator-aws-xray',
+      '@opentelemetry/resource-detector-aws'
+    ];
+    
+    for (const packageName of contribPackageNames) {
+      if (dependencies[packageName]) {
         const componentName = packageName.replace('@opentelemetry/', '');
-        contribPackages[componentName] = version;
+        contribPackages[componentName] = dependencies[packageName];
       }
     }
     
@@ -195,21 +204,33 @@ async function getSpecificGitHubRelease(componentName, version) {
 }
 
 async function findContribBreakingChanges(currentContribPackages, newContribVersions) {
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
+  
   try {
     console.log('Checking contrib packages for breaking changes...');
     console.log('Current contrib packages:', currentContribPackages);
-    console.log('New contrib versions available:', newContribVersions);
     
     const breakingReleases = [];
     
     for (const [componentName, currentVersion] of Object.entries(currentContribPackages)) {
       const packageName = `@opentelemetry/${componentName}`;
-      const newVersion = newContribVersions[packageName];
       
-      console.log(`Checking ${packageName}: ${currentVersion} -> ${newVersion || 'not found'}`);
+      // Get latest version from npm since contrib packages aren't in latestVersions
+      let newVersion;
+      try {
+        const { stdout } = await execAsync(`npm view ${packageName} version`);
+        newVersion = stdout.trim();
+      } catch (error) {
+        console.log(`Could not get latest version for ${packageName}: ${error.message}`);
+        continue;
+      }
       
-      if (!newVersion) {
-        console.log(`Skipping ${packageName} - no new version found`);
+      console.log(`Checking ${packageName}: ${currentVersion} -> ${newVersion}`);
+      
+      if (currentVersion === newVersion) {
+        console.log(`${packageName} already at latest version`);
         continue;
       }
       
@@ -347,7 +368,7 @@ async function main() {
   
   if (currentVersions.contrib) {
     console.log('Found contrib packages to check:', Object.keys(currentVersions.contrib));
-    const contribBreaking = await findContribBreakingChanges(currentVersions.contrib, latestVersions);
+    const contribBreaking = await findContribBreakingChanges(currentVersions.contrib);
     
     if (contribBreaking.length > 0) {
       breakingInfo += '\n**opentelemetry-js-contrib:**\n';

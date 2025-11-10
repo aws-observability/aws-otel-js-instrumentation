@@ -124,7 +124,6 @@ function compareVersions(current, target) {
 async function findBreakingChangesInReleases(repoName, currentVersion, newVersion, releasePattern) {
   try {
     const releases = await httpsGet(`https://api.github.com/repos/open-telemetry/${repoName}/releases`);
-    if (!releases) return [];
     
     const breakingReleases = [];
     
@@ -165,8 +164,8 @@ async function findBreakingChangesInReleases(repoName, currentVersion, newVersio
     return breakingReleases;
     
   } catch (error) {
-    console.warn(`Warning: Could not get releases for ${repoName}: ${error.message}`);
-    return [];
+    console.error(`Warning: Could not get releases for ${repoName}: ${error.message}`);
+    process.exit(1);
   }
 }
 
@@ -187,8 +186,8 @@ async function getNpmVersionsBetween(packageName, currentVersion, newVersion) {
     
     return relevantVersions;
   } catch (error) {
-    console.warn(`Warning: Could not get npm versions for ${packageName}: ${error.message}`);
-    return [];
+    console.error(`Failed to get npm versions for ${packageName}: ${error.message}`);
+    process.exit(1);
   }
 }
 
@@ -198,12 +197,12 @@ async function getSpecificGitHubRelease(componentName, version) {
     const release = await httpsGet(`https://api.github.com/repos/open-telemetry/opentelemetry-js-contrib/releases/tags/${tagName}`);
     return release;
   } catch (error) {
-    console.warn(`Warning: Could not get GitHub release for ${componentName}-v${version}: ${error.message}`);
-    return null;
+    console.error(`Error: Could not get GitHub release for ${componentName}-v${version}: ${error.message}`);
+    process.exit(1);
   }
 }
 
-async function findContribBreakingChanges(currentContribPackages, newContribVersions) {
+async function findContribBreakingChanges(currentContribPackages) {
   const { exec } = require('child_process');
   const { promisify } = require('util');
   const execAsync = promisify(exec);
@@ -252,8 +251,8 @@ async function findContribBreakingChanges(currentContribPackages, newContribVers
     return breakingReleases;
     
   } catch (error) {
-    console.warn(`Warning: Could not get contrib releases: ${error.message}`);
-    return [];
+    console.error(`Warning: Could not get contrib releases: ${error.message}`);
+    process.exit(1);
   }
 }
 

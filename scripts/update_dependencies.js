@@ -48,10 +48,10 @@ async function httpsGet(url) {
 async function getLatestVersionFromNpm(packageName) {
   try {
     const data = await httpsGet(`https://registry.npmjs.org/${packageName}/latest`);
-    return data ? data.version : null;
+    return data.version;
   } catch (error) {
-    console.warn(`Warning: Could not get npm version for ${packageName}: ${error.message}`);
-    return null;
+    console.error(`Failed to get npm version for ${packageName}: ${error.message}`);
+    process.exit(1);
   }
 }
 

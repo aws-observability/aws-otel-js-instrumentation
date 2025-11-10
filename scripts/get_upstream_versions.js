@@ -75,6 +75,9 @@ async function getLatestOtelVersions() {
           versions.semconv = tagName.substring('semconv/v'.length);
         }
       }
+    } else {
+      console.error('Failed to fetch GitHub releases - this is required for core package version detection');
+      process.exit(1);
     }
     
     return versions;

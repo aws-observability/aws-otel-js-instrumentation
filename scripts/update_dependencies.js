@@ -66,7 +66,6 @@ const PACKAGE_CATEGORIES = {
     '@opentelemetry/sdk-trace-base'
   ],
   experimental: [
-    '@opentelemetry/api-events',
     '@opentelemetry/exporter-metrics-otlp-grpc',
     '@opentelemetry/exporter-metrics-otlp-http',
     '@opentelemetry/exporter-trace-otlp-proto',
@@ -75,7 +74,6 @@ const PACKAGE_CATEGORIES = {
     '@opentelemetry/exporter-logs-otlp-proto',
     '@opentelemetry/instrumentation',
     '@opentelemetry/otlp-transformer',
-    '@opentelemetry/sdk-events',
     '@opentelemetry/sdk-logs',
     '@opentelemetry/sdk-node'
   ],

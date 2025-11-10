@@ -65,6 +65,11 @@ jobs:
         fi
     
     - name: Update dependencies
+      env:
+        OTEL_JS_CORE_VERSION: ${{ steps.get_versions.outputs.otel_js_core_version }}
+        OTEL_JS_EXPERIMENTAL_VERSION: ${{ steps.get_versions.outputs.otel_js_experimental_version }}
+        OTEL_JS_API_VERSION: ${{ steps.get_versions.outputs.otel_js_api_version }}
+        OTEL_JS_SEMCONV_VERSION: ${{ steps.get_versions.outputs.otel_js_semconv_version }}
       run: node scripts/update_dependencies.js
     
     - name: Install dependencies

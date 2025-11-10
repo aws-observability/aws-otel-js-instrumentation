@@ -2,7 +2,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getLatestOtelVersions } = require('./get_upstream_versions.js');
 
 async function httpsGet(url) {
   const https = require('https');
@@ -100,13 +99,13 @@ async function main() {
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
     let updated = false;
     
-    // Get versions from GitHub and npm
-    const githubVersions = await getLatestOtelVersions();
-    
-    if (!githubVersions || Object.keys(githubVersions).length === 0) {
-      console.error('Failed to get latest OpenTelemetry versions');
-      process.exit(1);
-    }
+    // Get opentelemetry-js versions from environment variables
+    const githubVersions = {
+      core: process.env.OTEL_JS_CORE_VERSION,
+      experimental: process.env.OTEL_JS_EXPERIMENTAL_VERSION,
+      api: process.env.OTEL_JS_API_VERSION,
+      semconv: process.env.OTEL_JS_SEMCONV_VERSION
+    };
     
     // Get all @opentelemetry packages from dependencies
     const dependencies = packageJson.dependencies || {};

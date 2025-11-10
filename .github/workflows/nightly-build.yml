@@ -1,4 +1,5 @@
 name: Nightly Upstream Snapshot Build
+description: This workflow checks for new upstream versions of OpenTelemetry dependencies, creates a PR to update them, and builds and tests the new changes.
 
 on:
   schedule:
@@ -13,9 +14,9 @@ env:
   BRANCH_NAME: nightly-dependency-updates
 
 permissions:
-      contents: write
-      pull-requests: write
-      id-token: write
+  contents: write
+  pull-requests: write
+  id-token: write
 
 jobs:
   update-dependencies:
@@ -50,8 +51,8 @@ jobs:
     
     - name: Configure git and create branch
       run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
+        git config --local user.name "github-actions"
+        git config --local user.email "github-actions@github.com"
     
     - name: Check out dependency update branch
       run: |
@@ -63,11 +64,11 @@ jobs:
           git checkout -b "$BRANCH_NAME"
         fi
     
-    - name: Install dependencies
-      run: npm install
-    
     - name: Update dependencies
       run: node scripts/update_dependencies.js
+    
+    - name: Install dependencies
+      run: npm install
     
     - name: Check for changes and commit
       id: check_changes
@@ -79,7 +80,7 @@ jobs:
           echo "Dependencies were updated"
           echo "has_changes=true" >> $GITHUB_OUTPUT
           
-          git add aws-distro-opentelemetry-node-autoinstrumentation/package.json
+          git add .
           git commit -m "chore: update OpenTelemetry dependencies to latest versions"
           git push origin "$BRANCH_NAME"
         fi

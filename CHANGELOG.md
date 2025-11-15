@@ -19,3 +19,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 - Support X-Ray Trace Id extraction from Lambda Context object, and respect user-configured OTEL_PROPAGATORS in AWS Lamdba instrumentation
   ([#259](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/259))
+
+### Bugfixes
+
+- Fix issue where UDP Exporter throws error in async callback, which isn't caught
+  ([#289](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/259))

@@ -49,10 +49,10 @@ jobs:
       id: breaking_changes
       run: node scripts/find_breaking_changes.js
     
-    - name: Configure git and create branch
+    - name: Setup Git
       run: |
-        git config --local user.name "github-actions"
-        git config --local user.email "github-actions@github.com"
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
     
     - name: Check out dependency update branch
       run: |
@@ -158,15 +158,15 @@ jobs:
 
   publish-nightly-build-status:
     name: "Publish Nightly Build Status"
-    needs: [update-dependencies, build-and-test, create-pr]
+    needs: [ update-dependencies, build-and-test, create-pr ]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Configure AWS Credentials for emitting metrics
-        uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
+        uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #5.0.0
         with:
           role-to-assume: ${{ secrets.MONITORING_ROLE_ARN }}
-          aws-region: ${{ env.AWS_DEFAULT_REGION}}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - name: Publish nightly build status
         run: |

@@ -943,7 +943,12 @@ export function isLambdaEnvironment() {
 }
 
 function hasCustomOtlpTraceEndpoint() {
-  return process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] !== undefined;
+  // Check for signal-specific endpoint first, then fall back to generic endpoint
+  // per OpenTelemetry OTLP Exporter specification
+  return (
+    process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] !== undefined ||
+    process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] !== undefined
+  );
 }
 
 function getXrayDaemonEndpoint() {

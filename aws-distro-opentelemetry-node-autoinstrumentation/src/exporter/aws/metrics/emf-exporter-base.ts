@@ -19,9 +19,17 @@ import {
   ResourceMetrics,
   SumMetricData,
 } from '@opentelemetry/sdk-metrics';
-import { Resource } from '@opentelemetry/resources';
+import { defaultServiceName, Resource } from '@opentelemetry/resources';
+import { SEMRESATTRS_DEPLOYMENT_ENVIRONMENT, SEMRESATTRS_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { ExportResult, ExportResultCode } from '@opentelemetry/core';
 import type { LogEvent } from '@aws-sdk/client-cloudwatch-logs';
+import { AwsOpentelemetryConfigurator } from '../../../aws-opentelemetry-configurator';
+import { AwsSpanProcessingUtil } from '../../../aws-span-processing-util';
+
+// Constants for Application Signals EMF dimensions
+const SERVICE_DIMENSION = 'Service';
+const ENVIRONMENT_DIMENSION = 'Environment';
+const DEFAULT_ENVIRONMENT = 'lambda:default';
 
 /**
  * Intermediate format for metric data before converting to EMF
@@ -186,6 +194,64 @@ export abstract class EMFExporterBase implements PushMetricExporter {
    */
   private getDimensionNames(attributes: Attributes): string[] {
     return Object.keys(attributes);
+  }
+
+  /**
+   * Check if Application Signals EMF export is enabled.
+   *
+   * Returns true only if BOTH:
+   * - OTEL_AWS_APPLICATION_SIGNALS_ENABLED is true
+   * - OTEL_AWS_APPLICATION_SIGNALS_EMF_EXPORT_ENABLED is true
+   */
+  private static isApplicationSignalsEmfExportEnabled(): boolean {
+    const emfExportEnabled = process.env['OTEL_AWS_APPLICATION_SIGNALS_EMF_EXPORT_ENABLED']?.toLowerCase() === 'true';
+    return AwsOpentelemetryConfigurator.isApplicationSignalsEnabled() && emfExportEnabled;
+  }
+
+  /**
+   * Check if dimension already exists (case-insensitive match).
+   */
+  private hasDimensionCaseInsensitive(dimensionNames: string[], dimensionToCheck: string): boolean {
+    const dimensionLower = dimensionToCheck.toLowerCase();
+    return dimensionNames.some(dim => dim.toLowerCase() === dimensionLower);
+  }
+
+  /**
+   * Add Service and Environment dimensions if Application Signals EMF export is enabled
+   * and the dimensions are not already present (case-insensitive check).
+   */
+  private addApplicationSignalsDimensions(dimensionNames: string[], emfLog: EMFLog, resource: Resource): void {
+    if (!EMFExporterBase.isApplicationSignalsEmfExportEnabled()) {
+      return;
+    }
+
+    // Add Service dimension if not already set by user
+    if (!this.hasDimensionCaseInsensitive(dimensionNames, SERVICE_DIMENSION)) {
+      let serviceName: string = AwsSpanProcessingUtil.UNKNOWN_SERVICE;
+      if (resource?.attributes) {
+        const serviceAttr = resource.attributes[SEMRESATTRS_SERVICE_NAME];
+        if (serviceAttr && serviceAttr !== defaultServiceName()) {
+          serviceName = String(serviceAttr);
+        }
+      }
+      dimensionNames.unshift(SERVICE_DIMENSION);
+      emfLog[SERVICE_DIMENSION] = serviceName;
+    }
+
+    // Add Environment dimension if not already set by user
+    if (!this.hasDimensionCaseInsensitive(dimensionNames, ENVIRONMENT_DIMENSION)) {
+      let environment: string = DEFAULT_ENVIRONMENT;
+      if (resource?.attributes) {
+        const envAttr = resource.attributes[SEMRESATTRS_DEPLOYMENT_ENVIRONMENT];
+        if (envAttr) {
+          environment = String(envAttr);
+        }
+      }
+      // Insert after Service if present, otherwise at beginning
+      const insertIndex = dimensionNames.includes(SERVICE_DIMENSION) ? 1 : 0;
+      dimensionNames.splice(insertIndex, 0, ENVIRONMENT_DIMENSION);
+      emfLog[ENVIRONMENT_DIMENSION] = environment;
+    }
   }
 
   /**
@@ -447,6 +513,9 @@ export abstract class EMFExporterBase implements PushMetricExporter {
     for (const [name, value] of Object.entries(allAttributes)) {
       emfLog[name] = value?.toString() ?? 'undefined';
     }
+
+    // Add Application Signals dimensions (Service and Environment) if enabled
+    this.addApplicationSignalsDimensions(dimensionNames, emfLog, resource);
 
     // Add CloudWatch Metrics if we have metrics, include dimensions only if they exist
     if (metricDefinitions.length > 0) {

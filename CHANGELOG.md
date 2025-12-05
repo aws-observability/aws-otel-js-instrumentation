@@ -13,6 +13,11 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+### Enhancements
+
+- Add Service and Environment dimensions to EMF metrics when Application Signals EMF Export is enabled
+  ([#299](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/299))
+
 ## v0.8.0 - 2025-10-08
 
 ### Enhancements

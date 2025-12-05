@@ -19,7 +19,8 @@ import {
   ResourceMetrics,
   SumMetricData,
 } from '@opentelemetry/sdk-metrics';
-import { Resource } from '@opentelemetry/resources';
+import { defaultServiceName, Resource } from '@opentelemetry/resources';
+import { SEMRESATTRS_DEPLOYMENT_ENVIRONMENT, SEMRESATTRS_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { ExportResult, ExportResultCode } from '@opentelemetry/core';
 import type { LogEvent } from '@aws-sdk/client-cloudwatch-logs';
 
@@ -186,6 +187,65 @@ export abstract class EMFExporterBase implements PushMetricExporter {
    */
   private getDimensionNames(attributes: Attributes): string[] {
     return Object.keys(attributes);
+  }
+
+  /**
+   * Check if Application Signals EMF export is enabled.
+   *
+   * Returns true only if BOTH:
+   * - OTEL_AWS_APPLICATION_SIGNALS_ENABLED is true
+   * - OTEL_AWS_APPLICATION_SIGNALS_EMF_EXPORT_ENABLED is true
+   */
+  private static isApplicationSignalsEmfExportEnabled(): boolean {
+    const appSignalsEnabled = process.env['OTEL_AWS_APPLICATION_SIGNALS_ENABLED']?.toLowerCase() === 'true';
+    const emfExportEnabled = process.env['OTEL_AWS_APPLICATION_SIGNALS_EMF_EXPORT_ENABLED']?.toLowerCase() === 'true';
+    return appSignalsEnabled && emfExportEnabled;
+  }
+
+  /**
+   * Check if dimension already exists (case-insensitive match).
+   */
+  private hasDimensionCaseInsensitive(dimensionNames: string[], dimensionToCheck: string): boolean {
+    const dimensionLower = dimensionToCheck.toLowerCase();
+    return dimensionNames.some(dim => dim.toLowerCase() === dimensionLower);
+  }
+
+  /**
+   * Add Service and Environment dimensions if Application Signals EMF export is enabled
+   * and the dimensions are not already present (case-insensitive check).
+   */
+  private addApplicationSignalsDimensions(dimensionNames: string[], emfLog: EMFLog, resource: Resource): void {
+    if (!EMFExporterBase.isApplicationSignalsEmfExportEnabled()) {
+      return;
+    }
+
+    // Add Service dimension if not already set by user
+    if (!this.hasDimensionCaseInsensitive(dimensionNames, 'Service')) {
+      let serviceName: string = 'UnknownService';
+      if (resource?.attributes) {
+        const serviceAttr = resource.attributes[SEMRESATTRS_SERVICE_NAME];
+        if (serviceAttr && serviceAttr !== defaultServiceName()) {
+          serviceName = String(serviceAttr);
+        }
+      }
+      dimensionNames.unshift('Service');
+      emfLog['Service'] = serviceName;
+    }
+
+    // Add Environment dimension if not already set by user
+    if (!this.hasDimensionCaseInsensitive(dimensionNames, 'Environment')) {
+      let environment: string = 'lambda:default';
+      if (resource?.attributes) {
+        const envAttr = resource.attributes[SEMRESATTRS_DEPLOYMENT_ENVIRONMENT];
+        if (envAttr) {
+          environment = String(envAttr);
+        }
+      }
+      // Insert after Service if present, otherwise at beginning
+      const insertIndex = dimensionNames.includes('Service') ? 1 : 0;
+      dimensionNames.splice(insertIndex, 0, 'Environment');
+      emfLog['Environment'] = environment;
+    }
   }
 
   /**
@@ -442,6 +502,9 @@ export abstract class EMFExporterBase implements PushMetricExporter {
     }
 
     const dimensionNames = this.getDimensionNames(allAttributes);
+
+    // Add Application Signals dimensions (Service and Environment) if enabled
+    this.addApplicationSignalsDimensions(dimensionNames, emfLog, resource);
 
     // Add attribute values to the root of the EMF log
     for (const [name, value] of Object.entries(allAttributes)) {

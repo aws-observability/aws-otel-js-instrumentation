@@ -715,7 +715,7 @@ export class AwsSpanProcessorProvider {
 
     // If `isLambdaEnvironment` is true, we will default to exporting OTel spans via `udp_exporter` to Fluxpump,
     // regardless of whether `AppSignals` is true or false.
-    // However, if the customer has explicitly set the `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
+    // However, if the customer has explicitly set the `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT`,
     // we will continue using the `otlp_exporter` to send OTel traces to the specified endpoint.
     if (!hasCustomOtlpTraceEndpoint() && isLambdaEnvironment()) {
       protocol = 'udp';

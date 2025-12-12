@@ -47,6 +47,11 @@ jobs:
     
     - name: Check for breaking changes
       id: breaking_changes
+      env:
+        OTEL_JS_CORE_VERSION: ${{ steps.get_versions.outputs.otel_js_core_version }}
+        OTEL_JS_EXPERIMENTAL_VERSION: ${{ steps.get_versions.outputs.otel_js_experimental_version }}
+        OTEL_JS_API_VERSION: ${{ steps.get_versions.outputs.otel_js_api_version }}
+        OTEL_JS_SEMCONV_VERSION: ${{ steps.get_versions.outputs.otel_js_semconv_version }}
       run: node scripts/find_breaking_changes.js
     
     - name: Setup Git
@@ -86,7 +91,7 @@ jobs:
           echo "has_changes=true" >> $GITHUB_OUTPUT
           
           git add .
-          git commit -m "chore: update OpenTelemetry dependencies to latest versions"
+          git commit -m "chore: update OpenTelemetry dependencies to Core ${{ steps.get_versions.outputs.otel_js_core_version }}, Experimental ${{ steps.get_versions.outputs.otel_js_experimental_version }}, API ${{ steps.get_versions.outputs.otel_js_api_version }}, Semconv ${{ steps.get_versions.outputs.otel_js_semconv_version }}"
           git push origin "$BRANCH_NAME"
         fi
 
@@ -117,19 +122,11 @@ jobs:
         BUILD_EMOJI="${{ needs.build-and-test.result == 'success' && '✅' || '❌' }}"
         BUILD_LINK="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         
-        VERSION_LIST=""
-        if [[ -n "${{ needs.update-dependencies.outputs.otel_js_core_version }}" ]]; then
-          VERSION_LIST+="- [OpenTelemetry JS Core](https://github.com/open-telemetry/opentelemetry-js/releases/tag/v${{ needs.update-dependencies.outputs.otel_js_core_version }}): ${{ needs.update-dependencies.outputs.otel_js_core_version }}\n"
-        fi
-        if [[ -n "${{ needs.update-dependencies.outputs.otel_js_experimental_version }}" ]]; then
-          VERSION_LIST+="- [OpenTelemetry JS Experimental](https://github.com/open-telemetry/opentelemetry-js/releases/tag/experimental/v${{ needs.update-dependencies.outputs.otel_js_experimental_version }}): ${{ needs.update-dependencies.outputs.otel_js_experimental_version }}\n"
-        fi
-        if [[ -n "${{ needs.update-dependencies.outputs.otel_js_api_version }}" ]]; then
-          VERSION_LIST+="- [OpenTelemetry JS API](https://github.com/open-telemetry/opentelemetry-js/releases/tag/api/v${{ needs.update-dependencies.outputs.otel_js_api_version }}): ${{ needs.update-dependencies.outputs.otel_js_api_version }}\n"
-        fi
-        if [[ -n "${{ needs.update-dependencies.outputs.otel_js_semconv_version }}" ]]; then
-          VERSION_LIST+="- [OpenTelemetry JS Semantic Conventions](https://github.com/open-telemetry/opentelemetry-js/releases/tag/semconv/v${{ needs.update-dependencies.outputs.otel_js_semconv_version }}): ${{ needs.update-dependencies.outputs.otel_js_semconv_version }}\n"
-        fi
+        # Build version list for description
+        VERSION_LIST="- [OpenTelemetry JS Core](https://github.com/open-telemetry/opentelemetry-js/releases/tag/v${{ needs.update-dependencies.outputs.otel_js_core_version }}): ${{ needs.update-dependencies.outputs.otel_js_core_version }}\n"
+        VERSION_LIST+="- [OpenTelemetry JS Experimental](https://github.com/open-telemetry/opentelemetry-js/releases/tag/experimental/v${{ needs.update-dependencies.outputs.otel_js_experimental_version }}): ${{ needs.update-dependencies.outputs.otel_js_experimental_version }}\n"
+        VERSION_LIST+="- [OpenTelemetry JS API](https://github.com/open-telemetry/opentelemetry-js/releases/tag/api/v${{ needs.update-dependencies.outputs.otel_js_api_version }}): ${{ needs.update-dependencies.outputs.otel_js_api_version }}\n"
+        VERSION_LIST+="- [OpenTelemetry JS Semantic Conventions](https://github.com/open-telemetry/opentelemetry-js/releases/tag/semconv/v${{ needs.update-dependencies.outputs.otel_js_semconv_version }}): ${{ needs.update-dependencies.outputs.otel_js_semconv_version }}\n"
         
         PR_BODY="Automated update of OpenTelemetry dependencies.
 
@@ -148,7 +145,7 @@ jobs:
         else
           echo "Creating new PR..."
           gh pr create \
-            --title "Nightly dependency update: OpenTelemetry packages to latest versions" \
+            --title "Nightly dependency update: OpenTelemetry Core ${{ needs.update-dependencies.outputs.otel_js_core_version }}, Experimental ${{ needs.update-dependencies.outputs.otel_js_experimental_version }}, API ${{ needs.update-dependencies.outputs.otel_js_api_version }}, Semconv ${{ needs.update-dependencies.outputs.otel_js_semconv_version }}" \
             --body "$PR_BODY" \
             --base main \
             --head "$BRANCH_NAME"

@@ -96,21 +96,13 @@ async function main() {
     process.exit(1);
   }
   
-  // Set GitHub outputs
+  // Write to Github Output
   if (process.env.GITHUB_OUTPUT) {
     const fs = require('fs');
-    if (versions.core) {
-      fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_core_version=${versions.core}\n`);
-    }
-    if (versions.experimental) {
-      fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_experimental_version=${versions.experimental}\n`);
-    }
-    if (versions.api) {
-      fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_api_version=${versions.api}\n`);
-    }
-    if (versions.semconv) {
-      fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_semconv_version=${versions.semconv}\n`);
-    }
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_core_version=${versions.core || ''}\n`);
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_experimental_version=${versions.experimental || ''}\n`);
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_api_version=${versions.api || ''}\n`);
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `otel_js_semconv_version=${versions.semconv || ''}\n`);
   }
 }
 

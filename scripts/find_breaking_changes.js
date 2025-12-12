@@ -2,7 +2,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getLatestOtelVersions } = require('./get_upstream_versions.js');
 
 async function httpsGet(url) {
   const https = require('https');
@@ -257,11 +256,25 @@ async function findContribBreakingChanges(currentContribPackages) {
 }
 
 async function main() {
-  console.log('Getting latest versions...');
-  const latestVersions = await getLatestOtelVersions();
+  console.log('Using versions from environment...');
+  const latestVersions = {
+    core: process.env.OTEL_JS_CORE_VERSION,
+    experimental: process.env.OTEL_JS_EXPERIMENTAL_VERSION,
+    api: process.env.OTEL_JS_API_VERSION,
+    semconv: process.env.OTEL_JS_SEMCONV_VERSION
+  };
+  
+  // Filter out undefined values
+  Object.keys(latestVersions).forEach(key => {
+    if (!latestVersions[key]) {
+      delete latestVersions[key];
+    }
+  });
+  
+  console.log('Latest versions from environment:', latestVersions);
   
   if (!latestVersions || Object.keys(latestVersions).length === 0) {
-    console.error('Failed to get latest versions');
+    console.error('Failed to get latest versions from environment');
     process.exit(1);
   }
   

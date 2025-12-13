@@ -77,9 +77,6 @@ jobs:
         OTEL_JS_SEMCONV_VERSION: ${{ steps.get_versions.outputs.otel_js_semconv_version }}
       run: node scripts/update_dependencies.js
     
-    - name: Install dependencies
-      run: npm install
-    
     - name: Check for changes and commit
       id: check_changes
       run: |
@@ -122,18 +119,16 @@ jobs:
         BUILD_EMOJI="${{ needs.build-and-test.result == 'success' && '✅' || '❌' }}"
         BUILD_LINK="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         
-        # Build version list for description
-        VERSION_LIST="- [OpenTelemetry JS Core](https://github.com/open-telemetry/opentelemetry-js/releases/tag/v${{ needs.update-dependencies.outputs.otel_js_core_version }}): ${{ needs.update-dependencies.outputs.otel_js_core_version }}\n"
-        VERSION_LIST+="- [OpenTelemetry JS Experimental](https://github.com/open-telemetry/opentelemetry-js/releases/tag/experimental/v${{ needs.update-dependencies.outputs.otel_js_experimental_version }}): ${{ needs.update-dependencies.outputs.otel_js_experimental_version }}\n"
-        VERSION_LIST+="- [OpenTelemetry JS API](https://github.com/open-telemetry/opentelemetry-js/releases/tag/api/v${{ needs.update-dependencies.outputs.otel_js_api_version }}): ${{ needs.update-dependencies.outputs.otel_js_api_version }}\n"
-        VERSION_LIST+="- [OpenTelemetry JS Semantic Conventions](https://github.com/open-telemetry/opentelemetry-js/releases/tag/semconv/v${{ needs.update-dependencies.outputs.otel_js_semconv_version }}): ${{ needs.update-dependencies.outputs.otel_js_semconv_version }}\n"
-        
         PR_BODY="Automated update of OpenTelemetry dependencies.
 
         **Build Status:** ${BUILD_EMOJI} [${BUILD_STATUS}](${BUILD_LINK})
 
         **Updated versions:**
-        ${VERSION_LIST}
+        - [OpenTelemetry JS Core](https://github.com/open-telemetry/opentelemetry-js/releases/tag/v${{ needs.update-dependencies.outputs.otel_js_core_version }}): ${{ needs.update-dependencies.outputs.otel_js_core_version }}
+        - [OpenTelemetry JS Experimental](https://github.com/open-telemetry/opentelemetry-js/releases/tag/experimental/v${{ needs.update-dependencies.outputs.otel_js_experimental_version }}): ${{ needs.update-dependencies.outputs.otel_js_experimental_version }}
+        - [OpenTelemetry JS API](https://github.com/open-telemetry/opentelemetry-js/releases/tag/api/v${{ needs.update-dependencies.outputs.otel_js_api_version }}): ${{ needs.update-dependencies.outputs.otel_js_api_version }}
+        - [OpenTelemetry JS Semantic Conventions](https://github.com/open-telemetry/opentelemetry-js/releases/tag/semconv/v${{ needs.update-dependencies.outputs.otel_js_semconv_version }}): ${{ needs.update-dependencies.outputs.otel_js_semconv_version }}
+
         **Upstream releases with breaking changes:**
         Note: the mechanism to detect upstream breaking changes is not perfect. Be sure to check all new releases and understand if any additional changes need to be addressed.
 

@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- Add cloud.platform attribute to resource attributes in lambda ([#308](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/308)
+  
 ## v0.8.0 - 2025-10-08
 
 ### Enhancements

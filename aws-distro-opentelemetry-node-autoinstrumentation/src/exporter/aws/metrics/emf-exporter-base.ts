@@ -20,16 +20,17 @@ import {
   SumMetricData,
 } from '@opentelemetry/sdk-metrics';
 import { defaultServiceName, Resource } from '@opentelemetry/resources';
-import { SEMRESATTRS_DEPLOYMENT_ENVIRONMENT, SEMRESATTRS_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+import {
+  SEMRESATTRS_CLOUD_PLATFORM,
+  SEMRESATTRS_DEPLOYMENT_ENVIRONMENT,
+  SEMRESATTRS_SERVICE_NAME,
+  CLOUDPLATFORMVALUES_AWS_EC2,
+  CLOUDPLATFORMVALUES_AWS_ECS,
+  CLOUDPLATFORMVALUES_AWS_EKS,
+  CLOUDPLATFORMVALUES_AWS_LAMBDA,
+} from '@opentelemetry/semantic-conventions';
 import { ExportResult, ExportResultCode } from '@opentelemetry/core';
 import type { LogEvent } from '@aws-sdk/client-cloudwatch-logs';
-import { AwsOpentelemetryConfigurator } from '../../../aws-opentelemetry-configurator';
-import { AwsSpanProcessingUtil } from '../../../aws-span-processing-util';
-
-// Constants for Application Signals EMF dimensions
-const SERVICE_DIMENSION = 'Service';
-const ENVIRONMENT_DIMENSION = 'Environment';
-const DEFAULT_ENVIRONMENT = 'lambda:default';
 
 /**
  * Intermediate format for metric data before converting to EMF
@@ -95,6 +96,17 @@ interface Metric {
  *
  * https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html
  */
+// Constants for Application Signals EMF dimensions
+const SERVICE_DIMENSION = 'Service';
+const ENVIRONMENT_DIMENSION = 'Environment';
+
+// Platform-specific default environments
+const LAMBDA_DEFAULT = 'lambda:default';
+const EC2_DEFAULT = 'ec2:default';
+const ECS_DEFAULT = 'ecs:default';
+const EKS_DEFAULT = 'eks:default';
+const UNKNOWN_ENVIRONMENT = 'generic:default';
+
 export abstract class EMFExporterBase implements PushMetricExporter {
   private namespace: string;
   private aggregationTemporalitySelector: AggregationTemporalitySelector;
@@ -197,15 +209,38 @@ export abstract class EMFExporterBase implements PushMetricExporter {
   }
 
   /**
-   * Check if Application Signals EMF export is enabled.
+   * Check if Application Signals EMF dimensions should be added.
    *
-   * Returns true only if BOTH:
-   * - OTEL_AWS_APPLICATION_SIGNALS_ENABLED is true
-   * - OTEL_AWS_APPLICATION_SIGNALS_EMF_EXPORT_ENABLED is true
+   * Returns true when OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS is set to 'true'.
    */
-  private static isApplicationSignalsEmfExportEnabled(): boolean {
-    const emfExportEnabled = process.env['OTEL_AWS_APPLICATION_SIGNALS_EMF_EXPORT_ENABLED']?.toLowerCase() === 'true';
-    return AwsOpentelemetryConfigurator.isApplicationSignalsEnabled() && emfExportEnabled;
+  private static shouldAddApplicationSignalsDimensions(): boolean {
+    return process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS']?.toLowerCase() === 'true';
+  }
+
+  /**
+   * Get the default environment based on the cloud platform.
+   */
+  private getDefaultEnvironmentForPlatform(resource: Resource): string {
+    if (!resource?.attributes) {
+      return UNKNOWN_ENVIRONMENT;
+    }
+
+    const cloudPlatform = resource.attributes[SEMRESATTRS_CLOUD_PLATFORM];
+
+    if (cloudPlatform) {
+      switch (String(cloudPlatform)) {
+        case CLOUDPLATFORMVALUES_AWS_LAMBDA:
+          return LAMBDA_DEFAULT;
+        case CLOUDPLATFORMVALUES_AWS_EC2:
+          return EC2_DEFAULT;
+        case CLOUDPLATFORMVALUES_AWS_ECS:
+          return ECS_DEFAULT;
+        case CLOUDPLATFORMVALUES_AWS_EKS:
+          return EKS_DEFAULT;
+      }
+    }
+
+    return UNKNOWN_ENVIRONMENT;
   }
 
   /**
@@ -217,17 +252,17 @@ export abstract class EMFExporterBase implements PushMetricExporter {
   }
 
   /**
-   * Add Service and Environment dimensions if Application Signals EMF export is enabled
+   * Add Service and Environment dimensions if Application Signals dimensions are enabled
    * and the dimensions are not already present (case-insensitive check).
    */
   private addApplicationSignalsDimensions(dimensionNames: string[], emfLog: EMFLog, resource: Resource): void {
-    if (!EMFExporterBase.isApplicationSignalsEmfExportEnabled()) {
+    if (!EMFExporterBase.shouldAddApplicationSignalsDimensions()) {
       return;
     }
 
     // Add Service dimension if not already set by user
     if (!this.hasDimensionCaseInsensitive(dimensionNames, SERVICE_DIMENSION)) {
-      let serviceName: string = AwsSpanProcessingUtil.UNKNOWN_SERVICE;
+      let serviceName: string = 'UnknownService';
       if (resource?.attributes) {
         const serviceAttr = resource.attributes[SEMRESATTRS_SERVICE_NAME];
         if (serviceAttr && serviceAttr !== defaultServiceName()) {
@@ -240,13 +275,29 @@ export abstract class EMFExporterBase implements PushMetricExporter {
 
     // Add Environment dimension if not already set by user
     if (!this.hasDimensionCaseInsensitive(dimensionNames, ENVIRONMENT_DIMENSION)) {
-      let environment: string = DEFAULT_ENVIRONMENT;
+      let environment: string | undefined;
+
       if (resource?.attributes) {
-        const envAttr = resource.attributes[SEMRESATTRS_DEPLOYMENT_ENVIRONMENT];
-        if (envAttr) {
-          environment = String(envAttr);
+        // First check deployment.environment.name (newer semantic convention)
+        const envNameAttr = resource.attributes['deployment.environment.name'];
+        if (envNameAttr) {
+          environment = String(envNameAttr);
+        }
+
+        // Then check deployment.environment (older semantic convention)
+        if (!environment) {
+          const envAttr = resource.attributes[SEMRESATTRS_DEPLOYMENT_ENVIRONMENT];
+          if (envAttr) {
+            environment = String(envAttr);
+          }
         }
       }
+
+      // Fall back to platform-specific default
+      if (!environment) {
+        environment = this.getDefaultEnvironmentForPlatform(resource);
+      }
+
       // Insert after Service if present, otherwise at beginning
       const insertIndex = dimensionNames.includes(SERVICE_DIMENSION) ? 1 : 0;
       dimensionNames.splice(insertIndex, 0, ENVIRONMENT_DIMENSION);

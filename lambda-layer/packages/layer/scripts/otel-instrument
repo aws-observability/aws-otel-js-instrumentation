@@ -81,6 +81,11 @@ if [ -z "${OTEL_AWS_APPLICATION_SIGNALS_EMF_EXPORT_ENABLED}" ]; then
     export OTEL_AWS_APPLICATION_SIGNALS_EMF_EXPORT_ENABLED="true";
 fi
 
+# - Set Application Signals dimensions configuration (adds Service and Environment dimensions to EMF metrics)
+if [ -z "${OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS}" ]; then
+    export OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS="true";
+fi
+
 # - Disable otel metrics export by default
 if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
     export OTEL_METRICS_EXPORTER="none";

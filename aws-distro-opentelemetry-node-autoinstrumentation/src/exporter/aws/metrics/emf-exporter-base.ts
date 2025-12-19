@@ -269,7 +269,7 @@ export abstract class EMFExporterBase implements PushMetricExporter {
           serviceName = String(serviceAttr);
         }
       }
-      dimensionNames.unshift(SERVICE_DIMENSION);
+      dimensionNames.push(SERVICE_DIMENSION);
       emfLog[SERVICE_DIMENSION] = serviceName;
     }
 
@@ -298,9 +298,7 @@ export abstract class EMFExporterBase implements PushMetricExporter {
         environment = this.getDefaultEnvironmentForPlatform(resource);
       }
 
-      // Insert after Service if present, otherwise at beginning
-      const insertIndex = dimensionNames.includes(SERVICE_DIMENSION) ? 1 : 0;
-      dimensionNames.splice(insertIndex, 0, ENVIRONMENT_DIMENSION);
+      dimensionNames.push(ENVIRONMENT_DIMENSION);
       emfLog[ENVIRONMENT_DIMENSION] = environment;
     }
   }

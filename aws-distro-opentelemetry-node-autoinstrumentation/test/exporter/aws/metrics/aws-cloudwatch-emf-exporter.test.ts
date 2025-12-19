@@ -1013,8 +1013,8 @@ describe('TestAWSCloudWatchEMFExporter', () => {
       expect(result).toHaveProperty('Environment', 'new-env');
     });
 
-    it('TestDimensionOrderServiceThenEnvironment', () => {
-      /* Test that Service comes before Environment in dimensions array. */
+    it('TestDimensionsAddedAlongsideExisting', () => {
+      /* Test that Service and Environment are added alongside existing dimensions. */
       process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
 
       const gaugeRecord: MetricRecord = {
@@ -1026,10 +1026,10 @@ describe('TestAWSCloudWatchEMFExporter', () => {
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       const cwMetrics = result._aws.CloudWatchMetrics[0];
-      // Dimensions should be: ['Service', 'Environment', 'existing_dim']
-      expect(cwMetrics.Dimensions![0][0]).toEqual('Service');
-      expect(cwMetrics.Dimensions![0][1]).toEqual('Environment');
-      expect(cwMetrics.Dimensions![0][2]).toEqual('existing_dim');
+      // All three dimensions should be present
+      expect(cwMetrics.Dimensions![0]).toContain('Service');
+      expect(cwMetrics.Dimensions![0]).toContain('Environment');
+      expect(cwMetrics.Dimensions![0]).toContain('existing_dim');
     });
 
     it('TestEnvVarCaseInsensitive', () => {

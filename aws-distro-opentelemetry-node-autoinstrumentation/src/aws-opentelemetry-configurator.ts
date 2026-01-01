@@ -715,7 +715,7 @@ export class AwsSpanProcessorProvider {
 
     // If `isLambdaEnvironment` is true, we will default to exporting OTel spans via `udp_exporter` to Fluxpump,
     // regardless of whether `AppSignals` is true or false.
-    // However, if the customer has explicitly set the `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
+    // However, if the customer has explicitly set the `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT`,
     // we will continue using the `otlp_exporter` to send OTel traces to the specified endpoint.
     if (!hasCustomOtlpTraceEndpoint() && isLambdaEnvironment()) {
       protocol = 'udp';
@@ -943,7 +943,12 @@ export function isLambdaEnvironment() {
 }
 
 function hasCustomOtlpTraceEndpoint() {
-  return process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] !== undefined;
+  // Check for signal-specific endpoint first, then fall back to generic endpoint
+  // per OpenTelemetry OTLP Exporter specification
+  return (
+    process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] !== undefined ||
+    process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] !== undefined
+  );
 }
 
 function getXrayDaemonEndpoint() {

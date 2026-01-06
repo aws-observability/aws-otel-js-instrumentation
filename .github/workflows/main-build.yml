@@ -6,6 +6,12 @@ on:
       - main
       - "release/v*"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'The branch, tag or SHA to checkout'
+        required: false
+        type: string
 
 env:
   AWS_DEFAULT_REGION: us-east-1
@@ -34,6 +40,8 @@ jobs:
     steps:
       - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Get Node Distro Output
         id: node_output
@@ -109,7 +117,7 @@ jobs:
     name: "Publish Main Build Status"
     needs: [ build, application-signals-e2e-test ]
     runs-on: ubuntu-latest
-    if: always()
+    if: always() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/v'))
     steps:
       - name: Configure AWS Credentials for emitting metrics
         uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0

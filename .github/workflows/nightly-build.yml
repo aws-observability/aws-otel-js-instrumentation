@@ -1,0 +1,172 @@
+name: Nightly Upstream Snapshot Build
+description: This workflow checks for new upstream versions of OpenTelemetry dependencies, creates a PR to update them, and builds and tests the new changes.
+
+on:
+  schedule:
+    - cron: "21 3 * * *"
+  workflow_dispatch:
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+  BRANCH_NAME: nightly-dependency-updates
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  update-dependencies:
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check_changes.outputs.has_changes }}
+      otel_js_core_version: ${{ steps.get_versions.outputs.otel_js_core_version }}
+      otel_js_experimental_version: ${{ steps.get_versions.outputs.otel_js_experimental_version }}
+      otel_js_api_version: ${{ steps.get_versions.outputs.otel_js_api_version }}
+      otel_js_semconv_version: ${{ steps.get_versions.outputs.otel_js_semconv_version }}
+      breaking_changes_info: ${{ steps.breaking_changes.outputs.breaking_changes_info }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 #v5.0.0
+      with:
+        node-version: '18'
+    
+    - name: Get latest upstream versions
+      id: get_versions
+      run: node scripts/get_upstream_versions.js
+    
+    - name: Check for breaking changes
+      id: breaking_changes
+      env:
+        OTEL_JS_CORE_VERSION: ${{ steps.get_versions.outputs.otel_js_core_version }}
+        OTEL_JS_EXPERIMENTAL_VERSION: ${{ steps.get_versions.outputs.otel_js_experimental_version }}
+        OTEL_JS_API_VERSION: ${{ steps.get_versions.outputs.otel_js_api_version }}
+        OTEL_JS_SEMCONV_VERSION: ${{ steps.get_versions.outputs.otel_js_semconv_version }}
+      run: node scripts/find_breaking_changes.js
+    
+    - name: Setup Git
+      run: |
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+    
+    - name: Check out dependency update branch
+      run: |
+        if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
+          echo "Branch $BRANCH_NAME already exists, checking out..."
+          git checkout "$BRANCH_NAME"
+        else
+          echo "Branch $BRANCH_NAME does not exist, creating new branch..."
+          git checkout -b "$BRANCH_NAME"
+        fi
+    
+    - name: Update dependencies
+      env:
+        OTEL_JS_CORE_VERSION: ${{ steps.get_versions.outputs.otel_js_core_version }}
+        OTEL_JS_EXPERIMENTAL_VERSION: ${{ steps.get_versions.outputs.otel_js_experimental_version }}
+        OTEL_JS_API_VERSION: ${{ steps.get_versions.outputs.otel_js_api_version }}
+        OTEL_JS_SEMCONV_VERSION: ${{ steps.get_versions.outputs.otel_js_semconv_version }}
+      run: node scripts/update_dependencies.js
+    
+    - name: Check for changes and commit
+      id: check_changes
+      run: |
+        if git diff --quiet; then
+          echo "No dependency updates needed"
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+        else
+          echo "Dependencies were updated"
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          
+          git add .
+          git commit -m "chore: update OpenTelemetry dependencies to Core ${{ steps.get_versions.outputs.otel_js_core_version }}, Experimental ${{ steps.get_versions.outputs.otel_js_experimental_version }}, API ${{ steps.get_versions.outputs.otel_js_api_version }}, Semconv ${{ steps.get_versions.outputs.otel_js_semconv_version }}"
+          git push origin "$BRANCH_NAME"
+        fi
+
+  build-and-test:
+    needs: update-dependencies
+    if: needs.update-dependencies.outputs.has_changes == 'true'
+    uses: ./.github/workflows/main-build.yml
+    secrets: inherit
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      ref: nightly-dependency-updates
+
+  create-pr:
+    needs: [update-dependencies, build-and-test]
+    if: always() && needs.update-dependencies.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Create or update PR
+      run: |
+        BUILD_STATUS="${{ needs.build-and-test.result }}"
+        BUILD_EMOJI="${{ needs.build-and-test.result == 'success' && '✅' || '❌' }}"
+        BUILD_LINK="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        
+        PR_BODY="Automated update of OpenTelemetry dependencies.
+
+        **Build Status:** ${BUILD_EMOJI} [${BUILD_STATUS}](${BUILD_LINK})
+
+        **Updated versions:**
+        - [OpenTelemetry JS Core](https://github.com/open-telemetry/opentelemetry-js/releases/tag/v${{ needs.update-dependencies.outputs.otel_js_core_version }}): ${{ needs.update-dependencies.outputs.otel_js_core_version }}
+        - [OpenTelemetry JS Experimental](https://github.com/open-telemetry/opentelemetry-js/releases/tag/experimental/v${{ needs.update-dependencies.outputs.otel_js_experimental_version }}): ${{ needs.update-dependencies.outputs.otel_js_experimental_version }}
+        - [OpenTelemetry JS API](https://github.com/open-telemetry/opentelemetry-js/releases/tag/api/v${{ needs.update-dependencies.outputs.otel_js_api_version }}): ${{ needs.update-dependencies.outputs.otel_js_api_version }}
+        - [OpenTelemetry JS Semantic Conventions](https://github.com/open-telemetry/opentelemetry-js/releases/tag/semconv/v${{ needs.update-dependencies.outputs.otel_js_semconv_version }}): ${{ needs.update-dependencies.outputs.otel_js_semconv_version }}
+
+        **Upstream releases with breaking changes:**
+        Note: the mechanism to detect upstream breaking changes is not perfect. Be sure to check all new releases and understand if any additional changes need to be addressed.
+
+        ${{ needs.update-dependencies.outputs.breaking_changes_info }}"
+        
+        if gh pr view "$BRANCH_NAME" --json state --jq '.state' 2>/dev/null | grep -q "OPEN"; then
+          echo "Open PR already exists, updating description..."
+          gh pr edit "$BRANCH_NAME" --body "$PR_BODY"
+        else
+          echo "Creating new PR..."
+          gh pr create \
+            --title "Nightly dependency update: OpenTelemetry Core ${{ needs.update-dependencies.outputs.otel_js_core_version }}, Experimental ${{ needs.update-dependencies.outputs.otel_js_experimental_version }}, API ${{ needs.update-dependencies.outputs.otel_js_api_version }}, Semconv ${{ needs.update-dependencies.outputs.otel_js_semconv_version }}" \
+            --body "$PR_BODY" \
+            --base main \
+            --head "$BRANCH_NAME"
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-nightly-build-status:
+    name: "Publish Nightly Build Status"
+    needs: [ update-dependencies, build-and-test, create-pr ]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Configure AWS Credentials for emitting metrics
+        uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #5.0.0
+        with:
+          role-to-assume: ${{ secrets.MONITORING_ROLE_ARN }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Publish nightly build status
+        run: |
+          if [[ "${{ needs.build-and-test.result }}" == "skipped" ]]; then
+            echo "Build was skipped (no changes)"
+            value="0.0"
+          else
+            value="${{ (needs.build-and-test.result == 'success' && needs.create-pr.result == 'success') && '0.0' || '1.0'}}"
+          fi
+          
+          aws cloudwatch put-metric-data --namespace 'ADOT/GitHubActions' \
+            --metric-name Failure \
+            --dimensions repository=${{ github.repository }},branch=${{ github.ref_name }},workflow=nightly_build \
+            --value $value

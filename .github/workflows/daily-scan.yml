@@ -85,7 +85,7 @@ jobs:
         id: high_scan
         uses: ./.github/actions/image_scan
         with:
-          image-ref: "public.ecr.aws/aws-observability/adot-autoinstrumentation-node:v0.7.0"
+          image-ref: "public.ecr.aws/aws-observability/adot-autoinstrumentation-node:v0.8.1"
           severity: 'CRITICAL,HIGH'
           logout: 'false'
 
@@ -94,7 +94,7 @@ jobs:
         id: low_scan
         uses: ./.github/actions/image_scan
         with:
-          image-ref: "public.ecr.aws/aws-observability/adot-autoinstrumentation-node:v0.7.0"
+          image-ref: "public.ecr.aws/aws-observability/adot-autoinstrumentation-node:v0.8.1"
           severity: 'MEDIUM,LOW,UNKNOWN'
           logout: 'false'
 

@@ -211,10 +211,10 @@ export abstract class EMFExporterBase implements PushMetricExporter {
   /**
    * Check if Application Signals EMF dimensions should be added.
    *
-   * Returns true when OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS is set to 'true'.
+   * Returns true by default, unless OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS is explicitly set to 'false'.
    */
   private static shouldAddApplicationSignalsDimensions(): boolean {
-    return process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS']?.toLowerCase() === 'true';
+    return (process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] ?? 'true').toLowerCase() === 'true';
   }
 
   /**

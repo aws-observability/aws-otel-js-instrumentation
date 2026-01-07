@@ -610,6 +610,9 @@ describe('TestAWSCloudWatchEMFExporter', () => {
   });
 
   it('TestExportCallsSendLogBatchWithExpectedInput', done => {
+    // Disable Application Signals dimensions for this test
+    process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'false';
+    
     const timeInSeconds = Math.round(Date.now() / 1000);
 
     const resourceMetricsData: ResourceMetrics = {
@@ -751,6 +754,9 @@ describe('TestAWSCloudWatchEMFExporter', () => {
 
   it('TestCreateEmfLogWithoutDimensions', () => {
     /* Test EMF log creation with metrics but no dimensions. */
+    // Disable Application Signals dimensions for this test
+    process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'false';
+    
     // Create test record with empty attributes (no dimensions)
     const gaugeRecord: MetricRecord = {
       ...exporter['createMetricRecord']('gauge_metric', 'Count', 'Gauge', Date.now(), {}),
@@ -848,8 +854,8 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     });
 
     it('TestDimensionsNotAddedWhenFeatureDisabled', () => {
-      /* Test that Service/Environment dimensions are NOT added when feature is disabled. */
-      delete process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'];
+      /* Test that Service/Environment dimensions are NOT added when feature is explicitly disabled. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'false';
 
       const gaugeRecord: MetricRecord = {
         ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
@@ -865,6 +871,26 @@ describe('TestAWSCloudWatchEMFExporter', () => {
       const cwMetrics = result._aws.CloudWatchMetrics[0];
       expect(cwMetrics.Dimensions![0]).not.toContain('Service');
       expect(cwMetrics.Dimensions![0]).not.toContain('Environment');
+    });
+
+    it('TestDimensionsAddedByDefault', () => {
+      /* Test that Service/Environment dimensions ARE added by default when env var is not set. */
+      delete process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'];
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'production' });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      // Should have Service and Environment dimensions by default
+      expect(result).toHaveProperty('Service', 'my-service');
+      expect(result).toHaveProperty('Environment', 'production');
+      const cwMetrics = result._aws.CloudWatchMetrics[0];
+      expect(cwMetrics.Dimensions![0]).toContain('Service');
+      expect(cwMetrics.Dimensions![0]).toContain('Environment');
     });
 
     it('TestDimensionsAddedWhenEnvVarEnabled', () => {
@@ -885,9 +911,11 @@ describe('TestAWSCloudWatchEMFExporter', () => {
       const cwMetrics = result._aws.CloudWatchMetrics[0];
       expect(cwMetrics.Dimensions![0]).toContain('Service');
       expect(cwMetrics.Dimensions![0]).toContain('Environment');
-      // Service should be first, Environment second
-      expect(cwMetrics.Dimensions![0][0]).toEqual('Service');
-      expect(cwMetrics.Dimensions![0][1]).toEqual('Environment');
+      expect(cwMetrics.Dimensions![0]).toContain('env');
+      // Original attributes come first, then Application Signals dimensions
+      expect(cwMetrics.Dimensions![0][0]).toEqual('env');
+      expect(cwMetrics.Dimensions![0]).toContain('Service');
+      expect(cwMetrics.Dimensions![0]).toContain('Environment');
     });
 
     it('TestServiceDimensionNotOverwrittenCaseInsensitive', () => {

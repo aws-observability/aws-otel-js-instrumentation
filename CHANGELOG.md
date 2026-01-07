@@ -13,6 +13,13 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+## v0.8.1 - 2025-12-17
+
+### Bugfixes
+
+- Fix issue where UDP Exporter throws error in async callback, which isn't caught
+  ([#289](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/259))
+
 ## v0.8.0 - 2025-10-08
 
 ### Enhancements

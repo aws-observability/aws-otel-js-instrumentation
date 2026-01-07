@@ -612,7 +612,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
   it('TestExportCallsSendLogBatchWithExpectedInput', done => {
     // Disable Application Signals dimensions for this test
     process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'false';
-    
+
     const timeInSeconds = Math.round(Date.now() / 1000);
 
     const resourceMetricsData: ResourceMetrics = {
@@ -756,7 +756,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     /* Test EMF log creation with metrics but no dimensions. */
     // Disable Application Signals dimensions for this test
     process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'false';
-    
+
     // Create test record with empty attributes (no dimensions)
     const gaugeRecord: MetricRecord = {
       ...exporter['createMetricRecord']('gauge_metric', 'Count', 'Gauge', Date.now(), {}),

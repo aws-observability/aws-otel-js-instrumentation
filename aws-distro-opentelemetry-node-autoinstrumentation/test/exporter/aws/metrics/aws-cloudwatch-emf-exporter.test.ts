@@ -41,6 +41,9 @@ describe('TestAWSCloudWatchEMFExporter', () => {
 
   beforeEach(() => {
     /* Set up test fixtures. */
+    // Clean up env var before each test
+    delete process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'];
+
     // Stub CloudWatchLogs to avoid AWS calls
     sinon.stub(CloudWatchLogs.prototype, 'describeLogGroups').callsFake(input => {
       return { logGroups: [] };
@@ -837,20 +840,9 @@ describe('TestAWSCloudWatchEMFExporter', () => {
   });
 
   describe('Application Signals EMF Dimensions', () => {
-    let savedAddDimensionsEnv: string | undefined;
-
     beforeEach(() => {
-      // Save original env var
-      savedAddDimensionsEnv = process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'];
-    });
-
-    afterEach(() => {
-      // Restore original env var
-      if (savedAddDimensionsEnv === undefined) {
-        delete process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'];
-      } else {
-        process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = savedAddDimensionsEnv;
-      }
+      // Clean up env var before each test
+      delete process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'];
     });
 
     it('TestDimensionsNotAddedWhenFeatureDisabled', () => {
@@ -875,8 +867,6 @@ describe('TestAWSCloudWatchEMFExporter', () => {
 
     it('TestDimensionsAddedByDefault', () => {
       /* Test that Service/Environment dimensions ARE added by default when env var is not set. */
-      delete process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'];
-
       const gaugeRecord: MetricRecord = {
         ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
         value: 50.0,

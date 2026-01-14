@@ -146,6 +146,12 @@ export class AwsOpentelemetryConfigurator {
    * @param {Instrumentation[]} instrumentations - Auto-Instrumentations to be added to the ADOT Config
    */
   public constructor(instrumentations: Instrumentation[], useXraySampler: boolean = false) {
+    // When Agent Observability is enabled, disable Application Signals dimensions by default
+    // This can be overridden by explicitly setting the env var
+    if (isAgentObservabilityEnabled() && process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] === undefined) {
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'false';
+    }
+
     /*
      * Set and Detect Resources via Resource Detectors
      *

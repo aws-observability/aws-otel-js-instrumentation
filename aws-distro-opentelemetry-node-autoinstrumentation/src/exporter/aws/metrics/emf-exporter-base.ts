@@ -212,6 +212,7 @@ export abstract class EMFExporterBase implements PushMetricExporter {
    * Check if Application Signals EMF dimensions should be added.
    *
    * Returns true by default, unless OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS is explicitly set to 'false'.
+   * Note: When Agent Observability is enabled, the configurator sets this env var to 'false' by default.
    */
   private static shouldAddApplicationSignalsDimensions(): boolean {
     return (process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] ?? 'true').toLowerCase() === 'true';
@@ -227,8 +228,8 @@ export abstract class EMFExporterBase implements PushMetricExporter {
 
     const cloudPlatform = resource.attributes[SEMRESATTRS_CLOUD_PLATFORM];
 
-    if (cloudPlatform) {
-      switch (String(cloudPlatform)) {
+    if (typeof cloudPlatform === 'string') {
+      switch (cloudPlatform) {
         case CLOUDPLATFORMVALUES_AWS_LAMBDA:
           return LAMBDA_DEFAULT;
         case CLOUDPLATFORMVALUES_AWS_EC2:

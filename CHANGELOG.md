@@ -13,11 +13,21 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+### Breaking Changes
+
+- Update minimum Node.js version requirement from 14 to 18, aligning with upstream OpenTelemetry JS support
+  ([#312](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/312))
+
 ### Enhancements
 
 - Add Service and Environment dimensions to EMF metrics when `OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS` is enabled.
   Supports platform-aware environment defaults (Lambda, EC2, ECS, EKS).
   ([#299](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/299))
+
+### Maintenance
+
+- Update AWS SDK to 3.750.0 to fix @smithy/config-resolver vulnerability (GHSA-6475-r3vj-m8vf)
+  ([#312](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/312))
 
 ## v0.8.1 - 2025-12-17
 

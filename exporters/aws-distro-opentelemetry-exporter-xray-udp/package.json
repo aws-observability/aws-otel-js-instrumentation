@@ -9,7 +9,7 @@
   "homepage": "https://github.com/aws-observability/aws-otel-js-instrumentation/tree/main/exporters/aws-distro-opentelemetry-exporter-xray-udp#readme",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=14"
+    "node": ">=18"
   },
   "publishConfig": {
     "access": "public"

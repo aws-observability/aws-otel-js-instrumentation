@@ -1390,6 +1390,46 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
   });
 
+  it('DisablesApplicationSignalsDimensionsWhenAgentObservabilityEnabled', () => {
+    // Clean up env vars before test
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS;
+
+    // Verify the env var is not set initially
+    expect(process.env.OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS).toBeUndefined();
+
+    // Enable agent observability and create a new configurator
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+    new AwsOpentelemetryConfigurator([]);
+
+    // Verify the configurator set the env var to 'false'
+    expect(process.env.OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS).toEqual('false');
+
+    // Clean up
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS;
+  });
+
+  it('DoesNotOverrideApplicationSignalsDimensionsWhenExplicitlySet', () => {
+    // Clean up env vars before test
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS;
+
+    // Set the env var explicitly before enabling agent observability
+    process.env.OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS = 'true';
+
+    // Enable agent observability and create a new configurator
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+    new AwsOpentelemetryConfigurator([]);
+
+    // Verify the configurator did NOT override the explicitly set value
+    expect(process.env.OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS).toEqual('true');
+
+    // Clean up
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS;
+  });
+
   describe('Test createEmfExporter', () => {
     beforeEach(() => {
       delete process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS;

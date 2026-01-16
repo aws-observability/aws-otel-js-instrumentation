@@ -41,6 +41,9 @@ describe('TestAWSCloudWatchEMFExporter', () => {
 
   beforeEach(() => {
     /* Set up test fixtures. */
+    // Clean up env var before each test
+    delete process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'];
+
     // Stub CloudWatchLogs to avoid AWS calls
     sinon.stub(CloudWatchLogs.prototype, 'describeLogGroups').callsFake(input => {
       return { logGroups: [] };
@@ -610,6 +613,9 @@ describe('TestAWSCloudWatchEMFExporter', () => {
   });
 
   it('TestExportCallsSendLogBatchWithExpectedInput', done => {
+    // Disable Application Signals dimensions for this test
+    process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'false';
+
     const timeInSeconds = Math.round(Date.now() / 1000);
 
     const resourceMetricsData: ResourceMetrics = {
@@ -751,6 +757,9 @@ describe('TestAWSCloudWatchEMFExporter', () => {
 
   it('TestCreateEmfLogWithoutDimensions', () => {
     /* Test EMF log creation with metrics but no dimensions. */
+    // Disable Application Signals dimensions for this test
+    process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'false';
+
     // Create test record with empty attributes (no dimensions)
     const gaugeRecord: MetricRecord = {
       ...exporter['createMetricRecord']('gauge_metric', 'Count', 'Gauge', Date.now(), {}),
@@ -828,5 +837,324 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     await expect(exporter['sendLogEvent'](logEvent)).resolves.not.toThrow();
     expect(mockSendLogEvent.calledOnce).toBeTruthy();
     expect(mockSendLogEvent.calledWith(logEvent)).toBeTruthy();
+  });
+
+  describe('Application Signals EMF Dimensions', () => {
+    beforeEach(() => {
+      // Clean up env var before each test
+      delete process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'];
+    });
+
+    it('TestDimensionsNotAddedWhenFeatureDisabled', () => {
+      /* Test that Service/Environment dimensions are NOT added when feature is explicitly disabled. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'false';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({ 'service.name': 'my-service' });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      // Should NOT have Service or Environment dimensions
+      expect(result).not.toHaveProperty('Service');
+      expect(result).not.toHaveProperty('Environment');
+      const cwMetrics = result._aws.CloudWatchMetrics[0];
+      expect(cwMetrics.Dimensions![0]).not.toContain('Service');
+      expect(cwMetrics.Dimensions![0]).not.toContain('Environment');
+    });
+
+    it('TestDimensionsAddedByDefault', () => {
+      /* Test that Service/Environment dimensions ARE added by default when env var is not set. */
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'production' });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      // Should have Service and Environment dimensions by default
+      expect(result).toHaveProperty('Service', 'my-service');
+      expect(result).toHaveProperty('Environment', 'production');
+      const cwMetrics = result._aws.CloudWatchMetrics[0];
+      expect(cwMetrics.Dimensions![0]).toContain('Service');
+      expect(cwMetrics.Dimensions![0]).toContain('Environment');
+    });
+
+    it('TestDimensionsAddedWhenEnvVarEnabled', () => {
+      /* Test that Service/Environment dimensions ARE added when env var is enabled. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'production' });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      // Should have Service and Environment dimensions
+      expect(result).toHaveProperty('Service', 'my-service');
+      expect(result).toHaveProperty('Environment', 'production');
+      const cwMetrics = result._aws.CloudWatchMetrics[0];
+      expect(cwMetrics.Dimensions![0]).toContain('Service');
+      expect(cwMetrics.Dimensions![0]).toContain('Environment');
+      expect(cwMetrics.Dimensions![0]).toContain('env');
+      // Original attributes come first, then Application Signals dimensions
+      expect(cwMetrics.Dimensions![0][0]).toEqual('env');
+      expect(cwMetrics.Dimensions![0]).toContain('Service');
+      expect(cwMetrics.Dimensions![0]).toContain('Environment');
+    });
+
+    it('TestServiceDimensionNotOverwrittenCaseInsensitive', () => {
+      /* Test that user-set Service dimension (any case) is NOT overwritten. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      // User sets 'service' (lowercase) as an attribute
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { service: 'user-service' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({ 'service.name': 'resource-service' });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      // Should NOT add 'Service' dimension since 'service' already exists
+      expect(result).not.toHaveProperty('Service');
+      expect(result).toHaveProperty('service', 'user-service');
+      // Environment should still be added
+      expect(result).toHaveProperty('Environment', 'generic:default');
+    });
+
+    it('TestEnvironmentDimensionNotOverwrittenCaseInsensitive', () => {
+      /* Test that user-set Environment dimension (any case) is NOT overwritten. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      // User sets 'ENVIRONMENT' (uppercase) as an attribute
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { ENVIRONMENT: 'user-env' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'production' });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      // Should NOT add 'Environment' dimension since 'ENVIRONMENT' already exists
+      expect(result).not.toHaveProperty('Environment');
+      expect(result).toHaveProperty('ENVIRONMENT', 'user-env');
+      // Service should still be added
+      expect(result).toHaveProperty('Service', 'my-service');
+    });
+
+    it('TestServiceFallbackToUnknownService', () => {
+      /* Test that Service falls back to UnknownService when resource has no service.name. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      // Resource without service.name
+      const resource = new Resource({});
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Service', 'UnknownService');
+    });
+
+    it('TestServiceFallbackWhenUnknownServicePattern', () => {
+      /* Test that Service falls back to UnknownService when resource has OTel default service name. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      // Resource with OTel default service name pattern
+      const { defaultServiceName } = require('@opentelemetry/resources');
+      const resource = new Resource({ 'service.name': defaultServiceName() });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Service', 'UnknownService');
+    });
+
+    it('TestEnvironmentFallbackToGenericDefault', () => {
+      /* Test that Environment falls back to generic:default when no platform is detected. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      // Resource without deployment.environment and no cloud.platform
+      const resource = new Resource({ 'service.name': 'my-service' });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Environment', 'generic:default');
+    });
+
+    it('TestEnvironmentExtractedFromResource', () => {
+      /* Test that Environment is extracted from deployment.environment resource attribute. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'staging' });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Environment', 'staging');
+    });
+
+    it('TestEnvironmentNameTakesPrecedenceOverEnvironment', () => {
+      /* Test that deployment.environment.name takes precedence over deployment.environment. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({
+        'service.name': 'my-service',
+        'deployment.environment': 'old-env',
+        'deployment.environment.name': 'new-env',
+      });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Environment', 'new-env');
+    });
+
+    it('TestDimensionsAddedAlongsideExisting', () => {
+      /* Test that Service and Environment are added alongside existing dimensions. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { existing_dim: 'value' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'prod' });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      const cwMetrics = result._aws.CloudWatchMetrics[0];
+      // All three dimensions should be present
+      expect(cwMetrics.Dimensions![0]).toContain('Service');
+      expect(cwMetrics.Dimensions![0]).toContain('Environment');
+      expect(cwMetrics.Dimensions![0]).toContain('existing_dim');
+    });
+
+    it('TestEnvVarCaseInsensitive', () => {
+      /* Test that env var value is case-insensitive (TRUE, True, true all work). */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'TRUE';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({ 'service.name': 'my-service' });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Service', 'my-service');
+      expect(result).toHaveProperty('Environment', 'generic:default');
+    });
+
+    it('TestLambdaPlatformDefault', () => {
+      /* Test that Lambda platform uses lambda:default. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({
+        'service.name': 'my-service',
+        'cloud.platform': 'aws_lambda',
+      });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Environment', 'lambda:default');
+    });
+
+    it('TestEC2PlatformDefault', () => {
+      /* Test that EC2 platform uses ec2:default. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({
+        'service.name': 'my-service',
+        'cloud.platform': 'aws_ec2',
+      });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Environment', 'ec2:default');
+    });
+
+    it('TestECSPlatformDefault', () => {
+      /* Test that ECS platform uses ecs:default. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({
+        'service.name': 'my-service',
+        'cloud.platform': 'aws_ecs',
+      });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Environment', 'ecs:default');
+    });
+
+    it('TestEKSPlatformDefault', () => {
+      /* Test that EKS platform uses eks:default. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({
+        'service.name': 'my-service',
+        'cloud.platform': 'aws_eks',
+      });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Environment', 'eks:default');
+    });
+
+    it('TestExplicitEnvironmentTakesPrecedenceOverPlatformDefault', () => {
+      /* Test that explicit deployment.environment takes precedence over platform default. */
+      process.env['OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS'] = 'true';
+
+      const gaugeRecord: MetricRecord = {
+        ...exporter['createMetricRecord']('test_metric', 'Count', 'Test', Date.now(), { env: 'test' }),
+        value: 50.0,
+      };
+
+      const resource = new Resource({
+        'service.name': 'my-service',
+        'cloud.platform': 'aws_lambda',
+        'deployment.environment': 'production',
+      });
+      const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
+
+      expect(result).toHaveProperty('Environment', 'production');
+    });
   });
 });

@@ -4,7 +4,7 @@
 import { Attributes, HrTime } from '@opentelemetry/api';
 import expect from 'expect';
 import { LLOHandlerTestBase } from './llo-handler.base.test';
-import { InstrumentationLibrary } from '@opentelemetry/core';
+import type { InstrumentationScope } from '@opentelemetry/core';
 import * as sinon from 'sinon';
 
 /**
@@ -402,7 +402,7 @@ describe('TestLLOHandlerFrameworks', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey<HrTime>(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey<InstrumentationLibrary>(span, 'instrumentationLibrary', {
+    testBase.updateMockSpanKey<InstrumentationScope>(span, 'instrumentationScope', {
       name: 'strands.sdk',
       version: '1.0.0',
     });

@@ -44,7 +44,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -108,7 +108,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.multi.framework', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.multi.framework', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -156,7 +156,7 @@ describe('TestLLOHandlerEvents', () => {
     };
 
     const span = testBase.createMockSpan(attributes);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -180,7 +180,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -216,7 +216,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     const eventTimestamp: HrTime = [9999999999, 0];
 
@@ -232,7 +232,7 @@ describe('TestLLOHandlerEvents', () => {
    */
   it('should handle null attributes in emitLloAttributes', () => {
     const span = testBase.createMockSpan({});
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, null as any);
 
@@ -264,7 +264,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -308,7 +308,7 @@ describe('TestLLOHandlerEvents', () => {
     };
 
     const span = testBase.createMockSpan(attributes);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     // Mock collectAllLloMessages to return an empty array
     const collectAllLloMessagesSpy = sinon.stub(testBase.lloHandler as any, 'collectAllLloMessages').returns([]);
@@ -334,7 +334,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -361,7 +361,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -386,7 +386,7 @@ describe('TestLLOHandlerEvents', () => {
       'gen_ai.prompt.0.role': 'user',
     };
     const span = testBase.createMockSpan(attributes);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -469,7 +469,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -520,7 +520,7 @@ describe('TestLLOHandlerEvents', () => {
     const span = testBase.createMockSpan(spanAttributes);
     testBase.updateMockSpanKey(span, 'events', [promptEvent, completionEvent]);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', {
+    testBase.updateMockSpanKey(span, 'instrumentationScope', {
       name: 'openlit.otel.tracing',
       version: '1.0.0',
     } as InstrumentationScope);
@@ -565,7 +565,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -593,7 +593,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
@@ -619,7 +619,7 @@ describe('TestLLOHandlerEvents', () => {
 
     const span = testBase.createMockSpan(attributes);
     testBase.updateMockSpanKey(span, 'endTime', [1234567899, 0]);
-    testBase.updateMockSpanKey(span, 'instrumentationLibrary', { name: 'test.scope', version: '1.0.0' });
+    testBase.updateMockSpanKey(span, 'instrumentationScope', { name: 'test.scope', version: '1.0.0' });
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 

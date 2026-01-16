@@ -3,7 +3,7 @@
 
 import { Attributes, diag, HrTime } from '@opentelemetry/api';
 import {
-  Aggregation,
+  AggregationType,
   AggregationSelector,
   AggregationTemporality,
   AggregationTemporalitySelector,
@@ -19,6 +19,7 @@ import {
   ResourceMetrics,
   SumMetricData,
 } from '@opentelemetry/sdk-metrics';
+import type { AggregationOption } from '@opentelemetry/sdk-metrics';
 import { defaultServiceName, Resource } from '@opentelemetry/resources';
 import {
   SEMRESATTRS_CLOUD_PLATFORM,
@@ -176,13 +177,13 @@ export abstract class EMFExporterBase implements PushMetricExporter {
     if (aggregationSelector) {
       this.aggregationSelector = aggregationSelector;
     } else {
-      this.aggregationSelector = (instrumentType: InstrumentType) => {
+      this.aggregationSelector = (instrumentType: InstrumentType): AggregationOption => {
         switch (instrumentType) {
           case InstrumentType.HISTOGRAM: {
-            return Aggregation.ExponentialHistogram();
+            return { type: AggregationType.EXPONENTIAL_HISTOGRAM };
           }
         }
-        return Aggregation.Default();
+        return { type: AggregationType.DEFAULT };
       };
     }
   }
@@ -734,7 +735,7 @@ export abstract class EMFExporterBase implements PushMetricExporter {
     return this.aggregationTemporalitySelector(instrumentType);
   }
 
-  selectAggregation(instrumentType: InstrumentType): Aggregation {
+  selectAggregation(instrumentType: InstrumentType): AggregationOption {
     return this.aggregationSelector(instrumentType);
   }
 }

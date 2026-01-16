@@ -2,10 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Span as APISpan, AttributeValue, Context, SpanKind, trace } from '@opentelemetry/api';
-import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
+import type { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsSpanProcessingUtil } from './aws-span-processing-util';
 import { SEMRESATTRS_FAAS_ID } from '@opentelemetry/semantic-conventions';
+
+// Type guard to check if a span is a ReadableSpan (SDK span)
+// In OTel 2.x, Span class is no longer exported as a value, so we use duck typing
+function isReadableSpan(span: APISpan): span is Span {
+  return (
+    'name' in span &&
+    'kind' in span &&
+    'attributes' in span &&
+    'status' in span &&
+    'startTime' in span &&
+    'endTime' in span
+  );
+}
 
 /**
  * AttributePropagatingSpanProcessor handles the propagation of attributes from parent spans to
@@ -55,11 +68,9 @@ export class AttributePropagatingSpanProcessor implements SpanProcessor {
     const parentSpan: APISpan | undefined = trace.getSpan(parentContext);
     let parentReadableSpan: Span | undefined = undefined;
 
-    // In Python and Java, the check is "parentSpan is an instance of ReadableSpan" is not possible
-    // in TypeScript because the check is not allowed for TypeScript interfaces (such as ReadableSpan).
-    // This is because JavaScript doesn't support interfaces, which is what TypeScript will compile to.
-    // `Span` is the only class that implements ReadableSpan, so check for instance of Span.
-    if (parentSpan instanceof Span) {
+    // In OTel 2.x, Span class is no longer exported as a value, so we use duck typing
+    // to check if the parentSpan is a ReadableSpan (SDK span).
+    if (parentSpan && isReadableSpan(parentSpan)) {
       parentReadableSpan = parentSpan;
 
       // Add the AWS_SDK_DESCENDANT attribute to the immediate child spans of AWS SDK span.

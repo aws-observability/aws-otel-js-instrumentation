@@ -11,7 +11,7 @@ import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/expo
 import { OTLPLogExporter as OTLPGrpcLogExporter } from '@opentelemetry/exporter-logs-otlp-grpc';
 import { OTLPLogExporter as OTLPHttpLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { OTLPLogExporter as OTLPProtoLogExporter } from '@opentelemetry/exporter-logs-otlp-proto';
-import { Resource } from '@opentelemetry/resources';
+import { emptyResource, resourceFromAttributes } from '@opentelemetry/resources';
 import { PushMetricExporter } from '@opentelemetry/sdk-metrics';
 import {
   AlwaysOffSampler,
@@ -102,10 +102,12 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
   // The probability of this passing once without correct IDs is low, 20 times is inconceivable.
   it('ProvideGenerateXrayIdsTest', () => {
-    const tracerProvider: NodeTracerProvider = new NodeTracerProvider(awsOtelConfigurator.configure());
-    tracerProvider.addSpanProcessor(
-      AttributePropagatingSpanProcessor.create((span: ReadableSpan) => '', 'spanNameKey', ['testKey1', 'testKey2'])
-    );
+    const config = awsOtelConfigurator.configure();
+    const spanProcessors = [
+      ...(config.spanProcessors || []),
+      AttributePropagatingSpanProcessor.create((span: ReadableSpan) => '', 'spanNameKey', ['testKey1', 'testKey2']),
+    ];
+    const tracerProvider: NodeTracerProvider = new NodeTracerProvider({ ...config, spanProcessors });
     for (let _: number = 0; _ < 20; _++) {
       const tracer: Tracer = tracerProvider.getTracer('test');
       const startTimeSec: number = Math.floor(new Date().getTime() / 1000.0);
@@ -267,12 +269,14 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   // Sanity check that the trace ID ratio sampler works fine with the x-ray generator.
   it('TraceIdRatioSamplerTest', () => {
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
-    const tracerProvider: NodeTracerProvider = new NodeTracerProvider(awsOtelConfigurator.configure());
+    const config = awsOtelConfigurator.configure();
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
 
-    tracerProvider.addSpanProcessor(
-      AttributePropagatingSpanProcessor.create((span: ReadableSpan) => '', 'spanNameKey', ['testKey1', 'testKey2'])
-    );
+    const spanProcessors = [
+      ...(config.spanProcessors || []),
+      AttributePropagatingSpanProcessor.create((span: ReadableSpan) => '', 'spanNameKey', ['testKey1', 'testKey2']),
+    ];
+    const tracerProvider: NodeTracerProvider = new NodeTracerProvider({ ...config, spanProcessors });
     for (let _: number = 0; _ < 20; _++) {
       const numSpans: number = 100000;
       let numSampled: number = 0;
@@ -291,7 +295,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
   it('ImportDefaultSamplerWhenEnvVarIsNotSetTest', () => {
     delete process.env.OTEL_TRACES_SAMPLER;
-    const defaultSampler: Sampler = customBuildSamplerFromEnv(Resource.empty());
+    const defaultSampler: Sampler = customBuildSamplerFromEnv(emptyResource());
 
     expect(defaultSampler).not.toBeUndefined();
     expect(defaultSampler.toString()).toEqual(new ParentBasedSampler({ root: new AlwaysOnSampler() }).toString());
@@ -300,7 +304,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   it('ImportXRaySamplerWhenEnvVarIsSetTest', () => {
     delete process.env.OTEL_TRACES_SAMPLER;
     process.env.OTEL_TRACES_SAMPLER = 'xray';
-    const sampler = customBuildSamplerFromEnv(Resource.empty());
+    const sampler = customBuildSamplerFromEnv(emptyResource());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
     expect((sampler as any)._root._root.awsProxyEndpoint).toEqual('http://localhost:2000');
@@ -315,7 +319,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     process.env.OTEL_TRACES_SAMPLER = 'xray';
     process.env.OTEL_TRACES_SAMPLER_ARG = 'endpoint=http://asdfghjkl:2000,polling_interval=600'; // seconds
-    const sampler = customBuildSamplerFromEnv(Resource.empty());
+    const sampler = customBuildSamplerFromEnv(emptyResource());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
     expect((sampler as any)._root._root.awsProxyEndpoint).toEqual('http://asdfghjkl:2000');
@@ -338,7 +342,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.OTEL_TRACES_SAMPLER = 'xray';
     process.env.OTEL_TRACES_SAMPLER_ARG = 'endpoint=http://asdfghjkl:2000,polling_interval=FOOBAR';
 
-    const sampler = customBuildSamplerFromEnv(Resource.empty());
+    const sampler = customBuildSamplerFromEnv(emptyResource());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
     expect((sampler as any)._root._root.awsProxyEndpoint).toEqual('http://asdfghjkl:2000');
@@ -370,7 +374,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       callback({});
     };
 
-    let sampler = customBuildSamplerFromEnv(Resource.empty());
+    let sampler = customBuildSamplerFromEnv(emptyResource());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
     expect((sampler as any)._root._root.awsProxyEndpoint).toEqual('http://lo=cal=host=:2000');
@@ -384,7 +388,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     process.env.OTEL_TRACES_SAMPLER_ARG = 'abc,polling_interval=550,123';
 
-    sampler = customBuildSamplerFromEnv(Resource.empty());
+    sampler = customBuildSamplerFromEnv(emptyResource());
 
     expect(sampler).toBeInstanceOf(AwsXRayRemoteSampler);
     expect((sampler as any)._root._root.awsProxyEndpoint).toEqual('http://localhost:2000');
@@ -437,12 +441,12 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     const mockExporter: SpanExporter = sinon.createStubInstance(AwsMetricAttributesSpanExporter);
     let customizedExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(
       mockExporter,
-      Resource.empty()
+      emptyResource()
     );
     expect(mockExporter).toEqual(customizedExporter);
 
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
-    customizedExporter = AwsSpanProcessorProvider.customizeSpanExporter(mockExporter, Resource.empty());
+    customizedExporter = AwsSpanProcessorProvider.customizeSpanExporter(mockExporter, emptyResource());
     expect(mockExporter).not.toEqual(customizedExporter);
     expect(customizedExporter).toBeInstanceOf(AwsMetricAttributesSpanExporter);
     expect(mockExporter).toEqual((customizedExporter as any).delegate);
@@ -455,11 +459,11 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     // Test application signals only
     let spanProcessors: SpanProcessor[] = [];
-    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
     expect(spanProcessors.length).toEqual(0);
 
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
-    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
     expect(spanProcessors.length).toEqual(2);
     const firstProcessor: SpanProcessor = spanProcessors[0];
     expect(firstProcessor).toBeInstanceOf(AttributePropagatingSpanProcessor);
@@ -470,13 +474,13 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     try {
       process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
       process.env.OTEL_METRIC_EXPORT_INTERVAL = undefined;
-      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
       process.env.OTEL_METRIC_EXPORT_INTERVAL = '123abc';
-      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
       process.env.OTEL_METRIC_EXPORT_INTERVAL = '!@#$%^&*()';
-      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
       process.env.OTEL_METRIC_EXPORT_INTERVAL = '40000';
-      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
     } catch (e: any) {
       assert.fail(`AwsOpentelemetryConfigurator.customizeSpanProcessors() has incorrectly thrown error: ${e}`);
     } finally {
@@ -494,7 +498,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
-    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
     expect(spanProcessors.length).toEqual(3);
 
     // Verify processors are added in the expected order
@@ -515,12 +519,12 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     // Test that BaggageSpanProcessor is not added when agent observability is disabled
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
-    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, Resource.empty());
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
     expect(spanProcessorsToTest).toEqual([]);
 
     // Test that BaggageSpanProcessor is added when agent observability is enabled
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
-    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, Resource.empty());
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
     expect(spanProcessorsToTest.length).toEqual(1);
 
     // Verify the added processor is BaggageSpanProcessor
@@ -539,7 +543,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     const spanProcessorsToTest: SpanProcessor[] = [];
 
     // Add our span processors
-    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, Resource.empty());
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
 
     // Verify that the BaggageSpanProcessor was added
     const baggageProcessors = spanProcessorsToTest.filter(
@@ -674,7 +678,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     const mockExporter: SpanExporter = sinon.createStubInstance(OTLPUdpSpanExporter);
     const customizedExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(
       mockExporter,
-      Resource.empty()
+      emptyResource()
     );
     // should return UDP exporter for Lambda with AppSignals enabled
     expect((customizedExporter as any).delegate).toBeInstanceOf(OTLPUdpSpanExporter);
@@ -688,7 +692,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     const mockExporter: SpanExporter = sinon.createStubInstance(AwsMetricAttributesSpanExporter);
     const customizedExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(
       mockExporter,
-      Resource.empty()
+      emptyResource()
     );
     // should still return AwsMetricAttributesSpanExporter for Lambda if AppSignals disabled
     expect(mockExporter).toEqual(customizedExporter);
@@ -746,7 +750,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
     process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
     const spanProcessors: SpanProcessor[] = [];
-    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, Resource.empty());
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
     expect(spanProcessors.length).toEqual(2);
     const firstProcessor: SpanProcessor = spanProcessors[0];
     expect(firstProcessor).toBeInstanceOf(AttributePropagatingSpanProcessor);
@@ -1235,14 +1239,14 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     const spanProcessorsToTest: SpanProcessor[] = [];
 
     // Test with agent observability disabled
-    AwsOpentelemetryConfigurator.exportUnsampledSpanForAgentObservability(spanProcessorsToTest, Resource.empty());
+    AwsOpentelemetryConfigurator.exportUnsampledSpanForAgentObservability(spanProcessorsToTest, emptyResource());
     expect(spanProcessorsToTest).toEqual([]);
 
     // Test with agent observability enabled
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
     process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'https://xray.us-east-1.amazonaws.com/v1/traces';
 
-    AwsOpentelemetryConfigurator.exportUnsampledSpanForAgentObservability(spanProcessorsToTest, Resource.empty());
+    AwsOpentelemetryConfigurator.exportUnsampledSpanForAgentObservability(spanProcessorsToTest, emptyResource());
     expect(spanProcessorsToTest.length).toEqual(1);
 
     const processor = spanProcessorsToTest[0];
@@ -1259,7 +1263,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
     process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'https://xray.us-east-1.amazonaws.com/v1/traces';
 
-    AwsOpentelemetryConfigurator.exportUnsampledSpanForAgentObservability(spanProcessorsToTest, Resource.empty());
+    AwsOpentelemetryConfigurator.exportUnsampledSpanForAgentObservability(spanProcessorsToTest, emptyResource());
 
     // Verify AwsBatchUnsampledSpanProcessor was created with the AWS exporter
     expect(spanProcessorsToTest[0]).toBeInstanceOf(AwsBatchUnsampledSpanProcessor);
@@ -1284,15 +1288,15 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     try {
       // Test that function is NOT called when agent observability is disabled
       delete process.env.AGENT_OBSERVABILITY_ENABLED;
-      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, Resource.empty());
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
       expect(exportUnsampledSpanSpy.called).toBeFalsy();
 
       // Test that function is called when agent observability is enabled
       exportUnsampledSpanSpy.resetHistory();
       process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
-      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, Resource.empty());
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
       expect(exportUnsampledSpanSpy.calledOnce).toBeTruthy();
-      expect(exportUnsampledSpanSpy.calledWith(spanProcessorsToTest, Resource.empty())).toBeTruthy();
+      expect(exportUnsampledSpanSpy.calledWith(spanProcessorsToTest, emptyResource())).toBeTruthy();
     } finally {
       // Restore original implementation
       exportUnsampledSpanSpy.restore();
@@ -1359,7 +1363,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   it('CustomizeResourceWithoutAgentObservability', () => {
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
 
-    let resource = new Resource({ [ATTR_SERVICE_NAME]: 'test-service' });
+    let resource = resourceFromAttributes({ [ATTR_SERVICE_NAME]: 'test-service' });
     resource = awsOtelConfigurator['customizeResource'](resource);
     expect(resource.attributes[ATTR_SERVICE_NAME]).toEqual('test-service');
     expect(resource.attributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE);
@@ -1368,7 +1372,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   it('CustomizeResourceWithAgentObservabilityDefault', () => {
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
 
-    let resource = new Resource({ [ATTR_SERVICE_NAME]: 'test-service' });
+    let resource = resourceFromAttributes({ [ATTR_SERVICE_NAME]: 'test-service' });
     resource = awsOtelConfigurator['customizeResource'](resource);
     expect(resource.attributes[ATTR_SERVICE_NAME]).toEqual('test-service');
     expect(resource.attributes[AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE]).toEqual('gen_ai_agent');
@@ -1379,7 +1383,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   it('CustomizeResourceWithoutAgentObservability', () => {
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
 
-    let resource = new Resource({
+    let resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: 'test-service',
       [AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE]: 'existing-agent',
     });

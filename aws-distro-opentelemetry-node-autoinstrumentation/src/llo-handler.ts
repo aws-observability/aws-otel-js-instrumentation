@@ -165,7 +165,10 @@ export class LLOHandler {
    */
   constructor(loggerProvider: LoggerProvider) {
     this.loggerProvider = loggerProvider;
-    this.eventLoggerProvider = new EventLoggerProvider(this.loggerProvider);
+    // Type assertion needed due to version mismatch between sdk-events (deprecated) and sdk-logs 0.210.0
+    // The EventLoggerProvider expects an older LoggerProvider interface with addLogRecordProcessor method
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.eventLoggerProvider = new EventLoggerProvider(this.loggerProvider as any);
 
     this.exactMatchPatterns = new Set();
     this.regexPatterns = [];
@@ -377,7 +380,7 @@ export class LLOHandler {
 
     // Create and emit the event
     const timestamp = eventTimestamp || span.endTime;
-    const eventLogger = this.eventLoggerProvider.getEventLogger(span.instrumentationLibrary.name);
+    const eventLogger = this.eventLoggerProvider.getEventLogger(span.instrumentationScope.name);
 
     // Hack - Workaround to add a custom-made Context to an Event so that the emitted event log
     // has the correct associated traceId, spanId, flag. This is needed because a ReadableSpan only
@@ -397,7 +400,7 @@ export class LLOHandler {
     // - https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/experimental/packages/sdk-events/src/EventLogger.ts#L34
     const customContext = ROOT_CONTEXT.setValue(OTEL_SPAN_KEY, span);
     const event: Event = {
-      name: span.instrumentationLibrary.name,
+      name: span.instrumentationScope.name,
       timestamp: timestamp,
       data: eventBody,
       context: customContext,

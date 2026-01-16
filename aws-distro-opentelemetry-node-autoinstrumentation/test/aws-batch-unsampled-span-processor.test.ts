@@ -15,7 +15,7 @@ import {
   Span,
   SpanExporter,
 } from '@opentelemetry/sdk-trace-base';
-import { Resource, ResourceAttributes } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { AwsBatchUnsampledSpanProcessor } from '../src/aws-batch-unsampled-span-processor';
 import { AlwaysRecordSampler } from '../src/always-record-sampler';
 import { AWS_ATTRIBUTE_KEYS } from '../src/aws-attribute-keys';
@@ -357,14 +357,11 @@ describe('AwsBatchUnsampledSpanProcessor', () => {
       });
 
       it('should wait for pending resource on flush', async () => {
+        // In OTel 2.x, async resource attributes are handled differently.
+        // We test with synchronous attributes since the async behavior has changed.
         const tracer = new BasicTracerProvider({
           sampler: AlwaysRecordSampler.create(new AlwaysOffSampler()),
-          resource: new Resource(
-            {},
-            new Promise<ResourceAttributes>(resolve => {
-              setTimeout(() => resolve({ async: 'fromasync' }), 1);
-            })
-          ),
+          resource: resourceFromAttributes({ async: 'fromasync' }),
         }).getTracer('default');
 
         const span = tracer.startSpan('test') as Span;

@@ -14,7 +14,7 @@ registerInstrumentationTesting(instrumentations[0]);
 
 import { Attributes, ValueType } from '@opentelemetry/api';
 import {
-  Aggregation,
+  AggregationType,
   AggregationTemporality,
   DataPoint,
   DataPointType,
@@ -31,7 +31,7 @@ import { ExportResultCode } from '@opentelemetry/core';
 import { expect } from 'expect';
 import * as sinon from 'sinon';
 import { MetricRecord } from '../../../../src/exporter/aws/metrics/emf-exporter-base';
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { LogEventBatch } from '../../../../src/exporter/aws/metrics/cloudwatch-logs-client';
 import { AWSCloudWatchEMFExporter } from '../../../../src/exporter/aws/metrics/aws-cloudwatch-emf-exporter';
 
@@ -78,7 +78,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
       'custom-log-group',
       'custom-stream',
       () => AggregationTemporality.DELTA,
-      () => Aggregation.Default(),
+      () => ({ type: AggregationType.DEFAULT }),
       {}
     );
 
@@ -241,7 +241,6 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         unit: 'Count',
         description: 'Gauge description',
         valueType: ValueType.DOUBLE,
-        type: InstrumentType.GAUGE,
       },
       dataPoints: [dp],
       aggregationTemporality: AggregationTemporality.DELTA,
@@ -273,7 +272,6 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         unit: 'Count',
         description: 'Sum description',
         valueType: ValueType.DOUBLE,
-        type: InstrumentType.COUNTER,
       },
       dataPoints: [dp],
       aggregationTemporality: AggregationTemporality.DELTA,
@@ -315,7 +313,6 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         unit: 'ms',
         description: 'Histogram description',
         valueType: ValueType.DOUBLE,
-        type: InstrumentType.HISTOGRAM,
       },
       dataPoints: [dp],
       aggregationTemporality: AggregationTemporality.DELTA,
@@ -370,7 +367,6 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         unit: 's',
         description: 'Exponential histogram description',
         valueType: ValueType.DOUBLE,
-        type: InstrumentType.HISTOGRAM,
       },
       dataPoints: [dp],
       aggregationTemporality: AggregationTemporality.DELTA,
@@ -407,7 +403,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     };
 
     const records = [gaugeRecord, sumRecord];
-    const resource = new Resource({ 'service.name': 'test-service' });
+    const resource = resourceFromAttributes({ 'service.name': 'test-service' });
 
     const result = exporter['createEmfLog'](records, resource);
 
@@ -435,7 +431,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
 
     // Create empty metrics data to test basic export flow
     const resourceMetricsData = {
-      resource: new Resource({}),
+      resource: resourceFromAttributes({}),
       scopeMetrics: [],
     };
 
@@ -454,7 +450,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
 
     // Create metrics data to test export flow
     const resourceMetricsData: ResourceMetrics = {
-      resource: new Resource({}),
+      resource: resourceFromAttributes({}),
       scopeMetrics: [
         {
           scope: {
@@ -475,7 +471,6 @@ describe('TestAWSCloudWatchEMFExporter', () => {
                 name: 'descriptorName',
                 description: 'descriptionName',
                 unit: 'ms',
-                type: InstrumentType.GAUGE,
                 valueType: ValueType.INT,
               },
               aggregationTemporality: AggregationTemporality.DELTA,
@@ -502,7 +497,6 @@ describe('TestAWSCloudWatchEMFExporter', () => {
                 name: 'descriptorName',
                 description: 'descriptionName',
                 unit: 'ms',
-                type: InstrumentType.COUNTER,
                 valueType: ValueType.INT,
               },
               aggregationTemporality: AggregationTemporality.DELTA,
@@ -537,7 +531,6 @@ describe('TestAWSCloudWatchEMFExporter', () => {
                 name: 'descriptorName',
                 description: 'descriptionName',
                 unit: 'ms',
-                type: InstrumentType.HISTOGRAM,
                 valueType: ValueType.INT,
               },
               aggregationTemporality: AggregationTemporality.DELTA,
@@ -578,7 +571,6 @@ describe('TestAWSCloudWatchEMFExporter', () => {
                 name: 'descriptorName',
                 description: 'descriptionName',
                 unit: 'ms',
-                type: InstrumentType.HISTOGRAM,
                 valueType: ValueType.INT,
               },
               aggregationTemporality: AggregationTemporality.DELTA,
@@ -600,7 +592,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     /* Test export failure handling. */
     // Create metrics data that will cause an exception during iteration
     const metricsData: any = {
-      resource: new Resource({}),
+      resource: resourceFromAttributes({}),
       scopeMetrics: [undefined], // will cause an error to throw
     };
 
@@ -619,7 +611,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     const timeInSeconds = Math.round(Date.now() / 1000);
 
     const resourceMetricsData: ResourceMetrics = {
-      resource: new Resource({}),
+      resource: resourceFromAttributes({}),
       scopeMetrics: [
         {
           scope: {
@@ -652,7 +644,6 @@ describe('TestAWSCloudWatchEMFExporter', () => {
                 name: 'descriptorName',
                 description: 'descriptionName',
                 unit: 'ms',
-                type: InstrumentType.GAUGE,
                 valueType: ValueType.INT,
               },
               aggregationTemporality: AggregationTemporality.DELTA,
@@ -709,11 +700,13 @@ describe('TestAWSCloudWatchEMFExporter', () => {
 
   it('TestSelectAggregation', () => {
     // Should return ExponentialHistogram Aggregation for HISTOGRAM InstrumentType
-    expect(exporter.selectAggregation(InstrumentType.HISTOGRAM)).toEqual(Aggregation.ExponentialHistogram());
+    expect(exporter.selectAggregation(InstrumentType.HISTOGRAM)).toEqual({
+      type: AggregationType.EXPONENTIAL_HISTOGRAM,
+    });
 
     // Should return Default Aggregation for other InstrumentType
-    expect(exporter.selectAggregation(InstrumentType.COUNTER)).toEqual(Aggregation.Default());
-    expect(exporter.selectAggregation(InstrumentType.GAUGE)).toEqual(Aggregation.Default());
+    expect(exporter.selectAggregation(InstrumentType.COUNTER)).toEqual({ type: AggregationType.DEFAULT });
+    expect(exporter.selectAggregation(InstrumentType.GAUGE)).toEqual({ type: AggregationType.DEFAULT });
   });
 
   it('TestCreateEmfLogWithResource', () => {
@@ -725,7 +718,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     };
 
     const records = [gaugeRecord];
-    const resource = new Resource({ 'service.name': 'test-service', 'service.version': '1.0.0' });
+    const resource = resourceFromAttributes({ 'service.name': 'test-service', 'service.version': '1.0.0' });
 
     const result = exporter['createEmfLog'](records, resource, 1234567890);
 
@@ -767,7 +760,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     };
 
     const records = [gaugeRecord];
-    const resource = new Resource({ 'service.name': 'test-service', 'service.version': '1.0.0' });
+    const resource = resourceFromAttributes({ 'service.name': 'test-service', 'service.version': '1.0.0' });
 
     const result = exporter['createEmfLog'](records, resource, 1234567890);
 
@@ -810,7 +803,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
     };
 
     const records = [recordWithoutName, validRecord];
-    const resource = new Resource({ 'service.name': 'test-service' });
+    const resource = resourceFromAttributes({ 'service.name': 'test-service' });
 
     const result = exporter['createEmfLog'](records, resource, 1234567890);
 
@@ -854,7 +847,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({ 'service.name': 'my-service' });
+      const resource = resourceFromAttributes({ 'service.name': 'my-service' });
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       // Should NOT have Service or Environment dimensions
@@ -872,7 +865,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'production' });
+      const resource = resourceFromAttributes({ 'service.name': 'my-service', 'deployment.environment': 'production' });
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       // Should have Service and Environment dimensions by default
@@ -892,7 +885,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'production' });
+      const resource = resourceFromAttributes({ 'service.name': 'my-service', 'deployment.environment': 'production' });
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       // Should have Service and Environment dimensions
@@ -918,7 +911,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({ 'service.name': 'resource-service' });
+      const resource = resourceFromAttributes({ 'service.name': 'resource-service' });
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       // Should NOT add 'Service' dimension since 'service' already exists
@@ -938,7 +931,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'production' });
+      const resource = resourceFromAttributes({ 'service.name': 'my-service', 'deployment.environment': 'production' });
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       // Should NOT add 'Environment' dimension since 'ENVIRONMENT' already exists
@@ -958,7 +951,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
       };
 
       // Resource without service.name
-      const resource = new Resource({});
+      const resource = resourceFromAttributes({});
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       expect(result).toHaveProperty('Service', 'UnknownService');
@@ -975,7 +968,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
 
       // Resource with OTel default service name pattern
       const { defaultServiceName } = require('@opentelemetry/resources');
-      const resource = new Resource({ 'service.name': defaultServiceName() });
+      const resource = resourceFromAttributes({ 'service.name': defaultServiceName() });
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       expect(result).toHaveProperty('Service', 'UnknownService');
@@ -991,7 +984,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
       };
 
       // Resource without deployment.environment and no cloud.platform
-      const resource = new Resource({ 'service.name': 'my-service' });
+      const resource = resourceFromAttributes({ 'service.name': 'my-service' });
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       expect(result).toHaveProperty('Environment', 'generic:default');
@@ -1006,7 +999,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'staging' });
+      const resource = resourceFromAttributes({ 'service.name': 'my-service', 'deployment.environment': 'staging' });
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       expect(result).toHaveProperty('Environment', 'staging');
@@ -1021,7 +1014,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({
+      const resource = resourceFromAttributes({
         'service.name': 'my-service',
         'deployment.environment': 'old-env',
         'deployment.environment.name': 'new-env',
@@ -1040,7 +1033,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({ 'service.name': 'my-service', 'deployment.environment': 'prod' });
+      const resource = resourceFromAttributes({ 'service.name': 'my-service', 'deployment.environment': 'prod' });
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       const cwMetrics = result._aws.CloudWatchMetrics[0];
@@ -1059,7 +1052,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({ 'service.name': 'my-service' });
+      const resource = resourceFromAttributes({ 'service.name': 'my-service' });
       const result = exporter['createEmfLog']([gaugeRecord], resource, 1234567890);
 
       expect(result).toHaveProperty('Service', 'my-service');
@@ -1075,7 +1068,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({
+      const resource = resourceFromAttributes({
         'service.name': 'my-service',
         'cloud.platform': 'aws_lambda',
       });
@@ -1093,7 +1086,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({
+      const resource = resourceFromAttributes({
         'service.name': 'my-service',
         'cloud.platform': 'aws_ec2',
       });
@@ -1111,7 +1104,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({
+      const resource = resourceFromAttributes({
         'service.name': 'my-service',
         'cloud.platform': 'aws_ecs',
       });
@@ -1129,7 +1122,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({
+      const resource = resourceFromAttributes({
         'service.name': 'my-service',
         'cloud.platform': 'aws_eks',
       });
@@ -1147,7 +1140,7 @@ describe('TestAWSCloudWatchEMFExporter', () => {
         value: 50.0,
       };
 
-      const resource = new Resource({
+      const resource = resourceFromAttributes({
         'service.name': 'my-service',
         'cloud.platform': 'aws_lambda',
         'deployment.environment': 'production',

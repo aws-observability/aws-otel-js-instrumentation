@@ -7,7 +7,7 @@ import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { Attributes, SpanContext, SpanKind, TraceFlags } from '@opentelemetry/api';
 import { LLOHandler } from '../src/llo-handler';
 import * as sinon from 'sinon';
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { EventLoggerOptions } from '@opentelemetry/api-events';
 
 // Class with utilities for LLO Handler tests
@@ -50,8 +50,8 @@ export class LLOHandlerTestBase {
       events: [],
       duration: [0, 1],
       ended: true,
-      instrumentationLibrary: { name: 'mockedLibrary', version: '1.0.0' },
-      resource: new Resource({}),
+      instrumentationScope: { name: 'mockedLibrary', version: '1.0.0' },
+      resource: resourceFromAttributes({}),
       droppedAttributesCount: 0,
       droppedEventsCount: 0,
       droppedLinksCount: 0,

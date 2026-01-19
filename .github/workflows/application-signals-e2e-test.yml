@@ -63,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [ '14', '16', '18', '20', '22' ]
+        node-version: [ '18', '20', '22' ]
     needs: [ upload-main-build ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-default-test.yml@main
     secrets: inherit

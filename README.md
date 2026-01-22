@@ -39,7 +39,7 @@ This project is licensed under the Apache-2.0 License.
 
 ### NodeJS Version Support
 
-This project ensures compatibility with the following supported NodeJS versions: 14, 16, 18, 20, 22
+This project ensures compatibility with the following supported NodeJS versions: 18, 20, 22
 
 ### Note on Amazon CloudWatch Application Signals
 

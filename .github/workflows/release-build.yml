@@ -96,7 +96,7 @@ jobs:
           gh release create --target "$GITHUB_REF_NAME" \
              --title "Release v${{ env.VERSION }}" \
              --draft \
-             "v${{ github.event.inputs.version }}" \
+             "v${{ env.VERSION }}" \
              aws-distro-opentelemetry-node-autoinstrumentation/aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ env.VERSION }}.tgz
 
       # Publish to npm

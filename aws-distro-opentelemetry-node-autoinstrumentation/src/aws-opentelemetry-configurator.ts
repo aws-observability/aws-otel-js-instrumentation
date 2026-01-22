@@ -26,6 +26,7 @@ import {
   Resource,
   ResourceDetectionConfig,
   detectResources,
+  defaultResource,
   envDetector,
   hostDetector,
   processDetector,
@@ -159,7 +160,9 @@ export class AwsOpentelemetryConfigurator {
      * detection in the SDK, the AWS processors/exporters/samplers will lack such detected
      * resources in their respective resources.
      */
-    let autoResource: Resource = resourceFromAttributes({});
+    // Start with defaultResource() to include the default service.name (unknown_service:<process>)
+    // OTel 2.x: resourceFromAttributes({}) doesn't include default service name
+    let autoResource: Resource = defaultResource();
     autoResource = this.customizeVersions(autoResource);
 
     // The following if/else block is based on upstream's logic

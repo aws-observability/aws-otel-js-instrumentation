@@ -917,24 +917,22 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     let config;
     process.env.OTEL_SERVICE_NAME = 'test_service_name';
 
-    // Default 2 attributes detected in test environment
+    // OTel 2.x: defaultResource() includes additional SDK attributes, so we check for
+    // the presence of expected attributes rather than exact count
     process.env.OTEL_NODE_RESOURCE_DETECTORS = 'container';
     config = new AwsOpentelemetryConfigurator([]).configure();
-    expect(Object.keys((config.resource as any).attributes).length).toEqual(2);
     expect((config.resource as any).attributes['service.name']).toEqual('test_service_name');
     expect((config.resource as any).attributes['telemetry.auto.version'].endsWith('-aws')).toBeTruthy();
 
-    // Still default 2 attributes detected given invalid resource detectors
+    // Still expected attributes detected given invalid resource detectors
     process.env.OTEL_NODE_RESOURCE_DETECTORS = 'invalid_detector_1,invalid_detector_2';
     config = new AwsOpentelemetryConfigurator([]).configure();
-    expect(Object.keys((config.resource as any).attributes).length).toEqual(2);
     expect((config.resource as any).attributes['service.name']).toEqual('test_service_name');
     expect((config.resource as any).attributes['telemetry.auto.version'].endsWith('-aws')).toBeTruthy();
 
-    // Still default 2 attributes detected given mix of valid and invalid resource detectors
+    // Still expected attributes detected given mix of valid and invalid resource detectors
     process.env.OTEL_NODE_RESOURCE_DETECTORS = 'container,invalid_detector_1,invalid_detector_2';
     config = new AwsOpentelemetryConfigurator([]).configure();
-    expect(Object.keys((config.resource as any).attributes).length).toEqual(2);
     expect((config.resource as any).attributes['service.name']).toEqual('test_service_name');
     expect((config.resource as any).attributes['telemetry.auto.version'].endsWith('-aws')).toBeTruthy();
 

@@ -14,7 +14,8 @@ env:
   RELEASE_PRIVATE_REPOSITORY: 020628701572.dkr.ecr.us-west-2.amazonaws.com/adot-autoinstrumentation-node
   RELEASE_PRIVATE_REGISTRY: 020628701572.dkr.ecr.us-west-2.amazonaws.com
   PACKAGE_NAME: aws-distro-opentelemetry-node-autoinstrumentation
-  ARTIFACT_NAME: aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz 
+  ARTIFACT_NAME: aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz
+  VERSION: ${{ github.event.inputs.version }}
 
 permissions:
   id-token: write
@@ -74,7 +75,7 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ github.event.inputs.version }}
+            ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}
 
       # Publish to private ECR
       - name: Build and push private ECR image
@@ -85,7 +86,7 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
+            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}
 
       - name: Get SHA256 checksum of release artifact
         id: get_sha256
@@ -105,9 +106,9 @@ jobs:
           shasum -a 256 layer_artifact/layer.zip > layer_artifact/layer.zip.sha256
 
           gh release create --target "$GITHUB_REF_NAME" \
-             --title "Release v${{ github.event.inputs.version }}" \
+             --title "Release v${{ env.VERSION }}" \
              --draft \
-             "v${{ github.event.inputs.version }}" \
+             "v${{ env.VERSION }}" \
              aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }} \
              ${{ env.ARTIFACT_NAME }}.sha256 \
              layer_artifact/layer.zip \

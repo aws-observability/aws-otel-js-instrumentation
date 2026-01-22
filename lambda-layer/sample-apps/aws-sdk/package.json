@@ -10,7 +10,7 @@
   "homepage": "https://github.com/aws-observability/aws-otel-js-instrumentation/tree/main/aws-distro-opentelemetry-node-autoinstrumentation#readme",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=16"
+    "node": ">=18"
   },
   "publishConfig": {
     "access": "public"
@@ -51,6 +51,6 @@
     "typescript": "4.9.5"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.651.1"
+    "@aws-sdk/client-s3": "3.750.0"
   }
 }

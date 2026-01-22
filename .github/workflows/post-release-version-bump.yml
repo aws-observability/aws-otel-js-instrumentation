@@ -105,27 +105,8 @@ jobs:
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" aws-distro-opentelemetry-node-autoinstrumentation/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" docker-utils/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" package.json
-<<<<<<< HEAD
-          VERSION="${{ github.event.inputs.version }}"
-          npm install
-          sed -i  "s|\(/aws-observability/adot-autoinstrumentation-node:\)v[0-9]\+\.[0-9]\+\.[0-9]\+|\1v${{github.event.inputs.version}}|g" .github/workflows/daily-scan.yml
-=======
-          sed -i'' -e "s/aws-aws-distro-opentelemetry-node-autoinstrumentation-[0-9]\+\.[0-9]\+\.[0-9]\+\([0-9A-Za-z-]\+\)\?\.tgz/aws-aws-distro-opentelemetry-node-autoinstrumentation-${DEV_VERSION}.tgz/" lambda-layer/packages/layer/package.json
-          VERSION="${{ env.VERSION }}"
           npm install
           sed -i  "s|\(/aws-observability/adot-autoinstrumentation-node:\)v[0-9]\+\.[0-9]\+\.[0-9]\+|\1v${{ env.VERSION }}|g" .github/workflows/daily-scan.yml
-
-          # for patch releases, avoid merge conflict by manually resolving CHANGELOG with main
-          if [[ "${{ env.IS_PATCH }}" == "true" ]]; then
-            # Copy the patch release entries
-            sed -n "/^## v${VERSION}/,/^## v[0-9]/p" CHANGELOG.md | sed '$d' > /tmp/patch_release_section.txt
-            git fetch origin main
-            git show origin/main:CHANGELOG.md > CHANGELOG.md
-            # Insert the patch release entries after Unreleased
-            awk -i inplace '/^## v[0-9]/ && !inserted { system("cat /tmp/patch_release_section.txt"); inserted=1 } {print}' CHANGELOG.md
-          fi
-
->>>>>>> 45fc56c (Remove `github.event.inputs.` from pre/post release workflows (#316))
           git add .
           git status
           git commit -m "Prepare main for next development cycle: Update version to $DEV_VERSION"
@@ -143,18 +124,4 @@ jobs:
           
           By submitting this pull request, I confirm that you can use, modify, copy, and redistribute this contribution, under the terms of your choice." \
                        --head prepare-main-for-next-dev-cycle-${VERSION} \
-<<<<<<< HEAD
                        --base main
-=======
-                       --base main
-      
-      - name: Force our CHANGELOG to override merge conflicts
-        run: |
-          git merge origin/main || true
-          git checkout --ours CHANGELOG.md
-          git add CHANGELOG.md
-          if ! git diff --quiet --cached; then
-            git commit -m "Force our CHANGELOG to override merge conflicts"
-            git push origin "prepare-main-for-next-dev-cycle-${VERSION}"
-          fi
->>>>>>> 45fc56c (Remove `github.event.inputs.` from pre/post release workflows (#316))

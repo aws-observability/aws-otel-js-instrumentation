@@ -941,6 +941,19 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     delete process.env.OTEL_NODE_RESOURCE_DETECTORS;
   });
 
+  it('DefaultServiceNameTest', () => {
+    // Ensure OTEL_SERVICE_NAME is not set
+    delete process.env.OTEL_SERVICE_NAME;
+    delete process.env.OTEL_RESOURCE_ATTRIBUTES;
+
+    const config = new AwsOpentelemetryConfigurator([]).configure();
+    const serviceName = (config.resource as any).attributes['service.name'];
+
+    // Verify service.name is present and follows the default pattern (unknown_service:<process>)
+    expect(serviceName).toBeDefined();
+    expect(serviceName.startsWith('unknown_service:')).toBe(true);
+  });
+
   describe('AwsSpanProcessorProviderTest', () => {
     it('configureOtlp', () => {
       let spanExporter;

@@ -183,13 +183,7 @@ export class AwsOpentelemetryConfigurator {
       // Only keep env detector here
       defaultDetectors.push(envDetector);
     } else {
-      /*
-       * envDetector is used as opposed to envDetector (async), so it is guaranteed that the
-       * resource is populated with configured OTEL_RESOURCE_ATTRIBUTES or OTEL_SERVICE_NAME env
-       * var values by the time that this class provides a configuration to the OTel SDK.
-       *
-       * envDetector needs to be last so it can override any conflicting resource attributes.
-       */
+      // envDetector needs to be last so it can override any conflicting resource attributes.
       defaultDetectors = [processDetector, hostDetector, awsEc2Detector, awsEcsDetector, awsEksDetector, envDetector];
     }
 

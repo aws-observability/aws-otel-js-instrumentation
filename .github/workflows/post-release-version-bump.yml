@@ -107,7 +107,6 @@ jobs:
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" package.json
           npm install
           sed -i  "s|\(/aws-observability/adot-autoinstrumentation-node:\)v[0-9]\+\.[0-9]\+\.[0-9]\+|\1v${{ env.VERSION }}|g" .github/workflows/daily-scan.yml
-
           git add .
           git status
           git commit -m "Prepare main for next development cycle: Update version to $DEV_VERSION"

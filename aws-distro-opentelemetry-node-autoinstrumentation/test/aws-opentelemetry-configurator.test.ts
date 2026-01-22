@@ -178,7 +178,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       const spanContext = span.spanContext();
 
       expect(spanContext.traceId).toEqual('5759e988bd862e3fe1bf46a994270000');
-      expect((span as any).parentSpanId).toEqual('53945c3f42cd0000');
+      // OTel 2.x: parentSpanId moved to parentSpanContext?.spanId
+      expect((span as any).parentSpanContext?.spanId).toEqual('53945c3f42cd0000');
       expect(spanContext.traceFlags).toEqual(1);
     });
 
@@ -223,7 +224,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       const spanContext = span.spanContext();
 
       expect(spanContext.traceId).toEqual('11111111222222223333333344444444');
-      expect((span as any).parentSpanId).toEqual('5555555566666666');
+      // OTel 2.x: parentSpanId moved to parentSpanContext?.spanId
+      expect((span as any).parentSpanContext?.spanId).toEqual('5555555566666666');
       expect(spanContext.traceFlags).toEqual(1);
     });
 
@@ -644,10 +646,11 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect('my_custom_endpoint').toEqual((exporter as any)._delegate._transport._parameters.address);
 
     // Overwrite protocol back to HTTP, export to url "http://my_custom_endpoint"
+    // OTel 2.x normalizes URLs to include trailing slash
     process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'http/protobuf';
     exporter = ApplicationSignalsExporterProvider.Instance.createExporter();
     expect(exporter).toBeInstanceOf(OTLPHttpOTLPMetricExporter);
-    expect('http://my_custom_endpoint').toEqual((exporter as any)._delegate._transport._transport._parameters.url);
+    expect('http://my_custom_endpoint/').toEqual((exporter as any)._delegate._transport._transport._parameters.url);
 
     // Cleanup
     delete process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL;

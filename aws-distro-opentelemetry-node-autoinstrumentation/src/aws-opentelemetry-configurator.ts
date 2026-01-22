@@ -222,19 +222,24 @@ export class AwsOpentelemetryConfigurator {
   private customizeVersions(autoResource: Resource): Resource {
     // eslint-disable-next-line @typescript-eslint/typedef
     const DISTRO_VERSION: string = LIB_VERSION;
-    autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION] = DISTRO_VERSION + '-aws';
-    diag.debug(
-      `@aws/aws-distro-opentelemetry-node-autoinstrumentation - version: ${autoResource.attributes[SEMRESATTRS_TELEMETRY_AUTO_VERSION]}`
-    );
-    return autoResource;
+    const versionSuffix = DISTRO_VERSION + '-aws';
+    // OTel 2.x: Resource attributes are immutable, so merge with a new resource
+    const versionResource = resourceFromAttributes({
+      [SEMRESATTRS_TELEMETRY_AUTO_VERSION]: versionSuffix,
+    });
+    diag.debug(`@aws/aws-distro-opentelemetry-node-autoinstrumentation - version: ${versionSuffix}`);
+    return autoResource.merge(versionResource);
   }
 
   private customizeResource(resource: Resource) {
     if (isAgentObservabilityEnabled()) {
       // Add aws.service.type if it doesn't exist in the resource
       if (!resource.attributes[AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE]) {
-        // Set a default agent type for AI agent observability
-        resource.attributes[AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE] = 'gen_ai_agent';
+        // OTel 2.x: Resource attributes are immutable, so merge with a new resource
+        const serviceTypeResource = resourceFromAttributes({
+          [AWS_ATTRIBUTE_KEYS.AWS_SERVICE_TYPE]: 'gen_ai_agent',
+        });
+        return resource.merge(serviceTypeResource);
       }
     }
     return resource;

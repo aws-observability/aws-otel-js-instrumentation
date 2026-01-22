@@ -106,10 +106,13 @@ describe('InstrumentationPatchTest', () => {
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Kinesis')._requestPreSpanHook).toBeFalsy();
     expect(services.get('Kinesis').requestPreSpanHook).toBeTruthy();
+    // BedrockRuntime is now in upstream (starting from instrumentation-aws-sdk 0.65.0+)
+    // with GenAI metrics instrumentation. Our patches still provide enhanced functionality.
+    expect(services.get('BedrockRuntime')).toBeTruthy();
+    // Bedrock, BedrockAgent, BedrockAgentRuntime are added via our patches
     expect(services.has('Bedrock')).toBeFalsy();
     expect(services.has('BedrockAgent')).toBeFalsy();
     expect(services.get('BedrockAgentRuntime')).toBeFalsy();
-    expect(services.get('BedrockRuntime')).toBeFalsy();
   });
 
   it('PatchesAwsSdkInstrumentation', () => {

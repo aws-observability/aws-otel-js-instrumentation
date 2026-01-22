@@ -9,6 +9,8 @@ on:
 
 env:
   AWS_DEFAULT_REGION: us-east-1
+  VERSION: ${{ github.event.inputs.version }}
+  IS_PATCH: ${{ github.event.inputs.is_patch }}
 
 permissions:
   id-token: write
@@ -27,8 +29,7 @@ jobs:
 
       - name: Extract Major.Minor Version and setup Env variable
         run: |
-          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-          echo "MAJOR_MINOR=$(echo ${{ github.event.inputs.version }} | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+/\1/')" >> $GITHUB_ENV
+          echo "MAJOR_MINOR=$(echo ${{ env.VERSION }} | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+/\1/')" >> $GITHUB_ENV
 
       - name: Get current major.minor version from main branch
         id: get_version
@@ -85,8 +86,7 @@ jobs:
 
       - name: Extract Major.Minor Version and setup Env variable
         run: |
-          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-          echo "MAJOR_MINOR=$(echo ${{ github.event.inputs.version }} | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+/\1/')" >> $GITHUB_ENV
+          echo "MAJOR_MINOR=$(echo ${{ env.VERSION }} | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+/\1/')" >> $GITHUB_ENV
 
       - name: Determine release branch and checkout
         run: |
@@ -101,13 +101,13 @@ jobs:
 
       - name: Update version to next development version in main
         run: |
-          DEV_VERSION="${{ github.event.inputs.version }}-dev0"
+          DEV_VERSION="${{ env.VERSION }}-dev0"
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" aws-distro-opentelemetry-node-autoinstrumentation/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" docker-utils/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" package.json
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${{ env.VERSION }}"
           npm install
-          sed -i  "s|\(/aws-observability/adot-autoinstrumentation-node:\)v[0-9]\+\.[0-9]\+\.[0-9]\+|\1v${{github.event.inputs.version}}|g" .github/workflows/daily-scan.yml
+          sed -i  "s|\(/aws-observability/adot-autoinstrumentation-node:\)v[0-9]\+\.[0-9]\+\.[0-9]\+|\1v${{ env.VERSION }}|g" .github/workflows/daily-scan.yml
           git add .
           git status
           git commit -m "Prepare main for next development cycle: Update version to $DEV_VERSION"
@@ -117,7 +117,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ env.BOT_TOKEN_GITHUB_RW_PATOKEN }}
         run: |
-          DEV_VERSION="${{ github.event.inputs.version }}-dev0"
+          DEV_VERSION="${{ env.VERSION }}-dev0"
           gh pr create --title "Post release $VERSION: Update version to $DEV_VERSION" \
                        --body "This PR prepares the main branch for the next development cycle by updating the version to $DEV_VERSION and updating the image version to be scanned to the latest released.
           

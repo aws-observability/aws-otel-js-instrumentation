@@ -39,7 +39,6 @@ jobs:
         id: get_version
         run: |
           CURRENT_VERSION=$(jq -r '.version' aws-distro-opentelemetry-node-autoinstrumentation/package.json)
-          ${{ github.event.inputs.is_patch }}
           echo "CURRENT_MAJOR_MINOR_VERSION=$CURRENT_VERSION" >> $GITHUB_ENV
 
       - name: Set major and minor for current version

@@ -57,7 +57,7 @@ jobs:
         uses: ./.github/actions/artifacts_build
         with:
           image_uri_with_tag: "adot-autoinstrumentation-node:test"
-          push_image: false
+          push_image: ${{ github.event.inputs.version }}
           load_image: true
           node_version: "20"
           package_name: aws-distro-opentelemetry-node-autoinstrumentation

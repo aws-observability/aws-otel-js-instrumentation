@@ -44,11 +44,12 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
         with:
           ref: 'main'
-          token: ${{ env.BOT_TOKEN_GITHUB_RW_PATOKEN }}
+          token: ${{ env.BOT_TOKEN_GITHUB_RW_PATOKEN }}${{ github.event.inputs.is_patch }}
 
       - name: Setup Git
         run: |
           git config user.name "github-actions"
+          print ${{ github.event.inputs.is_patch }}
           git config user.email "github-actions@github.com"
 
       - name: Extract Major.Minor Version and setup Env variable

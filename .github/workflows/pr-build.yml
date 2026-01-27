@@ -134,6 +134,7 @@ jobs:
           node_version: ${{ matrix.node }}
           package_name: aws-distro-opentelemetry-node-autoinstrumentation
           os: ubuntu-latest
+          trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
       - name: Build Lambda Layer
         run: npm run build-lambda
       - name: Unit tests (Full)

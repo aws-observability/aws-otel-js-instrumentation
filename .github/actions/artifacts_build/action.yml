@@ -31,6 +31,10 @@ inputs:
   os:
     required: true
     description: "The os"
+  trivyignore-file:
+    required: false
+    default: ''
+    description: "Path to the .trivyignore.yaml file to use for image scan"
 
 runs:
   using: "composite"
@@ -105,3 +109,4 @@ runs:
         image-ref: ${{ inputs.image_uri_with_tag }}
         severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
         logout: 'true'
+        trivyignore-file: ${{ inputs.trivyignore-file }}

@@ -15,7 +15,7 @@ import {
   Span,
   SpanExporter,
 } from '@opentelemetry/sdk-trace-base';
-import { resourceFromAttributes, detectResources, ResourceDetector } from '@opentelemetry/resources';
+import { detectResources, ResourceDetector } from '@opentelemetry/resources';
 import { AwsBatchUnsampledSpanProcessor } from '../src/aws-batch-unsampled-span-processor';
 import { AlwaysRecordSampler } from '../src/always-record-sampler';
 import { AWS_ATTRIBUTE_KEYS } from '../src/aws-attribute-keys';

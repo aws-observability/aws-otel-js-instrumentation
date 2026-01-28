@@ -2,33 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { LoggerProvider } from '@opentelemetry/sdk-logs';
-import { EventLogger, EventLoggerProvider } from '@opentelemetry/sdk-events';
+import { Logger } from '@opentelemetry/api-logs';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { Attributes, SpanContext, SpanKind, TraceFlags } from '@opentelemetry/api';
 import { LLOHandler } from '../src/llo-handler';
 import * as sinon from 'sinon';
 import { resourceFromAttributes } from '@opentelemetry/resources';
-import { EventLoggerOptions } from '@opentelemetry/api-events';
 
 // Class with utilities for LLO Handler tests
 export class LLOHandlerTestBase {
-  public loggerProviderMock: LoggerProvider;
-  public eventLoggerMock: EventLogger;
-  public eventLoggerProviderMock: EventLoggerProvider;
+  public loggerProviderMock: sinon.SinonStubbedInstance<LoggerProvider>;
+  public loggerMock: sinon.SinonStubbedInstance<Logger>;
   public lloHandler: LLOHandler;
 
   constructor() {
     this.loggerProviderMock = sinon.createStubInstance(LoggerProvider);
-    this.lloHandler = new LLOHandler(this.loggerProviderMock);
-    this.eventLoggerProviderMock = sinon.stub(this.lloHandler['eventLoggerProvider']);
-    this.eventLoggerMock = sinon.createStubInstance(EventLogger);
-    this.eventLoggerProviderMock.getEventLogger = (
-      name: string,
-      version?: string | undefined,
-      options?: EventLoggerOptions | undefined
-    ) => {
-      return this.eventLoggerMock;
-    };
+    this.loggerMock = {
+      emit: sinon.stub(),
+    } as unknown as sinon.SinonStubbedInstance<Logger>;
+    this.loggerProviderMock.getLogger.returns(this.loggerMock as unknown as Logger);
+    this.lloHandler = new LLOHandler(this.loggerProviderMock as unknown as LoggerProvider);
   }
 
   public createMockSpan(attributes: Attributes, kind: SpanKind = SpanKind.INTERNAL): ReadableSpan {

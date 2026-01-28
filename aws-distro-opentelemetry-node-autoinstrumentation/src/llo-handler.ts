@@ -3,10 +3,8 @@
 
 import { Attributes, HrTime, ROOT_CONTEXT, createContextKey } from '@opentelemetry/api';
 import { LoggerProvider } from '@opentelemetry/sdk-logs';
-import { EventLoggerProvider } from '@opentelemetry/sdk-events';
-import { Event } from '@opentelemetry/api-events';
 import { ReadableSpan, TimedEvent } from '@opentelemetry/sdk-trace-base';
-import { AnyValue } from '@opentelemetry/api-logs';
+import { AnyValue, SeverityNumber } from '@opentelemetry/api-logs';
 
 const ROLE_SYSTEM = 'system';
 const ROLE_USER = 'user';
@@ -150,7 +148,6 @@ export const LLO_PATTERNS: { [key: string]: PatternConfig } = {
  */
 export class LLOHandler {
   private loggerProvider: LoggerProvider;
-  private eventLoggerProvider: EventLoggerProvider;
   private exactMatchPatterns: Set<string>;
   private regexPatterns: Array<[RegExp, string, PatternConfig]>;
   private patternConfigs: { [key: string]: PatternConfig };
@@ -158,18 +155,12 @@ export class LLOHandler {
   /**
    * Initialize an LLOHandler with the specified logger provider.
    *
-   * This constructor sets up the event logger provider and compiles patterns
-   * from the pattern registry for efficient matching.
+   * This constructor compiles patterns from the pattern registry for efficient matching.
    *
-   * @param loggerProvider The OpenTelemetry LoggerProvider used for emitting events.
+   * @param loggerProvider The OpenTelemetry LoggerProvider used for emitting log records.
    */
   constructor(loggerProvider: LoggerProvider) {
     this.loggerProvider = loggerProvider;
-    // Type assertion needed due to version mismatch between sdk-events (deprecated) and sdk-logs 0.210.0
-    // The EventLoggerProvider expects an older LoggerProvider interface with addLogRecordProcessor method
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.eventLoggerProvider = new EventLoggerProvider(this.loggerProvider as any);
-
     this.exactMatchPatterns = new Set();
     this.regexPatterns = [];
     this.patternConfigs = {};
@@ -378,41 +369,33 @@ export class LLOHandler {
       return;
     }
 
-    // Create and emit the event
+    // Create and emit the log record
+    // This replaces the deprecated @opentelemetry/sdk-events EventLogger pattern
     const timestamp = eventTimestamp || span.endTime;
-    const eventLogger = this.eventLoggerProvider.getEventLogger(span.instrumentationScope.name);
+    const logger = this.loggerProvider.getLogger(span.instrumentationScope.name);
 
-    // Hack - Workaround to add a custom-made Context to an Event so that the emitted event log
-    // has the correct associated traceId, spanId, flag. This is needed because a ReadableSpan only
-    // provides its SpanContext, but does not provide access to its associated Context. We can only
-    // provide a Context to an Event, but not a SpanContext. Here we attach a custom Context that
-    // is associated to the ReadableSpan to mimic the ReadableSpan's actual Context.
-    //
-    // When a log record instance is created from this event, it will use the "custom Context" to
-    // extract the ReadableSpan from the "custom Context", then extract the SpanContext from the
-    // RedableSpan. This way, the emitted log event has the correct SpanContext (traceId, spanId, flag).
-    // - https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/experimental/packages/sdk-logs/src/LogRecord.ts#L101
-    // - https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/api/src/trace/context-utils.ts#L78-L85
-    //
-    // We could omit the context field which is optional, but then the OTel EventLogger will assign
-    // the same `context.active()` and its associated SpanContext to each span from processSpans(),
-    // which would be incorrect since each span should have their own Context with unique SpanContext.
-    // - https://github.com/open-telemetry/opentelemetry-js/blob/experimental/v0.57.1/experimental/packages/sdk-events/src/EventLogger.ts#L34
+    // Workaround to add a custom-made Context to the log record so that it has the correct
+    // associated traceId, spanId, flag. This is needed because a ReadableSpan only provides
+    // its SpanContext, but does not provide access to its associated Context.
+    // When a log record instance is created, it will use this context to extract the SpanContext.
+    // - https://github.com/open-telemetry/opentelemetry-js/blob/main/experimental/packages/sdk-logs/src/LogRecord.ts
     const customContext = ROOT_CONTEXT.setValue(OTEL_SPAN_KEY, span);
-    const event: Event = {
-      name: span.instrumentationScope.name,
-      timestamp: timestamp,
-      data: eventBody,
-      context: customContext,
-    };
 
+    // Build attributes with event.name (following the Event semantic convention)
+    const logAttributes: Attributes = {
+      'event.name': span.instrumentationScope.name,
+    };
     if (span.attributes[SESSION_ID]) {
-      event.attributes = {
-        [SESSION_ID]: span.attributes[SESSION_ID],
-      };
+      logAttributes[SESSION_ID] = span.attributes[SESSION_ID];
     }
 
-    eventLogger.emit(event);
+    logger.emit({
+      timestamp: timestamp,
+      body: eventBody,
+      context: customContext,
+      attributes: logAttributes,
+      severityNumber: SeverityNumber.INFO,
+    });
   }
 
   /**

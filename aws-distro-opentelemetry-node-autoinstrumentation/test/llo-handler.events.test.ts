@@ -4,11 +4,11 @@
 import { LLOHandlerTestBase } from './llo-handler.base.test';
 import { expect } from 'expect';
 import * as sinon from 'sinon';
-import { Event } from '@opentelemetry/api-events';
 import { TimedEvent } from '@opentelemetry/sdk-trace-base';
 import { InstrumentationScope } from '@opentelemetry/core';
 import { OTEL_SPAN_KEY } from '../src/llo-handler';
 import { Attributes, HrTime, trace } from '@opentelemetry/api';
+import { LogRecord } from '@opentelemetry/api-logs';
 
 /**
  * Test event emission and formatting functionality.
@@ -48,17 +48,17 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
 
-    expect(emittedEvent.name).toBe('test.scope');
-    expect(emittedEvent.timestamp).toEqual(span.endTime);
-    expect(emittedEvent.context?.getValue(OTEL_SPAN_KEY)).toBe(span);
-    expect(trace.getSpanContext(emittedEvent.context!)).toBe(span.spanContext());
+    expect(emittedLogRecord.attributes?.['event.name']).toBe('test.scope');
+    expect(emittedLogRecord.timestamp).toEqual(span.endTime);
+    expect(emittedLogRecord.context?.getValue(OTEL_SPAN_KEY)).toBe(span);
+    expect(trace.getSpanContext(emittedLogRecord.context!)).toBe(span.spanContext());
 
-    expect(emittedEvent.data).toBeDefined();
+    expect(emittedLogRecord.body).toBeDefined();
 
-    const eventBody = emittedEvent.data as any;
+    const eventBody = emittedLogRecord.body as any;
     expect(eventBody.input).toBeDefined();
     expect(eventBody.output).toBeDefined();
     expect(eventBody.input.messages).toBeDefined();
@@ -112,13 +112,13 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
 
-    expect(emittedEvent.name).toBe('test.multi.framework');
-    expect(emittedEvent.timestamp).toEqual(span.endTime);
+    expect(emittedLogRecord.attributes?.['event.name']).toBe('test.multi.framework');
+    expect(emittedLogRecord.timestamp).toEqual(span.endTime);
 
-    const eventBody = emittedEvent.data as any;
+    const eventBody = emittedLogRecord.body as any;
     expect(eventBody.input).toBeDefined();
     expect(eventBody.output).toBeDefined();
 
@@ -160,7 +160,7 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
-    sinon.assert.notCalled((testBase.eventLoggerMock as any).emit);
+    sinon.assert.notCalled((testBase.loggerMock as any).emit);
   });
 
   /**
@@ -184,10 +184,10 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
 
-    const eventBody = emittedEvent.data as any;
+    const eventBody = emittedLogRecord.body as any;
     expect(eventBody.input).toBeDefined();
     expect(eventBody.output).toBeDefined();
 
@@ -222,9 +222,9 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes, eventTimestamp);
 
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
-    expect(emittedEvent.timestamp).toEqual(eventTimestamp);
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
+    expect(emittedLogRecord.timestamp).toEqual(eventTimestamp);
   });
 
   /**
@@ -236,7 +236,7 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, null as any);
 
-    sinon.assert.notCalled(testBase.eventLoggerMock.emit as any);
+    sinon.assert.notCalled(testBase.loggerMock.emit as any);
   });
 
   /**
@@ -269,9 +269,9 @@ describe('TestLLOHandlerEvents', () => {
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
     // Verify event was emitted
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
-    const eventBody = emittedEvent.data as any;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
+    const eventBody = emittedLogRecord.body as any;
 
     // Check input messages
     const inputMessages = eventBody.input.messages;
@@ -316,7 +316,7 @@ describe('TestLLOHandlerEvents', () => {
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
     // Should not emit event when no messages collected
-    sinon.assert.notCalled(testBase.eventLoggerMock.emit as any);
+    sinon.assert.notCalled(testBase.loggerMock.emit as any);
 
     collectAllLloMessagesSpy.restore();
   });
@@ -338,9 +338,9 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
-    const eventBody = emittedEvent.data as any;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
+    const eventBody = emittedLogRecord.body as any;
 
     expect(eventBody.input).toBeDefined();
     expect(eventBody).not.toHaveProperty('output');
@@ -365,9 +365,9 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
-    const eventBody = emittedEvent.data as any;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
+    const eventBody = emittedLogRecord.body as any;
 
     expect(eventBody).not.toHaveProperty('input');
     expect(eventBody.output).toBeDefined();
@@ -391,7 +391,7 @@ describe('TestLLOHandlerEvents', () => {
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
     // Event should still be emitted as we have a message (even with empty content)
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
   });
 
   /**
@@ -473,9 +473,9 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
-    const eventBody = emittedEvent.data as any;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
+    const eventBody = emittedLogRecord.body as any;
 
     // Check that llm.prompts is in input section
     expect(eventBody.input).toBeDefined();
@@ -532,9 +532,9 @@ describe('TestLLOHandlerEvents', () => {
     testBase.lloHandler['emitLloAttributes'](span, allLloAttrs);
 
     // Verify single event was emitted with both input and output
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
-    const eventBody = emittedEvent.data as any;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
+    const eventBody = emittedLogRecord.body as any;
 
     // Both input and output should be in the same event
     expect(eventBody.input).toBeDefined();
@@ -569,15 +569,15 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
 
     // Verify session.id was copied to event attributes
-    expect(emittedEvent.attributes).toBeDefined();
-    expect(emittedEvent.attributes?.['session.id']).toBe('test-session-123');
+    expect(emittedLogRecord.attributes).toBeDefined();
+    expect(emittedLogRecord.attributes?.['session.id']).toBe('test-session-123');
 
     // Verify event body still contains LLO data
-    const eventBody = emittedEvent.data as any;
+    const eventBody = emittedLogRecord.body as any;
     expect(eventBody.input).toBeDefined();
     expect(eventBody.output).toBeDefined();
   });
@@ -597,12 +597,13 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
 
-    // Verify session.id is not in event attributes (because the event doesn't have attributes)
-    expect(emittedEvent.attributes).toBeUndefined();
-    expect(emittedEvent).not.toHaveProperty('attributes');
+    // Verify session.id is not in log record attributes
+    expect(emittedLogRecord.attributes).toBeDefined();
+    expect(emittedLogRecord.attributes?.['event.name']).toBe('test.scope');
+    expect(emittedLogRecord.attributes?.['session.id']).toBeUndefined();
   });
 
   /**
@@ -623,16 +624,16 @@ describe('TestLLOHandlerEvents', () => {
 
     testBase.lloHandler['emitLloAttributes'](span, attributes);
 
-    sinon.assert.calledOnce(testBase.eventLoggerMock.emit as any);
-    const emittedEvent = (testBase.eventLoggerMock.emit as any).getCall(0).args[0] as Event;
+    sinon.assert.calledOnce(testBase.loggerMock.emit as any);
+    const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
 
     // Verify only session.id was copied to event attributes (plus event.name from Event class)
-    expect(emittedEvent.attributes).toBeDefined();
-    expect(emittedEvent.attributes?.['session.id']).toBe('session-456');
+    expect(emittedLogRecord.attributes).toBeDefined();
+    expect(emittedLogRecord.attributes?.['session.id']).toBe('session-456');
     // Verify other span attributes were not copied
-    expect(emittedEvent.attributes).not.toHaveProperty('user.id');
-    expect(emittedEvent.attributes).not.toHaveProperty('other.attribute');
-    expect(emittedEvent.attributes).not.toHaveProperty('gen_ai.prompt');
-    expect(emittedEvent.attributes).not.toHaveProperty('gen_ai.completion');
+    expect(emittedLogRecord.attributes).not.toHaveProperty('user.id');
+    expect(emittedLogRecord.attributes).not.toHaveProperty('other.attribute');
+    expect(emittedLogRecord.attributes).not.toHaveProperty('gen_ai.prompt');
+    expect(emittedLogRecord.attributes).not.toHaveProperty('gen_ai.completion');
   });
 });

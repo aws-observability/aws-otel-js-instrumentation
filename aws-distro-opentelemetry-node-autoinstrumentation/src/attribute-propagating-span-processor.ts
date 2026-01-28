@@ -9,14 +9,21 @@ import { SEMRESATTRS_FAAS_ID } from '@opentelemetry/semantic-conventions';
 
 // Type guard to check if a span is a ReadableSpan (SDK span)
 // In OTel 2.x, Span class is no longer exported as a value, so we use duck typing
+// See ReadableSpan interface: https://github.com/open-telemetry/opentelemetry-js/blob/main/packages/opentelemetry-sdk-trace-base/src/export/ReadableSpan.ts
 function isReadableSpan(span: APISpan): span is Span {
   return (
     'name' in span &&
+    typeof span.name === 'string' &&
     'kind' in span &&
+    typeof span.kind === 'number' &&
     'attributes' in span &&
+    typeof span.attributes === 'object' &&
     'status' in span &&
+    typeof span.status === 'object' &&
     'startTime' in span &&
-    'endTime' in span
+    Array.isArray(span.startTime) &&
+    'endTime' in span &&
+    Array.isArray(span.endTime)
   );
 }
 

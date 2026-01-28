@@ -700,6 +700,7 @@ export class AwsSpanProcessorProvider {
     }
   }
 
+  // Aligned with upstream: https://github.com/open-telemetry/opentelemetry-js/blob/main/experimental/packages/opentelemetry-sdk-node/src/utils.ts
   static getOtlpProtocol(): string {
     return (
       getStringFromEnv('OTEL_EXPORTER_OTLP_TRACES_PROTOCOL') ??
@@ -733,9 +734,10 @@ export class AwsSpanProcessorProvider {
   public constructor(resource: Resource) {
     this.resource = resource;
 
-    // eslint-disable-next-line @typescript-eslint/typedef
-    const traceExportersEnv = getStringFromEnv('OTEL_TRACES_EXPORTER') ?? 'otlp';
-    let traceExportersList = this.filterBlanksAndNulls(Array.from(new Set(traceExportersEnv.split(','))));
+    // Aligned with upstream: https://github.com/open-telemetry/opentelemetry-js/blob/main/experimental/packages/opentelemetry-sdk-node/src/utils.ts
+    let traceExportersList = this.filterBlanksAndNulls(
+      Array.from(new Set(getStringListFromEnv('OTEL_TRACES_EXPORTER') ?? []))
+    );
 
     if (traceExportersList[0] === 'none') {
       diag.warn('OTEL_TRACES_EXPORTER contains "none". SDK will not be initialized.');
@@ -821,8 +823,8 @@ export class AwsSpanProcessorProvider {
 // would also have the (private+readonly) sampler from the `buildSamplerFromEnv()` method.
 // https://github.com/open-telemetry/opentelemetry-js/blob/01cea7caeb130142cc017f77ea74834a35d0e8d6/packages/opentelemetry-sdk-trace-base/src/Tracer.ts#L36-L53
 
-// Sampler values - these were previously exported as TracesSamplerValues from @opentelemetry/core
-// but were removed in OTel 2.x. Defining them locally for compatibility.
+// Sampler values copied from upstream (const enum, not importable at runtime):
+// https://github.com/open-telemetry/opentelemetry-js/blob/main/packages/opentelemetry-sdk-trace-base/src/config.ts
 const SamplerValues = {
   AlwaysOn: 'always_on',
   AlwaysOff: 'always_off',

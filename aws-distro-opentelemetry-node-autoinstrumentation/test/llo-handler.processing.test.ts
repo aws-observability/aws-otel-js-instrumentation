@@ -6,7 +6,7 @@ import { TimedEvent } from '@opentelemetry/sdk-trace-base';
 import expect from 'expect';
 import * as sinon from 'sinon';
 import { LLOHandlerTestBase } from './llo-handler.base.test';
-import { InstrumentationLibrary } from '@opentelemetry/core';
+import type { InstrumentationScope } from '@opentelemetry/core';
 
 /**
  * Test span processing and attribute filtering functionality.
@@ -136,7 +136,7 @@ describe('TestLLOHandlerProcessing', () => {
 
     const span = testBase.createMockSpan({});
     testBase.updateMockSpanKey<TimedEvent[]>(span, 'events', [event]);
-    testBase.updateMockSpanKey<InstrumentationLibrary>(span, 'instrumentationLibrary', {
+    testBase.updateMockSpanKey<InstrumentationScope>(span, 'instrumentationScope', {
       name: 'test.scope',
       version: '1.0.0',
     });
@@ -207,7 +207,7 @@ describe('TestLLOHandlerProcessing', () => {
 
     const span = testBase.createMockSpan(spanAttributes);
     testBase.updateMockSpanKey<TimedEvent[]>(span, 'events', [event]);
-    testBase.updateMockSpanKey<InstrumentationLibrary>(span, 'instrumentationLibrary', {
+    testBase.updateMockSpanKey<InstrumentationScope>(span, 'instrumentationScope', {
       name: 'openlit.otel.tracing',
       version: '1.0.0',
     });
@@ -259,7 +259,7 @@ describe('TestLLOHandlerProcessing', () => {
 
     const span = testBase.createMockSpan(spanAttributes);
     testBase.updateMockSpanKey<TimedEvent[]>(span, 'events', [event1, event2]);
-    testBase.updateMockSpanKey<InstrumentationLibrary>(span, 'instrumentationLibrary', {
+    testBase.updateMockSpanKey<InstrumentationScope>(span, 'instrumentationScope', {
       name: 'openlit.otel.tracing',
       version: '1.0.0',
     });

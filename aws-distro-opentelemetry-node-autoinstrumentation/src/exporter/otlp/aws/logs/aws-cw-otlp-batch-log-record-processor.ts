@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-import { LogRecord, BufferConfig, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
+import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
+import type { SdkLogRecord, BufferConfig } from '@opentelemetry/sdk-logs';
 import { AnyValue } from '@opentelemetry/api-logs';
 import { callWithTimeout } from '@opentelemetry/core';
 import { OTLPAwsLogExporter } from './otlp-aws-log-exporter';
@@ -82,8 +83,8 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
       return Promise.resolve();
     }
 
-    const logsToExport: LogRecord[] = this['_finishedLogRecords'].splice(0, this['_maxExportBatchSize']);
-    let batch: LogRecord[] = [];
+    const logsToExport: SdkLogRecord[] = this['_finishedLogRecords'].splice(0, this['_maxExportBatchSize']);
+    let batch: SdkLogRecord[] = [];
     let batchDataSize = 0;
     const exportPromises: Promise<void>[] = [];
 
@@ -143,7 +144,7 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
    * @param depth - Maximum depth to traverse in nested structures (default: 3)
    * @returns The estimated size of the log object in bytes
    */
-  private static estimateLogSize(log: LogRecord, maxDepth: number = 3): number {
+  private static estimateLogSize(log: SdkLogRecord, maxDepth: number = 3): number {
     // Queue contains tuples of [log_content, depth] where:
     // - log_content is the current piece of log data being processed
     // - depth tracks how many levels deep we've traversed to reach this content

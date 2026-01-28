@@ -16,8 +16,9 @@ import {
   createTraceState,
   trace,
 } from '@opentelemetry/api';
-import { ReadableSpan, Tracer } from '@opentelemetry/sdk-trace-base';
+import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import type { Tracer } from '@opentelemetry/api';
 import {
   MESSAGINGOPERATIONVALUES_PROCESS,
   SEMATTRS_MESSAGING_OPERATION,
@@ -45,10 +46,9 @@ const SPAN_KINDS: SpanKind[] = [
 
 describe('AttributePropagatingSpanProcessorTest', () => {
   beforeEach(() => {
-    const tracerProvider: NodeTracerProvider = new NodeTracerProvider();
-    tracerProvider.addSpanProcessor(
-      AttributePropagatingSpanProcessor.create(spanNameExtractor, spanNameKey, [testKey1, testKey2])
-    );
+    const tracerProvider: NodeTracerProvider = new NodeTracerProvider({
+      spanProcessors: [AttributePropagatingSpanProcessor.create(spanNameExtractor, spanNameKey, [testKey1, testKey2])],
+    });
     tracer = tracerProvider.getTracer('awsxray');
   });
 

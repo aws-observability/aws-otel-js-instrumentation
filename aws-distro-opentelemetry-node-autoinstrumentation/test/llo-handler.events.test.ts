@@ -51,7 +51,7 @@ describe('TestLLOHandlerEvents', () => {
     sinon.assert.calledOnce(testBase.loggerMock.emit as any);
     const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
 
-    expect(emittedLogRecord.attributes?.['event.name']).toBe('test.scope');
+    expect(emittedLogRecord.eventName).toBe('test.scope');
     expect(emittedLogRecord.timestamp).toEqual(span.endTime);
     expect(emittedLogRecord.context?.getValue(OTEL_SPAN_KEY)).toBe(span);
     expect(trace.getSpanContext(emittedLogRecord.context!)).toBe(span.spanContext());
@@ -115,7 +115,7 @@ describe('TestLLOHandlerEvents', () => {
     sinon.assert.calledOnce(testBase.loggerMock.emit as any);
     const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
 
-    expect(emittedLogRecord.attributes?.['event.name']).toBe('test.multi.framework');
+    expect(emittedLogRecord.eventName).toBe('test.multi.framework');
     expect(emittedLogRecord.timestamp).toEqual(span.endTime);
 
     const eventBody = emittedLogRecord.body as any;
@@ -600,10 +600,9 @@ describe('TestLLOHandlerEvents', () => {
     sinon.assert.calledOnce(testBase.loggerMock.emit as any);
     const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
 
-    // Verify session.id is not in log record attributes
-    expect(emittedLogRecord.attributes).toBeDefined();
-    expect(emittedLogRecord.attributes?.['event.name']).toBe('test.scope');
-    expect(emittedLogRecord.attributes?.['session.id']).toBeUndefined();
+    // Verify eventName is set and no attributes (since no session.id)
+    expect(emittedLogRecord.eventName).toBe('test.scope');
+    expect(emittedLogRecord.attributes).toBeUndefined();
   });
 
   /**
@@ -627,7 +626,8 @@ describe('TestLLOHandlerEvents', () => {
     sinon.assert.calledOnce(testBase.loggerMock.emit as any);
     const emittedLogRecord = (testBase.loggerMock.emit as any).getCall(0).args[0] as LogRecord;
 
-    // Verify only session.id was copied to event attributes (plus event.name from Event class)
+    // Verify eventName is set and only session.id was copied to event attributes
+    expect(emittedLogRecord.eventName).toBe('test.scope');
     expect(emittedLogRecord.attributes).toBeDefined();
     expect(emittedLogRecord.attributes?.['session.id']).toBe('session-456');
     // Verify other span attributes were not copied

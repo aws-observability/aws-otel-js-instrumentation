@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { AttributeValue, Context, SpanContext, SpanKind, diag, isSpanContextValid, trace } from '@opentelemetry/api';
-import { InstrumentationLibrary } from '@opentelemetry/core';
-import { ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
+import type { InstrumentationScope } from '@opentelemetry/core';
+import type { ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
 
 import {
   MessagingOperationValues,
@@ -185,13 +185,13 @@ export class AwsSpanProcessingUtil {
     const spanKind: SpanKind = spanData.kind;
     const messagingOperation: AttributeValue | undefined = spanData.attributes[SEMATTRS_MESSAGING_OPERATION];
 
-    const instrumentationLibrary: InstrumentationLibrary = spanData.instrumentationLibrary;
+    const instrumentationScope: InstrumentationScope | undefined = spanData.instrumentationScope;
 
     return (
       AwsSpanProcessingUtil.SQS_RECEIVE_MESSAGE_SPAN_NAME.toLowerCase() === spanName.toLowerCase() &&
       SpanKind.CONSUMER === spanKind &&
-      instrumentationLibrary != null &&
-      instrumentationLibrary.name.startsWith(AwsSpanProcessingUtil.AWS_SDK_INSTRUMENTATION_SCOPE_PREFIX) &&
+      instrumentationScope != null &&
+      instrumentationScope.name.startsWith(AwsSpanProcessingUtil.AWS_SDK_INSTRUMENTATION_SCOPE_PREFIX) &&
       (messagingOperation === undefined || messagingOperation === MessagingOperationValues.PROCESS)
     );
   }
@@ -280,7 +280,8 @@ export class AwsSpanProcessingUtil {
     const isParentSpanContextValid: boolean = parentSpanContext !== undefined && isSpanContextValid(parentSpanContext);
     const isParentSpanRemote: boolean = parentSpanContext !== undefined && parentSpanContext.isRemote === true;
 
-    const isLocalRoot: boolean = span.parentSpanId === undefined || !isParentSpanContextValid || isParentSpanRemote;
+    const isLocalRoot: boolean =
+      span.parentSpanContext?.spanId === undefined || !isParentSpanContextValid || isParentSpanRemote;
     span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_IS_LOCAL_ROOT, isLocalRoot);
   }
 

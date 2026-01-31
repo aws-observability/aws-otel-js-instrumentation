@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Attributes } from '@opentelemetry/api/build/src/common/Attributes';
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes, emptyResource } from '@opentelemetry/resources';
 import {
   SEMATTRS_AWS_LAMBDA_INVOKED_ARN,
   SEMATTRS_HTTP_HOST,
@@ -26,7 +26,7 @@ describe('SamplingRuleApplier', () => {
     const defaultRule: SamplingRule = allRules[0]['SamplingRule'];
     const samplingRuleApplier = new SamplingRuleApplier(defaultRule);
 
-    const resource = new Resource({
+    const resource = resourceFromAttributes({
       [SEMRESATTRS_SERVICE_NAME]: 'test_service_name',
       [SEMRESATTRS_CLOUD_PLATFORM]: 'test_cloud_platform',
     });
@@ -72,7 +72,7 @@ describe('SamplingRuleApplier', () => {
       ['ghi']: '789',
     };
 
-    const resource = new Resource({
+    const resource = resourceFromAttributes({
       [SEMRESATTRS_SERVICE_NAME]: 'myServiceName',
       [SEMRESATTRS_CLOUD_PLATFORM]: 'aws_lambda',
     });
@@ -124,7 +124,7 @@ describe('SamplingRuleApplier', () => {
       attr9: 'Bye.World',
     };
 
-    expect(ruleApplier.matches(attributes, Resource.EMPTY)).toEqual(true);
+    expect(ruleApplier.matches(attributes, emptyResource())).toEqual(true);
   });
 
   it('testApplierWildCardAttributesMatchesHttpSpanAttributes', () => {
@@ -152,7 +152,7 @@ describe('SamplingRuleApplier', () => {
       [SEMATTRS_HTTP_URL]: 'http://127.0.0.1:5000/helloworld',
     };
 
-    expect(ruleApplier.matches(attributes, Resource.EMPTY)).toEqual(true);
+    expect(ruleApplier.matches(attributes, emptyResource())).toEqual(true);
   });
 
   it('testApplierWildCardAttributesMatchesWithEmptyAttributes', () => {
@@ -175,17 +175,17 @@ describe('SamplingRuleApplier', () => {
     );
 
     const attributes: Attributes = {};
-    const resource = new Resource({
+    const resource = resourceFromAttributes({
       [SEMRESATTRS_SERVICE_NAME]: 'myServiceName',
       [SEMRESATTRS_CLOUD_PLATFORM]: 'aws_ec2',
     });
 
     expect(ruleApplier.matches(attributes, resource)).toEqual(true);
     expect(ruleApplier.matches({}, resource)).toEqual(true);
-    expect(ruleApplier.matches(attributes, Resource.EMPTY)).toEqual(true);
-    expect(ruleApplier.matches({}, Resource.EMPTY)).toEqual(true);
-    expect(ruleApplier.matches(attributes, new Resource({}))).toEqual(true);
-    expect(ruleApplier.matches({}, new Resource({}))).toEqual(true);
+    expect(ruleApplier.matches(attributes, emptyResource())).toEqual(true);
+    expect(ruleApplier.matches({}, emptyResource())).toEqual(true);
+    expect(ruleApplier.matches(attributes, resourceFromAttributes({}))).toEqual(true);
+    expect(ruleApplier.matches({}, resourceFromAttributes({}))).toEqual(true);
   });
 
   it('testApplierMatchesWithHttpUrlWithHttpTargetUndefined', () => {
@@ -210,10 +210,10 @@ describe('SamplingRuleApplier', () => {
     const attributes: Attributes = {
       [SEMATTRS_HTTP_URL]: 'https://somerandomurl.com/somerandompath',
     };
-    const resource = new Resource({});
+    const resource = resourceFromAttributes({});
 
     expect(ruleApplier.matches(attributes, resource)).toEqual(true);
-    expect(ruleApplier.matches(attributes, Resource.EMPTY)).toEqual(true);
-    expect(ruleApplier.matches(attributes, new Resource({}))).toEqual(true);
+    expect(ruleApplier.matches(attributes, emptyResource())).toEqual(true);
+    expect(ruleApplier.matches(attributes, resourceFromAttributes({}))).toEqual(true);
   });
 });

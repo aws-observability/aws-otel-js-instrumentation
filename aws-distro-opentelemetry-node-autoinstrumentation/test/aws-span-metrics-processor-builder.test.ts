@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Resource } from '@opentelemetry/resources';
+import { emptyResource } from '@opentelemetry/resources';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 import expect from 'expect';
 import * as sinon from 'sinon';
@@ -17,7 +17,7 @@ describe('AwsSpanMetricsProcessorBuilderTest', () => {
     const meterProvider: MeterProvider = new MeterProvider({});
     const builder: AwsSpanMetricsProcessorBuilder = AwsSpanMetricsProcessorBuilder.create(
       meterProvider,
-      sinon.createStubInstance(Resource),
+      emptyResource(),
       meterProvider.forceFlush
     );
     const generatorMock: MetricAttributeGenerator = sinon.createStubInstance(AwsMetricAttributeGenerator);

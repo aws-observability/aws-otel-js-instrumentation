@@ -209,9 +209,10 @@ export abstract class OTLPAwsBaseExporterTest {
   private testUndefinedHeaders(done: () => void) {
     const exporterClass = this.getExporter();
     const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
+    // OTel 2.x expects headers to be an async function - use resolves() instead of returns()
     exporter.parentExporter['_delegate']._transport._transport._parameters.headers = this.sandbox
       .stub()
-      .returns(undefined);
+      .resolves(undefined);
 
     exporter.export([], (result: ExportResult) => {
       expect(result.code).toBe(ExportResultCode.FAILED);

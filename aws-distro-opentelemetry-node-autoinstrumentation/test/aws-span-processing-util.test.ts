@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Attributes, SpanContext, SpanKind } from '@opentelemetry/api';
-import { InstrumentationLibrary } from '@opentelemetry/core';
-import { Resource } from '@opentelemetry/resources';
+import type { InstrumentationScope } from '@opentelemetry/core';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
   MESSAGINGOPERATIONVALUES_PROCESS,
@@ -46,8 +46,8 @@ describe('AwsSpanProcessingUtilTest', () => {
       events: [],
       duration: [0, 1],
       ended: true,
-      resource: new Resource({}),
-      instrumentationLibrary: { name: 'mockedLibrary' },
+      resource: resourceFromAttributes({}),
+      instrumentationScope: { name: 'mockedLibrary' },
       droppedAttributesCount: 0,
       droppedEventsCount: 0,
       droppedLinksCount: 0,
@@ -308,10 +308,10 @@ describe('AwsSpanProcessingUtilTest', () => {
 
   // check that AWS SDK SQS ReceiveMessage consumer spans metrics are suppressed
   it('testNoMetricAttributesForSqsConsumerSpanAwsSdk', () => {
-    const instrumentationLibrary: InstrumentationLibrary = {
+    const instrumentationScope: InstrumentationScope = {
       name: '@opentelemetry/instrumentation-aws-sdk',
     };
-    (spanDataMock as any).instrumentationLibrary = instrumentationLibrary;
+    (spanDataMock as any).instrumentationScope = instrumentationScope;
     (spanDataMock as any).kind = SpanKind.CONSUMER;
     (spanDataMock as any).name = 'SQS.ReceiveMessage';
 
@@ -322,10 +322,10 @@ describe('AwsSpanProcessingUtilTest', () => {
   // check that SQS ReceiveMessage consumer spans metrics are still generated for other
   // instrumentation
   it('testMetricAttributesGeneratedForOtherInstrumentationSqsConsumerSpan', () => {
-    const instrumentationLibrary: InstrumentationLibrary = {
+    const instrumentationScope: InstrumentationScope = {
       name: 'my-instrumentationy',
     };
-    (spanDataMock as any).instrumentationLibrary = instrumentationLibrary;
+    (spanDataMock as any).instrumentationScope = instrumentationScope;
     (spanDataMock as any).kind = SpanKind.CONSUMER;
     (spanDataMock as any).name = 'Sqs.ReceiveMessage';
 
@@ -336,10 +336,10 @@ describe('AwsSpanProcessingUtilTest', () => {
   // check that SQS ReceiveMessage consumer span metrics are suppressed if messaging operation is
   // process and not receive
   it('testNoMetricAttributesForAwsSdkSqsConsumerProcessSpan', () => {
-    const instrumentationLibrary: InstrumentationLibrary = {
+    const instrumentationScope: InstrumentationScope = {
       name: '@opentelemetry/instrumentation-aws-sdk',
     };
-    (spanDataMock as any).instrumentationLibrary = instrumentationLibrary;
+    (spanDataMock as any).instrumentationScope = instrumentationScope;
     (spanDataMock as any).kind = SpanKind.CONSUMER;
     (spanDataMock as any).name = 'Sqs.ReceiveMessage';
     attributesMock[SEMATTRS_MESSAGING_OPERATION] = MESSAGINGOPERATIONVALUES_PROCESS;

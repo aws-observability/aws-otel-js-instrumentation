@@ -381,20 +381,24 @@ export class LLOHandler {
     // - https://github.com/open-telemetry/opentelemetry-js/blob/main/experimental/packages/sdk-logs/src/LogRecord.ts
     const customContext = ROOT_CONTEXT.setValue(OTEL_SPAN_KEY, span);
 
-    // Build attributes (session ID if present)
-    const logAttributes: Attributes = {};
+    // Build attributes with event.name (for backwards compatibility with EventLogger behavior)
+    // and session ID if present
+    const logAttributes: Attributes = {
+      'event.name': span.instrumentationScope.name,
+    };
     if (span.attributes[SESSION_ID]) {
       logAttributes[SESSION_ID] = span.attributes[SESSION_ID];
     }
 
     // Use eventName field to set the event name (aligns with Python LLO handler's use of 'name')
+    // Also keep event.name in attributes for backwards compatibility with EventLogger
     // See: https://github.com/aws-observability/aws-otel-python-instrumentation/blob/main/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/llo_handler.py#L534
     logger.emit({
       eventName: span.instrumentationScope.name,
       timestamp: timestamp,
       body: eventBody,
       context: customContext,
-      attributes: Object.keys(logAttributes).length > 0 ? logAttributes : undefined,
+      attributes: logAttributes,
       severityNumber: SeverityNumber.INFO,
     });
   }

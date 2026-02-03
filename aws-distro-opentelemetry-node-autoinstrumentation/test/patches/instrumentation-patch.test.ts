@@ -38,7 +38,7 @@ import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propa
 import { Context } from 'aws-lambda';
 import { Lambda } from '@aws-sdk/client-lambda';
 import * as nock from 'nock';
-import { ReadableSpan, Span as SDKSpan } from '@opentelemetry/sdk-trace-base';
+import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { getTestSpans } from '@opentelemetry/contrib-test-utils';
 import { instrumentationConfigs } from '../../src/register';
 import { LoggerProvider } from '@opentelemetry/api-logs';
@@ -94,9 +94,10 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('DynamoDB')).toBeTruthy();
     expect(services.has('S3')).toBeTruthy();
     expect(services.has('Kinesis')).toBeTruthy();
-    // From patching but shouldn't be applied
-    expect(services.get('SecretsManager')).toBeFalsy();
-    expect(services.get('SFN')).toBeFalsy();
+    // SecretsManager and SFN are now in upstream (starting from instrumentation-aws-sdk 0.51.0+)
+    // These checks verify they exist but we still apply our patches for enhanced functionality
+    expect(services.has('SecretsManager')).toBeTruthy();
+    expect(services.has('SFN')).toBeTruthy();
     expect(services.get('SNS')._requestPreSpanHook).toBeFalsy();
     expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Lambda')._requestPreSpanHook).toBeFalsy();
@@ -105,10 +106,13 @@ describe('InstrumentationPatchTest', () => {
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Kinesis')._requestPreSpanHook).toBeFalsy();
     expect(services.get('Kinesis').requestPreSpanHook).toBeTruthy();
+    // BedrockRuntime is now in upstream (starting from instrumentation-aws-sdk 0.65.0+)
+    // with GenAI metrics instrumentation. Our patches still provide enhanced functionality.
+    expect(services.get('BedrockRuntime')).toBeTruthy();
+    // Bedrock, BedrockAgent, BedrockAgentRuntime are added via our patches
     expect(services.has('Bedrock')).toBeFalsy();
     expect(services.has('BedrockAgent')).toBeFalsy();
     expect(services.get('BedrockAgentRuntime')).toBeFalsy();
-    expect(services.get('BedrockRuntime')).toBeFalsy();
   });
 
   it('PatchesAwsSdkInstrumentation', () => {
@@ -163,8 +167,9 @@ describe('InstrumentationPatchTest', () => {
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
     expect(() => doExtractSNSAttributes(services)).not.toThrow();
 
+    // SNS topic ARN is now extracted by upstream instrumentation-aws-sdk (0.51.0+)
     const snsAttributes = doExtractSNSAttributes(services);
-    expect(snsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]).toBeUndefined();
+    expect(snsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]).toBeDefined();
   });
 
   it('Lambda without patching', () => {
@@ -179,15 +184,17 @@ describe('InstrumentationPatchTest', () => {
   });
 
   it('SFN without patching', () => {
+    // SFN service extension is now in upstream instrumentation-aws-sdk (0.51.0+)
     const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
-    expect(() => doExtractSFNAttributes(services)).toThrow();
+    expect(() => doExtractSFNAttributes(services)).not.toThrow();
   });
 
   it('SecretsManager without patching', () => {
+    // SecretsManager service extension is now in upstream instrumentation-aws-sdk (0.51.0+)
     const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
-    expect(() => doExtractSecretsManagerAttributes(services)).toThrow();
+    expect(() => doExtractSecretsManagerAttributes(services)).not.toThrow();
   });
 
   it('Bedrock without patching', () => {
@@ -712,11 +719,26 @@ describe('InstrumentationPatchTest', () => {
           return this;
         };
 
-        const mockSpan = sinon.createStubInstance(SDKSpan);
-        const ctx = trace.setSpan(NoOpContext, mockSpan as unknown as Span);
+        // Create a mock Span object since Span is no longer exported as a value in OTel 2.x
+        const mockSpan = {
+          setAttribute: sinon.stub(),
+          setAttributes: sinon.stub(),
+          addEvent: sinon.stub(),
+          addLink: sinon.stub(),
+          addLinks: sinon.stub(),
+          setStatus: sinon.stub(),
+          updateName: sinon.stub(),
+          end: sinon.stub(),
+          isRecording: sinon.stub().returns(true),
+          recordException: sinon.stub(),
+          spanContext: sinon
+            .stub()
+            .returns({ traceId: '00000000000000000000000000000001', spanId: '0000000000000001', traceFlags: 0 }),
+        } as unknown as Span;
+        const ctx = trace.setSpan(NoOpContext, mockSpan);
 
         sinon.stub(otelContext, 'active').returns(ctx);
-        sinon.stub(trace, 'getSpan').returns(mockSpan as unknown as Span);
+        sinon.stub(trace, 'getSpan').returns(mockSpan);
 
         const middlewareStack: any[] = [];
         const recursiveSdkSend = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
@@ -742,7 +764,10 @@ describe('InstrumentationPatchTest', () => {
 
         expect(credentialsProviderCallCount).toBe(0);
         expect(
-          mockSpan.setAttribute.calledWith(AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY, 'test-access-key')
+          (mockSpan.setAttribute as sinon.SinonStub).calledWith(
+            AWS_ATTRIBUTE_KEYS.AWS_AUTH_ACCOUNT_ACCESS_KEY,
+            'test-access-key'
+          )
         ).toBeFalsy();
       });
     });
@@ -838,7 +863,22 @@ describe('InstrumentationPatchTest', () => {
 
     it('Tests patched AwsLambdaInstrumentation method with error', done => {
       const awsLambdaInstrumentation = extractAwsLambdaInstrumentation(PATCHED_INSTRUMENTATIONS);
-      const mockSpan: Span = sinon.createStubInstance(SDKSpan);
+      // Create a mock Span object since Span is no longer exported as a value in OTel 2.x
+      const mockSpan: Span = {
+        setAttribute: sinon.stub(),
+        setAttributes: sinon.stub(),
+        addEvent: sinon.stub(),
+        addLink: sinon.stub(),
+        addLinks: sinon.stub(),
+        setStatus: sinon.stub(),
+        updateName: sinon.stub(),
+        end: sinon.stub(),
+        isRecording: sinon.stub().returns(true),
+        recordException: sinon.stub(),
+        spanContext: sinon
+          .stub()
+          .returns({ traceId: '00000000000000000000000000000001', spanId: '0000000000000001', traceFlags: 0 }),
+      } as unknown as Span;
       awsLambdaInstrumentation['_endSpan'](mockSpan, 'SomeError', () => {
         expect((mockSpan.recordException as any).getCall(0).args[0]).toEqual('SomeError');
         expect((mockSpan.setStatus as any).getCall(0).args[0]).toEqual({
@@ -923,7 +963,22 @@ describe('InstrumentationPatchTest', () => {
     });
 
     it('Tests _endSpan with all flushers', done => {
-      const mockSpan: Span = sinon.createStubInstance(SDKSpan);
+      // Create a mock Span object since Span is no longer exported as a value in OTel 2.x
+      const mockSpan: Span = {
+        setAttribute: sinon.stub(),
+        setAttributes: sinon.stub(),
+        addEvent: sinon.stub(),
+        addLink: sinon.stub(),
+        addLinks: sinon.stub(),
+        setStatus: sinon.stub(),
+        updateName: sinon.stub(),
+        end: sinon.stub(),
+        isRecording: sinon.stub().returns(true),
+        recordException: sinon.stub(),
+        spanContext: sinon
+          .stub()
+          .returns({ traceId: '00000000000000000000000000000001', spanId: '0000000000000001', traceFlags: 0 }),
+      } as unknown as Span;
 
       // Setup mock flushers
       const mockTraceFlush = sinon.stub().resolves();
@@ -943,7 +998,22 @@ describe('InstrumentationPatchTest', () => {
     });
 
     it('Tests _endSpan handles missing flushers gracefully', done => {
-      const mockSpan: Span = sinon.createStubInstance(SDKSpan);
+      // Create a mock Span object since Span is no longer exported as a value in OTel 2.x
+      const mockSpan: Span = {
+        setAttribute: sinon.stub(),
+        setAttributes: sinon.stub(),
+        addEvent: sinon.stub(),
+        addLink: sinon.stub(),
+        addLinks: sinon.stub(),
+        setStatus: sinon.stub(),
+        updateName: sinon.stub(),
+        end: sinon.stub(),
+        isRecording: sinon.stub().returns(true),
+        recordException: sinon.stub(),
+        spanContext: sinon
+          .stub()
+          .returns({ traceId: '00000000000000000000000000000001', spanId: '0000000000000001', traceFlags: 0 }),
+      } as unknown as Span;
       const mockDiag = sinon.spy(diag, 'debug');
       const mockDiagError = sinon.spy(diag, 'error');
 
@@ -1001,9 +1071,6 @@ describe('customExtractor', () => {
   const MOCK_W3C_TRACE_STATE_VALUE = 'test_value';
   const MOCK_TRACE_STATE = `${MOCK_W3C_TRACE_STATE_KEY}=${MOCK_W3C_TRACE_STATE_VALUE},foo=1,bar=2`;
 
-  let awsPropagatorSpy: sinon.SinonSpy;
-  let traceGetSpanSpy: sinon.SinonSpy;
-
   before(() => {
     process.env.OTEL_PROPAGATORS = 'baggage,xray,tracecontext';
     propagation.setGlobalPropagator(getPropagator());
@@ -1035,18 +1102,17 @@ describe('customExtractor', () => {
     };
 
     sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
-    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
-    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
 
     // Call the customExtractor function
-    const event = { headers: {} };
+    const event = { headers: {} as Record<string, string> };
     const result = customExtractor(event, mockHandlerContext);
 
-    // Assertions
-    expect(awsPropagatorSpy.calledOnce).toBe(true);
-    expect(awsPropagatorSpy.calledWith(sinon.match.any, event.headers, sinon.match.any)).toBe(true);
-    expect(traceGetSpanSpy.calledOnce).toBe(true);
-    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the parent context when valid
+    // Assertions - verify the actual behavior (context extraction works correctly)
+    // Note: In OTel 2.x, the composite propagator may call individual propagators differently,
+    // so we focus on verifying the extracted context rather than spying on internal methods
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext);
+    // Verify the X-Ray header was injected into the event headers
+    expect(event.headers[AWSXRAY_TRACE_ID_HEADER]).toBe(mockLambdaTraceHeader);
   });
 
   it('should prioritize extract context from handler context xRayTraceId property instead of environment variable', () => {
@@ -1059,7 +1125,7 @@ describe('customExtractor', () => {
       xRayTraceId: mockLambdaContextTraceHeader,
     } as unknown as Context;
 
-    // Mock of the Span Context for validation
+    // Mock of the Span Context for validation - should use handler context (trace 1), not env var (trace 0)
     const mockParentSpanContext: api.SpanContext = {
       isRemote: true,
       traceFlags: 0,
@@ -1068,18 +1134,15 @@ describe('customExtractor', () => {
     };
 
     sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
-    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
-    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
 
     // Call the customExtractor function
-    const event = { headers: {} };
+    const event = { headers: {} as Record<string, string> };
     const result = customExtractor(event, mockHandlerContext);
 
-    // Assertions
-    expect(awsPropagatorSpy.calledOnce).toBe(true);
-    expect(awsPropagatorSpy.calledWith(sinon.match.any, event.headers, sinon.match.any)).toBe(true);
-    expect(traceGetSpanSpy.calledOnce).toBe(true);
-    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the parent context when valid
+    // Assertions - verify the actual behavior (handler context is prioritized over env var)
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext);
+    // Verify the handler context header (not env var) was injected
+    expect(event.headers[AWSXRAY_TRACE_ID_HEADER]).toBe(mockLambdaContextTraceHeader);
   });
 
   it('should fallback to environment variable when handler context xRayTraceId is not available', () => {
@@ -1095,18 +1158,15 @@ describe('customExtractor', () => {
     };
 
     sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
-    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
-    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
 
     // Call the customExtractor function with handler context without xRayTraceId
-    const event = { headers: {} };
+    const event = { headers: {} as Record<string, string> };
     const result = customExtractor(event, {} as Context);
 
-    // Assertions
-    expect(awsPropagatorSpy.calledOnce).toBe(true);
-    expect(awsPropagatorSpy.calledWith(sinon.match.any, event.headers, sinon.match.any)).toBe(true);
-    expect(traceGetSpanSpy.calledOnce).toBe(true);
-    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the parent context when valid
+    // Assertions - verify the actual behavior (fallback to env var works)
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext);
+    // Verify the env var header was injected
+    expect(event.headers[AWSXRAY_TRACE_ID_HEADER]).toBe(mockLambdaTraceHeader);
   });
 
   it('should handle undefined handler context and fallback to environment variable', () => {
@@ -1122,16 +1182,15 @@ describe('customExtractor', () => {
     };
 
     sinon.stub(otelContext, 'active').returns(ROOT_CONTEXT);
-    awsPropagatorSpy = sinon.spy(AWSXRayPropagator.prototype, 'extract');
-    traceGetSpanSpy = sinon.spy(trace, 'getSpan');
 
     // Call the customExtractor function with undefined handler context
-    const event = { headers: {} };
+    const event = { headers: {} as Record<string, string> };
     const result = customExtractor(event, undefined as any);
 
-    // Should only be called once (for environment variable)
-    expect(awsPropagatorSpy.calledOnce).toBe(true);
-    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext); // Should return the valid parent context
+    // Verify the context was properly extracted from the environment variable
+    expect(trace.getSpan(result)?.spanContext()).toEqual(mockParentSpanContext);
+    // Verify the env var header was injected
+    expect(event.headers[AWSXRAY_TRACE_ID_HEADER]).toBe(mockLambdaTraceHeader);
   });
 
   it('should extract context from HTTP headers when lambda trace header is not present', () => {
@@ -1266,7 +1325,7 @@ describe('AWS Lambda Instrumentation Propagation', () => {
     expect(spans.length).toBe(1);
     const [span] = spans;
     expect(span.spanContext().traceId).toBe(sampledGenericSpanContext.traceId);
-    expect(span.parentSpanId).toBe(sampledGenericSpanContext.spanId);
+    expect(span.parentSpanContext?.spanId).toBe(sampledGenericSpanContext.spanId);
   });
 
   it('Prioritizes X-Ray Trace ID from Lambda Context over W3C Header', async () => {
@@ -1285,7 +1344,7 @@ describe('AWS Lambda Instrumentation Propagation', () => {
     expect(spans.length).toBe(1);
     const [span] = spans;
     expect(span.spanContext().traceId).toBe(sampledAwsSpanContext.traceId);
-    expect(span.parentSpanId).toBe(sampledAwsSpanContext.spanId);
+    expect(span.parentSpanContext?.spanId).toBe(sampledAwsSpanContext.spanId);
   });
 
   it('Prioritizes X-Ray Trace ID from Lambda Context over X-Ray Trace ID from Lambda Event headers', async () => {
@@ -1312,6 +1371,6 @@ describe('AWS Lambda Instrumentation Propagation', () => {
     expect(spans.length).toBe(1);
     const [span] = spans;
     expect(span.spanContext().traceId).toBe(sampledAwsSpanContext2.traceId);
-    expect(span.parentSpanId).toBe(sampledAwsSpanContext2.spanId);
+    expect(span.parentSpanContext?.spanId).toBe(sampledAwsSpanContext2.spanId);
   });
 });

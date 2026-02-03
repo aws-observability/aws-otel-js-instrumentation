@@ -3,7 +3,7 @@
 
 import { diag, SpanContext, SpanKind } from '@opentelemetry/api';
 import { ExportResultCode } from '@opentelemetry/core';
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer';
 import { AwsXrayUdpSpanExporter, UdpExporter } from '../src/aws-xray-udp-span-exporter';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
@@ -119,8 +119,8 @@ describe('AwsXrayUdpSpanExporterTest', () => {
     events: [],
     duration: [0, 1],
     ended: true,
-    resource: new Resource({}),
-    instrumentationLibrary: { name: 'mockedLibrary' },
+    resource: resourceFromAttributes({}),
+    instrumentationScope: { name: 'mockedLibrary' },
     droppedAttributesCount: 0,
     droppedEventsCount: 0,
     droppedLinksCount: 0,

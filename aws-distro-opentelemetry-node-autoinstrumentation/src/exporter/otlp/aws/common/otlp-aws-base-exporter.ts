@@ -48,12 +48,23 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
    * @param resultCallback - Callback function to handle export result
    */
   override async export(items: Payload, resultCallback: (result: ExportResult) => void): Promise<void> {
-    const headers = this.parentExporter['_delegate']._transport?._transport?._parameters?.headers();
+    // In OTel 2.x, headers() is an async function that returns a Promise
+    const headersGetter = this.parentExporter['_delegate']._transport?._transport?._parameters?.headers;
+
+    if (!headersGetter) {
+      resultCallback({
+        code: ExportResultCode.FAILED,
+        error: new Error(`Request headers are unset - unable to export to ${this.endpoint}`),
+      });
+      return;
+    }
+
+    const headers = await headersGetter();
 
     if (!headers) {
       resultCallback({
         code: ExportResultCode.FAILED,
-        error: new Error(`Request headers are unset - unable to export to ${this.endpoint}`),
+        error: new Error(`Headers returned undefined - unable to export to ${this.endpoint}`),
       });
       return;
     }
@@ -95,7 +106,8 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
       return;
     }
 
-    this.parentExporter['_delegate']._transport._transport._parameters.headers = () => signedHeaders;
+    // OTel 2.x expects an async headers function
+    this.parentExporter['_delegate']._transport._transport._parameters.headers = async () => signedHeaders;
     this.parentExporter.export(items, resultCallback);
   }
 

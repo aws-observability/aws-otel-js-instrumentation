@@ -73,6 +73,9 @@ jobs:
         OTEL_JS_API_VERSION: ${{ steps.get_versions.outputs.otel_js_api_version }}
         OTEL_JS_SEMCONV_VERSION: ${{ steps.get_versions.outputs.otel_js_semconv_version }}
       run: node scripts/update_dependencies.js
+
+    - name: Run npm install
+      run: npm install
     
     - name: Check for changes and commit
       id: check_changes

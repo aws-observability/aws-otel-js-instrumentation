@@ -28,8 +28,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ### Maintenance
 
-- Update AWS SDK to 3.750.0 to fix @smithy/config-resolver vulnerability (GHSA-6475-r3vj-m8vf)
+- Update AWS SDK to 3.982.0 to fix @smithy/config-resolver vulnerability (GHSA-6475-r3vj-m8vf) and CVE-2026-0994
   ([#312](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/312))
+  ([#346](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/346))
 
 ## v0.8.1 - 2025-12-17
 

@@ -17,8 +17,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 - Update minimum Node.js version requirement from 14 to 18, aligning with upstream OpenTelemetry JS support
   ([#312](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/312))
-- Upgrade OpenTelemetry dependencies to 2.x (core packages 2.4.0, experimental packages 0.210.0)
+- Upgrade OpenTelemetry dependencies to 2.x (core packages 2.5.0, experimental packages 0.211.0)
   ([#314](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/314))
+  ([#315](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/347))
 
 ### Enhancements
 

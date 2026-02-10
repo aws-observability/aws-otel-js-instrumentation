@@ -37,6 +37,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 - Fix Lambda layer AWS SDK instrumentation not working after OTel 2.x upgrade by externalizing require-in-the-middle from webpack bundle
   ([#349](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/349))
+- Fix UDP exporter e2e test by updating sample app to OTel 2.x dependencies
+  ([#350](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/350))
 
 ## v0.8.1 - 2025-12-17
 

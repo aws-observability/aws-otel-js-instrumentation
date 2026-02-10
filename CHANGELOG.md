@@ -17,8 +17,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 - Update minimum Node.js version requirement from 14 to 18, aligning with upstream OpenTelemetry JS support
   ([#312](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/312))
-- Upgrade OpenTelemetry dependencies to 2.x (core packages 2.4.0, experimental packages 0.210.0)
+- Upgrade OpenTelemetry dependencies to 2.x (core packages 2.5.0, experimental packages 0.211.0)
   ([#314](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/314))
+  ([#315](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/347))
 
 ### Enhancements
 
@@ -31,6 +32,13 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 - Update AWS SDK to 3.982.0 to fix @smithy/config-resolver vulnerability (GHSA-6475-r3vj-m8vf) and CVE-2026-0994
   ([#312](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/312))
   ([#346](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/346))
+
+### Bugfixes
+
+- Fix Lambda layer AWS SDK instrumentation not working after OTel 2.x upgrade by externalizing require-in-the-middle from webpack bundle
+  ([#349](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/349))
+- Fix UDP exporter e2e test by updating sample app to OTel 2.x dependencies
+  ([#350](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/350))
 
 ## v0.8.1 - 2025-12-17
 

@@ -7,7 +7,9 @@ module.exports = {
   externalsPresets: { node: true },
   externals: [
     'import-in-the-middle',
-    '@aws-sdk',
+    'require-in-the-middle',
+    /^@aws-sdk/,
+    /^@smithy/,
   ],
   output: {
     path: path.resolve('./build/src'),

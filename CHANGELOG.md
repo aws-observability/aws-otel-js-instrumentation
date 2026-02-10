@@ -32,6 +32,11 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   ([#312](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/312))
   ([#346](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/346))
 
+### Bugfixes
+
+- Fix UDP exporter e2e test by updating sample app to OTel 2.x dependencies
+  ([#350](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/350))
+
 ## v0.8.1 - 2025-12-17
 
 ### Bugfixes

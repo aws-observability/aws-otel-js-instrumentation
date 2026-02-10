@@ -33,6 +33,11 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   ([#312](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/312))
   ([#346](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/346))
 
+### Bugfixes
+
+- Fix Lambda layer AWS SDK instrumentation not working after OTel 2.x upgrade by externalizing require-in-the-middle from webpack bundle
+  ([#349](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/349))
+
 ## v0.8.1 - 2025-12-17
 
 ### Bugfixes

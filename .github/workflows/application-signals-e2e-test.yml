@@ -63,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [ '18', '20', '22' ]
+        node-version: [ '18', '20', '22', '24' ]
     needs: [ upload-main-build ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-default-test.yml@main
     secrets: inherit
@@ -122,7 +122,7 @@ jobs:
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-adot-sigv4-test.yml@main
     secrets: inherit
     with:
-      node-version: 22
+      node-version: 24
       staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
       caller-workflow-name: 'main-build'
 

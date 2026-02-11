@@ -231,7 +231,7 @@ jobs:
             aws lambda publish-layer-version \
               --layer-name ${{ env.LAYER_NAME }} \
               --content S3Bucket=${{ env.BUCKET_NAME }},S3Key=layer.zip \
-              --compatible-runtimes nodejs18.x nodejs20.x nodejs22.x \
+              --compatible-runtimes nodejs18.x nodejs20.x nodejs22.x nodejs24.x \
               --compatible-architectures "arm64" "x86_64" \
               --license-info "Apache-2.0" \
               --description "AWS Distro of OpenTelemetry Lambda Layer for NodeJs Runtime" \

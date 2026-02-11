@@ -18,7 +18,7 @@ jobs:
       - name: Set up Node and run Unit Tests
         uses: ./.github/actions/set_up
         with:
-          node_version: "20"
+          node_version: "24"
           package_name: "@aws/aws-distro-opentelemetry-exporter-xray-udp"
           os: ubuntu-latest
           run_unit_tests: true

@@ -59,7 +59,7 @@ jobs:
           image_uri_with_tag: "adot-autoinstrumentation-node:test"
           push_image: false
           load_image: true
-          node_version: "20"
+          node_version: "24"
           package_name: aws-distro-opentelemetry-node-autoinstrumentation
           os: ubuntu-latest
 
@@ -98,7 +98,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  #v5.0.0
         with:
-          node-version: 22
+          node-version: 24
       - name: NPM Clean Install
         # https://docs.npmjs.com/cli/v10/commands/npm-ci
         run: npm ci
@@ -125,7 +125,7 @@ jobs:
           image_uri_with_tag: "adot-autoinstrumentation-node:test"
           push_image: false
           load_image: true
-          node_version: "20"
+          node_version: "24"
           package_name: aws-distro-opentelemetry-node-autoinstrumentation
           os: ubuntu-latest
 

@@ -35,8 +35,7 @@ else
   export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/wrapper.js"
 fi
 
-export LAMBDA_RESOURCE_ATTRIBUTES="cloud.region=$AWS_REGION,cloud.provider=aws,cloud.platform=aws_lambda,faas.name=$AWS_LAMBDA_FUNCTION_NAME,faas.version=$AWS_LAMBDA_FUNCTION_VERSION,faas.instance=$AWS_LAMBDA_LOG_STREAM_NAME,aws.log.group.names=$AWS_LAMBDA_LOG_GROUP_NAME";
-
+export LAMBDA_RESOURCE_ATTRIBUTES="cloud.region=$AWS_REGION,cloud.platform=aws_lambda,cloud.provider=aws,faas.name=$AWS_LAMBDA_FUNCTION_NAME,faas.version=$AWS_LAMBDA_FUNCTION_VERSION,faas.instance=$AWS_LAMBDA_LOG_STREAM_NAME,aws.log.group.names=$AWS_LAMBDA_LOG_GROUP_NAME";
 
 # - If OTEL_EXPORTER_OTLP_PROTOCOL is not set by user, the default exporting protocol is http/protobuf.
 if [ -z "${OTEL_EXPORTER_OTLP_PROTOCOL}" ]; then

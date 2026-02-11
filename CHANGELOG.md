@@ -26,6 +26,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 - Add Service and Environment dimensions to EMF metrics when `OTEL_METRICS_ADD_APPLICATION_SIGNALS_DIMENSIONS` is enabled.
   Supports platform-aware environment defaults (Lambda, EC2, ECS, EKS).
   ([#299](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/299))
+ 
+- Add cloud.platform attribute to resource attributes in lambda ([#308](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/308))
 
 ### Maintenance
 

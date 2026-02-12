@@ -52,7 +52,7 @@ jobs:
 
   ec2-asg:
     needs: [ upload-main-build ]
-    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-asg-test.yml@main
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-asg-test.yml@ec2-asg
     secrets: inherit
     with:
       aws-region: us-east-1

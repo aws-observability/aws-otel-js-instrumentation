@@ -28,7 +28,18 @@ _is_esm_handler() {
   fi
 }
 
-if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]]; then
+_get_node_runtime_version() {
+  local exec_env="${AWS_EXECUTION_ENV:-}"
+  if [[ $exec_env =~ nodejs([0-9]+)\.x ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    echo "0"
+  fi
+}
+
+NODE_VERSION=$(_get_node_runtime_version)
+
+if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
   export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/wrapper.js --experimental-loader=import-in-the-middle/hook.mjs"
   export HANDLER_IS_ESM=true
 else

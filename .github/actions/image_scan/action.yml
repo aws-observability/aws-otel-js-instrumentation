@@ -7,16 +7,20 @@ description: |
 inputs:
   image-ref:
     required: true
+    type: string
     description: "Reference for the image to be scanned"
   severity:
     required: true
+    type: string
     description: "List of severities that will cause a failure"
   trivyignore-file:
     required: false
+    type: string
     default: ''
     description: "Path to the .trivyignore.yaml file to use for this scan"
   logout:
     required: true
+    type: string
     description: |
       Whether to logout of public AWS ECR. Set to 'true' for PR workflows to avoid potential call failures,
       'false' for daily scans which has a higher bar for passing regularly and specifically wants to sign in.

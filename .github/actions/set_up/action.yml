@@ -5,15 +5,19 @@ description: |
 inputs:
   node_version:
     required: true
+    type: string
     description: "The node version used in actions"
   package_name:
     required: true
+    type: string
     description: "The package name"
   os:
     required: true
+    type: string
     description: "The os"
   run_unit_tests:
     required: true
+    type: string
     description: "true/false flag indicating if we should run unit tests/benchmarks"
 
 runs:

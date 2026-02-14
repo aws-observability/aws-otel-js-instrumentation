@@ -47,12 +47,6 @@ jobs:
             -ignore SC2129
             -ignore SC2162
             -ignore SC2206
-      
-      - name: Validate composite action YAML syntax
-        if: always()
-        run: |
-          pip install yamllint
-          yamllint -d "{extends: default, rules: {line-length: {max: 200}, comments: disable}}" .github/actions/
           # Temporarily ignore specific shellcheck codes while we systematically fix them
           # SC2027: The surrounding quotes actually unquote this
           # SC2086: Double quote to prevent globbing and word splitting

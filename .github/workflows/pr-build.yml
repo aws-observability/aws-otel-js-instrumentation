@@ -47,18 +47,6 @@ jobs:
             -ignore SC2129
             -ignore SC2162
             -ignore SC2206
-          # Temporarily ignore specific shellcheck codes while we systematically fix them
-          # SC2027: The surrounding quotes actually unquote this
-          # SC2086: Double quote to prevent globbing and word splitting
-          # SC2129: Consider using { cmd1; cmd2; } >> file instead of individual redirects
-          # SC2162: read without -r will mangle backslashes
-          # SC2206: Quote to prevent word splitting/globbing, or split robustly with mapfile or read -a
-          flags: |
-            -ignore SC2027
-            -ignore SC2086
-            -ignore SC2129
-            -ignore SC2162
-            -ignore SC2206
           
       - name: Check CHANGELOG
         if: always()

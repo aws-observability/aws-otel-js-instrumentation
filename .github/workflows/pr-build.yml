@@ -30,11 +30,29 @@ jobs:
       # This action wrapper by raven-actions provides cross-platform support and caching
       # Catches the same issues as GitHub's web editor: syntax errors, type mismatches,
       # undefined inputs/secrets, circular dependencies, and more
-      - name: Validate GitHub Actions workflows and composite actions
+      - name: Validate GitHub Actions workflows
         if: always()
         uses: raven-actions/actionlint@e01d1ea33dd6a5ed517d95b4c0c357560ac6f518 # v2.1.1
         with:
           files: .github/workflows/*.yml
+          # Temporarily ignore specific shellcheck codes while we systematically fix them
+          # SC2027: The surrounding quotes actually unquote this
+          # SC2086: Double quote to prevent globbing and word splitting
+          # SC2129: Consider using { cmd1; cmd2; } >> file instead of individual redirects
+          # SC2162: read without -r will mangle backslashes
+          # SC2206: Quote to prevent word splitting/globbing, or split robustly with mapfile or read -a
+          flags: |
+            -ignore SC2027
+            -ignore SC2086
+            -ignore SC2129
+            -ignore SC2162
+            -ignore SC2206
+      
+      - name: Validate composite action YAML syntax
+        if: always()
+        run: |
+          pip install yamllint
+          yamllint -d "{extends: default, rules: {line-length: {max: 200}, comments: disable}}" .github/actions/
           # Temporarily ignore specific shellcheck codes while we systematically fix them
           # SC2027: The surrounding quotes actually unquote this
           # SC2086: Double quote to prevent globbing and word splitting

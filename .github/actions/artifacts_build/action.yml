@@ -47,7 +47,7 @@ runs:
         exit 1
 
     - name: Set up
-      uses: ./.github/workflows/actions/set_up
+      uses: ./.github/actions/set_up
       with:
         node_version: ${{ inputs.node_version }}
         package_name: ${{ inputs.package_name }}
@@ -104,7 +104,7 @@ runs:
         load: ${{ inputs.load_image }}
 
     - name: Perform image scan
-      uses: ./.github/workflows/actions/image_scan
+      uses: ./.github/actions/image_scan
       with:
         image-ref: ${{ inputs.image_uri_with_tag }}
         severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'

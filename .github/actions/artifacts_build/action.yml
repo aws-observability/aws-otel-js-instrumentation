@@ -6,43 +6,33 @@ description: |
 inputs:
   aws-region:
     required: false
-    type: string
     description: "AWS Region, required only if push_image is true"
   image_uri_with_tag:
     required: true
-    type: string
     description: "Image URI with Tag"
   image_registry:
     required: false
-    type: string
     description: "Image Registry, required only if push_image is true"
   snapshot-ecr-role:
     required: false
-    type: string
     description: "IAM Role used for pushing to snapshot ecr, required only if push_image is true"
   push_image:
     required: true
-    type: string
     description: "Whether push image to ECR"
   load_image:
     required: true
-    type: string
     description: "Whether load the image for the following use, only load in PR build"
   node_version:
     required: true
-    type: string
     description: "The node version used in actions"
   package_name:
     required: true
-    type: string
     description: "The package name"
   os:
     required: true
-    type: string
     description: "The os"
   trivyignore-file:
     required: false
-    type: string
     default: ''
     description: "Path to the .trivyignore.yaml file to use for image scan"
 

@@ -6,23 +6,18 @@ description: |
 inputs:
   aws-region:
     required: false
-    type: string
     description: 'AWS Region, required only if push_image is true'
   node_version:
     required: true
-    type: string
     description: 'The node version used in actions'
   layer_directory:
     required: true
-    type: string
     description: 'The role use to publish lambda layer'
   staging_s3_bucket:
     required: true
-    type: string
     description: 'S3 bucket holds SDK artifact tarball'
   staging_tarball:
     required: true
-    type: string
     description: 'tarball file for building'
 
 runs:

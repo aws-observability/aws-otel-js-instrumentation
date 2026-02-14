@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "21 3 * * *"
   workflow_dispatch:
+    inputs:
+      description:
+        description: 'This workflow checks for new upstream versions of OpenTelemetry dependencies, creates a PR to update them, and builds and tests the new changes.'
+        required: false
+        type: boolean
+        default: false
 
 env:
   AWS_DEFAULT_REGION: us-east-1

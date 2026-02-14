@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Set up Node and run Unit Tests
-        uses: ./.github/workflows/actions/set_up
+        uses: ./.github/actions/set_up
         with:
           node_version: "24"
           package_name: "@aws/aws-distro-opentelemetry-exporter-xray-udp"

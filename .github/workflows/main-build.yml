@@ -58,7 +58,7 @@ jobs:
           echo "stagingImage=${{ env.STAGING_ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}:$node_distro_tag" >> $GITHUB_OUTPUT
 
       - name: Build and Push Tarball and Image Files
-        uses: ./.github/workflows/actions/artifacts_build
+        uses: ./.github/actions/artifacts_build
         with:
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
           image_uri_with_tag: ${{ steps.node_output.outputs.stagingImage }}
@@ -87,7 +87,7 @@ jobs:
           path: aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
 
       - name: Build and Publish Lambda Staging Layer
-        uses: ./.github/workflows/actions/lambda_artifacts_build
+        uses: ./.github/actions/lambda_artifacts_build
         with:
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
           node_version: "24"

@@ -147,7 +147,7 @@ jobs:
       - name: Compile all NPM projects
         run: npm run compile
       - name: Build Tarball and Image Files
-        uses: ./.github/workflows/actions/artifacts_build
+        uses: ./.github/actions/artifacts_build
         with:
           image_uri_with_tag: pr-build/${{ matrix.node }}
           push_image: false

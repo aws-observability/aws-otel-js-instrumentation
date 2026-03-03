@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+## v0.9.0 - 2026-02-11
+
 ### Breaking Changes
 
 - Update minimum Node.js version requirement from 14 to 18, aligning with upstream OpenTelemetry JS support

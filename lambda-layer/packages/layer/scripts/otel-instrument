@@ -40,7 +40,17 @@ _get_node_runtime_version() {
 NODE_VERSION=$(_get_node_runtime_version)
 
 if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
-  export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/wrapper.js --experimental-loader=import-in-the-middle/hook.mjs"
+  if [[ $NODE_VERSION -ge 20 ]]; then
+    # Node 20.6+ supports module.register() which allows selective module
+    # interception. This avoids the global ESM loader hook (--experimental-loader)
+    # which breaks ESM live bindings in bundled application code.
+    # See: https://github.com/nodejs/import-in-the-middle/issues/38
+    export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/wrapper.mjs"
+  else
+    # Node 18.x does not support module.register(), fall back to the global
+    # --experimental-loader approach
+    export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/wrapper.js --experimental-loader=import-in-the-middle/hook.mjs"
+  fi
   export HANDLER_IS_ESM=true
 else
   export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/wrapper.js"

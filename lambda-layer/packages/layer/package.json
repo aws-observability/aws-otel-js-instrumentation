@@ -23,7 +23,7 @@
     "prepare": "npm run compile && npm run install-externals && npm run package",
     "compile": "webpack",
     "package": "cd build/workspace && bestzip ../layer.zip *",
-    "postcompile": "copyfiles -f 'scripts/*' build/workspace && copyfiles -f 'build/src/*' build/workspace"
+    "postcompile": "copyfiles -f 'scripts/*' build/workspace && copyfiles -f 'build/src/*' build/workspace && copyfiles -f 'src/wrapper.mjs' build/workspace"
   },
   "keywords": [
     "awsdistroopentelemetry",

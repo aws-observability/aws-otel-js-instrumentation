@@ -1,0 +1,51 @@
+{
+  "name": "opentelemetry-instrumentation-langchain",
+  "version": "0.1.0",
+  "description": "OpenTelemetry instrumentation for LangChain",
+  "main": "build/src/index.js",
+  "types": "build/src/index.d.ts",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "clean": "rimraf build/*",
+    "compile": "tsc -p .",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "create-version": "node -p \"'export const VERSION = ' + JSON.stringify(require('./package.json').version) + ';'\" > src/version.ts",
+    "precompile": "tsc --version && npm run create-version",
+    "prepublishOnly": "npm run compile",
+    "test": "nyc ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/**/*.ts'"
+  },
+  "nyc": {
+    "all": true,
+    "include": [
+      "src/**/*.ts"
+    ]
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/instrumentation": "0.211.0"
+  },
+  "devDependencies": {
+    "@langchain/core": "^0.3.0 || ^1.0.0",
+    "@opentelemetry/sdk-trace-base": "2.5.0",
+    "@opentelemetry/sdk-trace-node": "2.5.0",
+    "@opentelemetry/contrib-test-utils": "^0.58.0",
+    "@types/mocha": "7.0.2",
+    "@types/node": "18.6.5",
+    "@types/sinon": "10.0.18",
+    "expect": "29.2.0",
+    "mocha": "7.2.0",
+    "nyc": "15.1.0",
+    "rimraf": "5.0.5",
+    "sinon": "15.2.0",
+    "ts-mocha": "10.0.0",
+    "typescript": "5.0.4"
+  },
+  "files": [
+    "build/src/**/*.js",
+    "build/src/**/*.js.map",
+    "build/src/**/*.d.ts"
+  ]
+}

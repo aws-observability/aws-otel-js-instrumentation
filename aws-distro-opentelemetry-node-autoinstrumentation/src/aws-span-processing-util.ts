@@ -6,6 +6,9 @@ import type { InstrumentationScope } from '@opentelemetry/core';
 import type { ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
 
 import {
+  ATTR_HTTP_REQUEST_METHOD,
+  ATTR_URL_FULL,
+  ATTR_URL_PATH,
   MessagingOperationValues,
   SEMATTRS_DB_OPERATION,
   SEMATTRS_DB_STATEMENT,
@@ -219,8 +222,12 @@ export class AwsSpanProcessingUtil {
     if (operation == null || operation === AwsSpanProcessingUtil.UNKNOWN_OPERATION) {
       return false;
     }
-    if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_METHOD)) {
-      const httpMethod: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_METHOD];
+    if (
+      AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_METHOD) ||
+      AwsSpanProcessingUtil.isKeyPresent(span, ATTR_HTTP_REQUEST_METHOD)
+    ) {
+      const httpMethod: AttributeValue | undefined =
+        span.attributes[SEMATTRS_HTTP_METHOD] ?? span.attributes[ATTR_HTTP_REQUEST_METHOD];
       return operation !== httpMethod;
     }
     return true;
@@ -247,15 +254,35 @@ export class AwsSpanProcessingUtil {
       } catch (e: unknown) {
         // In Python, if `httpUrl == ''`, there is no error from URL parsing, and `url.pathname = ''`
         // In TypeScript, this catch block will be invoked. Here `httpPath = ''` is set as default to match Python.
-        diag.verbose(`invalid http.url attribute: ${httpUrl}, setting httpPath as empty string`);
+        diag.verbose(`invalid URL attribute: ${httpUrl}, setting httpPath as empty string`);
+        httpPath = '';
+      }
+    } else if (AwsSpanProcessingUtil.isKeyPresent(span, ATTR_URL_PATH)) {
+      httpPath = span.attributes[ATTR_URL_PATH];
+    } else if (AwsSpanProcessingUtil.isKeyPresent(span, ATTR_URL_FULL)) {
+      const httpUrl: AttributeValue | undefined = span.attributes[ATTR_URL_FULL];
+      try {
+        let url: URL;
+        if (typeof httpUrl === 'string') {
+          url = new URL(httpUrl);
+          httpPath = url.pathname;
+        }
+      } catch (e: unknown) {
+        // In Python, if `httpUrl == ''`, there is no error from URL parsing, and `url.pathname = ''`
+        // In TypeScript, this catch block will be invoked. Here `httpPath = ''` is set as default to match Python.
+        diag.verbose(`invalid URL attribute: ${httpUrl}, setting httpPath as empty string`);
         httpPath = '';
       }
     }
 
     if (typeof httpPath === 'string') {
       operation = this.extractAPIPathValue(httpPath);
-      if (this.isKeyPresent(span, SEMATTRS_HTTP_METHOD)) {
-        const httpMethod: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_METHOD];
+      if (
+        AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_METHOD) ||
+        AwsSpanProcessingUtil.isKeyPresent(span, ATTR_HTTP_REQUEST_METHOD)
+      ) {
+        const httpMethod: AttributeValue | undefined =
+          span.attributes[SEMATTRS_HTTP_METHOD] ?? span.attributes[ATTR_HTTP_REQUEST_METHOD];
         if (httpMethod !== undefined) {
           operation = httpMethod + ' ' + operation;
         }

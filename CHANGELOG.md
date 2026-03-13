@@ -13,6 +13,10 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- Fix UnknownRemoteService/UnknownRemoteOperation for Next.js fetch by supporting new HTTP semantic conventions
+  (`server.address`, `server.port`, `http.request.method`, `url.full`, `url.path`) as fallbacks
+  ([#366](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/366))
+
 ## v0.9.0 - 2026-02-11
 
 ### Breaking Changes

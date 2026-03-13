@@ -5,6 +5,8 @@ import { Attributes, AttributeValue, diag, SpanKind } from '@opentelemetry/api';
 import { defaultServiceName, Resource } from '@opentelemetry/resources';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
+  ATTR_HTTP_REQUEST_METHOD,
+  ATTR_URL_FULL,
   SEMATTRS_DB_CONNECTION_STRING,
   SEMATTRS_DB_NAME,
   SEMATTRS_DB_OPERATION,
@@ -205,9 +207,10 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * </ul>
    *
    * if the selected attributes are still producing the UnknownRemoteService or
-   * UnknownRemoteOperation, `net.peer.name`, `net.peer.port`, `net.peer.sock.addr`,
-   * `net.peer.sock.port` and `http.url` will be used to derive the RemoteService. And `http.method`
-   * and `http.url` will be used to derive the RemoteOperation.
+   * UnknownRemoteOperation, `net.peer.name`, `net.peer.port`, `server.address`, `server.port`,
+   * `net.peer.sock.addr`, `net.peer.sock.port`, `http.url` and `url.full` will be used to derive
+   * the RemoteService. And `http.method`, `http.request.method`, `http.url` and `url.full` will be
+   * used to derive the RemoteOperation.
    */
   private static setRemoteServiceAndOperation(span: ReadableSpan, attributes: Attributes): void {
     let remoteService: string = AwsSpanProcessingUtil.UNKNOWN_REMOTE_SERVICE;
@@ -278,8 +281,8 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    */
   private static generateRemoteOperation(span: ReadableSpan): string {
     let remoteOperation: string = AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION;
-    if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_URL)) {
-      const httpUrl: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_URL];
+    const httpUrl: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_URL] ?? span.attributes[ATTR_URL_FULL];
+    if (httpUrl !== undefined) {
       try {
         let url: URL;
         if (typeof httpUrl === 'string') {
@@ -291,8 +294,9 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       }
     }
 
-    const httpMethod: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_METHOD];
-    if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_METHOD) && typeof httpMethod === 'string') {
+    const httpMethod: AttributeValue | undefined =
+      span.attributes[SEMATTRS_HTTP_METHOD] ?? span.attributes[ATTR_HTTP_REQUEST_METHOD];
+    if (typeof httpMethod === 'string') {
       remoteOperation = httpMethod + ' ' + remoteOperation;
     }
     if (remoteOperation === AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION) {
@@ -308,6 +312,12 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       remoteService = AwsMetricAttributeGenerator.getRemoteService(span, SEMATTRS_NET_PEER_NAME);
       if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_NET_PEER_PORT)) {
         const port: AttributeValue | undefined = span.attributes[SEMATTRS_NET_PEER_PORT];
+        remoteService += ':' + port;
+      }
+    } else if (AwsSpanProcessingUtil.isKeyPresent(span, _SERVER_ADDRESS)) {
+      remoteService = AwsMetricAttributeGenerator.getRemoteService(span, _SERVER_ADDRESS);
+      if (AwsSpanProcessingUtil.isKeyPresent(span, _SERVER_PORT)) {
+        const port: AttributeValue | undefined = span.attributes[_SERVER_PORT];
         remoteService += ':' + port;
       }
     } else if (AwsSpanProcessingUtil.isKeyPresent(span, _NET_SOCK_PEER_ADDR)) {
@@ -328,6 +338,19 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         }
       } catch (e: unknown) {
         diag.verbose(`invalid http.url attribute: ${httpUrl}`);
+      }
+    } else if (AwsSpanProcessingUtil.isKeyPresent(span, ATTR_URL_FULL)) {
+      const httpUrl: string = span.attributes[ATTR_URL_FULL] as string;
+      try {
+        const url: URL = new URL(httpUrl);
+        if (url.hostname !== '') {
+          remoteService = url.hostname;
+          if (url.port !== '') {
+            remoteService += ':' + url.port;
+          }
+        }
+      } catch (e: unknown) {
+        diag.verbose(`invalid url.full attribute: ${httpUrl}`);
       }
     } else {
       AwsMetricAttributeGenerator.logUnknownAttribute(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE, span);

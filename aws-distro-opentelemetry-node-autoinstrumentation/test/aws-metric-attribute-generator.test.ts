@@ -475,6 +475,77 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(SEMATTRS_HTTP_URL, undefined);
   });
 
+  // New semconv: url.path for ingress operation
+  it('testServerSpanWithNewSemconvUrlPath', () => {
+    updateResourceWithServiceName();
+    (spanDataMock as any).name = 'GET';
+    mockAttribute('http.request.method', 'GET');
+    mockAttribute('url.path', '/orders/456');
+
+    const expectedAttributes: Attributes = {
+      [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: SERVICE_NAME_VALUE,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'GET /orders',
+    };
+    validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
+    mockAttribute('http.request.method', undefined);
+    mockAttribute('url.path', undefined);
+  });
+
+  // New semconv: url.full for ingress operation (fallback when url.path not present)
+  it('testServerSpanWithNewSemconvUrlFull', () => {
+    updateResourceWithServiceName();
+    (spanDataMock as any).name = 'POST';
+    mockAttribute('http.request.method', 'POST');
+    mockAttribute('url.full', 'http://127.0.0.1:8000/payment/123');
+
+    const expectedAttributes: Attributes = {
+      [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: SERVICE_NAME_VALUE,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'POST /payment',
+    };
+    validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
+    mockAttribute('http.request.method', undefined);
+    mockAttribute('url.full', undefined);
+  });
+
+  // Old semconv http.target takes priority over new url.path
+  it('testServerSpanWithOldSemconvHttpTargetPriority', () => {
+    updateResourceWithServiceName();
+    (spanDataMock as any).name = 'GET';
+    mockAttribute(SEMATTRS_HTTP_METHOD, 'GET');
+    mockAttribute(SEMATTRS_HTTP_TARGET, '/old-target/123');
+    mockAttribute('url.path', '/new-path/456');
+
+    const expectedAttributes: Attributes = {
+      [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: SERVICE_NAME_VALUE,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'GET /old-target',
+    };
+    validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
+    mockAttribute(SEMATTRS_HTTP_METHOD, undefined);
+    mockAttribute(SEMATTRS_HTTP_TARGET, undefined);
+    mockAttribute('url.path', undefined);
+  });
+
+  it('testServerSpanWithOldSemconvHttpUrlPriorityOverNewUrlPath', () => {
+    updateResourceWithServiceName();
+    (spanDataMock as any).name = 'GET';
+    mockAttribute(SEMATTRS_HTTP_METHOD, 'GET');
+    mockAttribute(SEMATTRS_HTTP_URL, 'http://127.0.0.1:8000/legacy/123');
+    mockAttribute('url.path', '/new-path/456');
+
+    const expectedAttributes: Attributes = {
+      [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: SERVICE_NAME_VALUE,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'GET /legacy',
+    };
+    validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
+    mockAttribute(SEMATTRS_HTTP_METHOD, undefined);
+    mockAttribute(SEMATTRS_HTTP_URL, undefined);
+    mockAttribute('url.path', undefined);
+  });
+
   it('testProducerSpanWithAttributes', () => {
     updateResourceWithServiceName();
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION, AWS_LOCAL_OPERATION_VALUE);
@@ -645,6 +716,77 @@ describe('AwsMetricAttributeGeneratorTest', () => {
 
     // Once we have removed all usable metrics, we only have "unknown" attributes, which are unused.
     validateExpectedRemoteAttributes(UNKNOWN_REMOTE_SERVICE, UNKNOWN_REMOTE_OPERATION);
+  });
+
+  // Validate new semantic conventions (server.address, server.port, url.full, http.request.method)
+  // used by instrumentation-undici (Node.js fetch/undici HTTP client, used by Next.js)
+  it('testNewSemconvRemoteAttributes', () => {
+    // Validate behaviour of extracting Remote Service from server.address
+    mockAttribute(_SERVER_ADDRESS, 'www.example.com');
+    validateExpectedRemoteAttributes('www.example.com', UNKNOWN_REMOTE_OPERATION);
+    mockAttribute(_SERVER_ADDRESS, undefined);
+
+    // Validate behaviour of extracting Remote Service from server.address and server.port
+    mockAttribute(_SERVER_ADDRESS, '192.168.0.0');
+    mockAttribute(_SERVER_PORT, 8081);
+    validateExpectedRemoteAttributes('192.168.0.0:8081', UNKNOWN_REMOTE_OPERATION);
+    mockAttribute(_SERVER_ADDRESS, undefined);
+    mockAttribute(_SERVER_PORT, undefined);
+
+    // Validate behavior of Remote Operation from url.full. Also validates
+    // that RemoteService is extracted from url.full.
+    mockAttribute('url.full', 'http://www.example.com/payment/123');
+    validateExpectedRemoteAttributes('www.example.com', '/payment');
+    mockAttribute('url.full', undefined);
+
+    // Validate behavior of Remote Service from url.full with port
+    mockAttribute('url.full', 'http://192.168.1.1:8000');
+    validateExpectedRemoteAttributes('192.168.1.1:8000', '/');
+    mockAttribute('url.full', undefined);
+
+    // Validate behavior of Remote Operation with http.request.method and url.full
+    mockAttribute('http.request.method', 'GET');
+    mockAttribute('url.full', 'http://www.example.com/api/resource/42');
+    validateExpectedRemoteAttributes('www.example.com', 'GET /api');
+    mockAttribute('http.request.method', undefined);
+    mockAttribute('url.full', undefined);
+
+    // Validate behavior of http.request.method alone (no url)
+    mockAttribute('http.request.method', 'POST');
+    validateExpectedRemoteAttributes(UNKNOWN_REMOTE_SERVICE, 'POST ' + UNKNOWN_REMOTE_OPERATION);
+    mockAttribute('http.request.method', undefined);
+
+    // Validate old semconv takes priority over new semconv when both are present
+    mockAttribute(SEMATTRS_NET_PEER_NAME, 'old-host.example.com');
+    mockAttribute(_SERVER_ADDRESS, 'new-host.example.com');
+    validateExpectedRemoteAttributes('old-host.example.com', UNKNOWN_REMOTE_OPERATION);
+    mockAttribute(SEMATTRS_NET_PEER_NAME, undefined);
+    mockAttribute(_SERVER_ADDRESS, undefined);
+
+    // Validate old http.url takes priority over new server.address for remote service
+    mockAttribute(SEMATTRS_HTTP_URL, 'http://old.example.com:8443/path');
+    mockAttribute(_SERVER_ADDRESS, 'new-host.example.com');
+    mockAttribute(_SERVER_PORT, 8080);
+    validateExpectedRemoteAttributes('old.example.com:8443', '/path');
+    mockAttribute(SEMATTRS_HTTP_URL, undefined);
+    mockAttribute(_SERVER_ADDRESS, undefined);
+    mockAttribute(_SERVER_PORT, undefined);
+
+    // Validate old http.url takes priority over new url.full for remote service
+    mockAttribute(SEMATTRS_HTTP_URL, 'http://old.example.com/path');
+    mockAttribute('url.full', 'http://new.example.com/path');
+    validateExpectedRemoteAttributes('old.example.com', '/path');
+    mockAttribute(SEMATTRS_HTTP_URL, undefined);
+    mockAttribute('url.full', undefined);
+
+    // Validate old http.method takes priority over new http.request.method for remote operation
+    mockAttribute(SEMATTRS_HTTP_METHOD, 'GET');
+    mockAttribute('http.request.method', 'POST');
+    mockAttribute(SEMATTRS_HTTP_URL, 'http://www.example.com/test');
+    validateExpectedRemoteAttributes('www.example.com', 'GET /test');
+    mockAttribute(SEMATTRS_HTTP_METHOD, undefined);
+    mockAttribute('http.request.method', undefined);
+    mockAttribute(SEMATTRS_HTTP_URL, undefined);
   });
 
   // Validate behaviour of various combinations of DB attributes).

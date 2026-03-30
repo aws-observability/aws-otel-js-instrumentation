@@ -1,6 +1,6 @@
 {
     "compilerOptions": {
-      "moduleResolution": "node",
+      "moduleResolution": "bundler",
       "module": "es2020",
       "target": "es2020",
       "allowUnreachableCode": false,

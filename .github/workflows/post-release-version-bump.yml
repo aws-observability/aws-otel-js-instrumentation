@@ -108,6 +108,7 @@ jobs:
           DEV_VERSION="${{ env.VERSION }}-dev0"
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" aws-distro-opentelemetry-node-autoinstrumentation/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" docker-utils/package.json
+          sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" instrumentation-langchain/package.json
           sed -i'' -e "s/\"version\": \".*\"/\"version\": \"${DEV_VERSION}\"/" package.json
           sed -i'' -e "s/aws-aws-distro-opentelemetry-node-autoinstrumentation-[0-9]\+\.[0-9]\+\.[0-9]\+\([0-9A-Za-z-]\+\)\?\.tgz/aws-aws-distro-opentelemetry-node-autoinstrumentation-${DEV_VERSION}.tgz/" lambda-layer/packages/layer/package.json
           VERSION="${{ env.VERSION }}"

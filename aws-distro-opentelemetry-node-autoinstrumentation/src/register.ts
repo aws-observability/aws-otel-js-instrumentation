@@ -20,6 +20,8 @@ import { getStringFromEnv, diagLogLevelFromString } from '@opentelemetry/core';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
+import { LangChainInstrumentation } from '@aws/aws-distro-opentelemetry-instrumentation-langchain';
+import { ExpressLayerType } from '@opentelemetry/instrumentation-express';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled } from './utils';
 
@@ -119,8 +121,13 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
   '@opentelemetry/instrumentation-mongoose': {
     suppressInternalInstrumentation: true,
   },
+  '@opentelemetry/instrumentation-express': {
+    ignoreLayersType: [ExpressLayerType.MIDDLEWARE],
+  },
 };
 const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
+
+instrumentations.push(new LangChainInstrumentation());
 
 // Apply instrumentation patches
 applyInstrumentationPatches(instrumentations);

@@ -99,6 +99,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch-logs": "3.982.0",
+    "@aws/aws-distro-opentelemetry-instrumentation-langchain": "*",
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/api-logs": "0.214.0",
     "@opentelemetry/auto-configuration-propagators": "0.4.6",
@@ -125,6 +126,9 @@
     "@opentelemetry/sdk-trace-base": "2.6.1",
     "@opentelemetry/semantic-conventions": "1.40.0"
   },
+  "bundledDependencies": [
+    "@aws/aws-distro-opentelemetry-instrumentation-langchain"
+  ],
   "files": [
     "build/src/**/*.js",
     "build/src/**/*.js.map",

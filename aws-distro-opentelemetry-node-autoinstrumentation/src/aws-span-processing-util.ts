@@ -23,6 +23,7 @@ import {
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AWS_LAMBDA_FUNCTION_NAME_CONFIG, isLambdaEnvironment } from './aws-opentelemetry-configurator';
 import * as SQL_DIALECT_KEYWORDS_JSON from './configuration/sql_dialect_keywords.json';
+import { Mutable } from './utils';
 
 export type ForceFlushFunction = (options?: any) => Promise<void>;
 
@@ -49,6 +50,131 @@ export class AwsSpanProcessingUtil {
 
   // TODO: Use Semantic Conventions once upgraded
   static GEN_AI_REQUEST_MODEL: string = 'gen_ai.request.model';
+
+  // Environment variable for configurable operation name paths
+  static OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG: string = 'OTEL_AWS_HTTP_OPERATION_PATHS';
+
+  // Cached parsed operation paths (sorted longest first)
+  private static operationPaths: string[] | undefined;
+
+  /**
+   * Parse the OTEL_AWS_HTTP_OPERATION_PATHS env var into a sorted list of path templates
+   * (longest first by segment count). Returns an empty array if the env var is not set.
+   */
+  static getOperationPaths(): string[] {
+    if (AwsSpanProcessingUtil.operationPaths === undefined) {
+      const config = process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG];
+      if (config === undefined || config.trim() === '') {
+        AwsSpanProcessingUtil.operationPaths = [];
+      } else {
+        const paths = config
+          .split(',')
+          .map(p => p.trim())
+          .filter(p => p.length > 0);
+        // Sort longest first (by segment count) for longest-prefix-match.
+        // For patterns with the same number of segments, original config order is preserved (stable sort).
+        paths.sort((a, b) => b.split('/').length - a.split('/').length);
+        AwsSpanProcessingUtil.operationPaths = paths;
+      }
+    }
+    return AwsSpanProcessingUtil.operationPaths;
+  }
+
+  /** Reset cached operation paths (for testing). */
+  static resetOperationPaths(): void {
+    AwsSpanProcessingUtil.operationPaths = undefined;
+  }
+
+  /**
+   * If OTEL_AWS_HTTP_OPERATION_PATHS is configured and a pattern matches the span's URL path,
+   * mutates the span name to "METHOD /path/template". Returns the span unchanged if no config
+   * is set or no pattern matches.
+   */
+  static applyOperationPathSpanName(span: ReadableSpan): ReadableSpan {
+    const paths = AwsSpanProcessingUtil.getOperationPaths();
+    if (paths.length === 0) {
+      return span;
+    }
+
+    let urlPath = AwsSpanProcessingUtil.getUrlPath(span);
+    if (urlPath === undefined || urlPath === '') {
+      return span;
+    }
+
+    // Strip query string and fragment (relevant for http.target)
+    for (const sep of ['?', '#']) {
+      const idx = urlPath.indexOf(sep);
+      if (idx >= 0) {
+        urlPath = urlPath.substring(0, idx);
+      }
+    }
+
+    // Normalize trailing slashes
+    while (urlPath.endsWith('/') && urlPath.length > 1) {
+      urlPath = urlPath.substring(0, urlPath.length - 1);
+    }
+
+    const urlSegments = urlPath.split('/');
+    for (const pattern of paths) {
+      let normalizedPattern = pattern;
+      while (normalizedPattern.endsWith('/') && normalizedPattern.length > 1) {
+        normalizedPattern = normalizedPattern.substring(0, normalizedPattern.length - 1);
+      }
+      if (AwsSpanProcessingUtil.segmentsMatch(urlSegments, normalizedPattern.split('/'))) {
+        const httpMethod = AwsSpanProcessingUtil.getHttpMethod(span);
+        const newName = httpMethod !== undefined ? httpMethod + ' ' + pattern : pattern;
+        // Mutate the span name in place
+        const mutableSpan: Mutable<ReadableSpan> = span;
+        mutableSpan.name = newName;
+        return span;
+      }
+    }
+    return span;
+  }
+
+  /** Return the URL path from server span attributes, preferring url.path over http.target. */
+  private static getUrlPath(span: ReadableSpan): string | undefined {
+    const urlPath = span.attributes[ATTR_URL_PATH] ?? span.attributes[SEMATTRS_HTTP_TARGET];
+    return typeof urlPath === 'string' ? urlPath : undefined;
+  }
+
+  /** Get the HTTP method from the span, checking new and deprecated semconv attributes. */
+  private static getHttpMethod(span: ReadableSpan): string | undefined {
+    const method = span.attributes[ATTR_HTTP_REQUEST_METHOD] ?? span.attributes[SEMATTRS_HTTP_METHOD];
+    return typeof method === 'string' ? method : undefined;
+  }
+
+  /**
+   * Check if URL segments match a pattern's segments. Only pattern segments can be wildcards
+   * ({param}, :param, or *) — URL segments are always treated as literals. The pattern acts
+   * as a prefix — extra URL segments after the pattern are allowed.
+   */
+  private static segmentsMatch(urlSegments: string[], patternSegments: string[]): boolean {
+    for (let i = 0; i < patternSegments.length; i++) {
+      if (i >= urlSegments.length) {
+        return false;
+      }
+      const ps = patternSegments[i];
+      const us = urlSegments[i];
+
+      if (AwsSpanProcessingUtil.isWildcardSegment(ps)) {
+        if (us === '') {
+          return false;
+        }
+        continue;
+      }
+
+      if (ps !== us) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** A segment is a wildcard if it uses {param}, :param, or * format. */
+  private static isWildcardSegment(segment: string): boolean {
+    return (segment.startsWith('{') && segment.endsWith('}')) || segment.startsWith(':') || segment === '*';
+  }
   static GEN_AI_SYSTEM: string = 'gen_ai.system';
   static GEN_AI_REQUEST_MAX_TOKENS: string = 'gen_ai.request.max_tokens';
   static GEN_AI_REQUEST_TEMPERATURE: string = 'gen_ai.request.temperature';
@@ -222,12 +348,8 @@ export class AwsSpanProcessingUtil {
     if (operation == null || operation === AwsSpanProcessingUtil.UNKNOWN_OPERATION) {
       return false;
     }
-    if (
-      AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_METHOD) ||
-      AwsSpanProcessingUtil.isKeyPresent(span, ATTR_HTTP_REQUEST_METHOD)
-    ) {
-      const httpMethod: AttributeValue | undefined =
-        span.attributes[SEMATTRS_HTTP_METHOD] ?? span.attributes[ATTR_HTTP_REQUEST_METHOD];
+    const httpMethod = AwsSpanProcessingUtil.getHttpMethod(span);
+    if (httpMethod !== undefined) {
       return operation !== httpMethod;
     }
     return true;

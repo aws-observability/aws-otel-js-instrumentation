@@ -173,7 +173,27 @@ jobs:
             ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ github.event.inputs.version }}
 
       # Publish to private ECR
-      - name: Build and push private ECR image
+      - name: Build and push amd64 image to private ECR
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
+        with:
+          push: true
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          tags: |
+            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}-amd64
+
+      - name: Build and push arm64 image to private ECR
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
+        with:
+          push: true
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          tags: |
+            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}-arm64
+
+      - name: Build and push multi-arch private ECR image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
         with:
           push: true

@@ -20,6 +20,7 @@ import { getStringFromEnv, diagLogLevelFromString } from '@opentelemetry/core';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
+import { LangChainInstrumentation } from './instrumentation/instrumentation-langchain';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled } from './utils';
 
@@ -121,6 +122,10 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
   },
 };
 const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
+
+// Add LangChain instrumentation
+const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
+instrumentations.push(new LangChainInstrumentation({ captureMessageContent }) as unknown as Instrumentation);
 
 // Apply instrumentation patches
 applyInstrumentationPatches(instrumentations);

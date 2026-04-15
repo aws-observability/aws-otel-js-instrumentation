@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { registerInstrumentationTesting } from '@opentelemetry/contrib-test-utils';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { LangChainInstrumentation } = require('@aws/aws-distro-opentelemetry-node-autoinstrumentation/instrumentation-langchain');
+import { LangChainInstrumentation } from '@aws/aws-distro-opentelemetry-node-autoinstrumentation/instrumentation-langchain';
 
 export const instrumentation = new LangChainInstrumentation();
 registerInstrumentationTesting(instrumentation);

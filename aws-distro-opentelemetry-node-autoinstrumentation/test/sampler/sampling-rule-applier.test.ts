@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Attributes } from '@opentelemetry/api/build/src/common/Attributes';
+import { Attributes } from '@opentelemetry/api';
 import { resourceFromAttributes, emptyResource } from '@opentelemetry/resources';
 import {
   SEMATTRS_AWS_LAMBDA_INVOKED_ARN,

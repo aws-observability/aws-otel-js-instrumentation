@@ -9,7 +9,7 @@ module.exports = {
     'import-in-the-middle',
     'require-in-the-middle',
     /^@aws-sdk/,
-    /^@smithy/,
+    // @smithy and @aws-crypto are NOT external — they're bundled for SigV4 signing
   ],
   output: {
     path: path.resolve('./build/src'),

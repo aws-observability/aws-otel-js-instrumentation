@@ -28,9 +28,6 @@
     "paths": {
       "@opentelemetry/semantic-conventions/incubating": [
         "../node_modules/@opentelemetry/semantic-conventions/build/src/index-incubating"
-      ],
-      "@langchain/core/*": [
-        "../node_modules/@langchain/core/dist/*"
       ]
     }
   },

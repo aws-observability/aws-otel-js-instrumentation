@@ -8,7 +8,6 @@ import {
 } from '@opentelemetry/instrumentation';
 import { LIB_VERSION } from '../../version';
 import { LangChainInstrumentationConfig } from './types';
-import { OpenTelemetryCallbackHandler } from './callback-handler';
 
 const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-langchain';
 
@@ -59,6 +58,8 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     if (typeof original !== 'function') return;
 
     const diag = this._diag;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { OpenTelemetryCallbackHandler } = require('./callback-handler');
     const handler = new OpenTelemetryCallbackHandler(this.tracer, !!this.getConfig().captureMessageContent);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,7 +88,7 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     this._diag.debug(`Unpatched CallbackManager.${methodName}`);
   }
 
-  private static _injectHandler(handlers: unknown, handler: OpenTelemetryCallbackHandler): unknown {
+  private static _injectHandler(handlers: unknown, handler: unknown): unknown {
     if (Array.isArray(handlers)) {
       if (!handlers.includes(handler)) {
         handlers.push(handler);

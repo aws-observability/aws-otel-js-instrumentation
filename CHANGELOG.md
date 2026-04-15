@@ -18,6 +18,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   `instrumentationScope` → `scope`, `traceFlags` → `flags`. Attribute values preserve native
   types. Added `exportPath: "console"` discriminator field.
   ([#392](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/392))
+- Support environment-configured endpoint visibility for HTTP operation names
+  ([#388](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/388))
 - Fix UnknownRemoteService/UnknownRemoteOperation for Next.js fetch by supporting new HTTP semantic conventions
   (`server.address`, `server.port`, `http.request.method`, `url.full`, `url.path`) as fallbacks
   ([#366](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/366))

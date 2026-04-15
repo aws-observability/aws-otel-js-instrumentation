@@ -175,6 +175,7 @@ export class AwsSpanProcessingUtil {
   private static isWildcardSegment(segment: string): boolean {
     return (segment.startsWith('{') && segment.endsWith('}')) || segment.startsWith(':') || segment === '*';
   }
+
   static GEN_AI_SYSTEM: string = 'gen_ai.system';
   static GEN_AI_REQUEST_MAX_TOKENS: string = 'gen_ai.request.max_tokens';
   static GEN_AI_REQUEST_TEMPERATURE: string = 'gen_ai.request.temperature';

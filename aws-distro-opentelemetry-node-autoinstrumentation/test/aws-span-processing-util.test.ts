@@ -460,8 +460,7 @@ describe('AwsSpanProcessingUtilTest', () => {
     });
 
     it('same-length patterns: first in config order wins', () => {
-      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] =
-        '/api/v1/{userId},/api/{version}/user1';
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/v1/{userId},/api/{version}/user1';
       (spanDataMock as any).name = 'GET /api';
       attributesMock[ATTR_URL_PATH] = '/api/v1/user1';
       attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';

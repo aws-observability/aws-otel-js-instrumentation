@@ -33,20 +33,8 @@ import {
   GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL,
   GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
   GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION,
-  GEN_AI_PROVIDER_NAME_VALUE_ANTHROPIC,
-  GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,
-  GEN_AI_PROVIDER_NAME_VALUE_AZURE_AI_OPENAI,
-  GEN_AI_PROVIDER_NAME_VALUE_COHERE,
-  GEN_AI_PROVIDER_NAME_VALUE_DEEPSEEK,
-  GEN_AI_PROVIDER_NAME_VALUE_GCP_GEMINI,
-  GEN_AI_PROVIDER_NAME_VALUE_GCP_GEN_AI,
-  GEN_AI_PROVIDER_NAME_VALUE_GCP_VERTEX_AI,
-  GEN_AI_PROVIDER_NAME_VALUE_GROQ,
-  GEN_AI_PROVIDER_NAME_VALUE_MISTRAL_AI,
-  GEN_AI_PROVIDER_NAME_VALUE_OPENAI,
-  GEN_AI_PROVIDER_NAME_VALUE_PERPLEXITY,
-  GEN_AI_PROVIDER_NAME_VALUE_X_AI,
 } from '@opentelemetry/semantic-conventions/incubating';
+import { PROVIDER_MAP, serializeToJson } from '../common/instrumentation-utils';
 import type { Serialized } from '@langchain/core/load/serializable';
 import type { ChatGeneration, LLMResult } from '@langchain/core/outputs';
 import type { ChainValues } from '@langchain/core/utils/types';
@@ -57,34 +45,6 @@ import { isAIMessage } from '@langchain/core/messages';
 
 const LANGGRAPH_STEP_SPAN_ATTR = 'langgraph.step';
 const LANGGRAPH_NODE_SPAN_ATTR = 'langgraph.node';
-
-const PROVIDER_MAP: Record<string, string> = {
-  bedrock: GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,
-  amazon_bedrock: GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,
-  aws: GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,
-  langchain_aws: GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,
-  openai: GEN_AI_PROVIDER_NAME_VALUE_OPENAI,
-  anthropic: GEN_AI_PROVIDER_NAME_VALUE_ANTHROPIC,
-  claude: GEN_AI_PROVIDER_NAME_VALUE_ANTHROPIC,
-  azure: GEN_AI_PROVIDER_NAME_VALUE_AZURE_AI_OPENAI,
-  azure_openai: GEN_AI_PROVIDER_NAME_VALUE_AZURE_AI_OPENAI,
-  google: GEN_AI_PROVIDER_NAME_VALUE_GCP_GEN_AI,
-  langchain_google_genai: GEN_AI_PROVIDER_NAME_VALUE_GCP_GEN_AI,
-  vertex: GEN_AI_PROVIDER_NAME_VALUE_GCP_VERTEX_AI,
-  vertexai: GEN_AI_PROVIDER_NAME_VALUE_GCP_VERTEX_AI,
-  gemini: GEN_AI_PROVIDER_NAME_VALUE_GCP_GEMINI,
-  cohere: GEN_AI_PROVIDER_NAME_VALUE_COHERE,
-  langchain_cohere: GEN_AI_PROVIDER_NAME_VALUE_COHERE,
-  mistral: GEN_AI_PROVIDER_NAME_VALUE_MISTRAL_AI,
-  mistralai: GEN_AI_PROVIDER_NAME_VALUE_MISTRAL_AI,
-  groq: GEN_AI_PROVIDER_NAME_VALUE_GROQ,
-  langchain_groq: GEN_AI_PROVIDER_NAME_VALUE_GROQ,
-  deepseek: GEN_AI_PROVIDER_NAME_VALUE_DEEPSEEK,
-  langchain_deepseek: GEN_AI_PROVIDER_NAME_VALUE_DEEPSEEK,
-  perplexity: GEN_AI_PROVIDER_NAME_VALUE_PERPLEXITY,
-  xai: GEN_AI_PROVIDER_NAME_VALUE_X_AI,
-  langchain_xai: GEN_AI_PROVIDER_NAME_VALUE_X_AI,
-};
 
 interface SpanEntry {
   span?: Span;
@@ -130,17 +90,13 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     if (this.captureMessageContent && messages.length > 0) {
       const { systemInstructions, conversation } = OpenTelemetryCallbackHandler._formatMessages(messages);
       if (conversation.length > 0) {
-        OpenTelemetryCallbackHandler._setAttribute(
-          span,
-          ATTR_GEN_AI_INPUT_MESSAGES,
-          OpenTelemetryCallbackHandler._serializeToJson(conversation)
-        );
+        OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson(conversation));
       }
       if (systemInstructions.length > 0) {
         OpenTelemetryCallbackHandler._setAttribute(
           span,
           ATTR_GEN_AI_SYSTEM_INSTRUCTIONS,
-          OpenTelemetryCallbackHandler._serializeToJson(systemInstructions)
+          serializeToJson(systemInstructions)
         );
       }
     }
@@ -177,11 +133,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
     if (this.captureMessageContent && prompts.length > 0) {
       const conversation = prompts.map(prompt => ({ role: 'user', parts: [{ type: 'text', content: prompt }] }));
-      OpenTelemetryCallbackHandler._setAttribute(
-        span,
-        ATTR_GEN_AI_INPUT_MESSAGES,
-        OpenTelemetryCallbackHandler._serializeToJson(conversation)
-      );
+      OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson(conversation));
     }
 
     this._propagateToAgentSpan(runId, provider, modelName, extraParams, config);
@@ -221,7 +173,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
           OpenTelemetryCallbackHandler._setAttribute(
             span,
             ATTR_GEN_AI_OUTPUT_MESSAGES,
-            OpenTelemetryCallbackHandler._serializeToJson(outputMessages)
+            serializeToJson(outputMessages)
           );
         }
       }
@@ -337,8 +289,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       const entry = this.runIdToSpanMap.get(runId);
       if (entry?.span) {
         const content = output && typeof output === 'object' && 'content' in output ? output.content : output;
-        const outputStr =
-          typeof content === 'string' ? content : OpenTelemetryCallbackHandler._serializeToJson(content);
+        const outputStr = typeof content === 'string' ? content : serializeToJson(content);
         OpenTelemetryCallbackHandler._setAttribute(entry.span, ATTR_GEN_AI_TOOL_CALL_RESULT, outputStr);
       }
     }
@@ -754,29 +705,6 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         return 'error';
       default:
         return raw;
-    }
-  }
-
-  private static _serializeToJson(value: unknown, maxDepth: number = 10): string {
-    const sanitize = (obj: unknown, depth: number): unknown => {
-      if (depth <= 0) return '...';
-      if (obj === null || obj === undefined) return obj;
-      if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') return obj;
-      if (Array.isArray(obj)) return obj.map(item => sanitize(item, depth - 1));
-      if (typeof obj === 'object') {
-        const result: Record<string, unknown> = {};
-        for (const [key, val] of Object.entries(obj)) {
-          result[key] = sanitize(val, depth - 1);
-        }
-        return result;
-      }
-      return String(obj);
-    };
-
-    try {
-      return JSON.stringify(sanitize(value, maxDepth));
-    } catch {
-      return String(value);
     }
   }
 

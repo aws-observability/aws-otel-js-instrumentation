@@ -123,9 +123,8 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
 };
 const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
-// Add LangChain instrumentation
 const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
-instrumentations.push(new LangChainInstrumentation({ captureMessageContent }) as unknown as Instrumentation);
+instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
 
 // Apply instrumentation patches
 applyInstrumentationPatches(instrumentations);

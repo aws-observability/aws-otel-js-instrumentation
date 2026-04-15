@@ -13,6 +13,7 @@ import {
   SEMATTRS_MESSAGING_OPERATION,
   SEMATTRS_RPC_SYSTEM,
 } from '@opentelemetry/semantic-conventions';
+import { ATTR_HTTP_REQUEST_METHOD, ATTR_URL_PATH } from '@opentelemetry/semantic-conventions';
 import { expect } from 'expect';
 import { AWS_ATTRIBUTE_KEYS } from '../src/aws-attribute-keys';
 import { AwsSpanProcessingUtil } from '../src/aws-span-processing-util';
@@ -406,6 +407,154 @@ describe('AwsSpanProcessingUtilTest', () => {
     spanDataMock.attributes[AwsSpanProcessingUtil.CLOUD_RESOURCE_ID] = 123; // Incorrect type
     const result = AwsSpanProcessingUtil.getResourceId(spanDataMock);
     expect(result).toBeUndefined();
+  });
+
+  // --- Tests for OTEL_AWS_HTTP_OPERATION_PATHS and applyOperationPathSpanName ---
+
+  describe('applyOperationPathSpanName', () => {
+    beforeEach(() => {
+      AwsSpanProcessingUtil.resetOperationPaths();
+    });
+
+    afterEach(() => {
+      AwsSpanProcessingUtil.resetOperationPaths();
+      delete process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG];
+    });
+
+    it('matches url.path and overrides span name', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] =
+        '/api/contests/{id}/leaderboard,/api/contests/{id},/api/contests';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[ATTR_URL_PATH] = '/api/contests/123/leaderboard';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('GET /api/contests/{id}/leaderboard');
+    });
+
+    it('falls back to http.target when url.path is absent', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/teams/{id},/api/teams';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[SEMATTRS_HTTP_TARGET] = '/api/teams/5?include=roster';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('GET /api/teams/{id}');
+    });
+
+    it('strips fragment from http.target', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/teams/{id}';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[SEMATTRS_HTTP_TARGET] = '/api/teams/5#section';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('GET /api/teams/{id}');
+    });
+
+    it('longest match wins', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] =
+        '/api/contests/{id}/leaderboard,/api/contests/{id},/api/contests,/api';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[ATTR_URL_PATH] = '/api/contests/42';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('GET /api/contests/{id}');
+    });
+
+    it('same-length patterns: first in config order wins', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/v1/{userId},/api/{version}/user1';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[ATTR_URL_PATH] = '/api/v1/user1';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('GET /api/v1/{userId}');
+    });
+
+    it('no match returns original span', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/contests/{id}';
+      (spanDataMock as any).name = 'GET /unknown';
+      attributesMock[ATTR_URL_PATH] = '/unknown/path';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result).toBe(spanDataMock);
+      expect(result.name).toEqual('GET /unknown');
+    });
+
+    it('empty config returns original span', () => {
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result).toBe(spanDataMock);
+    });
+
+    it('no http method omits method prefix', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/contests';
+      (spanDataMock as any).name = '/api';
+      attributesMock[ATTR_URL_PATH] = '/api/contests';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('/api/contests');
+    });
+
+    it('trailing slash in URL is normalized', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/contests';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[ATTR_URL_PATH] = '/api/contests/';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('GET /api/contests');
+    });
+
+    it('query string is stripped from url.path', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/contests';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[ATTR_URL_PATH] = '/api/contests?page=1&size=10';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('GET /api/contests');
+    });
+
+    it(':param wildcard in config matches literal URL segment', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/users/:userId/stats';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[ATTR_URL_PATH] = '/api/users/42/stats';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('GET /api/users/:userId/stats');
+    });
+
+    it('* wildcard in config matches literal URL segment', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/*/users/*';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[ATTR_URL_PATH] = '/api/v2/users/42';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('GET /api/*/users/*');
+    });
+
+    it('wildcard does not match empty segment', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/contests/{id}';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[ATTR_URL_PATH] = '/api/contests/';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      // Trailing slash normalized to /api/contests, which matches /api/contests as prefix
+      // but {id} requires a non-empty segment — so no match for {id} pattern
+      expect(result.name).not.toContain('{id}');
+    });
+
+    it('pattern longer than URL does not match', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/contests/{id}';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[ATTR_URL_PATH] = '/api';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'GET';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('GET /api');
+    });
+
+    it('uses deprecated http.method when http.request.method is absent', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/contests';
+      (spanDataMock as any).name = 'GET /api';
+      attributesMock[ATTR_URL_PATH] = '/api/contests';
+      attributesMock[SEMATTRS_HTTP_METHOD] = 'POST';
+      const result = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(result.name).toEqual('POST /api/contests');
+    });
   });
 });
 

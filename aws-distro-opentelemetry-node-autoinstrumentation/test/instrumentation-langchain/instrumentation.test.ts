@@ -41,10 +41,7 @@ import { tool } from '@langchain/core/tools';
 import { RunnableLambda } from '@langchain/core/runnables';
 import { z } from 'zod';
 import type { ChatResult } from '@langchain/core/outputs';
-import {
-  BEDROCK_CHAT_RESPONSE,
-  OPENAI_CHAT_RESPONSE,
-} from './mock-responses';
+import { BEDROCK_CHAT_RESPONSE, OPENAI_CHAT_RESPONSE } from './mock-responses';
 
 const REGION = 'us-east-1';
 const BEDROCK_MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0';
@@ -77,12 +74,10 @@ function createOpenAIModel(opts: Record<string, unknown> = {}): ChatOpenAI {
 }
 
 function nockBedrockConverse(response: Record<string, unknown>): nock.Scope {
-  return nock(`https://bedrock-runtime.${REGION}.amazonaws.com`)
-    .post(/.*/)
-    .reply(200, JSON.stringify(response), {
-      'content-type': 'application/json',
-      'x-amzn-requestid': 'req-bedrock-1234',
-    });
+  return nock(`https://bedrock-runtime.${REGION}.amazonaws.com`).post(/.*/).reply(200, JSON.stringify(response), {
+    'content-type': 'application/json',
+    'x-amzn-requestid': 'req-bedrock-1234',
+  });
 }
 
 function nockOpenAIChat(response: Record<string, unknown>): nock.Scope {
@@ -117,7 +112,9 @@ function stubGenerate(model: BaseChatModel): () => void {
   proto._generate = async function (): Promise<ChatResult> {
     return makeFakeChatResult();
   };
-  return () => { proto._generate = original; };
+  return () => {
+    proto._generate = original;
+  };
 }
 
 describe('LangChain instrumentation – ChatBedrockConverse', function () {
@@ -144,9 +141,7 @@ describe('LangChain instrumentation – ChatBedrockConverse', function () {
     expect(result.content).toBe('Paris is the capital of France.');
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
-    );
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
 
     const span = chatSpans[0];
@@ -170,9 +165,7 @@ describe('LangChain instrumentation – ChatBedrockConverse', function () {
     ]);
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
-    );
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
 
     const span = chatSpans[0];
@@ -195,9 +188,7 @@ describe('LangChain instrumentation – ChatBedrockConverse', function () {
     await model.invoke([new HumanMessage('What is the capital of France?')]);
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
-    );
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
     expect(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeUndefined();
     expect(chatSpans[0].attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeUndefined();
@@ -228,9 +219,7 @@ describe('LangChain instrumentation – ChatOpenAI', function () {
     expect(result.content).toBe('Paris is the capital of France.');
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
-    );
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
 
     const span = chatSpans[0];
@@ -254,9 +243,7 @@ describe('LangChain instrumentation – ChatOpenAI', function () {
     ]);
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
-    );
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
 
     const span = chatSpans[0];
@@ -279,18 +266,17 @@ describe('LangChain instrumentation – tool spans', function () {
   it('creates a tool span with all attributes', async () => {
     contentCaptureInstrumentation.enable();
 
-    const addTool = tool(
-      async (input: { a: number; b: number }) => String(input.a + input.b),
-      { name: 'add_numbers', description: 'Add two numbers', schema: z.object({ a: z.number(), b: z.number() }) }
-    );
+    const addTool = tool(async (input: { a: number; b: number }) => String(input.a + input.b), {
+      name: 'add_numbers',
+      description: 'Add two numbers',
+      schema: z.object({ a: z.number(), b: z.number() }),
+    });
 
     const result = await addTool.invoke({ a: 1, b: 2 });
     expect(result).toBe('3');
 
     const spans = getTestSpans();
-    const toolSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'execute_tool'
-    );
+    const toolSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'execute_tool');
     expect(toolSpans.length).toBe(1);
 
     const span = toolSpans[0];
@@ -304,18 +290,20 @@ describe('LangChain instrumentation – tool spans', function () {
     contentCaptureInstrumentation.enable();
 
     const failTool = tool(
-      async () => { throw new Error('Tool failed'); },
+      async () => {
+        throw new Error('Tool failed');
+      },
       { name: 'fail_tool', description: 'Always fails', schema: z.object({}) }
     );
 
     try {
       await failTool.invoke({});
-    } catch { /* expected */ }
+    } catch {
+      /* expected */
+    }
 
     const spans = getTestSpans();
-    const toolSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'execute_tool'
-    );
+    const toolSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'execute_tool');
     expect(toolSpans.length).toBe(1);
     expect(toolSpans[0].status.code).toBe(SpanStatusCode.ERROR);
     expect(toolSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
@@ -346,14 +334,14 @@ describe('LangChain instrumentation – error handling', function () {
 
     try {
       await llm.invoke('test');
-    } catch { /* expected */ }
+    } catch {
+      /* expected */
+    }
 
     restore();
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
-    );
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
     expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
   });
@@ -364,16 +352,20 @@ describe('LangChain instrumentation – error handling', function () {
     const llm = new FakeListChatModel({ responses: ['hello'] });
     const chain = RunnableLambda.from((x: string) => x)
       .pipe(llm)
-      .pipe(RunnableLambda.from(() => { throw new Error('chain boom'); }));
+      .pipe(
+        RunnableLambda.from(() => {
+          throw new Error('chain boom');
+        })
+      );
 
     try {
       await chain.invoke('test');
-    } catch { /* expected */ }
+    } catch {
+      /* expected */
+    }
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
-    );
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
   });
 });
@@ -396,9 +388,7 @@ describe('LangChain instrumentation – message content', function () {
     await llm.invoke('Say hello');
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
-    );
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
     const span = chatSpans[0];
 
@@ -419,15 +409,10 @@ describe('LangChain instrumentation – message content', function () {
     contentCaptureInstrumentation.enable();
 
     const llm = new FakeListChatModel({ responses: ['Hi!'] });
-    await llm.invoke([
-      new SystemMessage('You are a helpful assistant.'),
-      new HumanMessage('Hello'),
-    ]);
+    await llm.invoke([new SystemMessage('You are a helpful assistant.'), new HumanMessage('Hello')]);
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
-    );
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
     const span = chatSpans[0];
 
@@ -452,13 +437,14 @@ describe('LangChain instrumentation – chain suppression', function () {
   const chainFactories: Array<{ name: string; build: (llm: BaseChatModel) => unknown }> = [
     {
       name: 'RunnableLambda',
-      build: (llm) => RunnableLambda.from((x: string) => x).pipe(llm),
+      build: llm => RunnableLambda.from((x: string) => x).pipe(llm),
     },
     {
       name: 'RunnableSequence',
-      build: (llm) => RunnableLambda.from((x: string) => x)
-        .pipe(RunnableLambda.from((x: unknown) => x))
-        .pipe(llm),
+      build: llm =>
+        RunnableLambda.from((x: string) => x)
+          .pipe(RunnableLambda.from((x: unknown) => x))
+          .pipe(llm),
     },
   ];
 
@@ -474,8 +460,7 @@ describe('LangChain instrumentation – chain suppression', function () {
       const spans = getTestSpans();
       expect(spans.length).toBeGreaterThan(0);
       const suppressed = spans.filter(
-        (s: ReadableSpan) =>
-          s.name.includes('Runnable') || s.name.includes('Parser') || s.name.includes('Prompt')
+        (s: ReadableSpan) => s.name.includes('Runnable') || s.name.includes('Parser') || s.name.includes('Prompt')
       );
       expect(suppressed.length).toBe(0);
     });
@@ -496,9 +481,7 @@ describe('LangChain instrumentation – disable/uninstrument', function () {
     await llm.invoke('test');
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter(
-      (s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
-    );
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(0);
   });
 });
@@ -544,85 +527,95 @@ describe('LangChain instrumentation – provider detection (all providers)', fun
   }> = [
     {
       name: 'ChatBedrockConverse',
-      createModel: () => new ChatBedrockConverse({
-        model: 'test',
-        region: 'us-east-1',
-        credentials: { accessKeyId: 'fake', secretAccessKey: 'fake' },
-      }),
+      createModel: () =>
+        new ChatBedrockConverse({
+          model: 'test',
+          region: 'us-east-1',
+          credentials: { accessKeyId: 'fake', secretAccessKey: 'fake' },
+        }),
       expectedProvider: 'aws.bedrock',
     },
     {
       name: 'ChatOpenAI',
-      createModel: () => new ChatOpenAI({
-        apiKey: FAKE_OPENAI_KEY,
-        model: 'test',
-      }),
+      createModel: () =>
+        new ChatOpenAI({
+          apiKey: FAKE_OPENAI_KEY,
+          model: 'test',
+        }),
       expectedProvider: 'openai',
     },
     {
       name: 'AzureChatOpenAI',
-      createModel: () => new AzureChatOpenAI({
-        apiKey: FAKE_OPENAI_KEY,
-        azureOpenAIApiDeploymentName: 'test',
-        azureOpenAIApiInstanceName: 'fake',
-        azureOpenAIApiVersion: '2024-01-01',
-      }),
+      createModel: () =>
+        new AzureChatOpenAI({
+          apiKey: FAKE_OPENAI_KEY,
+          azureOpenAIApiDeploymentName: 'test',
+          azureOpenAIApiInstanceName: 'fake',
+          azureOpenAIApiVersion: '2024-01-01',
+        }),
       expectedProvider: 'azure.ai.openai',
     },
     {
       name: 'ChatAnthropic',
-      createModel: () => new ChatAnthropic({
-        anthropicApiKey: 'fake',
-        modelName: 'claude-3',
-      }),
+      createModel: () =>
+        new ChatAnthropic({
+          anthropicApiKey: 'fake',
+          modelName: 'claude-3',
+        }),
       expectedProvider: 'anthropic',
     },
     {
       name: 'ChatGoogleGenerativeAI',
-      createModel: () => new ChatGoogleGenerativeAI({
-        apiKey: 'fake',
-        model: 'gemini-pro',
-      }),
+      createModel: () =>
+        new ChatGoogleGenerativeAI({
+          apiKey: 'fake',
+          model: 'gemini-pro',
+        }),
       expectedProvider: 'gcp.gen_ai',
     },
     {
       name: 'ChatMistralAI',
-      createModel: () => new ChatMistralAI({
-        apiKey: 'fake',
-        model: 'test',
-      }),
+      createModel: () =>
+        new ChatMistralAI({
+          apiKey: 'fake',
+          model: 'test',
+        }),
       expectedProvider: 'mistral_ai',
     },
     {
       name: 'ChatGroq',
-      createModel: () => new ChatGroq({
-        apiKey: 'fake',
-        model: 'test',
-      }),
+      createModel: () =>
+        new ChatGroq({
+          apiKey: 'fake',
+          model: 'test',
+        }),
       expectedProvider: 'groq',
     },
     {
       name: 'ChatCohere',
-      createModel: () => new ChatCohere({
-        apiKey: 'fake',
-        model: 'test',
-      }),
+      createModel: () =>
+        new ChatCohere({
+          apiKey: 'fake',
+          model: 'test',
+        }),
       expectedProvider: 'cohere',
     },
     {
       name: 'ChatDeepSeek',
-      createModel: () => new ChatDeepSeek({
-        apiKey: 'fake',
-        model: 'test',
-      }),
+      createModel: () =>
+        new ChatDeepSeek({
+          apiKey: 'fake',
+          model: 'test',
+        }),
       expectedProvider: 'deepseek',
     },
     {
       name: 'ChatXAI',
-      createModel: () => new ChatXAI({
-        apiKey: 'fake',
-        model: 'test',
-      }),
+      createModel: () =>
+        new ChatXAI({
+          apiKey: 'fake',
+          model: 'test',
+        }),
       expectedProvider: 'x_ai',
     },
   ];

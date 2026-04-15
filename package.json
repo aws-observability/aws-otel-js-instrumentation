@@ -83,7 +83,6 @@
   },
   "workspaces": [
     "aws-distro-opentelemetry-node-autoinstrumentation/",
-    "exporters/aws-distro-opentelemetry-exporter-xray-udp/",
-    "test/instrumentation-langchain/"
+    "exporters/aws-distro-opentelemetry-exporter-xray-udp/"
   ]
 }

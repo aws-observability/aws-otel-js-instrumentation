@@ -683,12 +683,13 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   private static _extractFinishReason(generation: Generation): string | undefined {
     if (!('message' in generation)) return undefined;
     const message = (generation as ChatGeneration).message;
+    const metadata = (message.response_metadata ?? {}) as Record<string, unknown>;
     const rawReason =
       generation.generationInfo?.finish_reason ??
-      message.response_metadata?.finish_reason ??
-      message.response_metadata?.stop_reason ??
-      message.response_metadata?.stopReason ??
-      message.response_metadata?.finishReason;
+      metadata.finish_reason ??
+      metadata.stop_reason ??
+      metadata.stopReason ??
+      metadata.finishReason;
     return typeof rawReason === 'string' ? OpenTelemetryCallbackHandler._normalizeFinishReason(rawReason) : undefined;
   }
 

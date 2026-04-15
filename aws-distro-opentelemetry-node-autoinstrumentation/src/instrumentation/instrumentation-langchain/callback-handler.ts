@@ -36,7 +36,7 @@ import {
 } from '@opentelemetry/semantic-conventions/incubating';
 import { PROVIDER_MAP, serializeToJson } from '../common/instrumentation-utils';
 import type { Serialized } from '@langchain/core/load/serializable';
-import type { ChatGeneration, LLMResult } from '@langchain/core/outputs';
+import type { ChatGeneration, Generation, LLMResult } from '@langchain/core/outputs';
 import type { ChainValues } from '@langchain/core/utils/types';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { ToolCall } from '@langchain/core/messages/tool';
@@ -54,6 +54,11 @@ interface SpanEntry {
 
 export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   name: string = 'otel-callback-handler';
+  // Ensures the OTel callback is executed synchronously and not in an async thread.
+  // This is to ensure that we are ALWAYS setting this instrumentation's spans as the current span in context to make
+  // sure we propagate the trace to downstream spans.
+  // https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/callbacks/manager.ts#L124-L143
+  override awaitHandlers: boolean = true;
   tracer: Tracer;
   captureMessageContent: boolean;
   shouldSuppressInternalChains: boolean;
@@ -83,21 +88,17 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     const span = this._startSpan(runId, parentRunId, spanName, SpanKind.CLIENT);
 
     this._setLanggraphAttributes(span, metadata);
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_PROVIDER_NAME, provider);
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_CHAT);
+    this._setAttribute(span, ATTR_GEN_AI_PROVIDER_NAME, provider);
+    this._setAttribute(span, ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_CHAT);
     this._setModelRequestAttributes(span, extraParams, config, modelName);
 
     if (this.captureMessageContent && messages.length > 0) {
       const { systemInstructions, conversation } = OpenTelemetryCallbackHandler._formatMessages(messages);
       if (conversation.length > 0) {
-        OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson(conversation));
+        this._setAttribute(span, ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson(conversation));
       }
       if (systemInstructions.length > 0) {
-        OpenTelemetryCallbackHandler._setAttribute(
-          span,
-          ATTR_GEN_AI_SYSTEM_INSTRUCTIONS,
-          serializeToJson(systemInstructions)
-        );
+        this._setAttribute(span, ATTR_GEN_AI_SYSTEM_INSTRUCTIONS, serializeToJson(systemInstructions));
       }
     }
 
@@ -123,23 +124,19 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     const span = this._startSpan(runId, parentRunId, spanName, SpanKind.CLIENT);
 
     this._setLanggraphAttributes(span, metadata);
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_PROVIDER_NAME, provider);
-    OpenTelemetryCallbackHandler._setAttribute(
-      span,
-      ATTR_GEN_AI_OPERATION_NAME,
-      GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION
-    );
+    this._setAttribute(span, ATTR_GEN_AI_PROVIDER_NAME, provider);
+    this._setAttribute(span, ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION);
     this._setModelRequestAttributes(span, extraParams, config, modelName);
 
     if (this.captureMessageContent && prompts.length > 0) {
       const conversation = prompts.map(prompt => ({ role: 'user', parts: [{ type: 'text', content: prompt }] }));
-      OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson(conversation));
+      this._setAttribute(span, ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson(conversation));
     }
 
     this._propagateToAgentSpan(runId, provider, modelName, extraParams, config);
   }
 
-  override handleLLMEnd(response: LLMResult, runId: string, parentRunId?: string): void {
+  override handleLLMEnd(response: LLMResult, runId: string, _parentRunId?: string): void {
     const entry = this.runIdToSpanMap.get(runId);
     if (!entry?.span) return;
     const { span } = entry;
@@ -161,34 +158,30 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       responseId = message.id ?? responseId;
     }
 
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_USAGE_INPUT_TOKENS, inputTokens);
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_USAGE_OUTPUT_TOKENS, outputTokens);
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_RESPONSE_ID, responseId);
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_RESPONSE_MODEL, model);
+    this._setAttribute(span, ATTR_GEN_AI_USAGE_INPUT_TOKENS, inputTokens);
+    this._setAttribute(span, ATTR_GEN_AI_USAGE_OUTPUT_TOKENS, outputTokens);
+    this._setAttribute(span, ATTR_GEN_AI_RESPONSE_ID, responseId);
+    this._setAttribute(span, ATTR_GEN_AI_RESPONSE_MODEL, model);
 
     if (response.generations?.length > 0) {
       if (this.captureMessageContent) {
         const outputMessages = OpenTelemetryCallbackHandler._formatOutputMessages(response);
         if (outputMessages.length > 0) {
-          OpenTelemetryCallbackHandler._setAttribute(
-            span,
-            ATTR_GEN_AI_OUTPUT_MESSAGES,
-            serializeToJson(outputMessages)
-          );
+          this._setAttribute(span, ATTR_GEN_AI_OUTPUT_MESSAGES, serializeToJson(outputMessages));
         }
       }
 
       const finishReasons = OpenTelemetryCallbackHandler._extractFinishReasons(response);
       if (finishReasons.length > 0) {
-        OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_RESPONSE_FINISH_REASONS, finishReasons);
+        this._setAttribute(span, ATTR_GEN_AI_RESPONSE_FINISH_REASONS, finishReasons);
       }
     }
 
-    this._endSpan(runId, parentRunId);
+    this._endSpan(runId);
   }
 
-  override handleLLMError(err: Error, runId: string, parentRunId?: string): void {
-    this._handleError(err, runId, parentRunId);
+  override handleLLMError(err: Error, runId: string, _parentRunId?: string): void {
+    this._handleError(err, runId);
   }
 
   override handleChainStart(
@@ -205,11 +198,18 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     if (this._shouldSkipChain(serialized, name, metadata)) {
       const parentEntry = parentRunId ? this.runIdToSpanMap.get(parentRunId) : undefined;
       if (parentEntry) {
-        this.runIdToSpanMap.set(runId, { context: parentEntry.context, agentSpan: parentEntry.agentSpan });
+        this.runIdToSpanMap.set(runId, {
+          context: parentEntry.context,
+          agentSpan: parentEntry.agentSpan,
+        });
       }
       return;
     }
 
+    // AgentExecutor is the legacy LangChain agent node. lcAgentName metadata is only set
+    // when a custom name is given to the agent, otherwise it defaults to "LangGraph".
+    // langgraphNode check ensures we only match against agent nodes, not unwanted
+    // internal nodes.
     const isAgentChain =
       !!name && (name.includes('AgentExecutor') || name === 'LangGraph' || name === metadata?.lc_agent_name);
     const provider = OpenTelemetryCallbackHandler._extractModelProvider(serialized);
@@ -227,23 +227,19 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     }
 
     this._setLanggraphAttributes(span, metadata);
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_PROVIDER_NAME, provider);
+    this._setAttribute(span, ATTR_GEN_AI_PROVIDER_NAME, provider);
     if (isAgentChain) {
-      OpenTelemetryCallbackHandler._setAttribute(
-        span,
-        ATTR_GEN_AI_OPERATION_NAME,
-        GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT
-      );
+      this._setAttribute(span, ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT);
     }
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_AGENT_NAME, agentName);
+    this._setAttribute(span, ATTR_GEN_AI_AGENT_NAME, agentName);
   }
 
-  override handleChainEnd(_outputs: ChainValues, runId: string, parentRunId?: string): void {
-    this._endSpan(runId, parentRunId);
+  override handleChainEnd(_outputs: ChainValues, runId: string, _parentRunId?: string): void {
+    this._endSpan(runId);
   }
 
-  override handleChainError(err: Error, runId: string, parentRunId?: string): void {
-    this._handleError(err, runId, parentRunId);
+  override handleChainError(err: Error, runId: string, _parentRunId?: string): void {
+    this._handleError(err, runId);
   }
 
   override handleToolStart(
@@ -265,42 +261,38 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     const span = this._startSpan(runId, parentRunId, spanName);
 
     this._setLanggraphAttributes(span, metadata);
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_PROVIDER_NAME, provider);
-    OpenTelemetryCallbackHandler._setAttribute(
-      span,
-      ATTR_GEN_AI_OPERATION_NAME,
-      GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL
-    );
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_TOOL_NAME, name);
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_TOOL_TYPE, 'function');
-    OpenTelemetryCallbackHandler._setAttribute(
+    this._setAttribute(span, ATTR_GEN_AI_PROVIDER_NAME, provider);
+    this._setAttribute(span, ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL);
+    this._setAttribute(span, ATTR_GEN_AI_TOOL_NAME, name);
+    this._setAttribute(span, ATTR_GEN_AI_TOOL_TYPE, 'function');
+    this._setAttribute(
       span,
       ATTR_GEN_AI_TOOL_DESCRIPTION,
       'kwargs' in serialized ? serialized.kwargs?.description : undefined
     );
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_TOOL_CALL_ID, toolCallId);
+    this._setAttribute(span, ATTR_GEN_AI_TOOL_CALL_ID, toolCallId);
     if (this.captureMessageContent) {
-      OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_TOOL_CALL_ARGUMENTS, input);
+      this._setAttribute(span, ATTR_GEN_AI_TOOL_CALL_ARGUMENTS, input);
     }
   }
 
-  override handleToolEnd(output: unknown, runId: string, parentRunId?: string): void {
+  override handleToolEnd(output: unknown, runId: string, _parentRunId?: string): void {
     if (this.captureMessageContent) {
       const entry = this.runIdToSpanMap.get(runId);
       if (entry?.span) {
         const content = output && typeof output === 'object' && 'content' in output ? output.content : output;
         const outputStr = typeof content === 'string' ? content : serializeToJson(content);
-        OpenTelemetryCallbackHandler._setAttribute(entry.span, ATTR_GEN_AI_TOOL_CALL_RESULT, outputStr);
+        this._setAttribute(entry.span, ATTR_GEN_AI_TOOL_CALL_RESULT, outputStr);
       }
     }
-    this._endSpan(runId, parentRunId);
+    this._endSpan(runId);
   }
 
-  override handleToolError(err: Error, runId: string, parentRunId?: string): void {
-    this._handleError(err, runId, parentRunId);
+  override handleToolError(err: Error, runId: string, _parentRunId?: string): void {
+    this._handleError(err, runId);
   }
 
-  private _handleError(error: Error | unknown, runId: string, parentRunId?: string): void {
+  private _handleError(error: Error | unknown, runId: string): void {
     const entry = this.runIdToSpanMap.get(runId);
     if (!entry?.span) return;
     const { span } = entry;
@@ -308,9 +300,9 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       const err = error instanceof Error ? error : new Error(String(error));
       span.recordException(err);
       span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-      OpenTelemetryCallbackHandler._setAttribute(span, ATTR_ERROR_TYPE, err.constructor.name);
+      this._setAttribute(span, ATTR_ERROR_TYPE, err.constructor.name);
     }
-    this._endSpan(runId, parentRunId);
+    this._endSpan(runId);
   }
 
   private _startSpan(
@@ -324,29 +316,26 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     const span = this.tracer.startSpan(spanName, { kind }, parentCtx);
     const spanContext = trace.setSpan(parentCtx, span);
     this.runIdToSpanMap.set(runId, { span, context: spanContext, agentSpan: parentEntry?.agentSpan });
-    OpenTelemetryCallbackHandler._attachContext(spanContext);
     return span;
   }
 
-  private _endSpan(runId: string, parentRunId?: string): void {
+  private _endSpan(runId: string): void {
     const entry = this.runIdToSpanMap.get(runId);
     if (!entry) return;
     this.runIdToSpanMap.delete(runId);
     entry.span?.end();
-    this._detachContext(parentRunId);
   }
 
-  private _detachContext(parentRunId?: string): void {
-    const parentEntry = parentRunId ? this.runIdToSpanMap.get(parentRunId) : undefined;
-    OpenTelemetryCallbackHandler._attachContext(parentEntry ? parentEntry.context : context.active());
-  }
-
-  private static _attachContext(ctx: OtelContext): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const contextManager = (context as any)['_getContextManager']?.();
-    contextManager?._asyncLocalStorage?.enterWith(ctx);
-  }
-
+  // handleChainStart/End callbacks will contain internal chain types showing the
+  // internal agent orchestration workflow which can cause a lot of noisy spans
+  // except for chains with "AgentExecutor or LangGraph" in the name as
+  // those are used for invoke_agent spans:
+  // - "runnables": internal orchestration, see:
+  //   https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/runnables/base.ts#L124
+  // - "prompts": string formatting, see:
+  //   https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/prompts/index.ts#L1
+  // - "output_parsers": text parsing, see:
+  //   https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/output_parsers/index.ts#L1
   private _shouldSkipChain(
     serialized: Serialized,
     name: string | undefined,
@@ -365,10 +354,14 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       return true;
     }
 
+    // Legacy agent name patterns for supporting pre-langgraph orchestration
     if (name && (name.startsWith('Runnable') || name.endsWith('OutputParser') || name.endsWith('PromptTemplate'))) {
       return true;
     }
 
+    // In @langchain/core >= 1.0.0, the agent creation logic changed to depend on langgraph.
+    // We suppress internal nodes that have langgraph metadata, except for nodes that
+    // contain the agent name metadata as those are used for invoke_agent spans.
     if (metadata && Object.keys(metadata).some(k => k.startsWith('langgraph_'))) {
       return true;
     }
@@ -385,36 +378,32 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     const resolvedConfig = config ?? {};
     const model = OpenTelemetryCallbackHandler._extractModelId(extraParams, resolvedConfig) || modelName;
     if (model) {
-      OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_REQUEST_MODEL, model);
+      this._setAttribute(span, ATTR_GEN_AI_REQUEST_MODEL, model);
     }
 
     const invocationParams = (extraParams?.invocation_params ?? {}) as Record<string, unknown>;
     const params = (invocationParams.params ?? invocationParams) as Record<string, unknown>;
-    OpenTelemetryCallbackHandler._setAttribute(
+    this._setAttribute(
       span,
       ATTR_GEN_AI_REQUEST_MAX_TOKENS,
       params.max_tokens ?? params.max_new_tokens ?? resolvedConfig.max_tokens
     );
-    OpenTelemetryCallbackHandler._setAttribute(
-      span,
-      ATTR_GEN_AI_REQUEST_TEMPERATURE,
-      params.temperature ?? resolvedConfig.temperature
-    );
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_REQUEST_TOP_P, params.top_p ?? resolvedConfig.top_p);
-    OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_REQUEST_TOP_K, params.top_k ?? resolvedConfig.top_k);
-    OpenTelemetryCallbackHandler._setAttribute(
+    this._setAttribute(span, ATTR_GEN_AI_REQUEST_TEMPERATURE, params.temperature ?? resolvedConfig.temperature);
+    this._setAttribute(span, ATTR_GEN_AI_REQUEST_TOP_P, params.top_p ?? resolvedConfig.top_p);
+    this._setAttribute(span, ATTR_GEN_AI_REQUEST_TOP_K, params.top_k ?? resolvedConfig.top_k);
+    this._setAttribute(
       span,
       ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY,
       params.frequency_penalty ?? resolvedConfig.frequency_penalty
     );
-    OpenTelemetryCallbackHandler._setAttribute(
+    this._setAttribute(
       span,
       ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY,
       params.presence_penalty ?? resolvedConfig.presence_penalty
     );
     const stop = params.stop ?? resolvedConfig.stop;
     if (stop) {
-      OpenTelemetryCallbackHandler._setAttribute(span, ATTR_GEN_AI_REQUEST_STOP_SEQUENCES, stop);
+      this._setAttribute(span, ATTR_GEN_AI_REQUEST_STOP_SEQUENCES, stop);
     }
   }
 
@@ -428,18 +417,18 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     const entry = this.runIdToSpanMap.get(runId);
     if (!entry?.agentSpan?.isRecording()) return;
     const agentSpan = entry.agentSpan;
-    OpenTelemetryCallbackHandler._setAttribute(agentSpan, ATTR_GEN_AI_PROVIDER_NAME, provider);
-    OpenTelemetryCallbackHandler._setAttribute(agentSpan, ATTR_GEN_AI_REQUEST_MODEL, modelName);
+    this._setAttribute(agentSpan, ATTR_GEN_AI_PROVIDER_NAME, provider);
+    this._setAttribute(agentSpan, ATTR_GEN_AI_REQUEST_MODEL, modelName);
     const invocationParams = (extraParams?.invocation_params ?? {}) as Record<string, unknown>;
     const params = (invocationParams.params ?? invocationParams) as Record<string, unknown>;
     const temperature = params.temperature ?? (config as Record<string, unknown> | undefined)?.temperature;
-    OpenTelemetryCallbackHandler._setAttribute(agentSpan, ATTR_GEN_AI_REQUEST_TEMPERATURE, temperature);
+    this._setAttribute(agentSpan, ATTR_GEN_AI_REQUEST_TEMPERATURE, temperature);
   }
 
   private _setLanggraphAttributes(span: Span, metadata?: Record<string, unknown>): void {
     if (!metadata) return;
-    OpenTelemetryCallbackHandler._setAttribute(span, LANGGRAPH_STEP_SPAN_ATTR, metadata.langgraph_step);
-    OpenTelemetryCallbackHandler._setAttribute(span, LANGGRAPH_NODE_SPAN_ATTR, metadata.langgraph_node);
+    this._setAttribute(span, LANGGRAPH_STEP_SPAN_ATTR, metadata.langgraph_step);
+    this._setAttribute(span, LANGGRAPH_NODE_SPAN_ATTR, metadata.langgraph_node);
   }
 
   private static _extractLCName(
@@ -478,15 +467,15 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     extraParams?: Record<string, unknown>,
     metadata?: Record<string, unknown>
   ): string | undefined {
-    if (typeof metadata?.ls_provider === 'string') {
-      const provider = PROVIDER_MAP[metadata.ls_provider.toLowerCase()];
-      if (provider) return provider;
-    }
     if (serialized.id) {
       for (const part of serialized.id) {
         const provider = PROVIDER_MAP[part.toLowerCase()];
         if (provider) return provider;
       }
+    }
+    if (typeof metadata?.ls_provider === 'string') {
+      const provider = PROVIDER_MAP[metadata.ls_provider.toLowerCase()];
+      if (provider) return provider;
     }
 
     const invocationParams = (extraParams?.invocation_params ?? {}) as Record<string, unknown>;
@@ -512,6 +501,43 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     return 'kwargs' in serialized ? serialized.kwargs : undefined;
   }
 
+  // Converts LangChain messages to OTel format conversation and system instructions format based on
+  // the following schemas:
+  // https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-input-messages.json
+  // https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-output-messages.json
+  // https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-system-instructions.json
+  //
+  // Example LangChain input based on:
+  // https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/messages/human.ts#L18
+  // https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/messages/system.ts#L18
+  // https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/messages/ai.ts#L33
+  // https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/messages/tool.ts#L53
+  //
+  //   [[
+  //     SystemMessage({ content: "You are a helpful assistant." }),
+  //     HumanMessage({ content: "What is the weather in Paris?" }),
+  //     AIMessage({ content: "Let me check.", tool_calls: [
+  //         { name: "get_weather", args: { city: "Paris" }, id: "call_abc123", type: "tool_call" }
+  //     ] }),
+  //   ]]
+  //
+  //
+  // Example OTel output:
+  //
+  //   systemInstructions:
+  //     [{ type: "text", content: "You are a helpful assistant." }]
+  //
+  //   conversation:
+  //     [
+  //       { role: "user", parts: [{ type: "text", content: "What is the weather in Paris?" }] },
+  //       { role: "assistant", parts: [
+  //           { type: "text", content: "Let me check." },
+  //           { type: "tool_call", id: "call_abc123", name: "get_weather", arguments: {...} },
+  //       ] },
+  //       { role: "tool", parts: [
+  //           { type: "tool_call_response", id: "call_abc123", response: "72°F and sunny" },
+  //       ] },
+  //     ]
   private static _formatMessages(messages: BaseMessage[][]): {
     systemInstructions: Array<{ type: string; content: string }>;
     conversation: Array<{ role: string; parts: Array<Record<string, unknown>> }>;
@@ -525,18 +551,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         const role = OpenTelemetryCallbackHandler._normalizeRole(messageType);
         const parts: Array<Record<string, unknown>> = [];
 
-        const textContent =
-          typeof message.content === 'string'
-            ? message.content
-            : Array.isArray(message.content)
-            ? message.content
-                .filter(
-                  (block): block is { type: 'text'; text: string } =>
-                    typeof block === 'object' && block !== null && 'type' in block && block.type === 'text'
-                )
-                .map(block => block.text)
-                .join('')
-            : '';
+        const textContent = OpenTelemetryCallbackHandler._extractTextContent(message.content);
 
         if (textContent) {
           parts.push({ type: 'text', content: textContent });
@@ -572,6 +587,24 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     return { systemInstructions, conversation };
   }
 
+  // Converts the result of LLM to OTel output messages format.
+  // https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-output-messages.json
+  //
+  // Example LangChain input based on:
+  // https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/outputs.ts#L55
+  // https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/outputs.ts#L72
+  //
+  //   [[ChatGeneration({
+  //       message: AIMessage({ content: "The weather is sunny.", tool_calls: [...] }),
+  //       generationInfo: { finish_reason: "end_turn" },
+  //   })]]
+  //
+  // Example OTel output:
+  //
+  //   [{ role: "assistant", parts: [
+  //       { type: "text", content: "The weather is sunny." },
+  //       { type: "tool_call", id: "call_abc", name: "get_weather", arguments: {...} },
+  //   ], finish_reason: "stop" }]
   private static _formatOutputMessages(
     response: LLMResult
   ): Array<{ role: string; parts: Array<Record<string, unknown>>; finish_reason: string }> {
@@ -585,18 +618,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         if ('message' in generation) {
           const message = (generation as ChatGeneration).message;
 
-          const textContent =
-            typeof message.content === 'string'
-              ? message.content
-              : Array.isArray(message.content)
-              ? message.content
-                  .filter(
-                    (block): block is { type: 'text'; text: string } =>
-                      typeof block === 'object' && block !== null && 'type' in block && block.type === 'text'
-                  )
-                  .map(block => block.text)
-                  .join('')
-              : '';
+          const textContent = OpenTelemetryCallbackHandler._extractTextContent(message.content);
 
           if (textContent) {
             parts.push({ type: 'text', content: textContent });
@@ -613,15 +635,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
             }
           }
 
-          const rawReason =
-            generation.generationInfo?.finish_reason ??
-            message.response_metadata?.finish_reason ??
-            message.response_metadata?.stop_reason ??
-            message.response_metadata?.stopReason ??
-            message.response_metadata?.finishReason;
-          if (typeof rawReason === 'string') {
-            finishReason = OpenTelemetryCallbackHandler._normalizeFinishReason(rawReason);
-          }
+          finishReason = OpenTelemetryCallbackHandler._extractFinishReason(generation);
         } else {
           if (generation.text) {
             parts.push({ type: 'text', content: generation.text });
@@ -641,25 +655,41 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     return outputMessages;
   }
 
+  private static _extractTextContent(content: BaseMessage['content']): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .filter(
+          (block): block is { type: 'text'; text: string } =>
+            typeof block === 'object' && block !== null && 'type' in block && block.type === 'text'
+        )
+        .map(block => block.text)
+        .join('');
+    }
+    return '';
+  }
+
   private static _extractFinishReasons(response: LLMResult): string[] {
     const reasons: string[] = [];
     for (const generationGroup of response.generations) {
       for (const generation of generationGroup) {
-        if ('message' in generation) {
-          const message = (generation as ChatGeneration).message;
-          const rawReason =
-            generation.generationInfo?.finish_reason ??
-            message.response_metadata?.finish_reason ??
-            message.response_metadata?.stop_reason ??
-            message.response_metadata?.stopReason ??
-            message.response_metadata?.finishReason;
-          if (typeof rawReason === 'string') {
-            reasons.push(OpenTelemetryCallbackHandler._normalizeFinishReason(rawReason));
-          }
-        }
+        const reason = OpenTelemetryCallbackHandler._extractFinishReason(generation);
+        if (reason) reasons.push(reason);
       }
     }
     return reasons;
+  }
+
+  private static _extractFinishReason(generation: Generation): string | undefined {
+    if (!('message' in generation)) return undefined;
+    const message = (generation as ChatGeneration).message;
+    const rawReason =
+      generation.generationInfo?.finish_reason ??
+      message.response_metadata?.finish_reason ??
+      message.response_metadata?.stop_reason ??
+      message.response_metadata?.stopReason ??
+      message.response_metadata?.finishReason;
+    return typeof rawReason === 'string' ? OpenTelemetryCallbackHandler._normalizeFinishReason(rawReason) : undefined;
   }
 
   private static _normalizeRole(messageType: string): string {
@@ -709,7 +739,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private static _setAttribute(span: Span, name: string, value: any): void {
+  private _setAttribute(span: Span, name: string, value: any): void {
     if (span.isRecording() && value !== undefined && value !== null && value !== '') {
       span.setAttribute(name, value);
     }

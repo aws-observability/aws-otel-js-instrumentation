@@ -24,7 +24,15 @@
     "incremental": true,
     "newLine": "LF",
     // This command allows TypeScript to import `sql_dialect_keywords.json`
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "paths": {
+      "@opentelemetry/semantic-conventions/incubating": [
+        "../node_modules/@opentelemetry/semantic-conventions/build/src/index-incubating"
+      ],
+      "@langchain/core/*": [
+        "../node_modules/@langchain/core/dist/*"
+      ]
+    }
   },
   "include": [
     "src/**/*.ts",

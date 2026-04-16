@@ -129,6 +129,8 @@ jobs:
       matrix:
         node: ["18", "20", "22", "24"]
         include:
+          - node: 18
+            code-coverage: true
           - node: 20
             code-coverage: true
     env:

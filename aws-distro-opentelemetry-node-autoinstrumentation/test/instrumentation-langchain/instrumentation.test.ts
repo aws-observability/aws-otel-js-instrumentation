@@ -34,14 +34,20 @@ import { ChatDeepSeek } from '@langchain/deepseek';
 import { ChatXAI } from '@langchain/xai';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
-import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { FakeListChatModel, FakeLLM } from '@langchain/core/utils/testing';
 import { tool } from '@langchain/core/tools';
 import { RunnableLambda } from '@langchain/core/runnables';
 import { z } from 'zod';
 import type { ChatResult } from '@langchain/core/outputs';
-import { BEDROCK_CHAT_RESPONSE, OPENAI_CHAT_RESPONSE } from './mock-responses';
+import {
+  BEDROCK_CHAT_RESPONSE,
+  BEDROCK_TOOL_CALL_RESPONSE,
+  OPENAI_CHAT_RESPONSE,
+  OPENAI_TOOL_CALL_RESPONSE,
+  OPENAI_ERROR_RESPONSE,
+} from './mock-responses';
 
 const REGION = 'us-east-1';
 const BEDROCK_MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0';
@@ -514,6 +520,179 @@ describe('LangChain instrumentation – text completion', function () {
     const inputMessages = JSON.parse(completionSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
     expect(inputMessages[0].role).toBe('user');
     expect(inputMessages[0].parts[0].content).toContain('test prompt');
+  });
+});
+
+describe('LangChain instrumentation – tool call responses', function () {
+  this.timeout(10000);
+
+  beforeEach(() => {
+    resetMemoryExporter();
+    nock.cleanAll();
+  });
+
+  afterEach(() => {
+    contentCaptureInstrumentation.disable();
+    nock.cleanAll();
+  });
+
+  it('creates a chat span with tool_call finish reason for Bedrock tool use', async () => {
+    contentCaptureInstrumentation.enable();
+    nockBedrockConverse(BEDROCK_TOOL_CALL_RESPONSE);
+
+    const model = createBedrockModel();
+    await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+
+    const span = chatSpans[0];
+    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
+    expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(40);
+    expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(20);
+
+    const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    expect(outputMessages.length).toBe(1);
+    const toolCallParts = outputMessages[0].parts.filter((p: any) => p.type === 'tool_call');
+    expect(toolCallParts.length).toBe(1);
+    expect(toolCallParts[0].name).toBe('get_weather');
+  });
+
+  it('creates a chat span with tool_call finish reason for OpenAI tool use', async () => {
+    contentCaptureInstrumentation.enable();
+    nockOpenAIChat(OPENAI_TOOL_CALL_RESPONSE);
+
+    const model = createOpenAIModel();
+    await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+
+    const span = chatSpans[0];
+    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
+  });
+});
+
+describe('LangChain instrumentation – OpenAI error handling', function () {
+  this.timeout(10000);
+
+  beforeEach(() => {
+    resetMemoryExporter();
+    nock.cleanAll();
+  });
+
+  afterEach(() => {
+    contentCaptureInstrumentation.disable();
+    nock.cleanAll();
+  });
+
+  it('records error status on OpenAI server error', async () => {
+    contentCaptureInstrumentation.enable();
+    nock('https://api.openai.com')
+      .post('/v1/chat/completions')
+      .reply(500, OPENAI_ERROR_RESPONSE, { 'content-type': 'application/json' });
+
+    const model = createOpenAIModel({ maxRetries: 0 });
+    try {
+      await model.invoke([new HumanMessage('test')]);
+    } catch {
+      /* expected */
+    }
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+    expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
+    expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
+  });
+});
+
+describe('LangChain instrumentation – message formatting edge cases', function () {
+  this.timeout(10000);
+
+  beforeEach(() => {
+    resetMemoryExporter();
+  });
+
+  afterEach(() => {
+    contentCaptureInstrumentation.disable();
+  });
+
+  it('handles AI messages with tool_calls in input', async () => {
+    contentCaptureInstrumentation.enable();
+
+    const llm = new FakeListChatModel({ responses: ['Done.'] });
+    await llm.invoke([
+      new HumanMessage('What is the weather?'),
+      new AIMessage({
+        content: 'Let me check.',
+        tool_calls: [{ name: 'get_weather', args: { city: 'Paris' }, id: 'call_123', type: 'tool_call' }],
+      }),
+      new ToolMessage({ content: '72F and sunny', tool_call_id: 'call_123' }),
+      new HumanMessage('Thanks!'),
+    ]);
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+
+    const inputMessages = JSON.parse(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    const roles = inputMessages.map((m: any) => m.role);
+    expect(roles).toContain('user');
+    expect(roles).toContain('assistant');
+    expect(roles).toContain('tool');
+
+    const assistantMsg = inputMessages.find((m: any) => m.role === 'assistant');
+    const toolCallParts = assistantMsg.parts.filter((p: any) => p.type === 'tool_call');
+    expect(toolCallParts.length).toBe(1);
+    expect(toolCallParts[0].name).toBe('get_weather');
+
+    const toolMsg = inputMessages.find((m: any) => m.role === 'tool');
+    const responseParts = toolMsg.parts.filter((p: any) => p.type === 'tool_call_response');
+    expect(responseParts.length).toBe(1);
+    expect(responseParts[0].id).toBe('call_123');
+  });
+
+  it('handles AI messages with array content blocks', async () => {
+    contentCaptureInstrumentation.enable();
+
+    const llm = new FakeListChatModel({ responses: ['ok'] });
+    await llm.invoke([
+      new HumanMessage({
+        content: [
+          { type: 'text', text: 'First part.' },
+          { type: 'text', text: ' Second part.' },
+        ],
+      }),
+    ]);
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+
+    const inputMessages = JSON.parse(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    expect(inputMessages[0].parts[0].content).toContain('First part.');
+    expect(inputMessages[0].parts[0].content).toContain('Second part.');
+  });
+
+  it('suppresses chains with langgraph metadata', async () => {
+    contentCaptureInstrumentation.enable();
+
+    const llm = new FakeListChatModel({ responses: ['ok'] });
+    const chain = RunnableLambda.from((x: string) => x).pipe(llm);
+    await chain.invoke('test');
+
+    const spans = getTestSpans();
+    const chainSpans = spans.filter(
+      (s: ReadableSpan) =>
+        !s.attributes[ATTR_GEN_AI_OPERATION_NAME] ||
+        (s.attributes[ATTR_GEN_AI_OPERATION_NAME] !== 'chat' &&
+          s.attributes[ATTR_GEN_AI_OPERATION_NAME] !== 'text_completion' &&
+          s.attributes[ATTR_GEN_AI_OPERATION_NAME] !== 'execute_tool')
+    );
+    expect(chainSpans.length).toBe(0);
   });
 });
 

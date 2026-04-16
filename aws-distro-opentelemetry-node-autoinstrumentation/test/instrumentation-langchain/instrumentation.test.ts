@@ -710,13 +710,18 @@ describe('LangChain instrumentation – streaming', function () {
   it('creates a chat span when using stream()', async () => {
     contentCaptureInstrumentation.enable();
 
-    const llm = new FakeListChatModel({ responses: ['Hello!'], sleep: 0 });
+    // First invoke to trigger prototype wrapping of _streamResponseChunks,
+    // then stream to exercise the streaming context propagation wrapper.
+    const llm = new FakeListChatModel({ responses: ['Hello!', 'World!'], sleep: 0 });
+    await llm.invoke('warm up');
+    resetMemoryExporter();
+
     const stream = await llm.stream('test streaming');
     const chunks: string[] = [];
     for await (const chunk of stream) {
       chunks.push(typeof chunk.content === 'string' ? chunk.content : '');
     }
-    expect(chunks.join('')).toContain('Hello');
+    expect(chunks.join('')).toContain('World');
 
     const spans = getTestSpans();
     const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
@@ -858,4 +863,84 @@ describe('LangChain instrumentation – provider detection (all providers)', fun
       }
     });
   }
+});
+
+describe('LangChain instrumentation – finish reason normalization', function () {
+  this.timeout(10000);
+
+  beforeEach(() => {
+    resetMemoryExporter();
+    nock.cleanAll();
+  });
+
+  afterEach(() => {
+    contentCaptureInstrumentation.disable();
+    nock.cleanAll();
+  });
+
+  it('normalizes "max_tokens" finish reason to "length"', async () => {
+    contentCaptureInstrumentation.enable();
+    nockOpenAIChat({
+      ...OPENAI_CHAT_RESPONSE,
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'Truncated response.' },
+          finish_reason: 'length',
+        },
+      ],
+    });
+
+    const model = createOpenAIModel();
+    await model.invoke([new HumanMessage('Write a long essay')]);
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+    expect(chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['length']);
+  });
+
+  it('normalizes "content_filter" finish reason', async () => {
+    contentCaptureInstrumentation.enable();
+    nockOpenAIChat({
+      ...OPENAI_CHAT_RESPONSE,
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: '' },
+          finish_reason: 'content_filter',
+        },
+      ],
+    });
+
+    const model = createOpenAIModel();
+    await model.invoke([new HumanMessage('test')]);
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+    expect(chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['content_filter']);
+  });
+
+  it('passes through unknown finish reasons unchanged', async () => {
+    contentCaptureInstrumentation.enable();
+    nockOpenAIChat({
+      ...OPENAI_CHAT_RESPONSE,
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'ok' },
+          finish_reason: 'custom_reason',
+        },
+      ],
+    });
+
+    const model = createOpenAIModel();
+    await model.invoke([new HumanMessage('test')]);
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+    expect(chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['custom_reason']);
+  });
 });

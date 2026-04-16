@@ -37,7 +37,7 @@
     "test": "npm run test:unit && npm run test:langchain",
     "test:unit": "nyc ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' --ignore 'test/instrumentation-langchain/**' 'test/**/*.ts'",
     "test:langchain": "nyc ts-mocha --timeout 10000 -p tsconfig.json --require './test/instrumentation-langchain/check-node-version.js' --require '@opentelemetry/contrib-test-utils' 'test/instrumentation-langchain/**/*.ts'",
-    "test:coverage": "nyc ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' --ignore 'test/instrumentation-langchain/**' 'test/**/*.ts' && nyc --no-clean ts-mocha --timeout 10000 -p tsconfig.json --require './test/instrumentation-langchain/check-node-version.js' --require '@opentelemetry/contrib-test-utils' 'test/instrumentation-langchain/**/*.ts' && nyc check-coverage --functions 94 --lines 94",
+    "test:coverage": "nyc --check-coverage --functions 95 --lines 95 ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' --ignore 'test/instrumentation-langchain/**' 'test/**/*.ts' && npm run test:langchain",
     "watch": "tsc -w"
   },
   "nyc": {
@@ -47,7 +47,8 @@
     ],
     "exclude": [
       "src/third-party/**/*.ts",
-      "src/exporter/otlp/aws/common/aws-authenticator.ts"
+      "src/exporter/otlp/aws/common/aws-authenticator.ts",
+      "src/instrumentation/instrumentation-langchain/**/*.ts"
     ]
   },
   "bugs": {

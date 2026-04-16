@@ -696,6 +696,34 @@ describe('LangChain instrumentation – message formatting edge cases', function
   });
 });
 
+describe('LangChain instrumentation – streaming', function () {
+  this.timeout(10000);
+
+  beforeEach(() => {
+    resetMemoryExporter();
+  });
+
+  afterEach(() => {
+    contentCaptureInstrumentation.disable();
+  });
+
+  it('creates a chat span when using stream()', async () => {
+    contentCaptureInstrumentation.enable();
+
+    const llm = new FakeListChatModel({ responses: ['Hello!'], sleep: 0 });
+    const stream = await llm.stream('test streaming');
+    const chunks: string[] = [];
+    for await (const chunk of stream) {
+      chunks.push(typeof chunk.content === 'string' ? chunk.content : '');
+    }
+    expect(chunks.join('')).toContain('Hello');
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+  });
+});
+
 describe('LangChain instrumentation – provider detection (all providers)', function () {
   this.timeout(15000);
 

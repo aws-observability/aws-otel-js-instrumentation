@@ -129,8 +129,6 @@ jobs:
       matrix:
         node: ["18", "20", "22", "24"]
         include:
-          - node: 18
-            code-coverage: true
           - node: 20
             code-coverage: true
     env:
@@ -161,13 +159,17 @@ jobs:
           trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
       - name: Build Lambda Layer
         run: npm run build-lambda
-      - name: Unit tests (Full)
+      - name: Unit tests
+        if: ${{ !matrix.code-coverage }}
+        run: npm run test
+      - name: Unit tests with coverage
+        if: ${{ matrix.code-coverage }}
         run: npm run test:coverage
       # Some of instrumented packages require certain Node versions,
-      # so these tests are excluded from the main test/test:coverage scripts via --ignore
+      # so these tests are excluded from the main test script via --ignore
       # and run here only on supported Node versions.
       - name: Run instrumentation unit tests
-        if: ${{ matrix.node != '18' }}
+        if: ${{ matrix.node != '18' && !matrix.code-coverage }}
         run: npm run test:instrumentation:langchain
       - name: Report Coverage
         if: ${{ matrix.code-coverage && !cancelled()}}

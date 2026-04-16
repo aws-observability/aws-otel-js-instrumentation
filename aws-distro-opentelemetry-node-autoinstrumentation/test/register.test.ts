@@ -7,7 +7,7 @@ import * as assert from 'assert';
 import { spawnSync, SpawnSyncReturns } from 'child_process';
 import expect from 'expect';
 import { LangChainInstrumentation } from '../src/instrumentation/instrumentation-langchain';
-import { setAwsDefaultEnvironmentVariables } from '../src/register';
+import { instrumentations, setAwsDefaultEnvironmentVariables } from '../src/register';
 
 // The OpenTelemetry Authors code
 // Extend register.test.ts functionality to also test exported span with Application Signals enabled
@@ -24,11 +24,10 @@ describe('Register', function () {
     NodeSDK.prototype.start = originalPrototypeStart;
   });
 
-  it('LangChain instrumentation is loaded', () => {
-    const instr = new LangChainInstrumentation();
-    assert.ok(instr, 'LangChainInstrumentation should be instantiable');
-    assert.strictEqual(instr.instrumentationName, '@aws/aws-distro-opentelemetry-instrumentation-langchain');
-    instr.disable();
+  it('LangChain instrumentation is registered', () => {
+    const langchain = instrumentations.find(i => i instanceof LangChainInstrumentation);
+    assert.ok(langchain, 'LangChainInstrumentation should be in the instrumentations list');
+    assert.strictEqual(langchain.instrumentationName, '@aws/aws-distro-opentelemetry-instrumentation-langchain');
   });
 
   describe('Tests AWS Default Environment Variables', () => {

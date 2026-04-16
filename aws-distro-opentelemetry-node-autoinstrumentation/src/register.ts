@@ -121,7 +121,7 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
     suppressInternalInstrumentation: true,
   },
 };
-const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
+export const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
 const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
 instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));

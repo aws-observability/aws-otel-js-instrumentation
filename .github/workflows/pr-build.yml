@@ -161,7 +161,7 @@ jobs:
         run: npm run build-lambda
       - name: Unit tests (Full)
         run: npm run test:coverage
-      - name: Run instrumentation tests (Node >= 20 only)
+      - name: Run instrumentation tests
         if: ${{ matrix.node != '18' }}
         run: npm run test:instrumentation
       - name: Report Coverage

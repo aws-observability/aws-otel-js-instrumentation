@@ -17,11 +17,7 @@
   "main": "build/src/index.js",
   "types": "build/src/index.d.ts",
   "exports": {
-    "./register": "./build/src/register.js",
-    "./instrumentation-langchain": {
-      "types": "./build/src/instrumentation/instrumentation-langchain/index.d.ts",
-      "default": "./build/src/instrumentation/instrumentation-langchain/index.js"
-    }
+    "./register": "./build/src/register.js"
   },
   "repository": "aws-observability/aws-otel-js-instrumentation",
   "scripts": {

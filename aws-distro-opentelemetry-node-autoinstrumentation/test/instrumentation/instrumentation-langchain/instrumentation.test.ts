@@ -64,7 +64,7 @@ import {
   BEDROCK_ERROR_RESPONSE,
   ANTHROPIC_ERROR_RESPONSE,
 } from './mock-responses';
-import { validateOtelGenaiSchema } from '../gen-ai-schema-validation';
+import { validateOtelGenaiSchema } from '../otel-schema-validator';
 
 const REGION = 'us-east-1';
 const BEDROCK_MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0';

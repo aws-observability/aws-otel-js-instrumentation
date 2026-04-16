@@ -161,6 +161,9 @@ jobs:
         run: npm run build-lambda
       - name: Unit tests (Full)
         run: npm run test:coverage
+      - name: LangChain tests (Node >= 20 only)
+        if: ${{ matrix.node != '18' }}
+        run: npm run test:langchain
       - name: Report Coverage
         if: ${{ matrix.code-coverage && !cancelled()}}
         uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 #v5.5.1

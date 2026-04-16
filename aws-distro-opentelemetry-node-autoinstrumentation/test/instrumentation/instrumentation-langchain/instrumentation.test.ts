@@ -73,61 +73,63 @@ const ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
 const FAKE_OPENAI_KEY = 'sk-test1234567890abcdef1234567890abcdef1234567890abcdef';
 const FAKE_ANTHROPIC_KEY = 'sk-ant-test1234567890abcdef1234567890abcdef';
 
-function createBedrockModel(): ChatBedrockConverse {
-  const client = new BedrockRuntimeClient({
-    region: REGION,
-    credentials: { accessKeyId: 'testing', secretAccessKey: 'testing' },
-    requestHandler: new NodeHttpHandler(),
-  });
-  return new ChatBedrockConverse({
-    model: BEDROCK_MODEL_ID,
-    region: REGION,
-    client,
-  });
+type Provider = 'bedrock' | 'openai' | 'anthropic';
+
+function createModel(
+  provider: Provider,
+  opts: Record<string, unknown> = {}
+): ChatBedrockConverse | ChatOpenAI | ChatAnthropic {
+  switch (provider) {
+    case 'bedrock': {
+      const client = new BedrockRuntimeClient({
+        region: REGION,
+        credentials: { accessKeyId: 'testing', secretAccessKey: 'testing' },
+        requestHandler: new NodeHttpHandler(),
+      });
+      return new ChatBedrockConverse({ model: BEDROCK_MODEL_ID, region: REGION, client, ...opts });
+    }
+    case 'openai':
+      return new ChatOpenAI({
+        model: OPENAI_MODEL,
+        apiKey: FAKE_OPENAI_KEY,
+        temperature: 0.7,
+        maxTokens: 256,
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        configuration: { fetch: require('node-fetch') },
+        ...opts,
+      });
+    case 'anthropic':
+      return new ChatAnthropic({
+        anthropicApiKey: FAKE_ANTHROPIC_KEY,
+        modelName: ANTHROPIC_MODEL,
+        temperature: 0.5,
+        topK: 40,
+        maxTokens: 256,
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        clientOptions: { fetch: require('node-fetch') },
+        ...opts,
+      });
+  }
 }
 
-function createOpenAIModel(opts: Record<string, unknown> = {}): ChatOpenAI {
-  return new ChatOpenAI({
-    model: OPENAI_MODEL,
-    apiKey: FAKE_OPENAI_KEY,
-    temperature: 0.7,
-    maxTokens: 256,
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    configuration: { fetch: require('node-fetch') },
-    ...opts,
-  });
-}
-
-function nockBedrockConverse(response: Record<string, unknown>): nock.Scope {
-  return nock(`https://bedrock-runtime.${REGION}.amazonaws.com`).post(/.*/).reply(200, JSON.stringify(response), {
-    'content-type': 'application/json',
-    'x-amzn-requestid': 'req-bedrock-1234',
-  });
-}
-
-function nockOpenAIChat(response: Record<string, unknown>): nock.Scope {
-  return nock('https://api.openai.com')
-    .post('/v1/chat/completions')
-    .reply(200, response, { 'content-type': 'application/json' });
-}
-
-function createAnthropicModel(opts: Record<string, unknown> = {}): ChatAnthropic {
-  return new ChatAnthropic({
-    anthropicApiKey: FAKE_ANTHROPIC_KEY,
-    modelName: ANTHROPIC_MODEL,
-    temperature: 0.5,
-    topK: 40,
-    maxTokens: 256,
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    clientOptions: { fetch: require('node-fetch') },
-    ...opts,
-  });
-}
-
-function nockAnthropicChat(response: Record<string, unknown>): nock.Scope {
-  return nock('https://api.anthropic.com')
-    .post('/v1/messages')
-    .reply(200, response, { 'content-type': 'application/json' });
+function nockProvider(provider: Provider, response: Record<string, unknown>, statusCode: number = 200): nock.Scope {
+  switch (provider) {
+    case 'bedrock':
+      return nock(`https://bedrock-runtime.${REGION}.amazonaws.com`)
+        .post(/.*/)
+        .reply(statusCode, JSON.stringify(response), {
+          'content-type': 'application/json',
+          'x-amzn-requestid': 'req-bedrock-1234',
+        });
+    case 'openai':
+      return nock('https://api.openai.com')
+        .post('/v1/chat/completions')
+        .reply(statusCode, response, { 'content-type': 'application/json' });
+    case 'anthropic':
+      return nock('https://api.anthropic.com')
+        .post('/v1/messages')
+        .reply(statusCode, response, { 'content-type': 'application/json' });
+  }
 }
 
 function makeFakeChatResult(): ChatResult {
@@ -177,9 +179,9 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
 
   it('creates a Bedrock chat span with correct attributes', async () => {
     instrumentation.enable();
-    nockBedrockConverse(BEDROCK_CHAT_RESPONSE);
+    nockProvider('bedrock', BEDROCK_CHAT_RESPONSE);
 
-    const model = createBedrockModel();
+    const model = createModel('bedrock');
     const result = await model.invoke([new HumanMessage('What is the capital of France?')]);
 
     expect(result.content).toBe('Paris is the capital of France.');
@@ -201,9 +203,9 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
 
   it('creates an OpenAI chat span with correct attributes', async () => {
     instrumentation.enable();
-    nockOpenAIChat(OPENAI_CHAT_RESPONSE);
+    nockProvider('openai', OPENAI_CHAT_RESPONSE);
 
-    const model = createOpenAIModel({
+    const model = createModel('openai', {
       topP: 0.9,
       frequencyPenalty: 0.5,
       presencePenalty: 0.3,
@@ -236,9 +238,9 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
 
   it('captures Bedrock input and output messages when captureMessageContent is enabled', async () => {
     contentCaptureInstrumentation.enable();
-    nockBedrockConverse(BEDROCK_CHAT_RESPONSE);
+    nockProvider('bedrock', BEDROCK_CHAT_RESPONSE);
 
-    const model = createBedrockModel();
+    const model = createModel('bedrock');
     await model.invoke([
       new SystemMessage('You are a geography expert.'),
       new HumanMessage('What is the capital of France?'),
@@ -262,9 +264,9 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
 
   it('creates an Anthropic chat span with correct attributes', async () => {
     instrumentation.enable();
-    nockAnthropicChat(ANTHROPIC_CHAT_RESPONSE);
+    nockProvider('anthropic', ANTHROPIC_CHAT_RESPONSE);
 
-    const model = createAnthropicModel();
+    const model = createModel('anthropic');
     const result = await model.invoke([new HumanMessage('What is the capital of France?')]);
 
     expect(result.content).toContain('Paris is the capital of France.');
@@ -289,9 +291,9 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
 
   it('creates a chat span with tool_call finish reason for Anthropic tool use', async () => {
     contentCaptureInstrumentation.enable();
-    nockAnthropicChat(ANTHROPIC_TOOL_CALL_RESPONSE);
+    nockProvider('anthropic', ANTHROPIC_TOOL_CALL_RESPONSE);
 
-    const model = createAnthropicModel();
+    const model = createModel('anthropic');
     await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
 
     const spans = getTestSpans();
@@ -313,9 +315,9 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
 
   it('captures Anthropic input and output messages when captureMessageContent is enabled', async () => {
     contentCaptureInstrumentation.enable();
-    nockAnthropicChat(ANTHROPIC_CHAT_RESPONSE);
+    nockProvider('anthropic', ANTHROPIC_CHAT_RESPONSE);
 
-    const model = createAnthropicModel();
+    const model = createModel('anthropic');
     await model.invoke([
       new SystemMessage('You are a geography expert.'),
       new HumanMessage('What is the capital of France?'),
@@ -339,9 +341,9 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
 
   it('captures OpenAI input and output messages when captureMessageContent is enabled', async () => {
     contentCaptureInstrumentation.enable();
-    nockOpenAIChat(OPENAI_CHAT_RESPONSE);
+    nockProvider('openai', OPENAI_CHAT_RESPONSE);
 
-    const model = createOpenAIModel();
+    const model = createModel('openai');
     await model.invoke([
       new SystemMessage('You are a geography expert.'),
       new HumanMessage('What is the capital of France?'),
@@ -365,9 +367,9 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
 
   it('does not capture messages when captureMessageContent is disabled', async () => {
     instrumentation.enable();
-    nockBedrockConverse(BEDROCK_CHAT_RESPONSE);
+    nockProvider('bedrock', BEDROCK_CHAT_RESPONSE);
 
-    const model = createBedrockModel();
+    const model = createModel('bedrock');
     await model.invoke([new HumanMessage('What is the capital of France?')]);
 
     const spans = getTestSpans();
@@ -658,9 +660,9 @@ describe('tool call responses', function () {
 
   it('creates a chat span with tool_call finish reason for Bedrock tool use', async () => {
     contentCaptureInstrumentation.enable();
-    nockBedrockConverse(BEDROCK_TOOL_CALL_RESPONSE);
+    nockProvider('bedrock', BEDROCK_TOOL_CALL_RESPONSE);
 
-    const model = createBedrockModel();
+    const model = createModel('bedrock');
     await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
 
     const spans = getTestSpans();
@@ -682,9 +684,9 @@ describe('tool call responses', function () {
 
   it('creates a chat span with tool_call finish reason for OpenAI tool use', async () => {
     contentCaptureInstrumentation.enable();
-    nockOpenAIChat(OPENAI_TOOL_CALL_RESPONSE);
+    nockProvider('openai', OPENAI_TOOL_CALL_RESPONSE);
 
-    const model = createOpenAIModel();
+    const model = createModel('openai');
     await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
 
     const spans = getTestSpans();
@@ -711,11 +713,9 @@ describe('provider error handling', function () {
 
   it('records error status on OpenAI server error', async () => {
     contentCaptureInstrumentation.enable();
-    nock('https://api.openai.com')
-      .post('/v1/chat/completions')
-      .reply(500, OPENAI_ERROR_RESPONSE, { 'content-type': 'application/json' });
+    nockProvider('openai', OPENAI_ERROR_RESPONSE, 500);
 
-    const model = createOpenAIModel({ maxRetries: 0 });
+    const model = createModel('openai', { maxRetries: 0 });
     try {
       await model.invoke([new HumanMessage('test')]);
     } catch {
@@ -731,13 +731,9 @@ describe('provider error handling', function () {
 
   it('records error status on Bedrock server error', async () => {
     contentCaptureInstrumentation.enable();
-    nock(`https://bedrock-runtime.${REGION}.amazonaws.com`)
-      .post(/.*/)
-      .reply(429, JSON.stringify(BEDROCK_ERROR_RESPONSE), {
-        'content-type': 'application/json',
-      });
+    nockProvider('bedrock', BEDROCK_ERROR_RESPONSE, 429);
 
-    const model = createBedrockModel();
+    const model = createModel('bedrock');
     try {
       await model.invoke([new HumanMessage('test')]);
     } catch {
@@ -753,11 +749,9 @@ describe('provider error handling', function () {
 
   it('records error status on Anthropic server error', async () => {
     contentCaptureInstrumentation.enable();
-    nock('https://api.anthropic.com')
-      .post('/v1/messages')
-      .reply(529, ANTHROPIC_ERROR_RESPONSE, { 'content-type': 'application/json' });
+    nockProvider('anthropic', ANTHROPIC_ERROR_RESPONSE, 529);
 
-    const model = createAnthropicModel({ maxRetries: 0 });
+    const model = createModel('anthropic', { maxRetries: 0 });
     try {
       await model.invoke([new HumanMessage('test')]);
     } catch {
@@ -1050,7 +1044,7 @@ describe('finish reason normalization', function () {
 
   it('normalizes "max_tokens" finish reason to "length"', async () => {
     contentCaptureInstrumentation.enable();
-    nockOpenAIChat({
+    nockProvider('openai', {
       ...OPENAI_CHAT_RESPONSE,
       choices: [
         {
@@ -1061,7 +1055,7 @@ describe('finish reason normalization', function () {
       ],
     });
 
-    const model = createOpenAIModel();
+    const model = createModel('openai');
     await model.invoke([new HumanMessage('Write a long essay')]);
 
     const spans = getTestSpans();
@@ -1072,7 +1066,7 @@ describe('finish reason normalization', function () {
 
   it('normalizes "content_filter" finish reason', async () => {
     contentCaptureInstrumentation.enable();
-    nockOpenAIChat({
+    nockProvider('openai', {
       ...OPENAI_CHAT_RESPONSE,
       choices: [
         {
@@ -1083,7 +1077,7 @@ describe('finish reason normalization', function () {
       ],
     });
 
-    const model = createOpenAIModel();
+    const model = createModel('openai');
     await model.invoke([new HumanMessage('test')]);
 
     const spans = getTestSpans();
@@ -1094,7 +1088,7 @@ describe('finish reason normalization', function () {
 
   it('passes through unknown finish reasons unchanged', async () => {
     contentCaptureInstrumentation.enable();
-    nockOpenAIChat({
+    nockProvider('openai', {
       ...OPENAI_CHAT_RESPONSE,
       choices: [
         {
@@ -1105,7 +1099,7 @@ describe('finish reason normalization', function () {
       ],
     });
 
-    const model = createOpenAIModel();
+    const model = createModel('openai');
     await model.invoke([new HumanMessage('test')]);
 
     const spans = getTestSpans();

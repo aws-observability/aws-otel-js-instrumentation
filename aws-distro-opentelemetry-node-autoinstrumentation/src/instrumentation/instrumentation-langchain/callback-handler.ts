@@ -24,7 +24,6 @@ import {
   ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY,
   ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY,
   ATTR_GEN_AI_REQUEST_TOP_K,
-  ATTR_GEN_AI_TOOL_DESCRIPTION,
   ATTR_GEN_AI_TOOL_TYPE,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
@@ -49,7 +48,7 @@ const LANGGRAPH_NODE_SPAN_ATTR = 'langgraph.node';
 interface SpanEntry {
   span?: Span;
   context: OtelContext;
-  agentSpan?: Span;
+  agentSpan?: Span; // to track the nearest ancestor invoke_agent span, see _propagateToAgentSpan for why
 }
 
 export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
@@ -220,7 +219,6 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
     const span = this._startSpan(runId, parentRunId, spanName);
 
-    // Track nearest invoke_agent ancestor for attribute propagation
     const entry = this.runIdToSpanMap.get(runId);
     if (entry && isAgentChain) {
       entry.agentSpan = span;
@@ -265,11 +263,6 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this._setAttribute(span, ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL);
     this._setAttribute(span, ATTR_GEN_AI_TOOL_NAME, name);
     this._setAttribute(span, ATTR_GEN_AI_TOOL_TYPE, 'function');
-    this._setAttribute(
-      span,
-      ATTR_GEN_AI_TOOL_DESCRIPTION,
-      'kwargs' in serialized ? serialized.kwargs?.description : undefined
-    );
     this._setAttribute(span, ATTR_GEN_AI_TOOL_CALL_ID, toolCallId);
     if (this.captureMessageContent) {
       this._setAttribute(span, ATTR_GEN_AI_TOOL_CALL_ARGUMENTS, input);
@@ -383,13 +376,18 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
     const invocationParams = (extraParams?.invocation_params ?? {}) as Record<string, unknown>;
     const params = (invocationParams.params ?? invocationParams) as Record<string, unknown>;
+    const inferenceConfig = (params.inferenceConfig ?? {}) as Record<string, unknown>;
     this._setAttribute(
       span,
       ATTR_GEN_AI_REQUEST_MAX_TOKENS,
-      params.max_tokens ?? params.max_new_tokens ?? resolvedConfig.max_tokens
+      params.max_tokens ?? params.max_new_tokens ?? inferenceConfig.maxTokens ?? resolvedConfig.max_tokens
     );
-    this._setAttribute(span, ATTR_GEN_AI_REQUEST_TEMPERATURE, params.temperature ?? resolvedConfig.temperature);
-    this._setAttribute(span, ATTR_GEN_AI_REQUEST_TOP_P, params.top_p ?? resolvedConfig.top_p);
+    this._setAttribute(
+      span,
+      ATTR_GEN_AI_REQUEST_TEMPERATURE,
+      params.temperature ?? inferenceConfig.temperature ?? resolvedConfig.temperature
+    );
+    this._setAttribute(span, ATTR_GEN_AI_REQUEST_TOP_P, params.top_p ?? inferenceConfig.topP ?? resolvedConfig.top_p);
     this._setAttribute(span, ATTR_GEN_AI_REQUEST_TOP_K, params.top_k ?? resolvedConfig.top_k);
     this._setAttribute(
       span,
@@ -407,6 +405,8 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     }
   }
 
+  // propagates LLM model span attributes to the parent invoke_agent span.
+  // These are OTel attributes that the invoke_agent span are recommended to have.
   private _propagateToAgentSpan(
     runId: string,
     provider?: string,
@@ -421,7 +421,9 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this._setAttribute(agentSpan, ATTR_GEN_AI_REQUEST_MODEL, modelName);
     const invocationParams = (extraParams?.invocation_params ?? {}) as Record<string, unknown>;
     const params = (invocationParams.params ?? invocationParams) as Record<string, unknown>;
-    const temperature = params.temperature ?? (config as Record<string, unknown> | undefined)?.temperature;
+    const inferenceConfig = (params.inferenceConfig ?? {}) as Record<string, unknown>;
+    const temperature =
+      params.temperature ?? inferenceConfig.temperature ?? (config as Record<string, unknown> | undefined)?.temperature;
     this._setAttribute(agentSpan, ATTR_GEN_AI_REQUEST_TEMPERATURE, temperature);
   }
 

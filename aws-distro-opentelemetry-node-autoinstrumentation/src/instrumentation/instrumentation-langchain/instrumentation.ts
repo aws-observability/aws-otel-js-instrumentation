@@ -16,7 +16,7 @@ const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-lang
 const SUPPORTED_VERSIONS = ['>=1.0.0'];
 
 export class LangChainInstrumentation extends InstrumentationBase<LangChainInstrumentationConfig> {
-  // Track patched objects by identity to avoid double-patching across CJS/ESM.
+  // Track patched objects by identity to avoid double-patching across CJS and ESM.
   // See: https://github.com/open-telemetry/opentelemetry-js/issues/6489
   _patchedCallbackManager: any = undefined;
   _patchedCallbackManagerMethod: string = '';
@@ -41,6 +41,11 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
       new InstrumentationNodeModuleFile(`${path}.js`, SUPPORTED_VERSIONS, patch, unpatch),
     ];
 
+    // to ensure these patches work for both CJS and ESM and to ensure we are setting the
+    // proper trace context for downstream instrumentations we MUST monkey-patch _generate() and _call() to wrap
+    // them in context.with(), which makes our callback handler's span the active context in AsyncLocalStorage. Unfortunately,
+    // in js the only way to set the active context is by wrapping the callback itself.
+    // see: https://github.com/open-telemetry/opentelemetry-js/issues/3558
     return [
       new InstrumentationNodeModuleDefinition(
         '@langchain/core',
@@ -93,6 +98,10 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
           );
           langChainInstrumentation._diag.debug('Lazily loaded OTel callback handler');
         }
+        // OTel handler must be first so that span context is set before
+        // other handlers that are registered are executed so that we can
+        // propagate to downstream instrumentations.
+        // see: https://github.com/aws-observability/aws-otel-python-instrumentation/blob/e729533/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/langchain/callback_handler.py#L78-L82
         args[0] = LangChainInstrumentation._injectHandler(args[0], langChainInstrumentation._handler);
         return original.apply(this, args);
       };
@@ -178,6 +187,10 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
 
   override _updateMetricInstruments() {}
 
+  // for propagating context in non-streaming and streaming calls to LLMs.
+  // These are the base methods all chat classes must implement
+  // see: _generate: https://github.com/langchain-ai/langchainjs/blob/0bf9d7e/libs/langchain-core/src/language_models/chat_models.ts#L896
+  // see: _streamResponseChunks: https://github.com/langchain-ai/langchainjs/blob/0bf9d7e/libs/langchain-core/src/language_models/chat_models.ts#L145
   private _propagateContextOnChatProto(concreteProto: any): void {
     if (!concreteProto || this._wrappedChatProtos.has(concreteProto)) return;
     this._wrappedChatProtos.add(concreteProto);
@@ -220,6 +233,8 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     this._diag.debug(`Wrapped context propagation on ${concreteProto.constructor?.name || 'unknown'} prototype`);
   }
 
+  // for propagating context in tool calls
+  // see: _call: https://github.com/langchain-ai/langchainjs/blob/0bf9d7e/libs/langchain-core/src/tools/index.ts#L163
   private _propagateContextOnToolProto(concreteProto: any): void {
     if (!concreteProto || this._wrappedToolProtos.has(concreteProto)) return;
     this._wrappedToolProtos.add(concreteProto);
@@ -241,15 +256,18 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
   private static _injectHandler(handlers: unknown, handler: unknown): unknown {
     if (Array.isArray(handlers)) {
       if (!handlers.includes(handler)) {
-        handlers.push(handler);
+        handlers.unshift(handler);
       }
       return handlers;
     }
 
     const manager = handlers as any;
-    if (manager && typeof manager === 'object' && typeof manager.addHandler === 'function') {
-      if (!manager.handlers?.includes(handler)) {
-        manager.addHandler(handler, true);
+    if (manager && typeof manager === 'object' && Array.isArray(manager.handlers)) {
+      if (!manager.handlers.includes(handler)) {
+        manager.handlers.unshift(handler);
+        if (Array.isArray(manager.inheritableHandlers)) {
+          manager.inheritableHandlers.unshift(handler);
+        }
       }
       return manager;
     }

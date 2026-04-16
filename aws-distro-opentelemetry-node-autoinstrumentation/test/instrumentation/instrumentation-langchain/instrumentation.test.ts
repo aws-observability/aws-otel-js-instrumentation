@@ -6,18 +6,28 @@ import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-u
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
+  ATTR_GEN_AI_AGENT_NAME,
   ATTR_GEN_AI_OPERATION_NAME,
   ATTR_GEN_AI_PROVIDER_NAME,
+  ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY,
+  ATTR_GEN_AI_REQUEST_MAX_TOKENS,
   ATTR_GEN_AI_REQUEST_MODEL,
-  ATTR_GEN_AI_USAGE_INPUT_TOKENS,
-  ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+  ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY,
+  ATTR_GEN_AI_REQUEST_TEMPERATURE,
+  ATTR_GEN_AI_REQUEST_TOP_P,
   ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
   ATTR_GEN_AI_RESPONSE_ID,
+  ATTR_GEN_AI_RESPONSE_MODEL,
+  ATTR_GEN_AI_USAGE_INPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
   ATTR_GEN_AI_INPUT_MESSAGES,
   ATTR_GEN_AI_OUTPUT_MESSAGES,
   ATTR_GEN_AI_SYSTEM_INSTRUCTIONS,
+  ATTR_GEN_AI_REQUEST_STOP_SEQUENCES,
+  ATTR_GEN_AI_REQUEST_TOP_K,
   ATTR_GEN_AI_TOOL_CALL_ARGUMENTS,
   ATTR_GEN_AI_TOOL_CALL_RESULT,
+  ATTR_GEN_AI_TOOL_NAME,
   ATTR_GEN_AI_TOOL_TYPE,
   ATTR_ERROR_TYPE,
 } from '@opentelemetry/semantic-conventions/incubating';
@@ -39,6 +49,8 @@ import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { FakeListChatModel, FakeLLM } from '@langchain/core/utils/testing';
 import { tool } from '@langchain/core/tools';
 import { RunnableLambda } from '@langchain/core/runnables';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { createReactAgent } = require('@langchain/langgraph/prebuilt');
 import { z } from 'zod';
 import type { ChatResult } from '@langchain/core/outputs';
 import {
@@ -47,12 +59,19 @@ import {
   OPENAI_CHAT_RESPONSE,
   OPENAI_TOOL_CALL_RESPONSE,
   OPENAI_ERROR_RESPONSE,
+  ANTHROPIC_CHAT_RESPONSE,
+  ANTHROPIC_TOOL_CALL_RESPONSE,
+  BEDROCK_ERROR_RESPONSE,
+  ANTHROPIC_ERROR_RESPONSE,
 } from './mock-responses';
+import { validateOtelGenaiSchema } from '../gen-ai-schema-validation';
 
 const REGION = 'us-east-1';
 const BEDROCK_MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0';
 const OPENAI_MODEL = 'gpt-4o-mini';
+const ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
 const FAKE_OPENAI_KEY = 'sk-test1234567890abcdef1234567890abcdef1234567890abcdef';
+const FAKE_ANTHROPIC_KEY = 'sk-ant-test1234567890abcdef1234567890abcdef';
 
 function createBedrockModel(): ChatBedrockConverse {
   const client = new BedrockRuntimeClient({
@@ -92,6 +111,25 @@ function nockOpenAIChat(response: Record<string, unknown>): nock.Scope {
     .reply(200, response, { 'content-type': 'application/json' });
 }
 
+function createAnthropicModel(opts: Record<string, unknown> = {}): ChatAnthropic {
+  return new ChatAnthropic({
+    anthropicApiKey: FAKE_ANTHROPIC_KEY,
+    modelName: ANTHROPIC_MODEL,
+    temperature: 0.5,
+    topK: 40,
+    maxTokens: 256,
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    clientOptions: { fetch: require('node-fetch') },
+    ...opts,
+  });
+}
+
+function nockAnthropicChat(response: Record<string, unknown>): nock.Scope {
+  return nock('https://api.anthropic.com')
+    .post('/v1/messages')
+    .reply(200, response, { 'content-type': 'application/json' });
+}
+
 function makeFakeChatResult(): ChatResult {
   return {
     generations: [
@@ -123,7 +161,7 @@ function stubGenerate(model: BaseChatModel): () => void {
   };
 }
 
-describe('LangChain instrumentation – ChatBedrockConverse', function () {
+describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -137,7 +175,7 @@ describe('LangChain instrumentation – ChatBedrockConverse', function () {
     nock.cleanAll();
   });
 
-  it('creates a chat span with correct attributes', async () => {
+  it('creates a Bedrock chat span with correct attributes', async () => {
     instrumentation.enable();
     nockBedrockConverse(BEDROCK_CHAT_RESPONSE);
 
@@ -151,6 +189,7 @@ describe('LangChain instrumentation – ChatBedrockConverse', function () {
     expect(chatSpans.length).toBe(1);
 
     const span = chatSpans[0];
+    expect(span.name).toContain(`chat ${BEDROCK_MODEL_ID}`);
     expect(span.kind).toBe(SpanKind.CLIENT);
     expect(span.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe('aws.bedrock');
     expect(span.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(BEDROCK_MODEL_ID);
@@ -160,7 +199,42 @@ describe('LangChain instrumentation – ChatBedrockConverse', function () {
     expect(span.attributes[ATTR_GEN_AI_RESPONSE_ID]).toBe('req-bedrock-1234');
   });
 
-  it('captures input and output messages when captureMessageContent is enabled', async () => {
+  it('creates an OpenAI chat span with correct attributes', async () => {
+    instrumentation.enable();
+    nockOpenAIChat(OPENAI_CHAT_RESPONSE);
+
+    const model = createOpenAIModel({
+      topP: 0.9,
+      frequencyPenalty: 0.5,
+      presencePenalty: 0.3,
+      stop: ['END'],
+    });
+    const result = await model.invoke([new HumanMessage('What is the capital of France?')]);
+
+    expect(result.content).toBe('Paris is the capital of France.');
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+
+    const span = chatSpans[0];
+    expect(span.name).toContain(`chat ${OPENAI_MODEL}`);
+    expect(span.kind).toBe(SpanKind.CLIENT);
+    expect(span.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe('openai');
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(OPENAI_MODEL);
+    expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(18);
+    expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(8);
+    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+    expect(span.attributes[ATTR_GEN_AI_RESPONSE_ID]).toBe('chatcmpl-abc123');
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_TEMPERATURE]).toBe(0.7);
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_MAX_TOKENS]).toBe(256);
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_TOP_P]).toBe(0.9);
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY]).toBe(0.5);
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY]).toBe(0.3);
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_STOP_SEQUENCES]).toEqual(['END']);
+  });
+
+  it('captures Bedrock input and output messages when captureMessageContent is enabled', async () => {
     contentCaptureInstrumentation.enable();
     nockBedrockConverse(BEDROCK_CHAT_RESPONSE);
 
@@ -179,10 +253,113 @@ describe('LangChain instrumentation – ChatBedrockConverse', function () {
     expect(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeDefined();
 
     const inputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
-    expect(inputMessages.length).toBeGreaterThanOrEqual(1);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
 
     const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+    expect(outputMessages[0].role).toBe('assistant');
+  });
+
+  it('creates an Anthropic chat span with correct attributes', async () => {
+    instrumentation.enable();
+    nockAnthropicChat(ANTHROPIC_CHAT_RESPONSE);
+
+    const model = createAnthropicModel();
+    const result = await model.invoke([new HumanMessage('What is the capital of France?')]);
+
+    expect(result.content).toContain('Paris is the capital of France.');
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+
+    const span = chatSpans[0];
+    expect(span.name).toContain(`chat ${ANTHROPIC_MODEL}`);
+    expect(span.kind).toBe(SpanKind.CLIENT);
+    expect(span.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe('anthropic');
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(ANTHROPIC_MODEL);
+    expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(25);
+    expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(10);
+    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+    expect(span.attributes[ATTR_GEN_AI_RESPONSE_ID]).toBe('msg_01XFDUDYJgAACzvnptvVoYEL');
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_TEMPERATURE]).toBe(0.5);
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_MAX_TOKENS]).toBe(256);
+    expect(span.attributes[ATTR_GEN_AI_REQUEST_TOP_K]).toBe(40);
+  });
+
+  it('creates a chat span with tool_call finish reason for Anthropic tool use', async () => {
+    contentCaptureInstrumentation.enable();
+    nockAnthropicChat(ANTHROPIC_TOOL_CALL_RESPONSE);
+
+    const model = createAnthropicModel();
+    await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+
+    const span = chatSpans[0];
+    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
+    expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(40);
+    expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(20);
+
+    const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
     expect(outputMessages.length).toBe(1);
+    const toolCallParts = outputMessages[0].parts.filter((p: any) => p.type === 'tool_call');
+    expect(toolCallParts.length).toBe(1);
+    expect(toolCallParts[0].name).toBe('get_weather');
+  });
+
+  it('captures Anthropic input and output messages when captureMessageContent is enabled', async () => {
+    contentCaptureInstrumentation.enable();
+    nockAnthropicChat(ANTHROPIC_CHAT_RESPONSE);
+
+    const model = createAnthropicModel();
+    await model.invoke([
+      new SystemMessage('You are a geography expert.'),
+      new HumanMessage('What is the capital of France?'),
+    ]);
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+
+    const span = chatSpans[0];
+    expect(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeDefined();
+    expect(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeDefined();
+
+    const inputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+
+    const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+    expect(outputMessages[0].role).toBe('assistant');
+  });
+
+  it('captures OpenAI input and output messages when captureMessageContent is enabled', async () => {
+    contentCaptureInstrumentation.enable();
+    nockOpenAIChat(OPENAI_CHAT_RESPONSE);
+
+    const model = createOpenAIModel();
+    await model.invoke([
+      new SystemMessage('You are a geography expert.'),
+      new HumanMessage('What is the capital of France?'),
+    ]);
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+
+    const span = chatSpans[0];
+    expect(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeDefined();
+    expect(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeDefined();
+
+    const inputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+
+    const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
     expect(outputMessages[0].role).toBe('assistant');
   });
 
@@ -201,64 +378,7 @@ describe('LangChain instrumentation – ChatBedrockConverse', function () {
   });
 });
 
-describe('LangChain instrumentation – ChatOpenAI', function () {
-  this.timeout(10000);
-
-  beforeEach(() => {
-    resetMemoryExporter();
-    nock.cleanAll();
-  });
-
-  afterEach(() => {
-    instrumentation.disable();
-    contentCaptureInstrumentation.disable();
-    nock.cleanAll();
-  });
-
-  it('creates a chat span with correct attributes', async () => {
-    instrumentation.enable();
-    nockOpenAIChat(OPENAI_CHAT_RESPONSE);
-
-    const model = createOpenAIModel();
-    const result = await model.invoke([new HumanMessage('What is the capital of France?')]);
-
-    expect(result.content).toBe('Paris is the capital of France.');
-
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-
-    const span = chatSpans[0];
-    expect(span.kind).toBe(SpanKind.CLIENT);
-    expect(span.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe('openai');
-    expect(span.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(OPENAI_MODEL);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(18);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(8);
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_ID]).toBe('chatcmpl-abc123');
-  });
-
-  it('captures input and output messages when captureMessageContent is enabled', async () => {
-    contentCaptureInstrumentation.enable();
-    nockOpenAIChat(OPENAI_CHAT_RESPONSE);
-
-    const model = createOpenAIModel();
-    await model.invoke([
-      new SystemMessage('You are a geography expert.'),
-      new HumanMessage('What is the capital of France?'),
-    ]);
-
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-
-    const span = chatSpans[0];
-    expect(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeDefined();
-    expect(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeDefined();
-  });
-});
-
-describe('LangChain instrumentation – tool spans', function () {
+describe('tool spans', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -287,6 +407,7 @@ describe('LangChain instrumentation – tool spans', function () {
 
     const span = toolSpans[0];
     expect(span.name).toContain('execute_tool');
+    expect(span.attributes[ATTR_GEN_AI_TOOL_NAME]).toBe('add_numbers');
     expect(span.attributes[ATTR_GEN_AI_TOOL_TYPE]).toBe('function');
     expect(span.attributes[ATTR_GEN_AI_TOOL_CALL_ARGUMENTS]).toBeDefined();
     expect(span.attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('3');
@@ -316,7 +437,7 @@ describe('LangChain instrumentation – tool spans', function () {
   });
 });
 
-describe('LangChain instrumentation – error handling', function () {
+describe('error handling', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -376,7 +497,7 @@ describe('LangChain instrumentation – error handling', function () {
   });
 });
 
-describe('LangChain instrumentation – message content', function () {
+describe('message content', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -399,14 +520,12 @@ describe('LangChain instrumentation – message content', function () {
     const span = chatSpans[0];
 
     const inputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
-    expect(Array.isArray(inputMessages)).toBe(true);
-    expect(inputMessages.length).toBeGreaterThan(0);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
     expect(inputMessages[0].role).toBe('user');
     expect(inputMessages[0].parts[0].type).toBe('text');
 
     const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
-    expect(Array.isArray(outputMessages)).toBe(true);
-    expect(outputMessages.length).toBeGreaterThan(0);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
     expect(outputMessages[0].role).toBe('assistant');
     expect(outputMessages[0].parts[0].type).toBe('text');
   });
@@ -424,12 +543,13 @@ describe('LangChain instrumentation – message content', function () {
 
     expect(span.attributes[ATTR_GEN_AI_SYSTEM_INSTRUCTIONS]).toBeDefined();
     const instructions = JSON.parse(span.attributes[ATTR_GEN_AI_SYSTEM_INSTRUCTIONS] as string);
+    await validateOtelGenaiSchema(instructions, 'gen-ai-system-instructions');
     expect(instructions[0].type).toBe('text');
     expect(instructions[0].content).toContain('helpful assistant');
   });
 });
 
-describe('LangChain instrumentation – chain suppression', function () {
+describe('chain suppression', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -473,7 +593,7 @@ describe('LangChain instrumentation – chain suppression', function () {
   }
 });
 
-describe('LangChain instrumentation – disable/uninstrument', function () {
+describe('disable/uninstrument', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -492,7 +612,7 @@ describe('LangChain instrumentation – disable/uninstrument', function () {
   });
 });
 
-describe('LangChain instrumentation – text completion', function () {
+describe('text completion', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -523,7 +643,7 @@ describe('LangChain instrumentation – text completion', function () {
   });
 });
 
-describe('LangChain instrumentation – tool call responses', function () {
+describe('tool call responses', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -553,6 +673,7 @@ describe('LangChain instrumentation – tool call responses', function () {
     expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(20);
 
     const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
     expect(outputMessages.length).toBe(1);
     const toolCallParts = outputMessages[0].parts.filter((p: any) => p.type === 'tool_call');
     expect(toolCallParts.length).toBe(1);
@@ -575,7 +696,7 @@ describe('LangChain instrumentation – tool call responses', function () {
   });
 });
 
-describe('LangChain instrumentation – OpenAI error handling', function () {
+describe('provider error handling', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -607,9 +728,51 @@ describe('LangChain instrumentation – OpenAI error handling', function () {
     expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
     expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
   });
+
+  it('records error status on Bedrock server error', async () => {
+    contentCaptureInstrumentation.enable();
+    nock(`https://bedrock-runtime.${REGION}.amazonaws.com`)
+      .post(/.*/)
+      .reply(429, JSON.stringify(BEDROCK_ERROR_RESPONSE), {
+        'content-type': 'application/json',
+      });
+
+    const model = createBedrockModel();
+    try {
+      await model.invoke([new HumanMessage('test')]);
+    } catch {
+      /* expected */
+    }
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+    expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
+    expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
+  });
+
+  it('records error status on Anthropic server error', async () => {
+    contentCaptureInstrumentation.enable();
+    nock('https://api.anthropic.com')
+      .post('/v1/messages')
+      .reply(529, ANTHROPIC_ERROR_RESPONSE, { 'content-type': 'application/json' });
+
+    const model = createAnthropicModel({ maxRetries: 0 });
+    try {
+      await model.invoke([new HumanMessage('test')]);
+    } catch {
+      /* expected */
+    }
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    expect(chatSpans.length).toBe(1);
+    expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
+    expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
+  });
 });
 
-describe('LangChain instrumentation – message formatting edge cases', function () {
+describe('message formatting edge cases', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -696,7 +859,7 @@ describe('LangChain instrumentation – message formatting edge cases', function
   });
 });
 
-describe('LangChain instrumentation – streaming', function () {
+describe('streaming', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -710,8 +873,6 @@ describe('LangChain instrumentation – streaming', function () {
   it('creates a chat span when using stream()', async () => {
     contentCaptureInstrumentation.enable();
 
-    // First invoke to trigger prototype wrapping of _streamResponseChunks,
-    // then stream to exercise the streaming context propagation wrapper.
     const llm = new FakeListChatModel({ responses: ['Hello!', 'World!'], sleep: 0 });
     await llm.invoke('warm up');
     resetMemoryExporter();
@@ -729,7 +890,7 @@ describe('LangChain instrumentation – streaming', function () {
   });
 });
 
-describe('LangChain instrumentation – provider detection (all providers)', function () {
+describe('provider detection (all providers)', function () {
   this.timeout(15000);
 
   const providerCases: Array<{
@@ -856,7 +1017,16 @@ describe('LangChain instrumentation – provider detection (all providers)', fun
         expect(span.attributes[ATTR_GEN_AI_OPERATION_NAME]).toBe('chat');
         expect(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeDefined();
         expect(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeDefined();
+        await validateOtelGenaiSchema(
+          JSON.parse(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string),
+          'gen-ai-input-messages'
+        );
+        await validateOtelGenaiSchema(
+          JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string),
+          'gen-ai-output-messages'
+        );
         expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+        expect(span.attributes[ATTR_GEN_AI_RESPONSE_MODEL]).toBe('test');
       } finally {
         restore();
         contentCaptureInstrumentation.disable();
@@ -865,7 +1035,7 @@ describe('LangChain instrumentation – provider detection (all providers)', fun
   }
 });
 
-describe('LangChain instrumentation – finish reason normalization', function () {
+describe('finish reason normalization', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -943,4 +1113,93 @@ describe('LangChain instrumentation – finish reason normalization', function (
     expect(chatSpans.length).toBe(1);
     expect(chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['custom_reason']);
   });
+});
+
+describe('invoke_agent spans', function () {
+  this.timeout(15000);
+
+  const agentCases: Array<{
+    name: string;
+    createModel: () => BaseChatModel;
+    expectedProvider: string;
+    expectedModel: string;
+    expectedTemperature?: number;
+  }> = [
+    {
+      name: 'ChatBedrockConverse',
+      createModel: () =>
+        new ChatBedrockConverse({
+          model: BEDROCK_MODEL_ID,
+          region: REGION,
+          credentials: { accessKeyId: 'fake', secretAccessKey: 'fake' },
+          temperature: 0.5,
+        }),
+      expectedProvider: 'aws.bedrock',
+      expectedModel: BEDROCK_MODEL_ID,
+      expectedTemperature: 0.5,
+    },
+    {
+      name: 'ChatOpenAI',
+      createModel: () =>
+        new ChatOpenAI({
+          apiKey: FAKE_OPENAI_KEY,
+          model: OPENAI_MODEL,
+          temperature: 0.7,
+        }),
+      expectedProvider: 'openai',
+      expectedModel: OPENAI_MODEL,
+      expectedTemperature: 0.7,
+    },
+    {
+      name: 'ChatAnthropic',
+      createModel: () =>
+        new ChatAnthropic({
+          anthropicApiKey: 'fake',
+          modelName: 'claude-3',
+          temperature: 0.5,
+        }),
+      expectedProvider: 'anthropic',
+      expectedModel: 'claude-3',
+      expectedTemperature: 0.5,
+    },
+  ];
+
+  for (const { name, createModel, expectedProvider, expectedModel, expectedTemperature } of agentCases) {
+    it(`creates an invoke_agent span with ${name} and propagates LLM attributes`, async function () {
+      contentCaptureInstrumentation.enable();
+      resetMemoryExporter();
+
+      const weatherTool = tool(async (input: { location: string }) => `Sunny in ${input.location}`, {
+        name: 'get_weather',
+        description: 'Get weather for a location',
+        schema: z.object({ location: z.string() }),
+      });
+
+      const model = createModel();
+      const restore = stubGenerate(model);
+
+      try {
+        const agent = createReactAgent({ llm: model, tools: [weatherTool] });
+        await agent.invoke({ messages: [new HumanMessage('What is the weather?')] });
+      } catch {
+        /* agent may error after first LLM call — spans are still emitted */
+      }
+
+      restore();
+
+      const spans = getTestSpans();
+      const agentSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent');
+      expect(agentSpans.length).toBeGreaterThanOrEqual(1);
+
+      const agentSpan = agentSpans[0];
+      expect(agentSpan.name).toContain('invoke_agent');
+      expect(agentSpan.attributes[ATTR_GEN_AI_OPERATION_NAME]).toBe('invoke_agent');
+      expect(agentSpan.attributes[ATTR_GEN_AI_AGENT_NAME]).toBe('LangGraph');
+      expect(agentSpan.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(expectedModel);
+      expect(agentSpan.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(expectedProvider);
+      if (expectedTemperature !== undefined) {
+        expect(agentSpan.attributes[ATTR_GEN_AI_REQUEST_TEMPERATURE]).toBe(expectedTemperature);
+      }
+    });
+  }
 });

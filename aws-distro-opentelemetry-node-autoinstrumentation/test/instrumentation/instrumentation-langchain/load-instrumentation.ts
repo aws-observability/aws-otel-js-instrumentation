@@ -17,7 +17,6 @@ contentCaptureInstrumentation.disable();
 // Override enable() on both instrumentations to ensure the LangChain instrumentation for register.ts doesn't double patch langchain. We have to
 // lazily create a NodeTracerProvider that writes to the shared InMemorySpanExporter, then re-patch langchain so our handler is active.
 //
-// Wrapped in try/catch for Node < 20 where @langchain/core is unavailable.
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { CallbackManager } = require('@langchain/core/callbacks/manager');
@@ -56,5 +55,5 @@ try {
   patchOnEnable(instrumentation);
   patchOnEnable(contentCaptureInstrumentation);
 } catch {
-  // @langchain/core not available (e.g. Node < 20) — tests will be skipped naturally
+  // no-op
 }

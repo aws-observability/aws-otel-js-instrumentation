@@ -31,7 +31,7 @@
     "prepublishOnly": "npm run compile",
     "tdd": "yarn test -- --watch-extensions ts --watch",
     "test": "nyc ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' --ignore 'test/instrumentation/instrumentation-langchain/**' 'test/**/*.ts'",
-    "test:instrumentation": "ts-mocha --timeout 15000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/instrumentation/instrumentation-langchain/**/*.ts'",
+    "test:instrumentation:langchain": "ts-mocha --timeout 15000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/instrumentation/instrumentation-langchain/**/*.ts'",
     "test:coverage": "nyc --check-coverage --functions 95 --lines 95 ts-mocha --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' --ignore 'test/instrumentation/instrumentation-langchain/**' 'test/**/*.ts'",
     "watch": "tsc -w"
   },

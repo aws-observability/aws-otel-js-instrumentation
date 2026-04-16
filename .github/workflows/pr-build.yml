@@ -163,9 +163,12 @@ jobs:
         run: npm run build-lambda
       - name: Unit tests (Full)
         run: npm run test:coverage
-      - name: Run instrumentation tests
+      # Some of instrumented packages require certain Node versions,
+      # so these tests are excluded from the main test/test:coverage scripts via --ignore
+      # and run here only on supported Node versions.
+      - name: Run instrumentation unit tests
         if: ${{ matrix.node != '18' }}
-        run: npm run test:instrumentation
+        run: npm run test:instrumentation:langchain
       - name: Report Coverage
         if: ${{ matrix.code-coverage && !cancelled()}}
         uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 #v5.5.1

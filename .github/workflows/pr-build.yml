@@ -162,7 +162,7 @@ jobs:
       # Some of instrumented packages require certain Node versions,
       # so these tests are excluded from the main test script via --ignore
       # and run here only on supported Node versions.
-      # Thus we exclude code coverage for 
+      # Thus we exclude code coverage for Node 18.
       - name: Unit tests without coverage
         if: ${{ matrix.node == '18' }}
         run: npm run test

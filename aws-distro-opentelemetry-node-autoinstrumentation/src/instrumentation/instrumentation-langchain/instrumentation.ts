@@ -33,6 +33,7 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
 
   override setConfig(config: LangChainInstrumentationConfig = {}) {
     super.setConfig({ ...config, captureMessageContent: !!config.captureMessageContent });
+    this._handler = undefined;
   }
 
   protected init() {

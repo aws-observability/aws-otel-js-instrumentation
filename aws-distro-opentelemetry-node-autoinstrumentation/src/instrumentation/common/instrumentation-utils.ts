@@ -47,12 +47,15 @@ export const PROVIDER_MAP: Record<string, string> = {
 };
 
 export function serializeToJson(value: unknown, maxDepth: number = 10): string {
+  const seen = new WeakSet<object>();
   const sanitize = (obj: unknown, depth: number): unknown => {
     if (depth <= 0) return '...';
     if (obj === null || obj === undefined) return obj;
     if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') return obj;
-    if (Array.isArray(obj)) return obj.map(item => sanitize(item, depth - 1));
     if (typeof obj === 'object') {
+      if (seen.has(obj as object)) return '[Circular]';
+      seen.add(obj as object);
+      if (Array.isArray(obj)) return obj.map(item => sanitize(item, depth - 1));
       const result: Record<string, unknown> = {};
       for (const [key, val] of Object.entries(obj)) {
         result[key] = sanitize(val, depth - 1);

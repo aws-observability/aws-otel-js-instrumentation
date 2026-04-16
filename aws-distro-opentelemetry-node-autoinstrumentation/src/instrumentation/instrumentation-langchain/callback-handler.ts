@@ -287,13 +287,15 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
   private _handleError(error: Error | unknown, runId: string): void {
     const entry = this.runIdToSpanMap.get(runId);
-    if (!entry?.span) return;
-    const { span } = entry;
-    if (span.isRecording()) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      span.recordException(err);
-      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-      this._setAttribute(span, ATTR_ERROR_TYPE, err.constructor.name);
+    if (!entry) return;
+    if (entry.span) {
+      const { span } = entry;
+      if (span.isRecording()) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        span.recordException(err);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+        this._setAttribute(span, ATTR_ERROR_TYPE, err.constructor.name);
+      }
     }
     this._endSpan(runId);
   }

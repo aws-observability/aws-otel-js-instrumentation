@@ -13,7 +13,7 @@ import { LIB_VERSION } from '../../version';
 import { LangChainInstrumentationConfig } from './types';
 
 const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-langchain';
-const SUPPORTED_VERSIONS = ['>=1.0.0'];
+const SUPPORTED_VERSIONS = ['>=1.0.0 <2.0.0'];
 
 export class LangChainInstrumentation extends InstrumentationBase<LangChainInstrumentationConfig> {
   // Track patched objects by identity to avoid double-patching across CJS and ESM.

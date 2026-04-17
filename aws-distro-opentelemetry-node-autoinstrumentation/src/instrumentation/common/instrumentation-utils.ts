@@ -15,7 +15,7 @@ import {
   GEN_AI_PROVIDER_NAME_VALUE_OPENAI,
   GEN_AI_PROVIDER_NAME_VALUE_PERPLEXITY,
   GEN_AI_PROVIDER_NAME_VALUE_X_AI,
-} from '@opentelemetry/semantic-conventions/incubating';
+} from './semconv';
 
 export const PROVIDER_MAP: Record<string, string> = {
   bedrock: GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,

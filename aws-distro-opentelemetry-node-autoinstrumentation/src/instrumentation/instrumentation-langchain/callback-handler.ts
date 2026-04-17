@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { context, trace, Tracer, Span, SpanKind, SpanStatusCode, Context as OtelContext } from '@opentelemetry/api';
+import { ATTR_ERROR_TYPE } from '@opentelemetry/semantic-conventions';
 import {
   ATTR_GEN_AI_AGENT_NAME,
   ATTR_GEN_AI_INPUT_MESSAGES,
@@ -27,12 +28,11 @@ import {
   ATTR_GEN_AI_TOOL_TYPE,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
-  ATTR_ERROR_TYPE,
   GEN_AI_OPERATION_NAME_VALUE_CHAT,
   GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL,
   GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
   GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION,
-} from '@opentelemetry/semantic-conventions/incubating';
+} from '../common/semconv';
 import { PROVIDER_MAP, serializeToJson } from '../common/instrumentation-utils';
 import type { Serialized } from '@langchain/core/load/serializable';
 import type { ChatGeneration, Generation, LLMResult } from '@langchain/core/outputs';

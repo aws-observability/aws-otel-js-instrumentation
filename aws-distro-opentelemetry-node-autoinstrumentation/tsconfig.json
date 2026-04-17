@@ -26,9 +26,6 @@
     // This command allows TypeScript to import `sql_dialect_keywords.json`
     "resolveJsonModule": true,
     "paths": {
-      "@opentelemetry/semantic-conventions/incubating": [
-        "../node_modules/@opentelemetry/semantic-conventions/build/src/index-incubating"
-      ]
     }
   },
   "include": [

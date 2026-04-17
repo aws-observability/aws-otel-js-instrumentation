@@ -29,8 +29,8 @@ import {
   ATTR_GEN_AI_TOOL_CALL_RESULT,
   ATTR_GEN_AI_TOOL_NAME,
   ATTR_GEN_AI_TOOL_TYPE,
-  ATTR_ERROR_TYPE,
-} from '@opentelemetry/semantic-conventions/incubating';
+} from '../../../src/instrumentation/common/semconv';
+import { ATTR_ERROR_TYPE } from '@opentelemetry/semantic-conventions';
 import { expect } from 'expect';
 import * as nock from 'nock';
 import { ChatBedrockConverse } from '@langchain/aws';

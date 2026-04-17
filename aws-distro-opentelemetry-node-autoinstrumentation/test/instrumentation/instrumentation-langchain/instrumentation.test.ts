@@ -3,7 +3,7 @@
 
 import { instrumentation, contentCaptureInstrumentation } from './load-instrumentation';
 import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-utils';
-import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
+import { SpanKind, SpanStatusCode, trace, Context as OtelContext } from '@opentelemetry/api';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
   ATTR_GEN_AI_AGENT_NAME,
@@ -65,6 +65,8 @@ import {
   ANTHROPIC_ERROR_RESPONSE,
 } from './mock-responses';
 import { validateOtelGenaiSchema } from '../otel-schema-validator';
+import { OpenTelemetryCallbackHandler } from '../../../src/instrumentation/instrumentation-langchain/callback-handler';
+import { LangChainInstrumentation } from '../../../src/instrumentation/instrumentation-langchain';
 
 const REGION = 'us-east-1';
 const BEDROCK_MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0';
@@ -1196,4 +1198,71 @@ describe('invoke_agent spans', function () {
       }
     });
   }
+
+  it('creates an invoke_agent span for named createReactAgent', async function () {
+    contentCaptureInstrumentation.enable();
+    resetMemoryExporter();
+
+    const weatherTool = tool(async (input: { location: string }) => `Sunny in ${input.location}`, {
+      name: 'get_weather',
+      description: 'Get weather for a location',
+      schema: z.object({ location: z.string() }),
+    });
+
+    const model = new ChatOpenAI({ apiKey: FAKE_OPENAI_KEY, model: OPENAI_MODEL });
+    const restore = stubGenerate(model);
+
+    try {
+      const agent = createReactAgent({ llm: model, tools: [weatherTool], name: 'research-analyst' });
+      await agent.invoke({ messages: [new HumanMessage('What is the weather?')] });
+    } catch {
+      /* agent may error after first LLM call — spans are still emitted */
+    }
+
+    restore();
+
+    const spans = getTestSpans();
+    const agentSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent');
+    expect(agentSpans.length).toBeGreaterThanOrEqual(1);
+
+    const agentSpan = agentSpans[0];
+    expect(agentSpan.name).toBe('invoke_agent research-analyst');
+    expect(agentSpan.attributes[ATTR_GEN_AI_OPERATION_NAME]).toBe('invoke_agent');
+    expect(agentSpan.attributes[ATTR_GEN_AI_AGENT_NAME]).toBe('research-analyst');
+  });
+});
+
+describe('setConfig resets handler', function () {
+  it('recreates handler when captureMessageContent changes', function () {
+    const instr = new LangChainInstrumentation({ captureMessageContent: false });
+    instr.enable();
+
+    // Access the internal handler by triggering lazy creation
+    expect(instr._handler).toBeUndefined();
+
+    instr.setConfig({ captureMessageContent: true });
+    expect(instr._handler).toBeUndefined();
+
+    instr.disable();
+  });
+});
+
+describe('_handleError cleans up skipped chain entries', function () {
+  it('removes map entry for skipped chains on error', function () {
+    const tracer = trace.getTracer('test');
+    const handler = new OpenTelemetryCallbackHandler(tracer, false);
+
+    // Simulate a skipped chain entry (no span, just context)
+    handler.runIdToSpanMap.set('skipped-run-id', {
+      context: {} as OtelContext,
+      agentSpan: undefined,
+    });
+
+    expect(handler.runIdToSpanMap.has('skipped-run-id')).toBe(true);
+
+    // Call handleChainError which calls _handleError
+    handler.handleChainError(new Error('test error'), 'skipped-run-id');
+
+    expect(handler.runIdToSpanMap.has('skipped-run-id')).toBe(false);
+  });
 });

@@ -209,8 +209,20 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     // when a custom name is given to the agent, otherwise it defaults to "LangGraph".
     // langgraphNode check ensures we only match against agent nodes, not unwanted
     // internal nodes.
+    const isLangGraphPregelAgent =
+      !!name &&
+      Array.isArray(serialized.id) &&
+      serialized.id.some(part => part === 'langgraph') &&
+      serialized.id.some(part => part === 'pregel' || part === 'CompiledStateGraph' || part === 'Pregel') &&
+      _inputs != null &&
+      typeof _inputs === 'object' &&
+      'messages' in _inputs;
     const isAgentChain =
-      !!name && (name.includes('AgentExecutor') || name === 'LangGraph' || name === metadata?.lc_agent_name);
+      !!name &&
+      (name.includes('AgentExecutor') ||
+        name === 'LangGraph' ||
+        name === metadata?.lc_agent_name ||
+        isLangGraphPregelAgent);
     const provider = OpenTelemetryCallbackHandler._extractModelProvider(serialized);
     const lcAgentName = metadata?.lc_agent_name;
     const agentName = (typeof lcAgentName === 'string' ? lcAgentName : undefined) || (isAgentChain ? name : undefined);

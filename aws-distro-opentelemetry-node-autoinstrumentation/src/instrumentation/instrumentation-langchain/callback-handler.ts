@@ -569,7 +569,9 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
         const textContent = OpenTelemetryCallbackHandler._extractTextContent(message.content);
 
-        if (textContent) {
+        const isToolMessage = role === 'tool' && 'tool_call_id' in message && message.tool_call_id;
+
+        if (textContent && !isToolMessage) {
           parts.push({ type: 'text', content: textContent });
         }
 
@@ -584,7 +586,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
           }
         }
 
-        if (role === 'tool' && 'tool_call_id' in message && message.tool_call_id) {
+        if (isToolMessage) {
           parts.push({
             type: 'tool_call_response',
             id: message.tool_call_id,

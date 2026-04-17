@@ -812,6 +812,9 @@ describe('message formatting edge cases', function () {
     const responseParts = toolMsg.parts.filter((p: any) => p.type === 'tool_call_response');
     expect(responseParts.length).toBe(1);
     expect(responseParts[0].id).toBe('call_123');
+
+    const textParts = toolMsg.parts.filter((p: any) => p.type === 'text');
+    expect(textParts.length).toBe(0);
   });
 
   it('handles AI messages with array content blocks', async () => {

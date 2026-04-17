@@ -164,10 +164,10 @@ jobs:
       # and run here only on supported Node versions.
       # Thus we exclude code coverage for Node 18.
       - name: Unit tests without coverage
-        if: ${{ matrix.node == '18' }}
+        if: ${{ !matrix.code-coverage }}
         run: npm run test
       - name: Unit tests with coverage
-        if: ${{ matrix.node != '18' }}
+        if: ${{ matrix.code-coverage }}
         run: npm run test:coverage
       - name: Report Coverage
         if: ${{ matrix.code-coverage && !cancelled()}}

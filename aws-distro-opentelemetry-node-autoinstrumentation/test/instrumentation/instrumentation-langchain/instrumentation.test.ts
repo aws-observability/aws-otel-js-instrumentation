@@ -66,7 +66,7 @@ import {
 } from './mock-responses';
 import { validateOtelGenaiSchema } from '../otel-schema-validator';
 import { OpenTelemetryCallbackHandler } from '../../../src/instrumentation/instrumentation-langchain/callback-handler';
-import { LangChainInstrumentation } from '../../../src/instrumentation/instrumentation-langchain';
+import { LangChainInstrumentation } from '../../../src/instrumentation/instrumentation-langchain/instrumentation';
 
 const REGION = 'us-east-1';
 const BEDROCK_MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0';

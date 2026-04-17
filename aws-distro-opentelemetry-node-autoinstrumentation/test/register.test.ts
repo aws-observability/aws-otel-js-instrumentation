@@ -6,7 +6,7 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 import * as assert from 'assert';
 import { spawnSync, SpawnSyncReturns } from 'child_process';
 import expect from 'expect';
-import { LangChainInstrumentation } from '../src/instrumentation/instrumentation-langchain';
+import { LangChainInstrumentation } from '../src/instrumentation/instrumentation-langchain/instrumentation';
 import { instrumentations, setAwsDefaultEnvironmentVariables } from '../src/register';
 
 // The OpenTelemetry Authors code

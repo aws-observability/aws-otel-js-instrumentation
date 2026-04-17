@@ -4,7 +4,7 @@
 import { getTestMemoryExporter, setTestMemoryExporter } from '@opentelemetry/contrib-test-utils';
 import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
-import { LangChainInstrumentation } from '../../../src/instrumentation/instrumentation-langchain';
+import { LangChainInstrumentation } from '../../../src/instrumentation/instrumentation-langchain/instrumentation';
 
 export const instrumentation = new LangChainInstrumentation();
 instrumentation.disable();

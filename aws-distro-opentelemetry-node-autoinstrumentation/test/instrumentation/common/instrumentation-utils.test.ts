@@ -61,8 +61,8 @@ describe('serializeToJson', function () {
 
   it('handles objects with class instances', function () {
     class Foo {
-      x = 1;
-      y = 'bar';
+      x: number = 1;
+      y: string = 'bar';
     }
     const result = serializeToJson({ item: new Foo() });
     const parsed = JSON.parse(result);

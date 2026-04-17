@@ -166,7 +166,7 @@ jobs:
       - name: Unit tests without coverage
         if: ${{ !matrix.code-coverage }}
         run: npm run test
-      - name: Run instrumentation tests (Node >= 20 only)
+      - name: Run instrumentation tests
         if: ${{ !matrix.code-coverage && matrix.node != '18' }}
         run: npm run test:instrumentation:langchain
       - name: Unit tests with coverage

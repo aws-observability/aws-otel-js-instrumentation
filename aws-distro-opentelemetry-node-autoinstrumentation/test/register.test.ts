@@ -16,14 +16,14 @@ describe('Register', function () {
   let setAwsDefaultEnvironmentVariables: () => void;
 
   before(() => {
-    // Lazy-load register.ts inside before() to avoid polluting the process with
-    // require-in-the-middle hooks at file parse time. This prevents interference
-    // with other instrumentation tests that run in the same mocha process.
     const stub = sinon.stub(opentelemetry.NodeSDK.prototype, 'start');
     const register = require('../src/register');
     stub.restore();
     instrumentations = register.instrumentations;
     setAwsDefaultEnvironmentVariables = register.setAwsDefaultEnvironmentVariables;
+    for (const instr of instrumentations) {
+      instr.disable();
+    }
   });
 
   it('Requires without error', () => {

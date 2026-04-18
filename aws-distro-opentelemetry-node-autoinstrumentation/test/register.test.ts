@@ -5,6 +5,8 @@
 import * as assert from 'assert';
 import { spawnSync, SpawnSyncReturns } from 'child_process';
 import expect from 'expect';
+import * as opentelemetry from '@opentelemetry/sdk-node';
+import * as sinon from 'sinon';
 
 // The OpenTelemetry Authors code
 // Extend register.test.ts functionality to also test exported span with Application Signals enabled
@@ -15,7 +17,9 @@ describe('Register', function () {
     // Lazy-load register.ts inside before() to avoid polluting the process with
     // require-in-the-middle hooks at file parse time. This prevents interference
     // with other instrumentation tests that run in the same mocha process.
+    const stub = sinon.stub(opentelemetry.NodeSDK.prototype, 'start');
     const register = require('../src/register');
+    stub.restore();
     setAwsDefaultEnvironmentVariables = register.setAwsDefaultEnvironmentVariables;
   });
 

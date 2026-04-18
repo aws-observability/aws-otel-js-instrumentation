@@ -40,7 +40,7 @@ import { Lambda } from '@aws-sdk/client-lambda';
 import * as nock from 'nock';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { getTestSpans } from '@opentelemetry/contrib-test-utils';
-import { instrumentationConfigs } from '../../src/register';
+import * as opentelemetry from '@opentelemetry/sdk-node';
 import { LoggerProvider } from '@opentelemetry/api-logs';
 import { STS } from '@aws-sdk/client-sts';
 import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
@@ -77,12 +77,32 @@ const mockHeaders = {
   'content-type': 'application/json',
 };
 
-const UNPATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
-
-const PATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
-applyInstrumentationPatches(PATCHED_INSTRUMENTATIONS);
+// Lazy-loaded to avoid triggering register.ts side effects at module load time.
+// register.ts calls NodeSDK.start() at the top level, which registers a global
+// TracerProvider and conflicts with registerInstrumentationTesting in other test files.
+let UNPATCHED_INSTRUMENTATIONS: Instrumentation[];
+let PATCHED_INSTRUMENTATIONS: Instrumentation[];
+let instrumentationConfigs: Record<string, any>;
 
 describe('InstrumentationPatchTest', () => {
+  before(() => {
+    const stub = sinon.stub(opentelemetry.NodeSDK.prototype, 'start');
+    const register = require('../../src/register');
+    stub.restore();
+    for (const instr of register.instrumentations) {
+      instr.disable();
+    }
+    instrumentationConfigs = register.instrumentationConfigs;
+    UNPATCHED_INSTRUMENTATIONS = getNodeAutoInstrumentations(instrumentationConfigs);
+    PATCHED_INSTRUMENTATIONS = getNodeAutoInstrumentations(instrumentationConfigs);
+    applyInstrumentationPatches(PATCHED_INSTRUMENTATIONS);
+
+    // Re-register the composite propagator with XRay support since we stubbed
+    // sdk.start(). The contrib-test-utils mochaHooks registers a W3C-only propagator
+    // first, and OTel API rejects duplicate registrations, so we must disable first.
+    propagation.disable();
+    propagation.setGlobalPropagator(getPropagator());
+  });
   it('SanityTestUnpatchedAwsSdkInstrumentation', () => {
     const awsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(awsSdkInstrumentation);
@@ -1073,6 +1093,7 @@ describe('customExtractor', () => {
 
   before(() => {
     process.env.OTEL_PROPAGATORS = 'baggage,xray,tracecontext';
+    propagation.disable();
     propagation.setGlobalPropagator(getPropagator());
     delete process.env.OTEL_PROPAGATORS;
   });

@@ -24,11 +24,6 @@ describe('Register', function () {
     stub.restore();
     instrumentations = register.instrumentations;
     setAwsDefaultEnvironmentVariables = register.setAwsDefaultEnvironmentVariables;
-    // Disable all instrumentations to prevent them from installing
-    // require-in-the-middle hooks that conflict with test instrumentations.
-    for (const instr of instrumentations) {
-      instr.disable();
-    }
   });
 
   it('Requires without error', () => {

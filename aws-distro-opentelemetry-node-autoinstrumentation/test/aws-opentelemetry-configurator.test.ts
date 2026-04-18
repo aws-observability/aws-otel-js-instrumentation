@@ -30,7 +30,6 @@ import {
 import * as assert from 'assert';
 import expect from 'expect';
 import * as sinon from 'sinon';
-import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AlwaysRecordSampler } from '../src/always-record-sampler';
 import { AttributePropagatingSpanProcessor } from '../src/attribute-propagating-span-processor';
 import { AwsBatchUnsampledSpanProcessor } from '../src/aws-batch-unsampled-span-processor';
@@ -48,11 +47,7 @@ import {
 } from '../src/aws-opentelemetry-configurator';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
 import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
-// Lazy-loaded to avoid triggering register.ts side effects at module load time.
-// register.ts calls NodeSDK.start() at the top level, which registers a global
-// TracerProvider and conflicts with registerInstrumentationTesting in other test files.
-let setAwsDefaultEnvironmentVariables: () => void;
-
+import { setAwsDefaultEnvironmentVariables } from '../src/register';
 import { AwsXRayRemoteSampler } from '../src/sampler/aws-xray-remote-sampler';
 import { AwsXraySamplingClient } from '../src/sampler/aws-xray-sampling-client';
 import { GetSamplingRulesResponse } from '../src/sampler/remote-sampler.types';
@@ -77,14 +72,6 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
   // setUpClass
   before(() => {
-    const stub = sinon.stub(opentelemetry.NodeSDK.prototype, 'start');
-    const register = require('../src/register');
-    stub.restore();
-    setAwsDefaultEnvironmentVariables = register.setAwsDefaultEnvironmentVariables;
-    for (const instr of register.instrumentations) {
-      instr.disable();
-    }
-
     // Run environment setup in register.ts, then validate expected env values.
     setAwsDefaultEnvironmentVariables();
     validateConfiguratorEnviron();

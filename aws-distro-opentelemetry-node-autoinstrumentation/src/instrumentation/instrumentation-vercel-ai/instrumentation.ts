@@ -4,7 +4,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { types } from 'util';
-import { trace } from '@opentelemetry/api';
 import { InstrumentationBase, InstrumentationNodeModuleDefinition } from '@opentelemetry/instrumentation';
 import { LIB_VERSION } from '../../version';
 import { VercelAIInstrumentationConfig } from './types';
@@ -42,6 +41,25 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     super.setConfig({ ...config, captureMessageContent: !!config.captureMessageContent });
   }
 
+  override setTracerProvider(provider: any): void {
+    if (!this._spanProcessorRegistered) {
+      const delegate = provider.getDelegate?.() ?? provider;
+      const processors = delegate._activeSpanProcessor?._spanProcessors;
+
+      if (!Array.isArray(processors)) {
+        this._diag.warn('Failed to register VercelAISpanProcessor');
+      } else {
+        processors.unshift(new VercelAISpanProcessor());
+        this._spanProcessorRegistered = true;
+        this._diag.debug('Registered VercelAISpanProcessor');
+      }
+    }
+
+    super.setTracerProvider(provider);
+  }
+
+  override _updateMetricInstruments() {}
+
   protected init() {
     return [
       new InstrumentationNodeModuleDefinition(
@@ -54,8 +72,6 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
   }
 
   private _patch(moduleExports: any): any {
-    this._registerSpanProcessor();
-
     // The exports we are trying to patch in CJS have non-configurable properties,
     // so we must copy them into a plain object. However in ESM exports are wrappable directly.
     const isESM = types.isProxy(moduleExports);
@@ -89,28 +105,6 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     }
   }
 
-  private _registerSpanProcessor(): void {
-    if (this._spanProcessorRegistered) return;
-
-    const provider = trace.getTracerProvider();
-    const delegate = (provider as any).getDelegate?.() ?? provider;
-
-    const processor = new VercelAISpanProcessor();
-    const processors = delegate._activeSpanProcessor?._spanProcessors;
-
-    if (typeof delegate.addSpanProcessor === 'function') {
-      delegate.addSpanProcessor(processor);
-    } else if (Array.isArray(processors)) {
-      processors.push(processor);
-    } else {
-      this._diag.warn('Failed to register VercelAISpanProcessor');
-      return;
-    }
-
-    this._spanProcessorRegistered = true;
-    this._diag.debug('Registered VercelAISpanProcessor');
-  }
-
   private _autoInjectTelemetryEnabled(options: any): any {
     if (!options || typeof options !== 'object') {
       return options;
@@ -133,6 +127,4 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
 
     return options;
   }
-
-  override _updateMetricInstruments() {}
 }

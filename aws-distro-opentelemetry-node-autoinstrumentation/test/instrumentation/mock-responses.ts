@@ -130,3 +130,21 @@ export const ANTHROPIC_TOOL_CALL_RESPONSE = {
     cache_read_input_tokens: 0,
   },
 };
+
+export const GOOGLE_CHAT_RESPONSE = {
+  candidates: [
+    {
+      content: { parts: [{ text: 'Paris is the capital of France.' }], role: 'model' },
+      finishReason: 'STOP',
+    },
+  ],
+  usageMetadata: { promptTokenCount: 18, candidatesTokenCount: 8, totalTokenCount: 26 },
+};
+
+export function mockFetchJson(response: unknown, statusCode: number = 200): typeof fetch {
+  return (async () =>
+    new Response(JSON.stringify(response), {
+      status: statusCode,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+}

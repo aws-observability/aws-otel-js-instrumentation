@@ -63,7 +63,7 @@ import {
   ANTHROPIC_TOOL_CALL_RESPONSE,
   BEDROCK_ERROR_RESPONSE,
   ANTHROPIC_ERROR_RESPONSE,
-} from './mock-responses';
+} from '../mock-responses';
 import { validateOtelGenaiSchema } from '../otel-schema-validator';
 import { OpenTelemetryCallbackHandler } from '../../../src/instrumentation/instrumentation-langchain/callback-handler';
 import { LangChainInstrumentation } from '../../../src/instrumentation/instrumentation-langchain/instrumentation';

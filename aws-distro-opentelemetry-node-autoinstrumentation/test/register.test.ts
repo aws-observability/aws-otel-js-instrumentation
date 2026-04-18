@@ -2,25 +2,41 @@
 // SPDX-License-Identifier: Apache-2.0
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
-import { NodeSDK } from '@opentelemetry/sdk-node';
 import * as assert from 'assert';
 import { spawnSync, SpawnSyncReturns } from 'child_process';
 import expect from 'expect';
-import { setAwsDefaultEnvironmentVariables } from '../src/register';
 
 // The OpenTelemetry Authors code
 // Extend register.test.ts functionality to also test exported span with Application Signals enabled
 describe('Register', function () {
-  it('Requires without error', () => {
-    const originalPrototypeStart = NodeSDK.prototype.start;
-    NodeSDK.prototype.start = () => {};
-    try {
-      require('../src/register');
-    } catch (err: unknown) {
-      assert.fail(`require register unexpectedly failed: ${err}`);
-    }
+  let setAwsDefaultEnvironmentVariables: () => void;
 
-    NodeSDK.prototype.start = originalPrototypeStart;
+  before(() => {
+    // Lazy-load register.ts inside before() to avoid polluting the process with
+    // require-in-the-middle hooks at file parse time. This prevents interference
+    // with other instrumentation tests that run in the same mocha process.
+    const register = require('../src/register');
+    setAwsDefaultEnvironmentVariables = register.setAwsDefaultEnvironmentVariables;
+  });
+
+  it('Requires without error', () => {
+    const proc: SpawnSyncReturns<Buffer> = spawnSync(
+      process.execPath,
+      ['--require', '../build/src/register.js', '-e', 'process.exit(0)'],
+      {
+        cwd: __dirname,
+        timeout: 10000,
+        killSignal: 'SIGKILL',
+        env: Object.assign({}, process.env, {
+          OTEL_NODE_RESOURCE_DETECTORS: 'none',
+          OTEL_TRACES_EXPORTER: 'none',
+          OTEL_METRICS_EXPORTER: 'none',
+          OTEL_LOGS_EXPORTER: 'none',
+        }),
+      }
+    );
+    assert.ifError(proc.error);
+    assert.equal(proc.status, 0, `proc.status (${proc.status})`);
   });
 
   describe('Tests AWS Default Environment Variables', () => {

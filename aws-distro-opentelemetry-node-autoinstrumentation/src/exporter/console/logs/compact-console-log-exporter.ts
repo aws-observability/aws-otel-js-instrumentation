@@ -114,7 +114,8 @@ function hrTimeToNanos(hrTime: [number, number] | undefined): string {
   if (!hrTime || (hrTime[0] === 0 && hrTime[1] === 0)) {
     return '0';
   }
-  return (BigInt(hrTime[0]) * 1_000_000_000n + BigInt(hrTime[1])).toString();
+  // eslint-disable-next-line no-undef
+  return (BigInt(hrTime[0]) * BigInt(1000000000) + BigInt(hrTime[1])).toString();
 }
 
 /**

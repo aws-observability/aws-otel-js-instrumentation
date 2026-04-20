@@ -212,21 +212,8 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
         return function (this: any, ...streamArgs: any[]) {
           const spanCtx = langChainInstrumentation._handler?.runIdToSpanMap?.get(streamArgs[2]?.runId)?.context;
           if (!spanCtx) return original.apply(this, streamArgs);
-          const gen = context.with(spanCtx, () => original.apply(this, streamArgs));
-          return {
-            [Symbol.asyncIterator]() {
-              return this;
-            },
-            next() {
-              return context.with(spanCtx, () => gen.next());
-            },
-            return(value: any) {
-              return context.with(spanCtx, () => gen.return(value));
-            },
-            throw(err: any) {
-              return context.with(spanCtx, () => gen.throw(err));
-            },
-          };
+          const boundOriginal = context.bind(spanCtx, original.bind(this, ...streamArgs));
+          return boundOriginal();
         };
       });
     }

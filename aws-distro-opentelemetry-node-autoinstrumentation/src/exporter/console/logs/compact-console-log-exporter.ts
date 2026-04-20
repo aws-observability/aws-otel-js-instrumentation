@@ -42,6 +42,10 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
     return Promise.resolve();
   }
 
+  forceFlush(): Promise<void> {
+    return Promise.resolve();
+  }
+
   private _getFallback(): ConsoleLogRecordExporter {
     if (!this._fallback) {
       this._fallback = new ConsoleLogRecordExporter();
@@ -103,13 +107,14 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
 }
 
 /**
- * Convert HrTime [seconds, nanoseconds] to epoch nanoseconds.
+ * Convert HrTime [seconds, nanoseconds] to epoch nanoseconds as string.
+ * Uses BigInt to avoid precision loss beyond Number.MAX_SAFE_INTEGER.
  */
-function hrTimeToNanos(hrTime: [number, number] | undefined): number {
+function hrTimeToNanos(hrTime: [number, number] | undefined): string {
   if (!hrTime || (hrTime[0] === 0 && hrTime[1] === 0)) {
-    return 0;
+    return '0';
   }
-  return hrTime[0] * 1_000_000_000 + hrTime[1];
+  return (BigInt(hrTime[0]) * 1_000_000_000n + BigInt(hrTime[1])).toString();
 }
 
 /**

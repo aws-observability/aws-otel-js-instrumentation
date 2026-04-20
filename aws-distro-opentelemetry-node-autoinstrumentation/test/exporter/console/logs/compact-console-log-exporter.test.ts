@@ -68,8 +68,8 @@ describe('CompactConsoleLogRecordExporter', () => {
       expect(parsed.severityText).toBe('INFO');
       expect(parsed.attributes).toEqual({ key: 'value' });
       expect(parsed.droppedAttributes).toBe(2);
-      expect(parsed.timeUnixNano).toBe(1000000000 * 1_000_000_000);
-      expect(parsed.observedTimeUnixNano).toBe(1000000000 * 1_000_000_000);
+      expect(parsed.timeUnixNano).toBe('1000000000000000000');
+      expect(parsed.observedTimeUnixNano).toBe('1000000000000000000');
       expect(parsed.traceId).toBe('12345678901234567890123456789012');
       expect(parsed.spanId).toBe('1234567890123456');
       expect(parsed.flags).toBe(1);
@@ -97,8 +97,8 @@ describe('CompactConsoleLogRecordExporter', () => {
 
     exporter.export([logRecord], result => {
       const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
-      expect(parsed.timeUnixNano).toBe(0);
-      expect(parsed.observedTimeUnixNano).toBe(0);
+      expect(parsed.timeUnixNano).toBe('0');
+      expect(parsed.observedTimeUnixNano).toBe('0');
       done();
     });
   });
@@ -202,7 +202,7 @@ describe('CompactConsoleLogRecordExporter', () => {
 
     exporter.export([logRecord], result => {
       const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
-      expect(parsed.timeUnixNano).toBe(1000000000 * 1_000_000_000 + 123000000);
+      expect(parsed.timeUnixNano).toBe('1000000000123000000');
       done();
     });
   });
@@ -212,7 +212,7 @@ describe('CompactConsoleLogRecordExporter', () => {
 
     exporter.export([logRecord], result => {
       const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
-      expect(parsed.timeUnixNano).toBe(1000000000 * 1_000_000_000 + 100000000);
+      expect(parsed.timeUnixNano).toBe('1000000000100000000');
       done();
     });
   });

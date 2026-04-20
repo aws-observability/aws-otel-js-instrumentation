@@ -321,8 +321,8 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     const parentEntry = parentRunId ? this.runIdToSpanMap.get(parentRunId) : undefined;
     const parentCtx = parentEntry ? parentEntry.context : context.active();
     const span = this.tracer.startSpan(spanName, { kind }, parentCtx);
-    const spanContext = trace.setSpan(parentCtx, span);
-    this.runIdToSpanMap.set(runId, { span, context: spanContext, agentSpan: parentEntry?.agentSpan });
+    const ctx = trace.setSpan(parentCtx, span);
+    this.runIdToSpanMap.set(runId, { span, context: ctx, agentSpan: parentEntry?.agentSpan });
     return span;
   }
 

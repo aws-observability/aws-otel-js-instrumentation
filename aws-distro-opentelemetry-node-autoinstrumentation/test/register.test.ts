@@ -26,6 +26,12 @@ describe('Register', function () {
     }
   });
 
+  it('LangChain instrumentation is registered', () => {
+    const langchain = instrumentations.find((i: any) => i instanceof LangChainInstrumentation);
+    assert.ok(langchain, 'LangChainInstrumentation should be in the instrumentations list');
+    assert.strictEqual(langchain.instrumentationName, '@aws/aws-distro-opentelemetry-instrumentation-langchain');
+  });
+
   it('Requires without error', () => {
     const proc: SpawnSyncReturns<Buffer> = spawnSync(
       process.execPath,
@@ -44,12 +50,6 @@ describe('Register', function () {
     );
     assert.ifError(proc.error);
     assert.equal(proc.status, 0, `proc.status (${proc.status})`);
-  });
-
-  it('LangChain instrumentation is registered', () => {
-    const langchain = instrumentations.find((i: any) => i instanceof LangChainInstrumentation);
-    assert.ok(langchain, 'LangChainInstrumentation should be in the instrumentations list');
-    assert.strictEqual(langchain.instrumentationName, '@aws/aws-distro-opentelemetry-instrumentation-langchain');
   });
 
   describe('Tests AWS Default Environment Variables', () => {

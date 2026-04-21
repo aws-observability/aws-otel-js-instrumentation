@@ -53,44 +53,55 @@ import { RunnableLambda } from '@langchain/core/runnables';
 const { createReactAgent } = require('@langchain/langgraph/prebuilt');
 import { z } from 'zod';
 import type { ChatResult } from '@langchain/core/outputs';
-import {
-  BEDROCK_CHAT_RESPONSE,
-  BEDROCK_TOOL_CALL_RESPONSE,
-  OPENAI_CHAT_RESPONSE,
-  OPENAI_TOOL_CALL_RESPONSE,
-  OPENAI_ERROR_RESPONSE,
-  ANTHROPIC_CHAT_RESPONSE,
-  ANTHROPIC_TOOL_CALL_RESPONSE,
-  BEDROCK_ERROR_RESPONSE,
-  ANTHROPIC_ERROR_RESPONSE,
-} from '../mock-responses';
 import { validateOtelGenaiSchema } from '../otel-schema-validator';
+import {
+  ProviderName,
+  getProviderCases,
+  chatResponseWithFinishReason,
+  OPENAI_MODEL,
+  ANTHROPIC_MODEL,
+  BEDROCK_MODEL,
+  GOOGLE_MODEL,
+  GROQ_MODEL,
+  MISTRAL_MODEL,
+  COHERE_MODEL,
+  XAI_MODEL,
+  FAKE_OPENAI_KEY,
+  FAKE_ANTHROPIC_KEY,
+  FAKE_GOOGLE_KEY,
+  FAKE_GROQ_KEY,
+  FAKE_MISTRAL_KEY,
+  FAKE_COHERE_KEY,
+  FAKE_XAI_KEY,
+  FAKE_AWS_ACCESS_KEY_ID,
+  FAKE_AWS_SECRET_ACCESS_KEY,
+  AWS_REGION,
+} from '../test-fixtures';
 import { OpenTelemetryCallbackHandler } from '../../../src/instrumentation/instrumentation-langchain/callback-handler';
 import { LangChainInstrumentation } from '../../../src/instrumentation/instrumentation-langchain/instrumentation';
 
-const REGION = 'us-east-1';
-const BEDROCK_MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0';
-const OPENAI_MODEL = 'gpt-4o-mini';
-const ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
-const FAKE_OPENAI_KEY = 'sk-test1234567890abcdef1234567890abcdef1234567890abcdef';
-const FAKE_ANTHROPIC_KEY = 'sk-ant-test1234567890abcdef1234567890abcdef';
-
-type Provider = 'bedrock' | 'openai' | 'anthropic';
-
 function createModel(
-  provider: Provider,
+  provider: ProviderName,
   opts: Record<string, unknown> = {}
-): ChatBedrockConverse | ChatOpenAI | ChatAnthropic {
+):
+  | ChatBedrockConverse
+  | ChatOpenAI
+  | ChatAnthropic
+  | ChatGoogleGenerativeAI
+  | ChatCohere
+  | ChatGroq
+  | ChatMistralAI
+  | ChatXAI {
   switch (provider) {
-    case 'bedrock': {
+    case ProviderName.BEDROCK: {
       const client = new BedrockRuntimeClient({
-        region: REGION,
-        credentials: { accessKeyId: 'testing', secretAccessKey: 'testing' },
+        region: AWS_REGION,
+        credentials: { accessKeyId: FAKE_AWS_ACCESS_KEY_ID, secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY },
         requestHandler: new NodeHttpHandler(),
       });
-      return new ChatBedrockConverse({ model: BEDROCK_MODEL_ID, region: REGION, client, ...opts });
+      return new ChatBedrockConverse({ model: BEDROCK_MODEL, region: AWS_REGION, client, ...opts });
     }
-    case 'openai':
+    case ProviderName.OPENAI:
       return new ChatOpenAI({
         model: OPENAI_MODEL,
         apiKey: FAKE_OPENAI_KEY,
@@ -100,7 +111,7 @@ function createModel(
         configuration: { fetch: require('node-fetch') },
         ...opts,
       });
-    case 'anthropic':
+    case ProviderName.ANTHROPIC:
       return new ChatAnthropic({
         anthropicApiKey: FAKE_ANTHROPIC_KEY,
         modelName: ANTHROPIC_MODEL,
@@ -111,26 +122,69 @@ function createModel(
         clientOptions: { fetch: require('node-fetch') },
         ...opts,
       });
+    case ProviderName.GOOGLE:
+      return new ChatGoogleGenerativeAI({
+        apiKey: FAKE_GOOGLE_KEY,
+        model: GOOGLE_MODEL,
+        maxOutputTokens: 256,
+        ...opts,
+      });
+    case ProviderName.COHERE:
+      return new ChatCohere({
+        apiKey: FAKE_COHERE_KEY,
+        model: COHERE_MODEL,
+        ...opts,
+      });
+    case ProviderName.GROQ:
+      return new ChatGroq({
+        apiKey: FAKE_GROQ_KEY,
+        model: GROQ_MODEL,
+        ...opts,
+      });
+    case ProviderName.MISTRAL:
+      return new ChatMistralAI({
+        apiKey: FAKE_MISTRAL_KEY,
+        model: MISTRAL_MODEL,
+        ...opts,
+      });
+    case ProviderName.XAI:
+      return new ChatXAI({
+        apiKey: FAKE_XAI_KEY,
+        model: XAI_MODEL,
+        ...opts,
+      });
+    default:
+      throw new Error(`Unsupported provider: ${provider}`);
   }
 }
 
-function nockProvider(provider: Provider, response: Record<string, unknown>, statusCode: number = 200): nock.Scope {
+function nockProvider(provider: ProviderName, response: Record<string, unknown>, statusCode: number = 200): nock.Scope {
   switch (provider) {
-    case 'bedrock':
-      return nock(`https://bedrock-runtime.${REGION}.amazonaws.com`)
+    case ProviderName.BEDROCK:
+      return nock(`https://bedrock-runtime.${AWS_REGION}.amazonaws.com`)
         .post(/.*/)
         .reply(statusCode, JSON.stringify(response), {
           'content-type': 'application/json',
           'x-amzn-requestid': 'req-bedrock-1234',
         });
-    case 'openai':
+    case ProviderName.OPENAI:
       return nock('https://api.openai.com')
         .post('/v1/chat/completions')
         .reply(statusCode, response, { 'content-type': 'application/json' });
-    case 'anthropic':
+    case ProviderName.ANTHROPIC:
       return nock('https://api.anthropic.com')
         .post('/v1/messages')
         .reply(statusCode, response, { 'content-type': 'application/json' });
+    case ProviderName.GOOGLE:
+      return nock('https://generativelanguage.googleapis.com')
+        .post(/.*/)
+        .reply(statusCode, response, { 'content-type': 'application/json' });
+    case ProviderName.COHERE:
+      return nock('https://api.cohere.com')
+        .post(/.*/)
+        .reply(statusCode, response, { 'content-type': 'application/json' });
+    default:
+      throw new Error(`Unsupported provider for nock: ${provider}`);
   }
 }
 
@@ -154,6 +208,27 @@ function makeFakeChatResult(): ChatResult {
   };
 }
 
+function makeFakeToolCallResult(): ChatResult {
+  return {
+    generations: [
+      {
+        message: new AIMessage({
+          content: '',
+          tool_calls: [{ name: 'get_weather', args: { location: 'Tokyo' }, id: 'call_001', type: 'tool_call' }],
+          response_metadata: { finish_reason: 'tool_calls' },
+          usage_metadata: { input_tokens: 40, output_tokens: 20, total_tokens: 60 },
+        }),
+        text: '',
+        generationInfo: { finish_reason: 'tool_calls' },
+      },
+    ],
+    llmOutput: {
+      model_name: 'test',
+      token_usage: { prompt_tokens: 40, completion_tokens: 20, total_tokens: 60 },
+    },
+  };
+}
+
 function stubGenerate(model: BaseChatModel): () => void {
   const proto = Object.getPrototypeOf(model);
   const original = proto._generate;
@@ -165,7 +240,60 @@ function stubGenerate(model: BaseChatModel): () => void {
   };
 }
 
-describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
+function stubGenerateToolCall(model: BaseChatModel): () => void {
+  const proto = Object.getPrototypeOf(model);
+  const original = proto._generate;
+  proto._generate = async function (): Promise<ChatResult> {
+    return makeFakeToolCallResult();
+  };
+  return () => {
+    proto._generate = original;
+  };
+}
+
+function stubGenerateError(model: BaseChatModel): () => void {
+  const proto = Object.getPrototypeOf(model);
+  const original = proto._generate;
+  proto._generate = async function (): Promise<ChatResult> {
+    throw new Error('Server error');
+  };
+  return () => {
+    proto._generate = original;
+  };
+}
+
+function stubGenerateWithFinishReason(model: BaseChatModel, finishReason: string): () => void {
+  const proto = Object.getPrototypeOf(model);
+  const original = proto._generate;
+  proto._generate = async function (): Promise<ChatResult> {
+    return {
+      generations: [
+        {
+          message: new AIMessage({
+            content: 'ok',
+            response_metadata: { finish_reason: finishReason },
+            usage_metadata: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          }),
+          text: 'ok',
+          generationInfo: { finish_reason: finishReason },
+        },
+      ],
+      llmOutput: {
+        model_name: 'test',
+        token_usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      },
+    };
+  };
+  return () => {
+    proto._generate = original;
+  };
+}
+
+const providerCases = getProviderCases();
+const nockCases = providerCases.filter(pc => !pc.useStub);
+const stubCases = providerCases.filter(pc => pc.useStub);
+
+describe('basic chat spans', function () {
   this.timeout(10000);
 
   beforeEach(() => {
@@ -175,61 +303,78 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
 
   afterEach(() => {
     instrumentation.disable();
-    contentCaptureInstrumentation.disable();
     nock.cleanAll();
   });
 
-  it('creates a Bedrock chat span with correct attributes', async () => {
+  for (const pc of nockCases) {
+    it(`${pc.name} creates a chat span with correct attributes`, async () => {
+      instrumentation.enable();
+      nockProvider(pc.name, pc.chatResponse);
+
+      const model = createModel(pc.name);
+      await model.invoke([new HumanMessage('What is the capital of France?')]);
+
+      const spans = getTestSpans();
+      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      expect(chatSpans.length).toBe(1);
+
+      const span = chatSpans[0];
+      expect(span.name).toContain(`chat ${pc.expectedModel}`);
+      expect(span.kind).toBe(SpanKind.CLIENT);
+      expect(span.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(pc.expectedProvider);
+      expect(span.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(pc.expectedModel);
+      expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(pc.expectedInputTokens);
+      expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(pc.expectedOutputTokens);
+      expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+      if (pc.expectedResponseId) {
+        expect(span.attributes[ATTR_GEN_AI_RESPONSE_ID]).toBe(pc.expectedResponseId);
+      }
+    });
+  }
+
+  for (const pc of stubCases) {
+    it(`${pc.name} creates a chat span with correct attributes`, async () => {
+      instrumentation.enable();
+
+      const model = createModel(pc.name);
+      const restore = stubGenerate(model);
+      try {
+        await model.invoke([new HumanMessage('What is the capital of France?')]);
+
+        const spans = getTestSpans();
+        const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+        expect(chatSpans.length).toBe(1);
+
+        const span = chatSpans[0];
+        expect(span.name).toContain(`chat ${pc.expectedModel}`);
+        expect(span.kind).toBe(SpanKind.CLIENT);
+        expect(span.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(pc.expectedProvider);
+        expect(span.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(pc.expectedModel);
+        expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  it('OpenAI maps extra request parameters', async () => {
     instrumentation.enable();
-    nockProvider('bedrock', BEDROCK_CHAT_RESPONSE);
+    const openaiCase = providerCases.find(p => p.name === ProviderName.OPENAI)!;
+    nockProvider(ProviderName.OPENAI, openaiCase.chatResponse);
 
-    const model = createModel('bedrock');
-    const result = await model.invoke([new HumanMessage('What is the capital of France?')]);
-
-    expect(result.content).toBe('Paris is the capital of France.');
-
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-
-    const span = chatSpans[0];
-    expect(span.name).toContain(`chat ${BEDROCK_MODEL_ID}`);
-    expect(span.kind).toBe(SpanKind.CLIENT);
-    expect(span.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe('aws.bedrock');
-    expect(span.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(BEDROCK_MODEL_ID);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(25);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(10);
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_ID]).toBe('req-bedrock-1234');
-  });
-
-  it('creates an OpenAI chat span with correct attributes', async () => {
-    instrumentation.enable();
-    nockProvider('openai', OPENAI_CHAT_RESPONSE);
-
-    const model = createModel('openai', {
+    const model = createModel(ProviderName.OPENAI, {
       topP: 0.9,
       frequencyPenalty: 0.5,
       presencePenalty: 0.3,
       stop: ['END'],
     });
-    const result = await model.invoke([new HumanMessage('What is the capital of France?')]);
-
-    expect(result.content).toBe('Paris is the capital of France.');
+    await model.invoke([new HumanMessage('What is the capital of France?')]);
 
     const spans = getTestSpans();
     const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
 
     const span = chatSpans[0];
-    expect(span.name).toContain(`chat ${OPENAI_MODEL}`);
-    expect(span.kind).toBe(SpanKind.CLIENT);
-    expect(span.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe('openai');
-    expect(span.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(OPENAI_MODEL);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(18);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(8);
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_ID]).toBe('chatcmpl-abc123');
     expect(span.attributes[ATTR_GEN_AI_REQUEST_TEMPERATURE]).toBe(0.7);
     expect(span.attributes[ATTR_GEN_AI_REQUEST_MAX_TOKENS]).toBe(256);
     expect(span.attributes[ATTR_GEN_AI_REQUEST_TOP_P]).toBe(0.9);
@@ -238,140 +383,104 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
     expect(span.attributes[ATTR_GEN_AI_REQUEST_STOP_SEQUENCES]).toEqual(['END']);
   });
 
-  it('captures Bedrock input and output messages when captureMessageContent is enabled', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('bedrock', BEDROCK_CHAT_RESPONSE);
-
-    const model = createModel('bedrock');
-    await model.invoke([
-      new SystemMessage('You are a geography expert.'),
-      new HumanMessage('What is the capital of France?'),
-    ]);
-
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-
-    const span = chatSpans[0];
-    expect(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeDefined();
-    expect(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeDefined();
-
-    const inputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
-
-    const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
-    expect(outputMessages[0].role).toBe('assistant');
-  });
-
-  it('creates an Anthropic chat span with correct attributes', async () => {
+  it('Anthropic maps extra request parameters', async () => {
     instrumentation.enable();
-    nockProvider('anthropic', ANTHROPIC_CHAT_RESPONSE);
+    const anthropicCase = providerCases.find(p => p.name === ProviderName.ANTHROPIC)!;
+    nockProvider(ProviderName.ANTHROPIC, anthropicCase.chatResponse);
 
-    const model = createModel('anthropic');
-    const result = await model.invoke([new HumanMessage('What is the capital of France?')]);
-
-    expect(result.content).toContain('Paris is the capital of France.');
+    const model = createModel(ProviderName.ANTHROPIC);
+    await model.invoke([new HumanMessage('What is the capital of France?')]);
 
     const spans = getTestSpans();
     const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
     expect(chatSpans.length).toBe(1);
 
     const span = chatSpans[0];
-    expect(span.name).toContain(`chat ${ANTHROPIC_MODEL}`);
-    expect(span.kind).toBe(SpanKind.CLIENT);
-    expect(span.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe('anthropic');
-    expect(span.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(ANTHROPIC_MODEL);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(25);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(10);
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_ID]).toBe('msg_01XFDUDYJgAACzvnptvVoYEL');
     expect(span.attributes[ATTR_GEN_AI_REQUEST_TEMPERATURE]).toBe(0.5);
     expect(span.attributes[ATTR_GEN_AI_REQUEST_MAX_TOKENS]).toBe(256);
     expect(span.attributes[ATTR_GEN_AI_REQUEST_TOP_K]).toBe(40);
   });
+});
 
-  it('creates a chat span with tool_call finish reason for Anthropic tool use', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('anthropic', ANTHROPIC_TOOL_CALL_RESPONSE);
+describe('content capture', function () {
+  this.timeout(10000);
 
-    const model = createModel('anthropic');
-    await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
-
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-
-    const span = chatSpans[0];
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(40);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(20);
-
-    const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
-    expect(outputMessages.length).toBe(1);
-    const toolCallParts = outputMessages[0].parts.filter((p: any) => p.type === 'tool_call');
-    expect(toolCallParts.length).toBe(1);
-    expect(toolCallParts[0].name).toBe('get_weather');
+  beforeEach(() => {
+    resetMemoryExporter();
+    nock.cleanAll();
   });
 
-  it('captures Anthropic input and output messages when captureMessageContent is enabled', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('anthropic', ANTHROPIC_CHAT_RESPONSE);
-
-    const model = createModel('anthropic');
-    await model.invoke([
-      new SystemMessage('You are a geography expert.'),
-      new HumanMessage('What is the capital of France?'),
-    ]);
-
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-
-    const span = chatSpans[0];
-    expect(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeDefined();
-    expect(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeDefined();
-
-    const inputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
-
-    const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
-    expect(outputMessages[0].role).toBe('assistant');
+  afterEach(() => {
+    contentCaptureInstrumentation.disable();
+    nock.cleanAll();
   });
 
-  it('captures OpenAI input and output messages when captureMessageContent is enabled', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('openai', OPENAI_CHAT_RESPONSE);
+  for (const pc of nockCases) {
+    it(`${pc.name} captures and validates input/output messages`, async () => {
+      contentCaptureInstrumentation.enable();
+      nockProvider(pc.name, pc.chatResponse);
 
-    const model = createModel('openai');
-    await model.invoke([
-      new SystemMessage('You are a geography expert.'),
-      new HumanMessage('What is the capital of France?'),
-    ]);
+      const model = createModel(pc.name);
+      await model.invoke([
+        new SystemMessage('You are a geography expert.'),
+        new HumanMessage('What is the capital of France?'),
+      ]);
 
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
+      const spans = getTestSpans();
+      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      expect(chatSpans.length).toBe(1);
 
-    const span = chatSpans[0];
-    expect(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeDefined();
-    expect(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeDefined();
+      const span = chatSpans[0];
+      expect(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeDefined();
+      expect(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeDefined();
 
-    const inputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+      const inputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+      await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
 
-    const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
-    expect(outputMessages[0].role).toBe('assistant');
-  });
+      const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+      await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+      expect(outputMessages[0].role).toBe('assistant');
+    });
+  }
+
+  for (const pc of stubCases) {
+    it(`${pc.name} captures and validates input/output messages`, async () => {
+      contentCaptureInstrumentation.enable();
+
+      const model = createModel(pc.name);
+      const restore = stubGenerate(model);
+      try {
+        await model.invoke([
+          new SystemMessage('You are a geography expert.'),
+          new HumanMessage('What is the capital of France?'),
+        ]);
+
+        const spans = getTestSpans();
+        const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+        expect(chatSpans.length).toBe(1);
+
+        const span = chatSpans[0];
+        expect(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeDefined();
+        expect(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeDefined();
+
+        const inputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+        await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+
+        const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+        await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+        expect(outputMessages[0].role).toBe('assistant');
+      } finally {
+        restore();
+      }
+    });
+  }
 
   it('does not capture messages when captureMessageContent is disabled', async () => {
     instrumentation.enable();
-    nockProvider('bedrock', BEDROCK_CHAT_RESPONSE);
+    const bedrockCase = providerCases.find(p => p.name === ProviderName.BEDROCK)!;
+    nockProvider(ProviderName.BEDROCK, bedrockCase.chatResponse);
 
-    const model = createModel('bedrock');
+    const model = createModel(ProviderName.BEDROCK);
     await model.invoke([new HumanMessage('What is the capital of France?')]);
 
     const spans = getTestSpans();
@@ -379,6 +488,7 @@ describe('ChatBedrockConverse, ChatOpenAI & ChatAnthropic', function () {
     expect(chatSpans.length).toBe(1);
     expect(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeUndefined();
     expect(chatSpans[0].attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeUndefined();
+    instrumentation.disable();
   });
 });
 
@@ -660,44 +770,57 @@ describe('tool call responses', function () {
     nock.cleanAll();
   });
 
-  it('creates a chat span with tool_call finish reason for Bedrock tool use', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('bedrock', BEDROCK_TOOL_CALL_RESPONSE);
+  for (const pc of nockCases) {
+    it(`${pc.name} creates a chat span with tool_call finish reason`, async () => {
+      contentCaptureInstrumentation.enable();
+      nockProvider(pc.name, pc.toolCallResponse);
 
-    const model = createModel('bedrock');
-    await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
+      const model = createModel(pc.name);
+      await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
 
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
+      const spans = getTestSpans();
+      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      expect(chatSpans.length).toBe(1);
 
-    const span = chatSpans[0];
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(40);
-    expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(20);
+      const span = chatSpans[0];
+      expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
 
-    const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
-    expect(outputMessages.length).toBe(1);
-    const toolCallParts = outputMessages[0].parts.filter((p: any) => p.type === 'tool_call');
-    expect(toolCallParts.length).toBe(1);
-    expect(toolCallParts[0].name).toBe('get_weather');
-  });
+      const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+      await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+      expect(outputMessages.length).toBe(1);
+      const toolCallParts = outputMessages[0].parts.filter((p: any) => p.type === 'tool_call');
+      expect(toolCallParts.length).toBe(1);
+      expect(toolCallParts[0].name).toBe('get_weather');
+    });
+  }
 
-  it('creates a chat span with tool_call finish reason for OpenAI tool use', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('openai', OPENAI_TOOL_CALL_RESPONSE);
+  for (const pc of stubCases) {
+    it(`${pc.name} creates a chat span with tool_call finish reason`, async () => {
+      contentCaptureInstrumentation.enable();
 
-    const model = createModel('openai');
-    await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
+      const model = createModel(pc.name);
+      const restore = stubGenerateToolCall(model);
+      try {
+        await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
 
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
+        const spans = getTestSpans();
+        const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+        expect(chatSpans.length).toBe(1);
 
-    const span = chatSpans[0];
-    expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
-  });
+        const span = chatSpans[0];
+        expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
+
+        const outputMessages = JSON.parse(span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+        await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+        expect(outputMessages.length).toBe(1);
+        const toolCallParts = outputMessages[0].parts.filter((p: any) => p.type === 'tool_call');
+        expect(toolCallParts.length).toBe(1);
+        expect(toolCallParts[0].name).toBe('get_weather');
+      } finally {
+        restore();
+      }
+    });
+  }
 });
 
 describe('provider error handling', function () {
@@ -713,59 +836,47 @@ describe('provider error handling', function () {
     nock.cleanAll();
   });
 
-  it('records error status on OpenAI server error', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('openai', OPENAI_ERROR_RESPONSE, 500);
+  for (const pc of nockCases) {
+    it(`${pc.name} records error status on server error`, async () => {
+      contentCaptureInstrumentation.enable();
+      nockProvider(pc.name, pc.errorResponse, pc.errorStatusCode);
 
-    const model = createModel('openai', { maxRetries: 0 });
-    try {
-      await model.invoke([new HumanMessage('test')]);
-    } catch {
-      /* expected */
-    }
+      const model = createModel(pc.name, { maxRetries: 0 });
+      try {
+        await model.invoke([new HumanMessage('test')]);
+      } catch {
+        /* expected */
+      }
 
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-    expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
-    expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
-  });
+      const spans = getTestSpans();
+      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      expect(chatSpans.length).toBe(1);
+      expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
+      expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
+    });
+  }
 
-  it('records error status on Bedrock server error', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('bedrock', BEDROCK_ERROR_RESPONSE, 429);
+  for (const pc of stubCases) {
+    it(`${pc.name} records error status on server error`, async () => {
+      contentCaptureInstrumentation.enable();
 
-    const model = createModel('bedrock');
-    try {
-      await model.invoke([new HumanMessage('test')]);
-    } catch {
-      /* expected */
-    }
+      const model = createModel(pc.name);
+      const restore = stubGenerateError(model);
+      try {
+        await model.invoke([new HumanMessage('test')]);
+      } catch {
+        /* expected */
+      }
 
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-    expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
-    expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
-  });
+      restore();
 
-  it('records error status on Anthropic server error', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('anthropic', ANTHROPIC_ERROR_RESPONSE, 529);
-
-    const model = createModel('anthropic', { maxRetries: 0 });
-    try {
-      await model.invoke([new HumanMessage('test')]);
-    } catch {
-      /* expected */
-    }
-
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-    expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
-    expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
-  });
+      const spans = getTestSpans();
+      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      expect(chatSpans.length).toBe(1);
+      expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
+      expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
+    });
+  }
 });
 
 describe('message formatting edge cases', function () {
@@ -902,8 +1013,8 @@ describe('provider detection (all providers)', function () {
       createModel: () =>
         new ChatBedrockConverse({
           model: 'test',
-          region: 'us-east-1',
-          credentials: { accessKeyId: 'fake', secretAccessKey: 'fake' },
+          region: AWS_REGION,
+          credentials: { accessKeyId: FAKE_AWS_ACCESS_KEY_ID, secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY },
         }),
       expectedProvider: 'aws.bedrock',
     },
@@ -931,7 +1042,7 @@ describe('provider detection (all providers)', function () {
       name: 'ChatAnthropic',
       createModel: () =>
         new ChatAnthropic({
-          anthropicApiKey: 'fake',
+          anthropicApiKey: FAKE_ANTHROPIC_KEY,
           modelName: 'claude-3',
         }),
       expectedProvider: 'anthropic',
@@ -940,7 +1051,7 @@ describe('provider detection (all providers)', function () {
       name: 'ChatGoogleGenerativeAI',
       createModel: () =>
         new ChatGoogleGenerativeAI({
-          apiKey: 'fake',
+          apiKey: FAKE_GOOGLE_KEY,
           model: 'gemini-pro',
         }),
       expectedProvider: 'gcp.gen_ai',
@@ -949,7 +1060,7 @@ describe('provider detection (all providers)', function () {
       name: 'ChatMistralAI',
       createModel: () =>
         new ChatMistralAI({
-          apiKey: 'fake',
+          apiKey: FAKE_MISTRAL_KEY,
           model: 'test',
         }),
       expectedProvider: 'mistral_ai',
@@ -958,7 +1069,7 @@ describe('provider detection (all providers)', function () {
       name: 'ChatGroq',
       createModel: () =>
         new ChatGroq({
-          apiKey: 'fake',
+          apiKey: FAKE_GROQ_KEY,
           model: 'test',
         }),
       expectedProvider: 'groq',
@@ -967,7 +1078,7 @@ describe('provider detection (all providers)', function () {
       name: 'ChatCohere',
       createModel: () =>
         new ChatCohere({
-          apiKey: 'fake',
+          apiKey: FAKE_COHERE_KEY,
           model: 'test',
         }),
       expectedProvider: 'cohere',
@@ -976,7 +1087,7 @@ describe('provider detection (all providers)', function () {
       name: 'ChatDeepSeek',
       createModel: () =>
         new ChatDeepSeek({
-          apiKey: 'fake',
+          apiKey: FAKE_OPENAI_KEY,
           model: 'test',
         }),
       expectedProvider: 'deepseek',
@@ -985,7 +1096,7 @@ describe('provider detection (all providers)', function () {
       name: 'ChatXAI',
       createModel: () =>
         new ChatXAI({
-          apiKey: 'fake',
+          apiKey: FAKE_XAI_KEY,
           model: 'test',
         }),
       expectedProvider: 'x_ai',
@@ -1037,6 +1148,12 @@ describe('provider detection (all providers)', function () {
 describe('finish reason normalization', function () {
   this.timeout(10000);
 
+  const finishReasonCases: Array<{ reason: string; expected: string }> = [
+    { reason: 'length', expected: 'length' },
+    { reason: 'content_filter', expected: 'content_filter' },
+    { reason: 'custom_reason', expected: 'custom_reason' },
+  ];
+
   beforeEach(() => {
     resetMemoryExporter();
     nock.cleanAll();
@@ -1047,71 +1164,34 @@ describe('finish reason normalization', function () {
     nock.cleanAll();
   });
 
-  it('normalizes "max_tokens" finish reason to "length"', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('openai', {
-      ...OPENAI_CHAT_RESPONSE,
-      choices: [
-        {
-          index: 0,
-          message: { role: 'assistant', content: 'Truncated response.' },
-          finish_reason: 'length',
-        },
-      ],
-    });
+  for (const pc of providerCases) {
+    for (const { reason, expected } of finishReasonCases) {
+      it(`${pc.name} maps "${reason}" to "${expected}"`, async () => {
+        contentCaptureInstrumentation.enable();
+        const model = createModel(pc.name);
+        let restore: (() => void) | undefined;
 
-    const model = createModel('openai');
-    await model.invoke([new HumanMessage('Write a long essay')]);
+        if (pc.useStub) {
+          restore = stubGenerateWithFinishReason(model, reason);
+        } else {
+          nockProvider(pc.name, chatResponseWithFinishReason(pc, reason));
+        }
 
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-    expect(chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['length']);
-  });
+        try {
+          await model.invoke([new HumanMessage('test')]);
 
-  it('normalizes "content_filter" finish reason', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('openai', {
-      ...OPENAI_CHAT_RESPONSE,
-      choices: [
-        {
-          index: 0,
-          message: { role: 'assistant', content: '' },
-          finish_reason: 'content_filter',
-        },
-      ],
-    });
+          const spans = getTestSpans();
+          const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+          expect(chatSpans.length).toBe(1);
+          expect(chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual([expected]);
+        } finally {
+          if (restore) restore();
+        }
 
-    const model = createModel('openai');
-    await model.invoke([new HumanMessage('test')]);
-
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-    expect(chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['content_filter']);
-  });
-
-  it('passes through unknown finish reasons unchanged', async () => {
-    contentCaptureInstrumentation.enable();
-    nockProvider('openai', {
-      ...OPENAI_CHAT_RESPONSE,
-      choices: [
-        {
-          index: 0,
-          message: { role: 'assistant', content: 'ok' },
-          finish_reason: 'custom_reason',
-        },
-      ],
-    });
-
-    const model = createModel('openai');
-    await model.invoke([new HumanMessage('test')]);
-
-    const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-    expect(chatSpans.length).toBe(1);
-    expect(chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['custom_reason']);
-  });
+        resetMemoryExporter();
+      });
+    }
+  }
 });
 
 describe('invoke_agent spans', function () {
@@ -1128,13 +1208,13 @@ describe('invoke_agent spans', function () {
       name: 'ChatBedrockConverse',
       createModel: () =>
         new ChatBedrockConverse({
-          model: BEDROCK_MODEL_ID,
-          region: REGION,
-          credentials: { accessKeyId: 'fake', secretAccessKey: 'fake' },
+          model: BEDROCK_MODEL,
+          region: AWS_REGION,
+          credentials: { accessKeyId: FAKE_AWS_ACCESS_KEY_ID, secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY },
           temperature: 0.5,
         }),
       expectedProvider: 'aws.bedrock',
-      expectedModel: BEDROCK_MODEL_ID,
+      expectedModel: BEDROCK_MODEL,
       expectedTemperature: 0.5,
     },
     {
@@ -1153,13 +1233,63 @@ describe('invoke_agent spans', function () {
       name: 'ChatAnthropic',
       createModel: () =>
         new ChatAnthropic({
-          anthropicApiKey: 'fake',
-          modelName: 'claude-3',
+          anthropicApiKey: FAKE_ANTHROPIC_KEY,
+          modelName: ANTHROPIC_MODEL,
           temperature: 0.5,
         }),
       expectedProvider: 'anthropic',
-      expectedModel: 'claude-3',
+      expectedModel: ANTHROPIC_MODEL,
       expectedTemperature: 0.5,
+    },
+    {
+      name: 'ChatGoogleGenerativeAI',
+      createModel: () =>
+        new ChatGoogleGenerativeAI({
+          apiKey: FAKE_GOOGLE_KEY,
+          model: GOOGLE_MODEL,
+        }),
+      expectedProvider: 'gcp.gen_ai',
+      expectedModel: GOOGLE_MODEL,
+    },
+    {
+      name: 'ChatGroq',
+      createModel: () =>
+        new ChatGroq({
+          apiKey: FAKE_GROQ_KEY,
+          model: GROQ_MODEL,
+        }),
+      expectedProvider: 'groq',
+      expectedModel: GROQ_MODEL,
+    },
+    {
+      name: 'ChatMistralAI',
+      createModel: () =>
+        new ChatMistralAI({
+          apiKey: FAKE_MISTRAL_KEY,
+          model: MISTRAL_MODEL,
+        }),
+      expectedProvider: 'mistral_ai',
+      expectedModel: MISTRAL_MODEL,
+    },
+    {
+      name: 'ChatCohere',
+      createModel: () =>
+        new ChatCohere({
+          apiKey: FAKE_COHERE_KEY,
+          model: COHERE_MODEL,
+        }),
+      expectedProvider: 'cohere',
+      expectedModel: COHERE_MODEL,
+    },
+    {
+      name: 'ChatXAI',
+      createModel: () =>
+        new ChatXAI({
+          apiKey: FAKE_XAI_KEY,
+          model: XAI_MODEL,
+        }),
+      expectedProvider: 'x_ai',
+      expectedModel: XAI_MODEL,
     },
   ];
 

@@ -165,7 +165,7 @@ jobs:
       # Thus we exclude code coverage for Node 18.
       - name: Unit tests without coverage
         if: ${{ !matrix.code-coverage }}
-        run: npm run test
+        run: npm run test:node18
       - name: Run instrumentation tests
         if: ${{ !matrix.code-coverage && matrix.node != '18' }}
         run: npm run test:instrumentation:langchain

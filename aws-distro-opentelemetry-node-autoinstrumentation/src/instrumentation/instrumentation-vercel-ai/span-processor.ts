@@ -140,10 +140,12 @@ export class VercelAISpanProcessor implements SpanProcessor {
   };
 
   forceFlush(): Promise<void> {
+    this._spanIdToCounts.clear();
     return Promise.resolve();
   }
 
   shutdown(): Promise<void> {
+    this._spanIdToCounts.clear();
     return Promise.resolve();
   }
 

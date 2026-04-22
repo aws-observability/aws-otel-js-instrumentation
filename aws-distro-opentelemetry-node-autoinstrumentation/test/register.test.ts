@@ -9,9 +9,18 @@ import * as opentelemetry from '@opentelemetry/sdk-node';
 import * as sinon from 'sinon';
 import { trace } from '@opentelemetry/api';
 import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base';
-import { LangChainInstrumentation } from '../src/instrumentation/instrumentation-langchain/instrumentation';
-import { OpenAIAgentsInstrumentation } from '../src/instrumentation/instrumentation-openai-agents/instrumentation';
-import { VercelAIInstrumentation } from '../src/instrumentation/instrumentation-vercel-ai/instrumentation';
+import {
+  LangChainInstrumentation,
+  INSTRUMENTATION_NAME as LANGCHAIN_NAME,
+} from '../src/instrumentation/instrumentation-langchain/instrumentation';
+import {
+  OpenAIAgentsInstrumentation,
+  INSTRUMENTATION_NAME as OPENAI_AGENTS_NAME,
+} from '../src/instrumentation/instrumentation-openai-agents/instrumentation';
+import {
+  VercelAIInstrumentation,
+  INSTRUMENTATION_NAME as VERCEL_AI_NAME,
+} from '../src/instrumentation/instrumentation-vercel-ai/instrumentation';
 
 // The OpenTelemetry Authors code
 // Extend register.test.ts functionality to also test exported span with Application Signals enabled
@@ -67,6 +76,95 @@ describe('Register', function () {
       instr.disable();
       trace.disable();
     });
+
+    describe('third-party mutual exclusion', () => {
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+
+      const ALL_AWS = [LANGCHAIN_NAME, OPENAI_AGENTS_NAME, VERCEL_AI_NAME];
+
+      const baseEnv = {
+        OTEL_NODE_RESOURCE_DETECTORS: 'none',
+        OTEL_TRACES_EXPORTER: 'none',
+        OTEL_METRICS_EXPORTER: 'none',
+        OTEL_LOGS_EXPORTER: 'none',
+        OTEL_LOG_LEVEL: 'ALL',
+      };
+
+      function createFakePackage(tmpDir: string, packageName: string): void {
+        const pkgDir = path.join(tmpDir, 'node_modules', packageName);
+        fs.mkdirSync(pkgDir, { recursive: true });
+        fs.writeFileSync(path.join(pkgDir, 'index.js'), 'module.exports = {};');
+        fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: packageName, version: '1.0.0' }));
+      }
+
+      function spawnAndGetNames(extraEnv: Record<string, string> = {}): string[] {
+        const script = `
+          const register = require('../build/src/register.js');
+          const names = register.instrumentations.map(i => i.instrumentationName);
+          console.log('INSTRUMENTATIONS:' + JSON.stringify(names));
+        `;
+        const proc = spawnSync(process.execPath, ['-e', script], {
+          cwd: __dirname,
+          timeout: 10000,
+          killSignal: 'SIGKILL',
+          env: Object.assign({}, process.env, baseEnv, extraEnv),
+        });
+        assert.ifError(proc.error);
+        assert.equal(proc.status, 0, `proc.status (${proc.status})`);
+        const match = proc.stdout.toString().match(/INSTRUMENTATIONS:(\[.*\])/);
+        return match ? JSON.parse(match[1]) : [];
+      }
+
+      it('registers all GenAI instrumentors when no third-party packages are installed', () => {
+        assert.ok(instrumentations.find((i: any) => i instanceof LangChainInstrumentation));
+        assert.ok(instrumentations.find((i: any) => i instanceof OpenAIAgentsInstrumentation));
+        assert.ok(instrumentations.find((i: any) => i instanceof VercelAIInstrumentation));
+      });
+
+      const conflictCases: Array<{ thirdParty: string[]; excluded: string[] }> = [
+        { thirdParty: ['@arizeai/openinference-instrumentation-langchain'], excluded: [LANGCHAIN_NAME] },
+        { thirdParty: ['@traceloop/instrumentation-langchain'], excluded: [LANGCHAIN_NAME] },
+        { thirdParty: ['@arizeai/openinference-vercel'], excluded: [VERCEL_AI_NAME] },
+        { thirdParty: ['@traceloop/instrumentation-vercel'], excluded: [VERCEL_AI_NAME] },
+        {
+          thirdParty: ['@arizeai/openinference-instrumentation-langchain', '@traceloop/instrumentation-vercel'],
+          excluded: [LANGCHAIN_NAME, VERCEL_AI_NAME],
+        },
+      ];
+
+      for (const { thirdParty, excluded } of conflictCases) {
+        it(`skips ${excluded.map(n => n.split('-').pop()).join(', ')} when ${thirdParty.join(', ')} installed`, () => {
+          const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'otel-test-'));
+          try {
+            for (const pkg of thirdParty) createFakePackage(tmpDir, pkg);
+            const names = spawnAndGetNames({ NODE_PATH: path.join(tmpDir, 'node_modules') });
+            for (const name of excluded) assert.ok(!names.includes(name), `${name} should be excluded`);
+            for (const name of ALL_AWS.filter(n => !excluded.includes(n))) {
+              assert.ok(names.includes(name), `${name} should still be registered`);
+            }
+          } finally {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+          }
+        });
+      }
+
+      it('forces all AWS instrumentors when AWS_AGENTIC_INSTRUMENTATION_OPT_IN=true', () => {
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'otel-test-'));
+        try {
+          createFakePackage(tmpDir, '@arizeai/openinference-instrumentation-langchain');
+          createFakePackage(tmpDir, '@traceloop/instrumentation-vercel');
+          const names = spawnAndGetNames({
+            NODE_PATH: path.join(tmpDir, 'node_modules'),
+            AWS_AGENTIC_INSTRUMENTATION_OPT_IN: 'true',
+          });
+          for (const name of ALL_AWS) assert.ok(names.includes(name), `${name} should be forced on`);
+        } finally {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+      });
+    });
   });
 
   it('Requires without error', () => {
@@ -108,6 +206,7 @@ describe('Register', function () {
       delete process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT;
       delete process.env.OTEL_TRACES_SAMPLER;
       delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+      delete process.env.AWS_AGENTIC_INSTRUMENTATION_OPT_IN;
     });
 
     it('sets AWS Default Environment Variables', () => {

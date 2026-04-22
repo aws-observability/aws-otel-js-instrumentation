@@ -20,9 +20,18 @@ import { getStringFromEnv, diagLogLevelFromString } from '@opentelemetry/core';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
-import { LangChainInstrumentation } from './instrumentation/instrumentation-langchain/instrumentation';
-import { OpenAIAgentsInstrumentation } from './instrumentation/instrumentation-openai-agents/instrumentation';
-import { VercelAIInstrumentation } from './instrumentation/instrumentation-vercel-ai/instrumentation';
+import {
+  LangChainInstrumentation,
+  INSTRUMENTATION_NAME as LANGCHAIN_INSTRUMENTATION_NAME,
+} from './instrumentation/instrumentation-langchain/instrumentation';
+import {
+  OpenAIAgentsInstrumentation,
+  INSTRUMENTATION_NAME as OPENAI_AGENTS_INSTRUMENTATION_NAME,
+} from './instrumentation/instrumentation-openai-agents/instrumentation';
+import {
+  VercelAIInstrumentation,
+  INSTRUMENTATION_NAME as VERCEL_AI_INSTRUMENTATION_NAME,
+} from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled } from './utils';
 
@@ -126,9 +135,49 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
 export const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
 const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
-instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
-instrumentations.push(new OpenAIAgentsInstrumentation({ captureMessageContent }));
-instrumentations.push(new VercelAIInstrumentation({ captureMessageContent }));
+
+const AWS_AGENTIC_INSTRUMENTATION_OPT_IN = 'AWS_AGENTIC_INSTRUMENTATION_OPT_IN';
+
+// avoids loading our native instrumentation if we can detect another instrumentation
+// library has been installed
+const KNOWN_THIRD_PARTY_INSTRUMENTORS_MAPPING: Record<string, string> = {
+  '@arizeai/openinference-instrumentation-langchain': LANGCHAIN_INSTRUMENTATION_NAME,
+  '@traceloop/instrumentation-langchain': LANGCHAIN_INSTRUMENTATION_NAME,
+  '@arizeai/openinference-vercel': VERCEL_AI_INSTRUMENTATION_NAME,
+  '@traceloop/instrumentation-vercel': VERCEL_AI_INSTRUMENTATION_NAME,
+};
+
+const optInVal = process.env[AWS_AGENTIC_INSTRUMENTATION_OPT_IN];
+const optInForced = optInVal !== undefined && optInVal.toLowerCase() === 'true';
+
+const conflicts = new Set<string>();
+if (!optInForced) {
+  for (const [thirdPartyPkg, awsInstrumentorName] of Object.entries(KNOWN_THIRD_PARTY_INSTRUMENTORS_MAPPING)) {
+    try {
+      require.resolve(thirdPartyPkg);
+      conflicts.add(awsInstrumentorName);
+      diag.info(
+        `Detected third-party instrumentation package "${thirdPartyPkg}". ` +
+          `Skipping AWS instrumentor "${awsInstrumentorName}". ` +
+          `Set ${AWS_AGENTIC_INSTRUMENTATION_OPT_IN}=true to force AWS instrumentation.`
+      );
+    } catch {
+      // Package not installed
+    }
+  }
+} else {
+  diag.info(`${AWS_AGENTIC_INSTRUMENTATION_OPT_IN}=true: forcing all AWS GenAI instrumentors`);
+}
+
+for (const [name, instr] of [
+  [LANGCHAIN_INSTRUMENTATION_NAME, new LangChainInstrumentation({ captureMessageContent })],
+  [OPENAI_AGENTS_INSTRUMENTATION_NAME, new OpenAIAgentsInstrumentation({ captureMessageContent })],
+  [VERCEL_AI_INSTRUMENTATION_NAME, new VercelAIInstrumentation({ captureMessageContent })],
+] as Array<[string, Instrumentation]>) {
+  if (!conflicts.has(name)) {
+    instrumentations.push(instr);
+  }
+}
 
 // Apply instrumentation patches
 applyInstrumentationPatches(instrumentations);

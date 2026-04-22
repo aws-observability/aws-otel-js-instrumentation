@@ -8,11 +8,12 @@ import {
   InstrumentationBase,
   InstrumentationNodeModuleDefinition,
   InstrumentationNodeModuleFile,
+  isWrapped,
 } from '@opentelemetry/instrumentation';
 import { LIB_VERSION } from '../../version';
 import { LangChainInstrumentationConfig } from './types';
 
-const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-langchain';
+export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-langchain';
 const SUPPORTED_VERSIONS = ['>=1.0.0 <2.0.0'];
 
 export class LangChainInstrumentation extends InstrumentationBase<LangChainInstrumentationConfig> {
@@ -86,6 +87,11 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     const methodName = '_configureSync' in CallbackManager ? '_configureSync' : 'configure';
     if (typeof CallbackManager[methodName] !== 'function') return;
 
+    if (isWrapped(CallbackManager[methodName])) {
+      this._diag.info(`CallbackManager.${methodName} is already wrapped by another instrumentor, skipping`);
+      return;
+    }
+
     const langChainInstrumentation = this;
 
     this._wrap(CallbackManager, methodName, (original: any) => {
@@ -127,6 +133,11 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     const proto = modExports?.BaseChatModel?.prototype;
     if (!proto || this._patchedChatModelsProto === proto) return modExports;
 
+    if (isWrapped(proto._generateUncached)) {
+      this._diag.info('BaseChatModel.prototype._generateUncached is already wrapped by another instrumentor, skipping');
+      return modExports;
+    }
+
     const langChainInstrumentation = this;
     this._wrap(proto, '_generateUncached', (original: any) => {
       return function (this: any, ...args: any[]) {
@@ -158,6 +169,11 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
   _patchToolsModule(modExports: any): any {
     const proto = modExports?.StructuredTool?.prototype;
     if (!proto || this._patchedToolsProto === proto) return modExports;
+
+    if (isWrapped(proto.call)) {
+      this._diag.info('StructuredTool.prototype.call is already wrapped by another instrumentor, skipping');
+      return modExports;
+    }
 
     const langChainInstrumentation = this;
     this._wrap(proto, 'call', (original: any) => {

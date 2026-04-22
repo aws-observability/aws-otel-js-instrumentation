@@ -4,7 +4,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { types } from 'util';
-import { InstrumentationBase, InstrumentationNodeModuleDefinition } from '@opentelemetry/instrumentation';
+import { InstrumentationBase, InstrumentationNodeModuleDefinition, isWrapped } from '@opentelemetry/instrumentation';
 import { LIB_VERSION } from '../../version';
 import { VercelAIInstrumentationConfig } from './types';
 import { VercelAISpanProcessor } from './span-processor';
@@ -79,6 +79,10 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
 
     for (const fnName of VercelAIInstrumentation.FUNCTIONS_TO_PATCH) {
       if (typeof exports[fnName] === 'function') {
+        if (isWrapped(exports[fnName])) {
+          this._diag.info(`ai.${fnName} is already wrapped by another instrumentor, skipping`);
+          continue;
+        }
         this._wrap(exports, fnName, (original: any) => {
           const instrumentation = this;
           return function (this: any, options: any) {

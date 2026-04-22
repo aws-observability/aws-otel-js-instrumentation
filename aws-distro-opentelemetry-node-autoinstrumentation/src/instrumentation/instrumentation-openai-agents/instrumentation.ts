@@ -11,14 +11,21 @@ import {
 } from '@opentelemetry/instrumentation';
 import { LIB_VERSION } from '../../version';
 import { OpenAIAgentsInstrumentationConfig } from './types';
-import { OtelTracingProcessor } from './tracing-processor';
+import { OpenTelemetryTracingProcessor } from './tracing-processor';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-openai-agents';
 
 const SUPPORTED_VERSIONS = ['>=0.1.0'];
 
 export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgentsInstrumentationConfig> {
-  _processor?: OtelTracingProcessor;
+  // The OpenAI Agents SDK has its own tracing system built on AsyncLocalStorage
+  // that is completely separate from OTel context propagation.
+  // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/context.ts#L278-L286
+  //
+  // We register an OpenTelemetryTracingProcessor as a TracingProcessor on the global TraceProvider
+  // to receive span lifecycle events and translate them into OTel spans.
+  // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/processor.ts#L16-L53
+  _processor?: OpenTelemetryTracingProcessor;
   private _patchedProvider: any;
 
   constructor(config: OpenAIAgentsInstrumentationConfig = {}) {
@@ -66,7 +73,7 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
 
     const provider = getGlobalTraceProvider();
     const captureContent = !!this.getConfig().captureMessageContent;
-    this._processor = new OtelTracingProcessor(this.tracer, captureContent);
+    this._processor = new OpenTelemetryTracingProcessor(this.tracer, captureContent);
 
     if (typeof provider.addProcessor === 'function') {
       provider.addProcessor(this._processor);
@@ -74,6 +81,11 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
 
     const processor = this._processor;
 
+    // setProcessors replaces all registered processors and shuts down the old ones.
+    // The @openai/agents package calls setProcessors at import time to register its own exporter,
+    // which would remove our processor. We patch it to always keep ours in the list.
+    // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/processor.ts#L271-L277
+    // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents/src/index.ts#L8
     this._wrap(provider, 'setProcessors', (original: any) => {
       return function (this: any, _processors: any[]) {
         original.call(this, [processor]);
@@ -81,6 +93,9 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
       };
     });
 
+    // The built-in BatchTraceProcessor.onSpanStart is a no-op so we never get notified when spans start.
+    // We patch createSpan to call our processor.onSpanStart so we can create OTel spans at the right time.
+    // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/processor.ts#L209-L211
     this._wrap(provider, 'createSpan', (original: any) => {
       return function (this: any, spanOptions: any, parent: any) {
         const span = original.call(this, spanOptions, parent);
@@ -96,6 +111,10 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     return moduleExports;
   }
 
+  // The withXxxSpan functions run callbacks inside the SDK's own AsyncLocalStorage context
+  // which is separate from OTel context. We wrap them with context.with to make the OTel span
+  // active during the callback so downstream instrumentations see the correct parent.
+  // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/createSpans.ts#L27-L54
   private _patchCreateSpans(moduleExports: any): any {
     const instrumentation = this;
 

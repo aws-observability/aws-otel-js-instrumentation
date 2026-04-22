@@ -86,6 +86,6 @@
     "exporters/aws-distro-opentelemetry-exporter-xray-udp/"
   ],
   "overrides": {
-    "protobufjs@>=7.0.0 <8.0.0": "7.5.5"
+    "protobufjs": "7.5.5"
   }
 }

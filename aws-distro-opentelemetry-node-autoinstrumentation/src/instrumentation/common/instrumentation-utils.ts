@@ -50,6 +50,12 @@ export const PROVIDER_MAP: Record<string, string> = {
   langchain_xai: GEN_AI_PROVIDER_NAME_VALUE_X_AI,
 };
 
+export interface AttributeMapping {
+  from: string;
+  to?: string;
+  transform?: (value: any, attrs: Record<string, any>) => any;
+}
+
 export function serializeToJson(value: unknown, maxDepth: number = 10): string {
   const seen = new WeakSet<object>();
   const sanitize = (obj: unknown, depth: number): unknown => {

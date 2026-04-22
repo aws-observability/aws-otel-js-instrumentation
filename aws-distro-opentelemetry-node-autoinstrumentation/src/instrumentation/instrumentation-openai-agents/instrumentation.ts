@@ -18,13 +18,10 @@ export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentati
 const SUPPORTED_VERSIONS = ['>=0.1.0'];
 
 export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgentsInstrumentationConfig> {
-  // The OpenAI Agents SDK has its own tracing system built on AsyncLocalStorage
-  // that is completely separate from OTel context propagation.
-  // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/context.ts#L278-L286
+  // OpenAI Agents SDK has its own tracing system that is completely separate from OTel.
   //
-  // We register an OpenTelemetryTracingProcessor as a TracingProcessor on the global TraceProvider
-  // to receive span lifecycle events and translate them into OTel spans.
-  // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/processor.ts#L16-L53
+  // We register our custom OpenTelemetryTracingProcessor on the global TraceProvider
+  // to receive span events and translate them into OTel spans.
   _processor?: OpenTelemetryTracingProcessor;
   private _patchedProvider: any;
 
@@ -39,10 +36,10 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
   override _updateMetricInstruments() {}
 
   protected init() {
-    const patchCore = (moduleExports: any) => this._patchCore(moduleExports);
+    const patchCore = (moduleExports: any) => this._wrapSdkTraceProvider(moduleExports);
     const unpatchCore = (_moduleExports: any) => this._unpatch();
-    const patchCreateSpans = (moduleExports: any) => this._patchCreateSpans(moduleExports);
-    const unpatchCreateSpans = (moduleExports: any) => this._unpatchCreateSpans(moduleExports);
+    const patchCreateSpans = (moduleExports: any) => this._wrapCreateSpansWithOtelContext(moduleExports);
+    const unpatchCreateSpans = (moduleExports: any) => this._unwrapCreateSpansWithOtelContext(moduleExports);
 
     return [
       new InstrumentationNodeModuleDefinition('@openai/agents-core', SUPPORTED_VERSIONS, patchCore, unpatchCore, [
@@ -62,7 +59,9 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     ];
   }
 
-  private _patchCore(moduleExports: any): any {
+  private _wrapSdkTraceProvider(moduleExports: any): any {
+    // wraps SDK's (OpenAI's not OTel) global TraceProvider to register our OTel processor
+    // and ensure it survives when the SDK replaces processors at import time.
     if (this._patchedProvider) return moduleExports;
 
     const getGlobalTraceProvider = moduleExports.getGlobalTraceProvider;
@@ -82,7 +81,7 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     const processor = this._processor;
 
     // setProcessors replaces all registered processors and shuts down the old ones.
-    // The @openai/agents package calls setProcessors at import time to register its own exporter,
+    // setProcessors is called at import time to register its own exporter
     // which would remove our processor. We patch it to always keep ours in the list.
     // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/processor.ts#L271-L277
     // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents/src/index.ts#L8
@@ -93,7 +92,7 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
       };
     });
 
-    // The built-in BatchTraceProcessor.onSpanStart is a no-op so we never get notified when spans start.
+    // The built-in onSpanStart is no-op so we never get notified when spans start.
     // We patch createSpan to call our processor.onSpanStart so we can create OTel spans at the right time.
     // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/processor.ts#L209-L211
     this._wrap(provider, 'createSpan', (original: any) => {
@@ -111,11 +110,11 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     return moduleExports;
   }
 
-  // The withXxxSpan functions run callbacks inside the SDK's own AsyncLocalStorage context
+  // The withSpan functions run callbacks inside the SDK's own context
   // which is separate from OTel context. We wrap them with context.with to make the OTel span
   // active during the callback so downstream instrumentations see the correct parent.
   // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/createSpans.ts#L27-L54
-  private _patchCreateSpans(moduleExports: any): any {
+  private _wrapCreateSpansWithOtelContext(moduleExports: any): any {
     const instrumentation = this;
 
     for (const key of Object.keys(moduleExports)) {
@@ -144,7 +143,7 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     return moduleExports;
   }
 
-  private _unpatchCreateSpans(moduleExports: any): void {
+  private _unwrapCreateSpansWithOtelContext(moduleExports: any): void {
     for (const key of Object.keys(moduleExports)) {
       if (typeof moduleExports[key] !== 'function') continue;
       if (!key.match(/^with\w+Span$/)) continue;

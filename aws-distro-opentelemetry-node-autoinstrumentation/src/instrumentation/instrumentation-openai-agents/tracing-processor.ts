@@ -5,7 +5,7 @@
 
 import {
   trace,
-  Tracer,
+  Tracer as OtelTracer,
   Span as OtelSpan,
   SpanKind,
   SpanStatusCode,
@@ -59,7 +59,10 @@ interface SpanEntry {
   otelContext: OtelContext;
 }
 
-export class OtelTracingProcessor implements TracingProcessor {
+export class OpenTelemetryTracingProcessor implements TracingProcessor {
+  // An adapter class for OpenAI Agents' TracingProcessor to intercept SDK spans
+  // and create corresponding OTel spans with OTel GenAI semantic convention attributes.
+  // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/processor.ts#L16-L53
   private static readonly SKIP: symbol = Symbol('skip');
   private static readonly ATTRIBUTE_MAP: AttributeMapping[] = [
     { from: 'agent.name', to: ATTR_GEN_AI_AGENT_NAME },
@@ -68,20 +71,20 @@ export class OtelTracingProcessor implements TracingProcessor {
     { from: 'transcription.model', to: ATTR_GEN_AI_REQUEST_MODEL },
     { from: 'speech.model', to: ATTR_GEN_AI_REQUEST_MODEL },
 
-    { from: '*.type', to: '', transform: () => OtelTracingProcessor.SKIP },
-    { from: 'response._response', to: '', transform: () => OtelTracingProcessor.SKIP },
-    { from: 'response._input', to: '', transform: () => OtelTracingProcessor.SKIP },
-    { from: 'response.response_id', to: '', transform: () => OtelTracingProcessor.SKIP },
-    { from: 'function.input', to: '', transform: () => OtelTracingProcessor.SKIP },
-    { from: 'function.output', to: '', transform: () => OtelTracingProcessor.SKIP },
+    { from: '*.type', to: '', transform: () => OpenTelemetryTracingProcessor.SKIP },
+    { from: 'response._response', to: '', transform: () => OpenTelemetryTracingProcessor.SKIP },
+    { from: 'response._input', to: '', transform: () => OpenTelemetryTracingProcessor.SKIP },
+    { from: 'response.response_id', to: '', transform: () => OpenTelemetryTracingProcessor.SKIP },
+    { from: 'function.input', to: '', transform: () => OpenTelemetryTracingProcessor.SKIP },
+    { from: 'function.output', to: '', transform: () => OpenTelemetryTracingProcessor.SKIP },
   ];
 
-  private _tracer: Tracer;
+  private _tracer: OtelTracer;
   private _captureMessageContent: boolean;
   private _spanMap: Map<string, SpanEntry> = new Map();
   private _disabled: boolean = false;
 
-  constructor(tracer: Tracer, captureMessageContent: boolean) {
+  constructor(tracer: OtelTracer, captureMessageContent: boolean) {
     this._tracer = tracer;
     this._captureMessageContent = captureMessageContent;
   }
@@ -286,9 +289,11 @@ export class OtelTracingProcessor implements TracingProcessor {
       if (value == null) continue;
 
       const mapKey = `${type}.${field}`;
-      const mapping = OtelTracingProcessor.ATTRIBUTE_MAP.find(m => m.from === mapKey || m.from === `*.${field}`);
+      const mapping = OpenTelemetryTracingProcessor.ATTRIBUTE_MAP.find(
+        m => m.from === mapKey || m.from === `*.${field}`
+      );
       const attrValue = mapping?.transform ? mapping.transform(value) : value;
-      if (attrValue === OtelTracingProcessor.SKIP) continue;
+      if (attrValue === OpenTelemetryTracingProcessor.SKIP) continue;
 
       const attrName = mapping?.to ?? `open_ai.${mapKey}`;
 

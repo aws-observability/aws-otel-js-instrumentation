@@ -8,6 +8,7 @@ import {
   InstrumentationBase,
   InstrumentationNodeModuleDefinition,
   InstrumentationNodeModuleFile,
+  isWrapped,
 } from '@opentelemetry/instrumentation';
 import { LIB_VERSION } from '../../version';
 import { OpenAIAgentsInstrumentationConfig } from './types';
@@ -80,6 +81,11 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
 
     const processor = this._processor;
 
+    if (isWrapped(provider.setProcessors) || isWrapped(provider.createSpan)) {
+      this._diag.info('OpenAI Agents TraceProvider is already wrapped by another instrumentor, skipping');
+      return moduleExports;
+    }
+
     // setProcessors replaces all registered processors and shuts down the old ones.
     // setProcessors is called at import time to register its own exporter
     // which would remove our processor. We patch it to always keep ours in the list.
@@ -120,6 +126,11 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     for (const key of Object.keys(moduleExports)) {
       if (typeof moduleExports[key] !== 'function') continue;
       if (!key.match(/^with\w+Span$/)) continue;
+
+      if (isWrapped(moduleExports[key])) {
+        this._diag.info(`${key} is already wrapped by another instrumentor, skipping`);
+        continue;
+      }
 
       this._wrap(moduleExports, key, (original: any) => {
         return function (this: any, fn: any, ...rest: any[]) {

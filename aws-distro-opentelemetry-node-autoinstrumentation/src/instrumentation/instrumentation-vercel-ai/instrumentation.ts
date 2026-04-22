@@ -14,16 +14,19 @@ export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentati
 const SUPPORTED_VERSIONS = ['>=3.3.0 <7.0.0'];
 
 export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrumentationConfig> {
-  // Vercel AI SDK provides native OTel integration but uses its own
-  // semantic conventions rather than the standard OTel GenAI conventions.
-  // See: https://ai-sdk.dev/docs/ai-sdk-core/telemetry#semantic-conventions
+  // The Vercel AI SDK has built in OTel support but telemetry is disabled by default.
+  // When disabled, getTracer returns a noopTracer that silently drops all spans.
+  // see: https://github.com/vercel/ai/blob/6a06fde/packages/ai/core/telemetry/get-tracer.ts#L4-L13
   //
-  // This instrumentation does two things:
+  // Users must opt in on every call by setting experimental_telemetry.isEnabled = true,
+  // which defeats the purpose of auto instrumentation.
+  // see: https://github.com/vercel/ai/blob/6a06fde/packages/ai/core/generate-text/generate-text.ts#L89
   //
-  // - Patches their code always enable telemetry generation. By default the Vercel AI SDK has
-  //    telemetry disabled and requires users to explicitly opt in by setting
-  //    experimental_telemetry.isEnabled = true on every call.
-  // - Registers a VercelAISpanProcessor that translates the VerceL span attributes into OTel semantic conventions.
+  // This instrumentation patches generateText, streamText, generateObject, and streamObject
+  // to always inject telemetry enablement so spans are created without user code changes.
+  // It also registers a VercelAISpanProcessor that translates Vercel ai.* span attributes
+  // into standard OTel GenAI semantic conventions.
+  // see: https://ai-sdk.dev/docs/ai-sdk-core/telemetry#semantic-conventions
   private static readonly PATCHED_FUNCTIONS: string[] = [
     'generateText',
     'streamText',
@@ -72,8 +75,8 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
   }
 
   private _patch(moduleExports: any): any {
-    // The exports we are trying to patch in CJS have non-configurable properties,
-    // so we must copy them into a plain object. However in ESM exports are wrappable directly.
+    // CJS exports from the ai package have non-configurable properties so _wrap would fail.
+    // We copy them into a plain object to make them writable. ESM exports are proxied and wrappable directly.
     const isESM = types.isProxy(moduleExports);
     const exports = isESM ? moduleExports : { ...moduleExports };
 
@@ -105,6 +108,9 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     }
   }
 
+  // Injects experimental_telemetry.isEnabled = true so that the SDK calls recordSpan with a real tracer
+  // instead of the noopTracer. Also controls recordInputs and recordOutputs based on captureMessageContent.
+  // see: https://github.com/vercel/ai/blob/6a06fde/packages/ai/core/telemetry/record-span.ts#L3-L41
   private _autoInjectTelemetryEnabled(options: any): any {
     if (!options || typeof options !== 'object') {
       return options;

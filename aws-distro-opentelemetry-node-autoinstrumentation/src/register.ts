@@ -21,6 +21,7 @@ import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
 import { LangChainInstrumentation } from './instrumentation/instrumentation-langchain/instrumentation';
+import { OpenAIAgentsInstrumentation } from './instrumentation/instrumentation-openai-agents/instrumentation';
 import { VercelAIInstrumentation } from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled } from './utils';
@@ -126,6 +127,7 @@ export const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(i
 
 const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
 instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
+instrumentations.push(new OpenAIAgentsInstrumentation({ captureMessageContent }));
 instrumentations.push(new VercelAIInstrumentation({ captureMessageContent }));
 
 // Apply instrumentation patches

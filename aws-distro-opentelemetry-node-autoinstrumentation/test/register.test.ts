@@ -10,6 +10,7 @@ import * as sinon from 'sinon';
 import { trace } from '@opentelemetry/api';
 import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base';
 import { LangChainInstrumentation } from '../src/instrumentation/instrumentation-langchain/instrumentation';
+import { OpenAIAgentsInstrumentation } from '../src/instrumentation/instrumentation-openai-agents/instrumentation';
 import { VercelAIInstrumentation } from '../src/instrumentation/instrumentation-vercel-ai/instrumentation';
 
 // The OpenTelemetry Authors code
@@ -34,6 +35,15 @@ describe('Register', function () {
       const langchain = instrumentations.find((i: any) => i instanceof LangChainInstrumentation);
       assert.ok(langchain, 'LangChainInstrumentation should be in the instrumentations list');
       assert.strictEqual(langchain.instrumentationName, '@aws/aws-distro-opentelemetry-instrumentation-langchain');
+    });
+
+    it('OpenAI Agents instrumentation is registered', () => {
+      const openaiAgents = instrumentations.find((i: any) => i instanceof OpenAIAgentsInstrumentation);
+      assert.ok(openaiAgents, 'OpenAIAgentsInstrumentation should be in the instrumentations list');
+      assert.strictEqual(
+        openaiAgents.instrumentationName,
+        '@aws/aws-distro-opentelemetry-instrumentation-openai-agents'
+      );
     });
 
     it('Vercel AI instrumentation is registered and auto-registers VercelAISpanProcessor', () => {

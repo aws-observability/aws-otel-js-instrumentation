@@ -24,7 +24,7 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
   //    telemetry disabled and requires users to explicitly opt in by setting
   //    experimental_telemetry.isEnabled = true on every call.
   // - Registers a VercelAISpanProcessor that translates the VerceL span attributes into OTel semantic conventions.
-  private static readonly PATCHED_FUNCTIONS: string[] = [
+  private static readonly FUNCTIONS_TO_PATCH: string[] = [
     'generateText',
     'streamText',
     'generateObject',
@@ -65,19 +65,19 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
       new InstrumentationNodeModuleDefinition(
         'ai',
         SUPPORTED_VERSIONS,
-        (moduleExports: any) => this._patch(moduleExports),
-        (_moduleExports: any) => this._unpatch()
+        (moduleExports: any) => this._alwaysEnableTelemetryWrapper(moduleExports),
+        (_moduleExports: any) => this._alwaysEnableTelemetryUnwrap()
       ),
     ];
   }
 
-  private _patch(moduleExports: any): any {
+  private _alwaysEnableTelemetryWrapper(moduleExports: any): any {
     // The exports we are trying to patch in CJS have non-configurable properties,
     // so we must copy them into a plain object. However in ESM exports are wrappable directly.
     const isESM = types.isProxy(moduleExports);
     const exports = isESM ? moduleExports : { ...moduleExports };
 
-    for (const fnName of VercelAIInstrumentation.PATCHED_FUNCTIONS) {
+    for (const fnName of VercelAIInstrumentation.FUNCTIONS_TO_PATCH) {
       if (typeof exports[fnName] === 'function') {
         this._wrap(exports, fnName, (original: any) => {
           const instrumentation = this;
@@ -94,9 +94,9 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     return exports;
   }
 
-  private _unpatch(): void {
+  private _alwaysEnableTelemetryUnwrap(): void {
     if (this._patchedExports) {
-      for (const fnName of VercelAIInstrumentation.PATCHED_FUNCTIONS) {
+      for (const fnName of VercelAIInstrumentation.FUNCTIONS_TO_PATCH) {
         if (typeof this._patchedExports[fnName] === 'function') {
           this._unwrap(this._patchedExports, fnName);
         }
@@ -105,6 +105,8 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     }
   }
 
+  // automatically enables SDK telemetry to always be on
+  // see: https://github.com/vercel/ai/blob/6a06fde/packages/ai/core/telemetry/get-tracer.ts#L4-L13
   private _autoInjectTelemetryEnabled(options: any): any {
     if (!options || typeof options !== 'object') {
       return options;

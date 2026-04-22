@@ -412,8 +412,6 @@ describe('finish reason mapping', function () {
     instrumentation.setConfig({ captureMessageContent: false });
   });
 
-  // Each provider SDK normalizes its native finish reasons differently.
-  // Test native reason → expected normalized output for each provider.
   const finishReasonsByProvider: Record<string, Array<{ nativeReason: string; expected: string }>> = {
     [ProviderName.OPENAI]: [
       { nativeReason: 'stop', expected: 'stop' },

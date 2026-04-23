@@ -6,16 +6,27 @@ import { trace } from '@opentelemetry/api';
 import { VercelAIInstrumentation } from '../../../src/instrumentation/instrumentation-vercel-ai/instrumentation';
 import { VercelAISpanProcessor } from '../../../src/instrumentation/instrumentation-vercel-ai/span-processor';
 
-export const instrumentation = new VercelAIInstrumentation({
+const vercelAIInstr = new VercelAIInstrumentation({
   captureMessageContent: false,
 });
-registerInstrumentationTesting(instrumentation);
+const registered = registerInstrumentationTesting(vercelAIInstr);
 
-const provider = trace.getTracerProvider() as any;
-const delegate = provider.getDelegate?.() ?? provider;
-const processors = delegate?._registeredSpanProcessors ?? delegate?._activeSpanProcessor?._spanProcessors;
-if (Array.isArray(processors)) {
-  processors.unshift(new VercelAISpanProcessor());
-} else if (typeof delegate?.addSpanProcessor === 'function') {
-  delegate.addSpanProcessor(new VercelAISpanProcessor());
+if (registered !== vercelAIInstr) {
+  vercelAIInstr.enable();
+}
+
+export const instrumentation = vercelAIInstr;
+
+export function ensureSpanProcessor() {
+  const provider = trace.getTracerProvider() as any;
+  const delegate = provider.getDelegate?.() ?? provider;
+  const processors = delegate?._registeredSpanProcessors ?? delegate?._activeSpanProcessor?._spanProcessors;
+  if (Array.isArray(processors)) {
+    const alreadyRegistered = processors.some((p: any) => p instanceof VercelAISpanProcessor);
+    if (!alreadyRegistered) {
+      processors.unshift(new VercelAISpanProcessor());
+    }
+  } else if (typeof delegate?.addSpanProcessor === 'function') {
+    delegate.addSpanProcessor(new VercelAISpanProcessor());
+  }
 }

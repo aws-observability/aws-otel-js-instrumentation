@@ -3,7 +3,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { instrumentation } from './load-instrumentation';
+import { instrumentation, ensureSpanProcessor } from './load-instrumentation';
 import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-utils';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
@@ -102,6 +102,10 @@ function mockMultiStepFetch(pc: ProviderTestCase): typeof globalThis.fetch {
     });
   }) as typeof fetch;
 }
+
+before(() => {
+  ensureSpanProcessor();
+});
 
 describe('generateText basic chat spans', function () {
   this.timeout(15000);

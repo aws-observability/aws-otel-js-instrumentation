@@ -152,16 +152,15 @@ export class VercelAISpanProcessor implements SpanProcessor {
   onStart(_span: Span, _parentContext: Context): void {}
 
   onEnd(span: ReadableSpan): void {
+    // https://github.com/vercel/ai/blob/5d0f18e52ed8e43e9916394aaf721585e0479d36/packages/otel/src/get-tracer.ts#L19
+    if (span.instrumentationScope?.name !== 'ai') return;
+
     const attrs = span.attributes;
     const operationId = attrs['ai.operationId'] as string | undefined;
 
     if (!operationId || !operationId.startsWith('ai.')) return;
 
-    const scope = span.instrumentationScope as { name: string; version?: string };
-    if (scope && scope.name === 'ai') {
-      scope.name = INSTRUMENTATION_NAME;
-      scope.version = LIB_VERSION;
-    }
+    (span as any).instrumentationScope = { name: INSTRUMENTATION_NAME, version: LIB_VERSION };
 
     if (
       operationId === 'ai.generateText.doGenerate' ||

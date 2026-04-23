@@ -59,20 +59,18 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     super.setTracerProvider(provider);
   }
 
-  override _updateMetricInstruments() {}
-
   protected init() {
     return [
       new InstrumentationNodeModuleDefinition(
         'ai',
         SUPPORTED_VERSIONS,
-        (moduleExports: any) => this._alwaysEnableTelemetryWrapper(moduleExports),
-        (_moduleExports: any) => this._alwaysEnableTelemetryUnwrap()
+        (moduleExports: any) => this._enableTelemetryByDefaultWrapper(moduleExports),
+        (_moduleExports: any) => this._enableTelemetryByDefaultUnwrap()
       ),
     ];
   }
 
-  private _alwaysEnableTelemetryWrapper(moduleExports: any): any {
+  private _enableTelemetryByDefaultWrapper(moduleExports: any): any {
     // The exports we are trying to patch in CJS have non-configurable properties,
     // so we must copy them into a plain object. However in ESM exports are wrappable directly.
     const isESM = types.isProxy(moduleExports);
@@ -95,7 +93,7 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     return exports;
   }
 
-  private _alwaysEnableTelemetryUnwrap(): void {
+  private _enableTelemetryByDefaultUnwrap(): void {
     if (this._patchedExports) {
       for (const fnName of VercelAIInstrumentation.FUNCTIONS_TO_PATCH) {
         if (typeof this._patchedExports[fnName] === 'function') {

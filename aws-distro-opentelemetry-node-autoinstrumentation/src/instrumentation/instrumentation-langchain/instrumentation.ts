@@ -17,16 +17,12 @@ export const INSTRUMENTATION_SHORT_NAME = 'aws_langchain';
 const SUPPORTED_VERSIONS = ['>=1.0.0 <2.0.0'];
 
 export class LangChainInstrumentation extends InstrumentationBase<LangChainInstrumentationConfig> {
-  // Track patched objects by identity to avoid double-patching across CJS and ESM.
-  // See: https://github.com/open-telemetry/opentelemetry-js/issues/6489
-  _patchedCallbackManager: any = undefined;
-  _patchedCallbackManagerMethod: string = '';
-  _patchedChatModelsProto: any = undefined;
-  _patchedToolsProto: any = undefined;
-  _handler: any = undefined;
-
+  _patchedCallbackManagers: Set<any> = new Set();
+  _patchedChatModelsProtos: Set<any> = new Set();
+  _patchedToolsProtos: Set<any> = new Set();
   _wrappedChatProtos: Set<any> = new Set();
   _wrappedToolProtos: Set<any> = new Set();
+  _handler: any = undefined;
 
   constructor(config: LangChainInstrumentationConfig = {}) {
     super(INSTRUMENTATION_NAME, LIB_VERSION, config);
@@ -82,7 +78,7 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
   }
 
   _patchCallbackManager(CallbackManager: any): void {
-    if (!CallbackManager || this._patchedCallbackManager === CallbackManager) return;
+    if (!CallbackManager || this._patchedCallbackManagers.has(CallbackManager)) return;
 
     if (typeof CallbackManager._configureSync !== 'function') return;
 
@@ -108,24 +104,22 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
       };
     });
 
-    this._patchedCallbackManager = CallbackManager;
-    this._patchedCallbackManagerMethod = '_configureSync';
+    this._patchedCallbackManagers.add(CallbackManager);
     this._diag.debug('Patched CallbackManager._configureSync');
   }
 
   _unpatchCallbackManager(CallbackManager: any): void {
-    if (!CallbackManager || this._patchedCallbackManager !== CallbackManager) return;
+    if (!CallbackManager || !this._patchedCallbackManagers.has(CallbackManager)) return;
 
-    this._unwrap(CallbackManager, this._patchedCallbackManagerMethod);
-    this._patchedCallbackManager = undefined;
-    this._patchedCallbackManagerMethod = '';
+    this._unwrap(CallbackManager, '_configureSync');
+    this._patchedCallbackManagers.clear();
     this._handler = undefined;
     this._diag.debug('Unpatched CallbackManager');
   }
 
   _patchChatModelsModule(modExports: any): any {
     const proto = modExports?.BaseChatModel?.prototype;
-    if (!proto || this._patchedChatModelsProto === proto) return modExports;
+    if (!proto || this._patchedChatModelsProtos.has(proto)) return modExports;
 
     const langChainInstrumentation = this;
     this._wrap(proto, '_generateUncached', (original: any) => {
@@ -135,14 +129,14 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
       };
     });
 
-    this._patchedChatModelsProto = proto;
+    this._patchedChatModelsProtos.add(proto);
     this._diag.debug('Patched BaseChatModel.prototype._generateUncached');
     return modExports;
   }
 
   _unpatchChatModelsModule(modExports: any): any {
     const proto = modExports?.BaseChatModel?.prototype;
-    if (!proto || this._patchedChatModelsProto !== proto) return modExports;
+    if (!proto || !this._patchedChatModelsProtos.has(proto)) return modExports;
 
     this._unwrap(proto, '_generateUncached');
     for (const p of this._wrappedChatProtos) {
@@ -150,14 +144,14 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
       if (typeof p._streamResponseChunks === 'function') this._unwrap(p, '_streamResponseChunks');
     }
     this._wrappedChatProtos.clear();
-    this._patchedChatModelsProto = undefined;
+    this._patchedChatModelsProtos.clear();
     this._diag.debug('Unpatched BaseChatModel and all concrete chat model prototypes');
     return modExports;
   }
 
   _patchToolsModule(modExports: any): any {
     const proto = modExports?.StructuredTool?.prototype;
-    if (!proto || this._patchedToolsProto === proto) return modExports;
+    if (!proto || this._patchedToolsProtos.has(proto)) return modExports;
 
     const langChainInstrumentation = this;
     this._wrap(proto, 'call', (original: any) => {
@@ -167,21 +161,21 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
       };
     });
 
-    this._patchedToolsProto = proto;
+    this._patchedToolsProtos.add(proto);
     this._diag.debug('Patched StructuredTool.prototype.call');
     return modExports;
   }
 
   _unpatchToolsModule(modExports: any): any {
     const proto = modExports?.StructuredTool?.prototype;
-    if (!proto || this._patchedToolsProto !== proto) return modExports;
+    if (!proto || !this._patchedToolsProtos.has(proto)) return modExports;
 
     this._unwrap(proto, 'call');
     for (const p of this._wrappedToolProtos) {
       if (typeof p._call === 'function') this._unwrap(p, '_call');
     }
     this._wrappedToolProtos.clear();
-    this._patchedToolsProto = undefined;
+    this._patchedToolsProtos.clear();
     this._diag.debug('Unpatched StructuredTool and all concrete tool prototypes');
     return modExports;
   }

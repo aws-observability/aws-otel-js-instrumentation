@@ -159,16 +159,12 @@ jobs:
           trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
       - name: Build Lambda Layer
         run: npm run build-lambda
-      # Some of instrumented packages require certain Node versions,
-      # so these tests are excluded from the main test script via --ignore
-      # and run here only on supported Node versions.
-      # Thus we exclude code coverage for Node 18.
-      - name: Unit tests without coverage
-        if: ${{ !matrix.code-coverage }}
+      - name: Unit tests (Node 18, excludes instrumentation)
+        if: ${{ matrix.node == '18' }}
         run: npm run test:node18
-      - name: Run instrumentation tests
+      - name: Unit tests
         if: ${{ !matrix.code-coverage && matrix.node != '18' }}
-        run: npm run test:instrumentation:langchain
+        run: npm run test
       - name: Unit tests with coverage
         if: ${{ matrix.code-coverage }}
         run: npm run test:coverage

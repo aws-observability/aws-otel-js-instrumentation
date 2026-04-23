@@ -7,7 +7,11 @@ import { spawnSync, SpawnSyncReturns } from 'child_process';
 import expect from 'expect';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import * as sinon from 'sinon';
-import { LangChainInstrumentation } from '../src/instrumentation/instrumentation-langchain/instrumentation';
+import {
+  LangChainInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME,
+  INSTRUMENTATION_NAME as LANGCHAIN_NAME,
+} from '../src/instrumentation/instrumentation-langchain/instrumentation';
 
 // The OpenTelemetry Authors code
 // Extend register.test.ts functionality to also test exported span with Application Signals enabled
@@ -26,10 +30,70 @@ describe('Register', function () {
     }
   });
 
-  it('LangChain instrumentation is registered', () => {
-    const langchain = instrumentations.find((i: any) => i instanceof LangChainInstrumentation);
-    assert.ok(langchain, 'LangChainInstrumentation should be in the instrumentations list');
-    assert.strictEqual(langchain.instrumentationName, '@aws/aws-distro-opentelemetry-instrumentation-langchain');
+  describe('register instrumentation', () => {
+    const baseEnv = {
+      ...process.env,
+      OTEL_NODE_RESOURCE_DETECTORS: 'none',
+      OTEL_TRACES_EXPORTER: 'none',
+      OTEL_METRICS_EXPORTER: 'none',
+      OTEL_LOGS_EXPORTER: 'none',
+      OTEL_LOG_LEVEL: 'NONE',
+    };
+
+    const spawnWithAssertion = (env: Record<string, string | undefined>, assertion: string) => {
+      const script = `
+        const assert = require('assert');
+        const register = require('../build/src/register.js');
+        const names = register.instrumentations.map(i => i.instrumentationName);
+        ${assertion}
+        process.exit(0);
+      `;
+      return spawnSync(process.execPath, ['-e', script], {
+        cwd: __dirname,
+        timeout: 10000,
+        killSignal: 'SIGKILL',
+        env: { ...baseEnv, ...env },
+      });
+    };
+
+    const testInstrumentation = (instrumentationClass: any, fullName: string, shortName: string) => {
+      describe(shortName, () => {
+        it('is registered by default', () => {
+          const found = instrumentations.find((i: any) => i instanceof instrumentationClass);
+          assert.ok(found, `${fullName} should be in the instrumentations list`);
+          assert.strictEqual(found.instrumentationName, fullName);
+        });
+
+        it('is disabled via OTEL_NODE_DISABLED_INSTRUMENTATIONS', () => {
+          const proc = spawnWithAssertion(
+            { OTEL_NODE_DISABLED_INSTRUMENTATIONS: shortName },
+            `assert.ok(!names.includes('${fullName}'));`
+          );
+          assert.ifError(proc.error);
+          assert.equal(proc.status, 0, proc.stderr?.toString());
+        });
+
+        it('is disabled when OTEL_NODE_ENABLED_INSTRUMENTATIONS is set without it', () => {
+          const proc = spawnWithAssertion(
+            { OTEL_NODE_ENABLED_INSTRUMENTATIONS: 'http' },
+            `assert.ok(!names.includes('${fullName}'));`
+          );
+          assert.ifError(proc.error);
+          assert.equal(proc.status, 0, proc.stderr?.toString());
+        });
+
+        it('is enabled when OTEL_NODE_ENABLED_INSTRUMENTATIONS includes it', () => {
+          const proc = spawnWithAssertion(
+            { OTEL_NODE_ENABLED_INSTRUMENTATIONS: `http,${shortName}` },
+            `assert.ok(names.includes('${fullName}'));`
+          );
+          assert.ifError(proc.error);
+          assert.equal(proc.status, 0, proc.stderr?.toString());
+        });
+      });
+    };
+
+    testInstrumentation(LangChainInstrumentation, LANGCHAIN_NAME, LANGCHAIN_SHORT_NAME);
   });
 
   it('Requires without error', () => {

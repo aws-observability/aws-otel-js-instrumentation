@@ -240,15 +240,15 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     this._diag.debug(`Wrapped context propagation on ${concreteProto.constructor?.name || 'unknown'} tool prototype`);
   }
 
-  private static _injectHandler(handlers: unknown, handler: unknown): unknown {
-    if (Array.isArray(handlers)) {
-      if (!handlers.includes(handler)) {
-        handlers.unshift(handler);
+  private static _injectHandler(handlersOrManager: unknown, handler: unknown): unknown {
+    if (Array.isArray(handlersOrManager)) {
+      if (!handlersOrManager.includes(handler)) {
+        handlersOrManager.unshift(handler);
       }
-      return handlers;
+      return handlersOrManager;
     }
 
-    const manager = handlers as any;
+    const manager = handlersOrManager as any;
     if (manager && typeof manager === 'object' && Array.isArray(manager.handlers)) {
       if (!manager.handlers.includes(handler)) {
         manager.handlers.unshift(handler);

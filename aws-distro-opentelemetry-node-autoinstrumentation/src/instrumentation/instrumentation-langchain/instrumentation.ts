@@ -186,8 +186,6 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     return modExports;
   }
 
-  override _updateMetricInstruments() {}
-
   // for propagating context in non-streaming and streaming calls to LLMs.
   // These are the base methods all chat classes must implement
   // see: _generate: https://github.com/langchain-ai/langchainjs/blob/0bf9d7e/libs/langchain-core/src/language_models/chat_models.ts#L896

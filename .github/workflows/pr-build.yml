@@ -159,7 +159,7 @@ jobs:
           trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
       - name: Build Lambda Layer
         run: npm run build-lambda
-      - name: Unit tests (Node 18, excludes instrumentation)
+      - name: Unit tests (Node 18)
         if: ${{ matrix.node == '18' }}
         run: npm run test:node18
       - name: Unit tests

@@ -56,6 +56,26 @@ export const getAwsRegionFromEnvironment = (): string | undefined => {
   return undefined;
 };
 
+export const isInstrumentationDisabled = (shortName: string): boolean => {
+  const disabledEnv = process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+  if (disabledEnv) {
+    const disabled = disabledEnv.split(',').map(s => s.trim());
+    if (disabled.includes(shortName)) {
+      return true;
+    }
+  }
+
+  const enabledEnv = process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS;
+  if (enabledEnv) {
+    const enabled = enabledEnv.split(',').map(s => s.trim());
+    if (!enabled.includes(shortName)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 export const checkDigits = (str: string): boolean => {
   return /^\d+$/.test(str);
 };

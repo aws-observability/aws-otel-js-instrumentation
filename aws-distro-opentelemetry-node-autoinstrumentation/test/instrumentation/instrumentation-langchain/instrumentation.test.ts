@@ -293,6 +293,114 @@ const providerCases = getProviderCases();
 const nockCases = providerCases.filter(pc => !pc.useStub);
 const stubCases = providerCases.filter(pc => pc.useStub);
 
+describe('patch and unpatch lifecycle', function () {
+  const { CallbackManager } = require('@langchain/core/callbacks/manager');
+  const { BaseChatModel } = require('@langchain/core/language_models/chat_models');
+  const { StructuredTool } = require('@langchain/core/tools');
+
+  const chatExports = { BaseChatModel };
+  const toolExports = { StructuredTool };
+  let originalConfigure: any;
+  let originalGenerate: any;
+  let originalCall: any;
+
+  before(function () {
+    instrumentation._unpatchCallbackManager(CallbackManager);
+    instrumentation._unpatchChatModelsModule(chatExports);
+    instrumentation._unpatchToolsModule(toolExports);
+    originalConfigure = CallbackManager._configureSync;
+    originalGenerate = BaseChatModel.prototype._generateUncached;
+    originalCall = StructuredTool.prototype.call;
+  });
+
+  afterEach(function () {
+    instrumentation._unpatchCallbackManager(CallbackManager);
+    instrumentation._unpatchChatModelsModule(chatExports);
+    instrumentation._unpatchToolsModule(toolExports);
+  });
+
+  after(function () {
+    instrumentation._patchCallbackManager(CallbackManager);
+    instrumentation._patchChatModelsModule(chatExports);
+    instrumentation._patchToolsModule(toolExports);
+  });
+
+  it('restores correctly after multiple requires and patches', function () {
+    const cm2 = require('@langchain/core/callbacks/manager').CallbackManager;
+    const bcm2 = require('@langchain/core/language_models/chat_models').BaseChatModel;
+    const st2 = require('@langchain/core/tools').StructuredTool;
+
+    instrumentation._patchCallbackManager(CallbackManager);
+    instrumentation._patchCallbackManager(cm2);
+    instrumentation._patchChatModelsModule({ BaseChatModel });
+    instrumentation._patchChatModelsModule({ BaseChatModel: bcm2 });
+    instrumentation._patchToolsModule({ StructuredTool });
+    instrumentation._patchToolsModule({ StructuredTool: st2 });
+
+    instrumentation._unpatchCallbackManager(CallbackManager);
+    instrumentation._unpatchChatModelsModule({ BaseChatModel });
+    instrumentation._unpatchToolsModule({ StructuredTool });
+    expect(CallbackManager._configureSync).toBe(originalConfigure);
+    expect(BaseChatModel.prototype._generateUncached).toBe(originalGenerate);
+    expect(StructuredTool.prototype.call).toBe(originalCall);
+  });
+
+  it('wraps methods after patching', function () {
+    instrumentation._patchCallbackManager(CallbackManager);
+    instrumentation._patchChatModelsModule(chatExports);
+    instrumentation._patchToolsModule(toolExports);
+    expect(CallbackManager._configureSync).not.toBe(originalConfigure);
+    expect(BaseChatModel.prototype._generateUncached).not.toBe(originalGenerate);
+    expect(StructuredTool.prototype.call).not.toBe(originalCall);
+  });
+
+  it('restores original methods after unpatching', function () {
+    instrumentation._patchCallbackManager(CallbackManager);
+    instrumentation._patchChatModelsModule(chatExports);
+    instrumentation._patchToolsModule(toolExports);
+
+    instrumentation._unpatchCallbackManager(CallbackManager);
+    instrumentation._unpatchChatModelsModule(chatExports);
+    instrumentation._unpatchToolsModule(toolExports);
+    expect(CallbackManager._configureSync).toBe(originalConfigure);
+    expect(BaseChatModel.prototype._generateUncached).toBe(originalGenerate);
+    expect(StructuredTool.prototype.call).toBe(originalCall);
+  });
+
+  it('does not double-wrap when patched twice', function () {
+    instrumentation._patchCallbackManager(CallbackManager);
+    instrumentation._patchChatModelsModule(chatExports);
+    instrumentation._patchToolsModule(toolExports);
+    const wrappedConfigure = CallbackManager._configureSync;
+    const wrappedGenerate = BaseChatModel.prototype._generateUncached;
+    const wrappedCall = StructuredTool.prototype.call;
+
+    instrumentation._patchCallbackManager(CallbackManager);
+    instrumentation._patchChatModelsModule(chatExports);
+    instrumentation._patchToolsModule(toolExports);
+    expect(CallbackManager._configureSync).toBe(wrappedConfigure);
+    expect(BaseChatModel.prototype._generateUncached).toBe(wrappedGenerate);
+    expect(StructuredTool.prototype.call).toBe(wrappedCall);
+  });
+
+  it('re-patches correctly after unpatch', function () {
+    instrumentation._patchCallbackManager(CallbackManager);
+    instrumentation._patchChatModelsModule(chatExports);
+    instrumentation._patchToolsModule(toolExports);
+
+    instrumentation._unpatchCallbackManager(CallbackManager);
+    instrumentation._unpatchChatModelsModule(chatExports);
+    instrumentation._unpatchToolsModule(toolExports);
+
+    instrumentation._patchCallbackManager(CallbackManager);
+    instrumentation._patchChatModelsModule(chatExports);
+    instrumentation._patchToolsModule(toolExports);
+    expect(CallbackManager._configureSync).not.toBe(originalConfigure);
+    expect(BaseChatModel.prototype._generateUncached).not.toBe(originalGenerate);
+    expect(StructuredTool.prototype.call).not.toBe(originalCall);
+  });
+});
+
 describe('basic chat spans', function () {
   this.timeout(10000);
 

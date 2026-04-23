@@ -14,6 +14,7 @@ import { OpenAIAgentsInstrumentationConfig } from './types';
 import { OpenTelemetryTracingProcessor } from './tracing-processor';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-openai-agents';
+export const INSTRUMENTATION_SHORT_NAME = 'aws_openai_agents';
 
 const SUPPORTED_VERSIONS = ['>=0.1.0'];
 

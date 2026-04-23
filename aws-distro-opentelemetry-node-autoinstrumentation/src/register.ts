@@ -20,11 +20,20 @@ import { getStringFromEnv, diagLogLevelFromString } from '@opentelemetry/core';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
-import { LangChainInstrumentation } from './instrumentation/instrumentation-langchain/instrumentation';
-import { OpenAIAgentsInstrumentation } from './instrumentation/instrumentation-openai-agents/instrumentation';
-import { VercelAIInstrumentation } from './instrumentation/instrumentation-vercel-ai/instrumentation';
+import {
+  LangChainInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME,
+} from './instrumentation/instrumentation-langchain/instrumentation';
+import {
+  OpenAIAgentsInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as OPENAI_AGENTS_SHORT_NAME,
+} from './instrumentation/instrumentation-openai-agents/instrumentation';
+import {
+  VercelAIInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
+} from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
-import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled } from './utils';
+import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, isInstrumentationDisabled } from './utils';
 
 const logLevelEnv = getStringFromEnv('OTEL_LOG_LEVEL');
 const logLevel = logLevelEnv ? diagLogLevelFromString(logLevelEnv) : undefined;
@@ -126,9 +135,15 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
 export const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
 const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
-instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
-instrumentations.push(new OpenAIAgentsInstrumentation({ captureMessageContent }));
-instrumentations.push(new VercelAIInstrumentation({ captureMessageContent }));
+if (!isInstrumentationDisabled(LANGCHAIN_SHORT_NAME)) {
+  instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
+}
+if (!isInstrumentationDisabled(OPENAI_AGENTS_SHORT_NAME)) {
+  instrumentations.push(new OpenAIAgentsInstrumentation({ captureMessageContent }));
+}
+if (!isInstrumentationDisabled(VERCEL_AI_SHORT_NAME)) {
+  instrumentations.push(new VercelAIInstrumentation({ captureMessageContent }));
+}
 
 // Apply instrumentation patches
 applyInstrumentationPatches(instrumentations);

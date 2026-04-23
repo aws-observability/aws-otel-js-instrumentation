@@ -162,11 +162,11 @@ jobs:
       - name: Run unit tests
         run: |
           if [ "${{ matrix.node }}" == "18" ]; then
-            npm run test:node18 -- --stream
+            npm run test:node18
           elif [ "${{ matrix.code-coverage }}" == "true" ]; then
-            npm run test:coverage -- --stream
+            npm run test:coverage
           else
-            npm run test -- --stream
+            npm run test
           fi
       - name: Report Coverage
         if: ${{ matrix.code-coverage && !cancelled()}}

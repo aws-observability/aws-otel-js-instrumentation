@@ -36,7 +36,7 @@ runs:
       shell: bash
       run: |
         if [ "${{ inputs.node_version }}" = "18" ]; then
-          npm run test:node18 -- --stream
+          npm run test:node18
         else
-          npm run test -- --stream
+          npm run test
         fi

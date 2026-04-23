@@ -83,12 +83,11 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
   _patchCallbackManager(CallbackManager: any): void {
     if (!CallbackManager || this._patchedCallbackManager === CallbackManager) return;
 
-    const methodName = '_configureSync' in CallbackManager ? '_configureSync' : 'configure';
-    if (typeof CallbackManager[methodName] !== 'function') return;
+    if (typeof CallbackManager._configureSync !== 'function') return;
 
     const langChainInstrumentation = this;
 
-    this._wrap(CallbackManager, methodName, (original: any) => {
+    this._wrap(CallbackManager, '_configureSync', (original: any) => {
       return function (this: any, ...args: any[]) {
         if (!langChainInstrumentation._handler) {
           // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -109,8 +108,8 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     });
 
     this._patchedCallbackManager = CallbackManager;
-    this._patchedCallbackManagerMethod = methodName;
-    this._diag.debug(`Patched CallbackManager.${methodName}`);
+    this._patchedCallbackManagerMethod = '_configureSync';
+    this._diag.debug('Patched CallbackManager._configureSync');
   }
 
   _unpatchCallbackManager(CallbackManager: any): void {

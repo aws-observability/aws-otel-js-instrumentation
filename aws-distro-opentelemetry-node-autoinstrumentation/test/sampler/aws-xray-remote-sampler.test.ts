@@ -112,7 +112,6 @@ describe('AwsXrayRemoteSampler', () => {
   });
 
   it('testLargeReservoir', done => {
-    nock.cleanAll();
     nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES)).persist();
     nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS)).persist();
     const resource = resourceFromAttributes({
@@ -156,7 +155,6 @@ describe('AwsXrayRemoteSampler', () => {
   });
 
   it('testSomeReservoir', done => {
-    nock.cleanAll();
     nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES)).persist();
     nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS)).persist();
     const resource = resourceFromAttributes({

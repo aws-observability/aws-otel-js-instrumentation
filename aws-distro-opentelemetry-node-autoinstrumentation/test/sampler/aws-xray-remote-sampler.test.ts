@@ -151,8 +151,8 @@ describe('AwsXrayRemoteSampler', () => {
         expect((sampler as any)._root._root.ruleCache.ruleAppliers[0].reservoirSampler.quota).toEqual(1000);
         expect(sampled).toEqual(1000);
         done();
-      }, 2000);
-    }, 2000);
+      }, 300);
+    }, 300);
   });
 
   it('testSomeReservoir', done => {
@@ -212,8 +212,8 @@ describe('AwsXrayRemoteSampler', () => {
 
         expect(sampled).toEqual(100);
         done();
-      }, 2000);
-    }, 2000);
+      }, 300);
+    }, 300);
   });
 
   it('generates valid ClientId', () => {

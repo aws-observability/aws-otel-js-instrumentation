@@ -24,6 +24,10 @@ import {
   LangChainInstrumentation,
   INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME,
 } from './instrumentation/instrumentation-langchain/instrumentation';
+import {
+  VercelAIInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
+} from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, isInstrumentationDisabled } from './utils';
 
@@ -129,6 +133,9 @@ export const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(i
 const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
 if (!isInstrumentationDisabled(LANGCHAIN_SHORT_NAME)) {
   instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
+}
+if (!isInstrumentationDisabled(VERCEL_AI_SHORT_NAME)) {
+  instrumentations.push(new VercelAIInstrumentation({ captureMessageContent }));
 }
 
 // Apply instrumentation patches

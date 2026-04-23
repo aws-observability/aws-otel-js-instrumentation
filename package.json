@@ -21,6 +21,7 @@
     "test:node18": "lerna run test:node18",
     "test:coverage": "lerna run test:coverage",
     "test:instrumentation:langchain": "lerna run test:instrumentation:langchain",
+    "test:instrumentation:vercel-ai": "lerna run test:instrumentation:vercel-ai",
     "test:ci:changed": "lerna run test --since origin/main",
     "test:browser": "lerna run test:browser --concurrency 1",
     "test-all-versions": "npm run --if-present --workspaces test-all-versions",

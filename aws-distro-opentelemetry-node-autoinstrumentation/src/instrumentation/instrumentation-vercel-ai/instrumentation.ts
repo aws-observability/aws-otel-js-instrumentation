@@ -10,6 +10,7 @@ import { VercelAIInstrumentationConfig } from './types';
 import { VercelAISpanProcessor } from './span-processor';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-vercel-ai';
+export const INSTRUMENTATION_SHORT_NAME = 'aws_vercel_ai';
 
 const SUPPORTED_VERSIONS = ['>=3.3.0 <7.0.0'];
 

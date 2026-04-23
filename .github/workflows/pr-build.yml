@@ -161,20 +161,12 @@ jobs:
         run: npm run build-lambda
       - name: Run unit tests
         run: |
-          set +e
           if [ "${{ matrix.node }}" == "18" ]; then
-            npm run test:node18 2>&1 | tee test-output.log
+            npm run test:node18
           elif [ "${{ matrix.code-coverage }}" == "true" ]; then
-            npm run test:coverage 2>&1 | tee test-output.log
+            npm run test:coverage
           else
-            npm run test 2>&1 | tee test-output.log
-          fi
-          TEST_EXIT=${PIPESTATUS[0]}
-          if [ $TEST_EXIT -ne 0 ]; then
-            echo ""
-            echo "=== Last 100 lines of test output ==="
-            tail -100 test-output.log
-            exit $TEST_EXIT
+            npm run test
           fi
       - name: Report Coverage
         if: ${{ matrix.code-coverage && !cancelled()}}

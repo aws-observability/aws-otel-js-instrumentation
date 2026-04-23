@@ -8,6 +8,9 @@
     "compile": "tsc -p .",
     "postcompile": "copyfiles -f 'aws-aws-distro-opentelemetry-node-autoinstrumentation-*.tgz' build/workspace/ && copyfiles -f 'build/src/**' build/workspace/ && copyfiles 'node_modules/**' package.json build/workspace/ && npm -C build/workspace prune --omit=dev --no-package-lock"
   },
+  "overrides": {
+    "fast-xml-parser": "5.7.1"
+  },
   "devDependencies": {
     "@types/mocha": "7.0.2",
     "@types/node": "18.6.5",

@@ -168,7 +168,9 @@ jobs:
         run: npm run test:node18
       - name: Run instrumentation tests
         if: ${{ !matrix.code-coverage && matrix.node != '18' }}
-        run: npm run test:instrumentation:langchain
+        run: |
+          npm run test:instrumentation:langchain
+          npm run test:instrumentation:vercel-ai
       - name: Unit tests with coverage
         if: ${{ matrix.code-coverage }}
         run: npm run test:coverage

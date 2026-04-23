@@ -125,14 +125,24 @@ describe('AwsXrayRemoteSampler', () => {
     const internalXraySampler = sampler['_root']['_root'] as _AwsXRayRemoteSampler;
     internalXraySampler['getAndUpdateSamplingRules']();
 
-    setTimeout(() => {
-      expect(((sampler as any)._root._root.ruleCache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('test');
+    function waitForRules() {
+      const ruleAppliers = (sampler as any)._root._root.ruleCache?.ruleAppliers;
+      if (!ruleAppliers || ruleAppliers.length === 0) {
+        setTimeout(waitForRules, 50);
+        return;
+      }
+      expect(ruleAppliers[0].samplingRule.RuleName).toEqual('test');
       expect(
         sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, attributes, []).decision
       ).toEqual(SamplingDecision.NOT_RECORD);
       internalXraySampler['getAndUpdateSamplingTargets']();
 
-      setTimeout(() => {
+      function waitForTargets() {
+        const quota = (sampler as any)._root._root.ruleCache?.ruleAppliers?.[0]?.reservoirSampler?.quota;
+        if (quota === undefined || quota === 0) {
+          setTimeout(waitForTargets, 50);
+          return;
+        }
         let sampled = 0;
         const clock = sinon.useFakeTimers(Date.now());
         clock.tick(1000);
@@ -149,8 +159,10 @@ describe('AwsXrayRemoteSampler', () => {
         expect((sampler as any)._root._root.ruleCache.ruleAppliers[0].reservoirSampler.quota).toEqual(1000);
         expect(sampled).toEqual(1000);
         done();
-      }, 300);
-    }, 300);
+      }
+      waitForTargets();
+    }
+    waitForRules();
   });
 
   it('testSomeReservoir', done => {
@@ -185,15 +197,28 @@ describe('AwsXrayRemoteSampler', () => {
       );
 
     internalXraySampler['getAndUpdateSamplingRules']();
-    setTimeout(() => {
-      expect(((sampler as any)._root._root.ruleCache as any).ruleAppliers[0].samplingRule.RuleName).toEqual('test');
+    function waitForRules() {
+      const ruleAppliers = (sampler as any)._root._root.ruleCache?.ruleAppliers;
+      if (!ruleAppliers || ruleAppliers.length === 0) {
+        setTimeout(waitForRules, 50);
+        return;
+      }
+      expect(ruleAppliers[0].samplingRule.RuleName).toEqual('test');
       expect(
         sampler.shouldSample(context.active(), testTraceId, 'name', SpanKind.CLIENT, attributes, []).decision
       ).toEqual(SamplingDecision.RECORD_AND_SAMPLED);
 
       internalXraySampler['getAndUpdateSamplingTargets']();
 
-      setTimeout(() => {
+      function waitForTargets() {
+        const defaultApplier = (sampler as any)._root._root.ruleCache?.ruleAppliers?.find(
+          (a: any) => a.samplingRule.RuleName === 'Default'
+        );
+        const quota = defaultApplier?.reservoirSampler?.quota;
+        if (quota === undefined || quota === 0) {
+          setTimeout(waitForTargets, 50);
+          return;
+        }
         const clock = sinon.useFakeTimers(Date.now());
         clock.tick(1000);
         let sampled = 0;
@@ -209,8 +234,10 @@ describe('AwsXrayRemoteSampler', () => {
 
         expect(sampled).toEqual(100);
         done();
-      }, 300);
-    }, 300);
+      }
+      waitForTargets();
+    }
+    waitForRules();
   });
 
   it('generates valid ClientId', () => {

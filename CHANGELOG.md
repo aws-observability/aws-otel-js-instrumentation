@@ -13,6 +13,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat(instrumentation-langchain): Add native LangChain instrumentation support
+  ([#391](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/391))
+
 ## v0.10.0 - 2026-04-03
 
 - Fix UnknownRemoteService/UnknownRemoteOperation for Next.js fetch by supporting new HTTP semantic conventions

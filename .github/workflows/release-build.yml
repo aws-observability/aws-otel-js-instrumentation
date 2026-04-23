@@ -22,6 +22,7 @@ env:
   # Legacy list of commercial regions to deploy to. New regions should NOT be added here, and instead should be added to the `aws_region` default input to the workflow.
   LEGACY_COMMERCIAL_REGIONS: us-east-1, us-east-2, us-west-1, us-west-2, ap-south-1, ap-northeast-3, ap-northeast-2, ap-southeast-1, ap-southeast-2, ap-northeast-1, ca-central-1, eu-central-1, eu-west-1, eu-west-2, eu-west-3, eu-north-1, sa-east-1
   LAYER_NAME: AWSOpenTelemetryDistroJs
+  VERSION: ${{ github.event.inputs.version }}
 
 permissions:
   id-token: write
@@ -161,19 +162,27 @@ jobs:
         with:
           registry: public.ecr.aws
 
-      # Publish to public ECR
-      - name: Build and push public ECR image
+      - name: Build and push amd64 image to private ECR
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
         with:
           push: true
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           tags: |
-            ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ github.event.inputs.version }}
+            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}-amd64
 
-      # Publish to private ECR
-      - name: Build and push private ECR image
+      - name: Build and push arm64 image to private ECR
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
+        with:
+          push: true
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          tags: |
+            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}-arm64
+
+      - name: Build and push multi-arch image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
         with:
           push: true
@@ -181,7 +190,8 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ github.event.inputs.version }}
+            ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}
+            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}
 
   publish-layer-prod:
     runs-on: ubuntu-latest
@@ -355,7 +365,7 @@ jobs:
         id: create_release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ github.event.inputs.version }}
+          VERSION: ${{ env.VERSION }}
         run: |
           # Generate dependency versions from package.json
           DEPS=$(node -e "

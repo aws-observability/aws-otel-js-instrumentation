@@ -84,6 +84,9 @@
       "dependabot"
     ]
   },
+  "overrides": {
+    "fast-xml-parser": "5.7.1"
+  },
   "workspaces": [
     "aws-distro-opentelemetry-node-autoinstrumentation/",
     "exporters/aws-distro-opentelemetry-exporter-xray-udp/"

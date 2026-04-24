@@ -159,22 +159,15 @@ jobs:
           trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
       - name: Build Lambda Layer
         run: npm run build-lambda
-      # Some of instrumented packages require certain Node versions,
-      # so these tests are excluded from the main test script via --ignore
-      # and run here only on supported Node versions.
-      # Thus we exclude code coverage for Node 18.
-      - name: Unit tests without coverage
-        if: ${{ !matrix.code-coverage }}
-        run: npm run test:node18
-      - name: Run instrumentation tests
-        if: ${{ !matrix.code-coverage && matrix.node != '18' }}
+      - name: Run unit tests
         run: |
-          npm run test:instrumentation:langchain
-          npm run test:instrumentation:openai-agents
-          npm run test:instrumentation:vercel-ai
-      - name: Unit tests with coverage
-        if: ${{ matrix.code-coverage }}
-        run: npm run test:coverage
+          if [ "${{ matrix.node }}" == "18" ]; then
+            npm run test:node18
+          elif [ "${{ matrix.code-coverage }}" == "true" ]; then
+            npm run test:coverage
+          else
+            npm run test
+          fi
       - name: Report Coverage
         if: ${{ matrix.code-coverage && !cancelled()}}
         uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 #v5.5.1

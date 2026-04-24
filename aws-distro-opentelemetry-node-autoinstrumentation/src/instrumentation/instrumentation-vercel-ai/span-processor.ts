@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Context } from '@opentelemetry/api';
+import { Context, SpanKind } from '@opentelemetry/api';
 import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import {
   ATTR_GEN_AI_AGENT_NAME,
@@ -34,7 +34,10 @@ import {
   GEN_AI_OPERATION_NAME_VALUE_CHAT,
   GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS,
   GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL,
+  GEN_AI_OPERATION_NAME_VALUE_GENERATE_CONTENT,
   GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
+  GEN_AI_OPERATION_NAME_VALUE_RETRIEVAL,
+  GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION,
   GEN_AI_OUTPUT_TYPE_VALUE_JSON,
   GEN_AI_OUTPUT_TYPE_VALUE_TEXT,
 } from '../common/semconv';
@@ -147,16 +150,16 @@ export class VercelAISpanProcessor implements SpanProcessor {
   onStart(_span: Span, _parentContext: Context): void {}
 
   onEnd(span: ReadableSpan): void {
+    // https://github.com/vercel/ai/blob/5d0f18e52ed8e43e9916394aaf721585e0479d36/packages/otel/src/get-tracer.ts#L19
+    if (span.instrumentationScope?.name !== 'ai') return;
+
+
     const attrs = span.attributes;
     const operationId = attrs['ai.operationId'] as string | undefined;
 
     if (!operationId || !operationId.startsWith('ai.')) return;
 
-    const scope = span.instrumentationScope as { name: string; version?: string };
-    if (scope && scope.name === 'ai') {
-      scope.name = INSTRUMENTATION_NAME;
-      scope.version = LIB_VERSION;
-    }
+    (span as any).instrumentationScope = { name: INSTRUMENTATION_NAME, version: LIB_VERSION };
 
     if (
       operationId === 'ai.generateText.doGenerate' ||
@@ -208,6 +211,23 @@ export class VercelAISpanProcessor implements SpanProcessor {
         mutableAttrs[ATTR_GEN_AI_OPERATION_NAME] = opName;
       }
     }
+
+    const opName = mutableAttrs[ATTR_GEN_AI_OPERATION_NAME] as string | undefined;
+    if (
+      opName === GEN_AI_OPERATION_NAME_VALUE_CHAT ||
+      opName === GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS ||
+      opName === GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION ||
+      opName === GEN_AI_OPERATION_NAME_VALUE_GENERATE_CONTENT ||
+      opName === GEN_AI_OPERATION_NAME_VALUE_RETRIEVAL
+    ) {
+      (span as any).kind = SpanKind.CLIENT;
+    } else if (
+      opName === GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL ||
+      opName === GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT
+    ) {
+      (span as any).kind = SpanKind.INTERNAL;
+    }
+
 
     const spanName = VercelAISpanProcessor.createSpanName(mutableAttrs);
     if (spanName) {
@@ -299,8 +319,16 @@ export class VercelAISpanProcessor implements SpanProcessor {
     const parsed = tools.map((t: string) => {
       try {
         const def = JSON.parse(t);
-        if (!def.type) def.type = 'function';
-        return def;
+        const result: Record<string, any> = {
+          type: def.type || 'function',
+          name: def.name,
+        };
+        if (def.description) result.description = def.description;
+        if (def.inputSchema) {
+          const { $schema, additionalProperties, ...params } = def.inputSchema;
+          result.parameters = params;
+        }
+        return result;
       } catch {
         return t;
       }

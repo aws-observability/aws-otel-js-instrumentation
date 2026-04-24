@@ -20,8 +20,20 @@ import { getStringFromEnv, diagLogLevelFromString } from '@opentelemetry/core';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
+import {
+  LangChainInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME,
+} from './instrumentation/instrumentation-langchain/instrumentation';
+import {
+  OpenAIAgentsInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as OPENAI_AGENTS_SHORT_NAME,
+} from './instrumentation/instrumentation-openai-agents/instrumentation';
+import {
+  VercelAIInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
+} from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
-import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled } from './utils';
+import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, isInstrumentationDisabled } from './utils';
 
 const logLevelEnv = getStringFromEnv('OTEL_LOG_LEVEL');
 const logLevel = logLevelEnv ? diagLogLevelFromString(logLevelEnv) : undefined;
@@ -60,7 +72,9 @@ export function setAwsDefaultEnvironmentVariables() {
   if (isAgentObservabilityEnabled()) {
     if (!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
       // Assume users only need aws-sdk and aws-lambda instrumentations, as well as
-      // instrumentations that are manually set-up outside of OpenTelemetry
+      // instrumentations that are manually set-up outside of OpenTelemetry.
+      // Our custom instrumentation short names are added after getNodeAutoInstrumentations()
+      // to avoid upstream logging "Provided instrumentation name not found" warnings.
       process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = 'aws-lambda,aws-sdk,http';
     }
 
@@ -120,7 +134,18 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
     suppressInternalInstrumentation: true,
   },
 };
-const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
+export const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
+
+const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
+if (!isInstrumentationDisabled(LANGCHAIN_SHORT_NAME)) {
+  instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
+}
+if (!isInstrumentationDisabled(OPENAI_AGENTS_SHORT_NAME)) {
+  instrumentations.push(new OpenAIAgentsInstrumentation({ captureMessageContent }));
+}
+if (!isInstrumentationDisabled(VERCEL_AI_SHORT_NAME)) {
+  instrumentations.push(new VercelAIInstrumentation({ captureMessageContent }));
+}
 
 // Apply instrumentation patches
 applyInstrumentationPatches(instrumentations);

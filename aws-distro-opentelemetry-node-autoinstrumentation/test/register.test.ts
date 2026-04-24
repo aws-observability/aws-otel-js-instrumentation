@@ -2,25 +2,150 @@
 // SPDX-License-Identifier: Apache-2.0
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
-import { NodeSDK } from '@opentelemetry/sdk-node';
 import * as assert from 'assert';
 import { spawnSync, SpawnSyncReturns } from 'child_process';
 import expect from 'expect';
-import { setAwsDefaultEnvironmentVariables } from '../src/register';
+import * as opentelemetry from '@opentelemetry/sdk-node';
+import * as sinon from 'sinon';
+import { trace } from '@opentelemetry/api';
+import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base';
+import {
+  LangChainInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME,
+  INSTRUMENTATION_NAME as LANGCHAIN_NAME,
+} from '../src/instrumentation/instrumentation-langchain/instrumentation';
+import {
+  OpenAIAgentsInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as OPENAI_AGENTS_SHORT_NAME,
+  INSTRUMENTATION_NAME as OPENAI_AGENTS_NAME,
+} from '../src/instrumentation/instrumentation-openai-agents/instrumentation';
+import {
+  VercelAIInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
+  INSTRUMENTATION_NAME as VERCEL_AI_NAME,
+} from '../src/instrumentation/instrumentation-vercel-ai/instrumentation';
 
 // The OpenTelemetry Authors code
 // Extend register.test.ts functionality to also test exported span with Application Signals enabled
 describe('Register', function () {
-  it('Requires without error', () => {
-    const originalPrototypeStart = NodeSDK.prototype.start;
-    NodeSDK.prototype.start = () => {};
-    try {
-      require('../src/register');
-    } catch (err: unknown) {
-      assert.fail(`require register unexpectedly failed: ${err}`);
-    }
+  let instrumentations: any[];
+  let setAwsDefaultEnvironmentVariables: () => void;
 
-    NodeSDK.prototype.start = originalPrototypeStart;
+  before(() => {
+    const stub = sinon.stub(opentelemetry.NodeSDK.prototype, 'start');
+    const register = require('../src/register');
+    stub.restore();
+    instrumentations = register.instrumentations;
+    setAwsDefaultEnvironmentVariables = register.setAwsDefaultEnvironmentVariables;
+    for (const instr of instrumentations) {
+      instr.disable();
+    }
+  });
+
+  describe('register instrumentation', () => {
+    const baseEnv = {
+      ...process.env,
+      OTEL_NODE_RESOURCE_DETECTORS: 'none',
+      OTEL_TRACES_EXPORTER: 'none',
+      OTEL_METRICS_EXPORTER: 'none',
+      OTEL_LOGS_EXPORTER: 'none',
+      OTEL_LOG_LEVEL: 'NONE',
+    };
+
+    const spawnWithAssertion = (env: Record<string, string | undefined>, assertion: string) => {
+      const script = `
+        const assert = require('assert');
+        const register = require('../build/src/register.js');
+        const names = register.instrumentations.map(i => i.instrumentationName);
+        ${assertion}
+        process.exit(0);
+      `;
+      return spawnSync(process.execPath, ['-e', script], {
+        cwd: __dirname,
+        timeout: 10000,
+        killSignal: 'SIGKILL',
+        env: { ...baseEnv, ...env },
+      });
+    };
+
+    const testInstrumentation = (instrumentationClass: any, fullName: string, shortName: string) => {
+      describe(shortName, () => {
+        it('is registered by default', () => {
+          const found = instrumentations.find((i: any) => i instanceof instrumentationClass);
+          assert.ok(found, `${fullName} should be in the instrumentations list`);
+          assert.strictEqual(found.instrumentationName, fullName);
+        });
+
+        it('is disabled via OTEL_NODE_DISABLED_INSTRUMENTATIONS', () => {
+          const proc = spawnWithAssertion(
+            { OTEL_NODE_DISABLED_INSTRUMENTATIONS: shortName },
+            `assert.ok(!names.includes('${fullName}'));`
+          );
+          assert.ifError(proc.error);
+          assert.equal(proc.status, 0, proc.stderr?.toString());
+        });
+
+        it('is disabled when OTEL_NODE_ENABLED_INSTRUMENTATIONS is set without it', () => {
+          const proc = spawnWithAssertion(
+            { OTEL_NODE_ENABLED_INSTRUMENTATIONS: 'http' },
+            `assert.ok(!names.includes('${fullName}'));`
+          );
+          assert.ifError(proc.error);
+          assert.equal(proc.status, 0, proc.stderr?.toString());
+        });
+
+        it('is enabled when OTEL_NODE_ENABLED_INSTRUMENTATIONS includes it', () => {
+          const proc = spawnWithAssertion(
+            { OTEL_NODE_ENABLED_INSTRUMENTATIONS: `http,${shortName}` },
+            `assert.ok(names.includes('${fullName}'));`
+          );
+          assert.ifError(proc.error);
+          assert.equal(proc.status, 0, proc.stderr?.toString());
+        });
+      });
+    };
+
+    testInstrumentation(LangChainInstrumentation, LANGCHAIN_NAME, LANGCHAIN_SHORT_NAME);
+    testInstrumentation(OpenAIAgentsInstrumentation, OPENAI_AGENTS_NAME, OPENAI_AGENTS_SHORT_NAME);
+    testInstrumentation(VercelAIInstrumentation, VERCEL_AI_NAME, VERCEL_AI_SHORT_NAME);
+
+    it('Vercel AI auto-registers VercelAISpanProcessor', () => {
+      const provider = new BasicTracerProvider();
+      trace.setGlobalTracerProvider(provider);
+
+      const instr = new VercelAIInstrumentation();
+      instr.setTracerProvider(trace.getTracerProvider() as any);
+
+      const delegate = (trace.getTracerProvider() as any).getDelegate?.() ?? provider;
+      const processors = delegate._activeSpanProcessor?._spanProcessors ?? [];
+      assert.ok(
+        processors.some((p: any) => p.constructor.name === 'VercelAISpanProcessor'),
+        'VercelAISpanProcessor should be auto-registered'
+      );
+
+      instr.disable();
+      trace.disable();
+    });
+  });
+
+  it('Requires without error', () => {
+    const proc: SpawnSyncReturns<Buffer> = spawnSync(
+      process.execPath,
+      ['--require', '../build/src/register.js', '-e', 'process.exit(0)'],
+      {
+        cwd: __dirname,
+        timeout: 10000,
+        killSignal: 'SIGKILL',
+        env: Object.assign({}, process.env, {
+          OTEL_NODE_RESOURCE_DETECTORS: 'none',
+          OTEL_TRACES_EXPORTER: 'none',
+          OTEL_METRICS_EXPORTER: 'none',
+          OTEL_LOGS_EXPORTER: 'none',
+        }),
+      }
+    );
+    assert.ifError(proc.error);
+    assert.equal(proc.status, 0, `proc.status (${proc.status})`);
   });
 
   describe('Tests AWS Default Environment Variables', () => {

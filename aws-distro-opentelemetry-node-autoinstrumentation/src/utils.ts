@@ -58,7 +58,7 @@ export const getAwsRegionFromEnvironment = (): string | undefined => {
 };
 
 export const parseOtelBaggageKeysEnvVar = (): Set<string> => {
-  const raw = (process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] || '').trim();
+  const raw = process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] ?? '';
   const keys = new Set<string>();
   for (const k of raw.split(',')) {
     const trimmed = k.trim();

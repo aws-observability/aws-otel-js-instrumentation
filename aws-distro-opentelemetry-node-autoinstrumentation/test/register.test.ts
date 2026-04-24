@@ -135,6 +135,20 @@ describe('Register', function () {
           expectedDisabled: true,
         },
         {
+          name: 'enables LangChain with @traceloop/instrumentation-langchain when opt-in',
+          fakePackage: '@traceloop/instrumentation-langchain',
+          instrumentationName: LANGCHAIN_NAME,
+          expectedDisabled: false,
+          optIn: true,
+        },
+        {
+          name: 'enables LangChain with @arizeai/openinference-instrumentation-langchain when opt-in',
+          fakePackage: '@arizeai/openinference-instrumentation-langchain',
+          instrumentationName: LANGCHAIN_NAME,
+          expectedDisabled: false,
+          optIn: true,
+        },
+        {
           name: 'disables Vercel AI when @monocle.sh/instrumentation-vercel-ai is installed',
           fakePackage: '@monocle.sh/instrumentation-vercel-ai',
           instrumentationName: VERCEL_AI_NAME,
@@ -147,17 +161,30 @@ describe('Register', function () {
           expectedDisabled: true,
         },
         {
-          name: 'does not disable OpenAI Agents when base @traceloop/instrumentation-openai is installed',
+          name: 'enables Vercel AI with @monocle.sh/instrumentation-vercel-ai when opt-in',
+          fakePackage: '@monocle.sh/instrumentation-vercel-ai',
+          instrumentationName: VERCEL_AI_NAME,
+          expectedDisabled: false,
+          optIn: true,
+        },
+        {
+          name: 'enables Vercel AI with @respan/instrumentation-vercel when opt-in',
+          fakePackage: '@respan/instrumentation-vercel',
+          instrumentationName: VERCEL_AI_NAME,
+          expectedDisabled: false,
+          optIn: true,
+        },
+        {
+          name: 'does not disable OpenAI Agents when @traceloop/instrumentation-openai is installed',
           fakePackage: '@traceloop/instrumentation-openai',
           instrumentationName: OPENAI_AGENTS_NAME,
           expectedDisabled: false,
         },
         {
-          name: 'overrides conflict when AWS_AGENTIC_INSTRUMENTATION_OPT_IN=true',
-          fakePackage: '@traceloop/instrumentation-langchain',
-          instrumentationName: LANGCHAIN_NAME,
+          name: 'does not disable OpenAI Agents when @arizeai/openinference-instrumentation-openai is installed',
+          fakePackage: '@arizeai/openinference-instrumentation-openai',
+          instrumentationName: OPENAI_AGENTS_NAME,
           expectedDisabled: false,
-          optIn: true,
         },
       ];
 

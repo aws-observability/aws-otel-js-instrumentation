@@ -101,7 +101,6 @@ describe('Utils', function () {
       keywords: string[][];
       expected: string | undefined;
     }[] = [
-      // LangChain detections
       {
         name: 'detects @traceloop/instrumentation-langchain',
         packagePath: '@traceloop/instrumentation-langchain',
@@ -120,8 +119,6 @@ describe('Utils', function () {
         keywords: [['langchain'], ['langgraph']],
         expected: undefined,
       },
-
-      // OpenAI Agents detections
       {
         name: 'does not false-positive on base openai instrumentation',
         packagePath: '@traceloop/instrumentation-openai',
@@ -134,8 +131,6 @@ describe('Utils', function () {
         keywords: [['openai', 'agents']],
         expected: '@traceloop/instrumentation-openai-agents',
       },
-
-      // Vercel AI detections
       {
         name: 'detects @monocle.sh/instrumentation-vercel-ai',
         packagePath: '@monocle.sh/instrumentation-vercel-ai',
@@ -154,8 +149,6 @@ describe('Utils', function () {
         keywords: [['vercel']],
         expected: 'opentelemetry-instrumentation-vercel',
       },
-
-      // Skipped scopes
       {
         name: 'skips @aws scoped packages',
         packagePath: '@aws/instrumentation-langchain',

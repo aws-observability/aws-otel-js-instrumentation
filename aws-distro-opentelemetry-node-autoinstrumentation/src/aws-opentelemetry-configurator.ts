@@ -74,6 +74,7 @@ import { LIB_VERSION } from './version';
 import { AWSCloudWatchEMFExporter } from './exporter/aws/metrics/aws-cloudwatch-emf-exporter';
 import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-exporter';
 import { isAgentObservabilityEnabled } from './utils';
+import { GenAiNestedClientSpanProcessor } from './gen-ai-nested-client-span-processor';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { logs } from '@opentelemetry/api-logs';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
@@ -325,6 +326,7 @@ export class AwsOpentelemetryConfigurator {
       // comprehensive monitoring to catch subtle failure modes like hallucinations
       // and quality degradation that sampling could miss.
       this.exportUnsampledSpanForAgentObservability(spanProcessors, resource);
+      spanProcessors.push(new GenAiNestedClientSpanProcessor());
 
       // Add session.id baggage attribute to span attributes to support AI Agent use cases
       // enabling session ID tracking in spans.

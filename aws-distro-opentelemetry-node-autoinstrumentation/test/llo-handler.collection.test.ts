@@ -255,6 +255,9 @@ describe('TestLLOHandlerCollection', () => {
       'traceloop.entity.input': 'input',
       'gen_ai.prompt': 'direct prompt',
       'input.value': 'inference input',
+      'gen_ai.input.messages': 'structured input',
+      'gen_ai.output.messages': 'structured output',
+      'gen_ai.system_instructions': 'system instructions',
     };
 
     const span = testBase.createMockSpan(attributes);

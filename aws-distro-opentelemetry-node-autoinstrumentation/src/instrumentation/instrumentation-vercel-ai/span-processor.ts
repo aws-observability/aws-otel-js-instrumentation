@@ -44,12 +44,7 @@ import {
 import { PROVIDER_MAP, serializeToJson } from '../common/instrumentation-utils';
 import { LIB_VERSION } from '../../version';
 import { INSTRUMENTATION_NAME } from './instrumentation';
-
-interface AttributeMapping {
-  from: string;
-  to: string;
-  transform?: (value: any, attrs: Record<string, any>) => any;
-}
+import { AttributeMapping } from '../common/instrumentation-utils';
 
 export class VercelAISpanProcessor implements SpanProcessor {
   // Span processor that translates VercelAI span attributes into OTel GenAI semantic conventions.
@@ -192,6 +187,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     }
 
     for (const mapping of VercelAISpanProcessor.ATTRIBUTE_MAP) {
+      if (!mapping.to) continue;
       const value = attrs[mapping.from];
       if (value != null && !mutableAttrs[mapping.to]) {
         const mapped = mapping.transform ? mapping.transform(value, mutableAttrs) : value;

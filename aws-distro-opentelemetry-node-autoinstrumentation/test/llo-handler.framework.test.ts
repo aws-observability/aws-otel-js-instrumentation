@@ -474,7 +474,6 @@ describe('TestLLOHandlerFrameworks', () => {
     const completionMsg = messages.find(m => m.content === 'Assistant response');
     expect(completionMsg).toBeDefined();
 
-    // Check OTel GenAI semantic convention messages
     const inputMsg = messages.find(m => m.content === 'OTel input messages');
     expect(inputMsg).toBeDefined();
     expect(inputMsg!.role).toBe('user');

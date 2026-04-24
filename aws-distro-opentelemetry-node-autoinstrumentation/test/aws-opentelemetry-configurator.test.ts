@@ -66,6 +66,7 @@ import { OTLPAwsSpanExporter } from '../src/exporter/otlp/aws/traces/otlp-aws-sp
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from '../src/exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
 import { TRACE_PARENT_HEADER } from '@opentelemetry/core';
 import { ConsoleEMFExporter } from '../src/exporter/aws/metrics/console-emf-exporter';
+import { GenAiNestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -507,12 +508,13 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
-    expect(spanProcessors.length).toEqual(3);
+    expect(spanProcessors.length).toEqual(4);
 
     // Verify processors are added in the expected order
-    expect(spanProcessors[0]).toBeInstanceOf(BaggageSpanProcessor);
-    expect(spanProcessors[1]).toBeInstanceOf(AttributePropagatingSpanProcessor);
-    expect(spanProcessors[2]).toBeInstanceOf(AwsSpanMetricsProcessor);
+    expect(spanProcessors[0]).toBeInstanceOf(GenAiNestedClientSpanProcessor);
+    expect(spanProcessors[1]).toBeInstanceOf(BaggageSpanProcessor);
+    expect(spanProcessors[2]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect(spanProcessors[3]).toBeInstanceOf(AwsSpanMetricsProcessor);
 
     // shut down exporters for test cleanup
     spanProcessors.forEach(spanProcessor => {
@@ -533,11 +535,11 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     // Test that BaggageSpanProcessor is added when agent observability is enabled
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
-    expect(spanProcessorsToTest.length).toEqual(1);
+    expect(spanProcessorsToTest.length).toEqual(2);
 
-    // Verify the added processor is BaggageSpanProcessor
-    const addedProcessor = spanProcessorsToTest[0];
-    expect(addedProcessor).toBeInstanceOf(BaggageSpanProcessor);
+    // Verify the added processors
+    expect(spanProcessorsToTest[0]).toBeInstanceOf(GenAiNestedClientSpanProcessor);
+    expect(spanProcessorsToTest[1]).toBeInstanceOf(BaggageSpanProcessor);
 
     // Clean up
     delete process.env.AGENT_OBSERVABILITY_ENABLED;

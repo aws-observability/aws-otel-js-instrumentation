@@ -13,7 +13,7 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
-- feat: add GenAiNestedClientSpanProcessor to deduplicate nested CLIENT spans
+- feat(agent-observability): add GenAiNestedClientSpanProcessor to deduplicate nested CLIENT spans
   ([#413](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/413))
 - feat: add BaggageSpanProcessor by default with OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS support
   ([#415](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/415))

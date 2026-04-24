@@ -448,11 +448,13 @@ describe('OpenAI Agents Instrumentation', function () {
         model: OPENAI_MODEL,
       });
 
-      const runner = createRunner([{
-        ...OPENAI_RESPONSES_API_CHAT_RESPONSE,
-        temperature: 0.7,
-        top_p: 0.9,
-      }]);
+      const runner = createRunner([
+        {
+          ...OPENAI_RESPONSES_API_CHAT_RESPONSE,
+          temperature: 0.7,
+          top_p: 0.9,
+        },
+      ]);
       await runner.run(agent, 'Hello');
 
       const spans = getTestSpans();
@@ -471,10 +473,12 @@ describe('OpenAI Agents Instrumentation', function () {
         model: OPENAI_MODEL,
       });
 
-      const runner = createRunner([{
-        ...OPENAI_RESPONSES_API_CHAT_RESPONSE,
-        instructions: 'You are a helpful assistant.',
-      }]);
+      const runner = createRunner([
+        {
+          ...OPENAI_RESPONSES_API_CHAT_RESPONSE,
+          instructions: 'You are a helpful assistant.',
+        },
+      ]);
       await runner.run(agent, 'Hello');
 
       const spans = getTestSpans();
@@ -495,7 +499,9 @@ describe('OpenAI Agents Instrumentation', function () {
         name: 'failing_tool',
         description: 'A tool that fails',
         parameters: z.object({ input: z.string() }),
-        execute: async () => { throw new Error('Tool execution failed'); },
+        execute: async () => {
+          throw new Error('Tool execution failed');
+        },
       });
 
       const agent = new Agent({

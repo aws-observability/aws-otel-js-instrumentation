@@ -102,6 +102,26 @@ describe('TestLLOHandlerPatterns', () => {
   });
 
   /**
+   * Verify isLloAttribute recognizes OTel GenAI semantic convention patterns.
+   */
+  it('should test isLloAttribute otel genai patterns match', () => {
+    expect(testBase.lloHandler['isLloAttribute']('gen_ai.input.messages')).toBeTruthy();
+    expect(testBase.lloHandler['isLloAttribute']('gen_ai.output.messages')).toBeTruthy();
+    expect(testBase.lloHandler['isLloAttribute']('gen_ai.system_instructions')).toBeTruthy();
+  });
+
+  /**
+   * Verify isLloAttribute correctly rejects similar but incorrect OTel GenAI patterns.
+   */
+  it('should test isLloAttribute otel genai patterns no match', () => {
+    expect(testBase.lloHandler['isLloAttribute']('gen_ai.input')).toBeFalsy();
+    expect(testBase.lloHandler['isLloAttribute']('gen_ai.output')).toBeFalsy();
+    expect(testBase.lloHandler['isLloAttribute']('gen_ai.input.message')).toBeFalsy();
+    expect(testBase.lloHandler['isLloAttribute']('gen_ai.output.message')).toBeFalsy();
+    expect(testBase.lloHandler['isLloAttribute']('gen_ai.system_instruction')).toBeFalsy();
+  });
+
+  /**
    * Test buildPatternMatchers handles patterns with missing regex gracefully.
    */
   it('should test build pattern matchers with missing regex', () => {

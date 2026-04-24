@@ -451,12 +451,15 @@ describe('TestLLOHandlerFrameworks', () => {
       'llm.prompts': "[{'role': 'system', 'content': 'System prompt'}]",
       'gen_ai.prompt': 'Direct prompt',
       'gen_ai.completion': 'Assistant response',
+      'gen_ai.input.messages': 'OTel input messages',
+      'gen_ai.output.messages': 'OTel output messages',
+      'gen_ai.system_instructions': 'OTel system instructions',
     };
 
     const span = testBase.createMockSpan(attributes);
     const messages = testBase.lloHandler['collectAllLloMessages'](span, attributes);
 
-    expect(messages.length).toBe(3);
+    expect(messages.length).toBe(6);
 
     // Check llm.prompts message
     const llmPromptsMsg = messages.find(m => m.content === attributes['llm.prompts']);
@@ -470,5 +473,21 @@ describe('TestLLOHandlerFrameworks', () => {
 
     const completionMsg = messages.find(m => m.content === 'Assistant response');
     expect(completionMsg).toBeDefined();
+
+    // Check OTel GenAI semantic convention messages
+    const inputMsg = messages.find(m => m.content === 'OTel input messages');
+    expect(inputMsg).toBeDefined();
+    expect(inputMsg!.role).toBe('user');
+    expect(inputMsg!.source).toBe('input');
+
+    const outputMsg = messages.find(m => m.content === 'OTel output messages');
+    expect(outputMsg).toBeDefined();
+    expect(outputMsg!.role).toBe('assistant');
+    expect(outputMsg!.source).toBe('output');
+
+    const systemMsg = messages.find(m => m.content === 'OTel system instructions');
+    expect(systemMsg).toBeDefined();
+    expect(systemMsg!.role).toBe('system');
+    expect(systemMsg!.source).toBe('prompt');
   });
 });

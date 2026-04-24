@@ -15,6 +15,11 @@ import {
   INSTRUMENTATION_NAME as LANGCHAIN_NAME,
 } from '../src/instrumentation/instrumentation-langchain/instrumentation';
 import {
+  OpenAIAgentsInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as OPENAI_AGENTS_SHORT_NAME,
+  INSTRUMENTATION_NAME as OPENAI_AGENTS_NAME,
+} from '../src/instrumentation/instrumentation-openai-agents/instrumentation';
+import {
   VercelAIInstrumentation,
   INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
   INSTRUMENTATION_NAME as VERCEL_AI_NAME,
@@ -101,6 +106,7 @@ describe('Register', function () {
     };
 
     testInstrumentation(LangChainInstrumentation, LANGCHAIN_NAME, LANGCHAIN_SHORT_NAME);
+    testInstrumentation(OpenAIAgentsInstrumentation, OPENAI_AGENTS_NAME, OPENAI_AGENTS_SHORT_NAME);
     testInstrumentation(VercelAIInstrumentation, VERCEL_AI_NAME, VERCEL_AI_SHORT_NAME);
 
     it('Vercel AI auto-registers VercelAISpanProcessor', () => {

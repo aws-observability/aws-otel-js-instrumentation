@@ -100,20 +100,21 @@ export function setAwsDefaultEnvironmentVariables() {
       process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'false';
     }
 
-    // Set OTLP endpoints with AWS region if not already set
-    const region = getAwsRegionFromEnvironment();
-    if (region) {
-      if (!process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
-        process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = `https://xray.${region}.amazonaws.com/v1/traces`;
-      }
+    if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+      const region = getAwsRegionFromEnvironment();
+      if (region) {
+        if (!process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
+          process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = `https://xray.${region}.amazonaws.com/v1/traces`;
+        }
 
-      if (!process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT) {
-        process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = `https://logs.${region}.amazonaws.com/v1/logs`;
+        if (!process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT) {
+          process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = `https://logs.${region}.amazonaws.com/v1/logs`;
+        }
+      } else {
+        diag.error(
+          'AWS region could not be determined. OTLP endpoints will not be automatically configured. Please set AWS_REGION environment variable or configure OTLP endpoints manually.'
+        );
       }
-    } else {
-      diag.error(
-        'AWS region could not be determined. OTLP endpoints will not be automatically configured. Please set AWS_REGION environment variable or configure OTLP endpoints manually.'
-      );
     }
   }
 }

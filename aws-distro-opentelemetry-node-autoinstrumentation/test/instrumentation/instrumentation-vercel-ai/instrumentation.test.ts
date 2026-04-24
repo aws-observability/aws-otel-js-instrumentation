@@ -109,7 +109,6 @@ before(() => {
   ensureSpanProcessor();
 });
 
-
 describe('generateText basic chat spans', function () {
   this.timeout(15000);
 

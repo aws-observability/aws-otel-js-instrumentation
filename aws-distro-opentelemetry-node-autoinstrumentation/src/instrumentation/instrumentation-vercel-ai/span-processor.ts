@@ -153,7 +153,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
     // https://github.com/vercel/ai/blob/5d0f18e52ed8e43e9916394aaf721585e0479d36/packages/otel/src/get-tracer.ts#L19
     if (span.instrumentationScope?.name !== 'ai') return;
 
-
     const attrs = span.attributes;
     const operationId = attrs['ai.operationId'] as string | undefined;
 
@@ -227,7 +226,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
     ) {
       (span as any).kind = SpanKind.INTERNAL;
     }
-
 
     const spanName = VercelAISpanProcessor.createSpanName(mutableAttrs);
     if (spanName) {

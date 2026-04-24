@@ -394,7 +394,6 @@ export const OPENAI_RESPONSES_API_ERROR_RESPONSE = {
   },
 };
 
-
 export function mockFetchJson(response: unknown, statusCode: number = 200): typeof fetch {
   return (async () =>
     new Response(JSON.stringify(response), {

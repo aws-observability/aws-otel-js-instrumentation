@@ -73,7 +73,7 @@ import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 import { LIB_VERSION } from './version';
 import { AWSCloudWatchEMFExporter } from './exporter/aws/metrics/aws-cloudwatch-emf-exporter';
 import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-exporter';
-import { isAgentObservabilityEnabled } from './utils';
+import { isAgentObservabilityEnabled, parseOtelBaggageKeysEnvVar } from './utils';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { logs } from '@opentelemetry/api-logs';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
@@ -319,8 +319,10 @@ export class AwsOpentelemetryConfigurator {
   }
 
   static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
+    const baggageKeys: Set<string> = parseOtelBaggageKeysEnvVar();
+
     if (isAgentObservabilityEnabled()) {
-      // We always send 100% spans to Genesis platform for agent observability because
+      // We always send 100% spans to Bedrock AgentCore platform for agent observability because
       // AI applications typically have low throughput traffic patterns and require
       // comprehensive monitoring to catch subtle failure modes like hallucinations
       // and quality degradation that sampling could miss.
@@ -328,11 +330,10 @@ export class AwsOpentelemetryConfigurator {
 
       // Add session.id baggage attribute to span attributes to support AI Agent use cases
       // enabling session ID tracking in spans.
-      const sessionIdPredicate = (baggageKey: string) => {
-        return baggageKey === 'session.id';
-      };
-      spanProcessors.push(new BaggageSpanProcessor(sessionIdPredicate));
+      baggageKeys.add('session.id');
     }
+
+    spanProcessors.push(new BaggageSpanProcessor((key: string) => baggageKeys.has(key)));
 
     if (!AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
       return;

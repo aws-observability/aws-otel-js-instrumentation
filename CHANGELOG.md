@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat: add BaggageSpanProcessor by default with OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS support
+  ([#415](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/415))
 - feat(agent-observability): register custom instrumentations in OTEL_NODE_ENABLED_INSTRUMENTATIONS default
   ([#414](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/414))
 - fix: Respect OTEL_EXPORTER_OTLP_ENDPOINT in agent observability endpoint configuration

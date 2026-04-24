@@ -344,6 +344,68 @@ export function getProviderCases(): ProviderTestCase[] {
   return providerTestCases;
 }
 
+// https://platform.openai.com/docs/api-reference/responses/object
+export const OPENAI_RESPONSES_API_CHAT_RESPONSE = {
+  id: 'resp_abc123',
+  object: 'response',
+  created_at: 1700000000,
+  model: 'gpt-4o-mini-2024-07-18',
+  output: [
+    {
+      type: 'message',
+      id: 'msg_001',
+      role: 'assistant',
+      status: 'completed',
+      content: [{ type: 'output_text', text: 'Paris is the capital of France.' }],
+    },
+  ],
+  usage: { input_tokens: 18, output_tokens: 8, total_tokens: 26 },
+  temperature: 1.0,
+  top_p: 1.0,
+  tools: [],
+};
+
+export const OPENAI_RESPONSES_API_CHAT_RESPONSE_WITH_TOOLS = {
+  ...OPENAI_RESPONSES_API_CHAT_RESPONSE,
+  tools: [
+    {
+      type: 'function',
+      name: 'get_weather',
+      description: 'Get weather for a city',
+      parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+    },
+  ],
+};
+
+export const OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE = {
+  id: 'resp_tool456',
+  object: 'response',
+  created_at: 1700000000,
+  model: 'gpt-4o-mini-2024-07-18',
+  output: [
+    {
+      type: 'function_call',
+      id: 'fc_001',
+      call_id: 'call_001',
+      name: 'get_weather',
+      arguments: '{"city":"Tokyo"}',
+      status: 'completed',
+    },
+  ],
+  usage: { input_tokens: 15, output_tokens: 10, total_tokens: 25 },
+  temperature: 1.0,
+  top_p: 1.0,
+  tools: [],
+};
+
+export const OPENAI_RESPONSES_API_ERROR_RESPONSE = {
+  error: {
+    message: 'Internal server error',
+    type: 'server_error',
+    code: 'internal_error',
+  },
+};
+
 export function mockFetchJson(response: unknown, statusCode: number = 200): typeof fetch {
   return (async () =>
     new Response(JSON.stringify(response), {

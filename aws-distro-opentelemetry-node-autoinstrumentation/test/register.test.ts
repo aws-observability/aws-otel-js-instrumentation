@@ -15,6 +15,11 @@ import {
   INSTRUMENTATION_NAME as LANGCHAIN_NAME,
 } from '../src/instrumentation/instrumentation-langchain/instrumentation';
 import {
+  OpenAIAgentsInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as OPENAI_AGENTS_SHORT_NAME,
+  INSTRUMENTATION_NAME as OPENAI_AGENTS_NAME,
+} from '../src/instrumentation/instrumentation-openai-agents/instrumentation';
+import {
   VercelAIInstrumentation,
   INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
   INSTRUMENTATION_NAME as VERCEL_AI_NAME,
@@ -101,6 +106,7 @@ describe('Register', function () {
     };
 
     testInstrumentation(LangChainInstrumentation, LANGCHAIN_NAME, LANGCHAIN_SHORT_NAME);
+    testInstrumentation(OpenAIAgentsInstrumentation, OPENAI_AGENTS_NAME, OPENAI_AGENTS_SHORT_NAME);
     testInstrumentation(VercelAIInstrumentation, VERCEL_AI_NAME, VERCEL_AI_SHORT_NAME);
 
     it('Vercel AI auto-registers VercelAISpanProcessor', () => {
@@ -152,6 +158,7 @@ describe('Register', function () {
       delete process.env.AWS_REGION;
       delete process.env.AWS_DEFAULT_REGION;
       delete process.env.AGENT_OBSERVABILITY_ENABLED;
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
       delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
       delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
       delete process.env.OTEL_TRACES_EXPORTER;
@@ -209,6 +216,17 @@ describe('Register', function () {
       expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.us-east-2.amazonaws.com/v1/logs');
     });
 
+    it('Does not set signal-specific endpoints when OTEL_EXPORTER_OTLP_ENDPOINT is set', () => {
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      process.env.AWS_REGION = 'us-west-2';
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://my-collector:4318';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toBeUndefined();
+      expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toBeUndefined();
+    });
+
     it('Configures defaults when AgentObservabilityEnabled is true', () => {
       process.env.AWS_REGION = 'us-east-1';
       process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
@@ -221,7 +239,9 @@ describe('Register', function () {
       expect(process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT).toEqual('true');
       expect(process.env.OTEL_TRACES_SAMPLER).toEqual('parentbased_always_on');
       expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs,dns');
-      expect(process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS).toEqual('aws-lambda,aws-sdk,http');
+      expect(process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS).toEqual(
+        'aws-lambda,aws-sdk,http,aws_langchain,aws_openai_agents,aws_vercel_ai'
+      );
       expect(process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED).toEqual('false');
       expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual('https://xray.us-east-1.amazonaws.com/v1/traces');
       expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.us-east-1.amazonaws.com/v1/logs');

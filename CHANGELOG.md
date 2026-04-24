@@ -13,6 +13,18 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat(agent-observability): add GenAiNestedClientSpanProcessor to deduplicate nested CLIENT spans
+  ([#413](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/413))
+- feat: add BaggageSpanProcessor by default with OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS support
+  ([#415](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/415))
+- feat(agent-observability): register custom instrumentations in OTEL_NODE_ENABLED_INSTRUMENTATIONS default
+  ([#414](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/414))
+- fix: Respect OTEL_EXPORTER_OTLP_ENDPOINT in agent observability endpoint configuration
+  ([#411](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/411))
+- feat(llo-handler): add gen_ai.input.messages, gen_ai.output.messages, and gen_ai.system_instructions support
+  ([#412](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/412))
+- feat(instrumentation-openai-agents): Add native OpenAI Agents instrumentation support
+  ([#401](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/401))
 - feat(instrumentation-vercel-ai): Add native Vercel AI instrumentation support
   ([#394](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/394))
 - feat(instrumentation-langchain): Add native LangChain instrumentation support

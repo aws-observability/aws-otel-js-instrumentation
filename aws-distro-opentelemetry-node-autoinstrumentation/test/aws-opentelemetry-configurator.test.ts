@@ -66,6 +66,7 @@ import { OTLPAwsSpanExporter } from '../src/exporter/otlp/aws/traces/otlp-aws-sp
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from '../src/exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
 import { TRACE_PARENT_HEADER } from '@opentelemetry/core';
 import { ConsoleEMFExporter } from '../src/exporter/aws/metrics/console-emf-exporter';
+import { GenAiNestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -468,15 +469,16 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     // Test application signals only
     let spanProcessors: SpanProcessor[] = [];
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
-    expect(spanProcessors.length).toEqual(0);
+    expect(spanProcessors.length).toEqual(1);
+    expect(spanProcessors[0]).toBeInstanceOf(BaggageSpanProcessor);
 
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
-    expect(spanProcessors.length).toEqual(2);
-    const firstProcessor: SpanProcessor = spanProcessors[0];
-    expect(firstProcessor).toBeInstanceOf(AttributePropagatingSpanProcessor);
-    const secondProcessor: SpanProcessor = spanProcessors[1];
-    expect(secondProcessor).toBeInstanceOf(AwsSpanMetricsProcessor);
+    expect(spanProcessors.length).toEqual(4);
+    expect(spanProcessors[0]).toBeInstanceOf(BaggageSpanProcessor);
+    expect(spanProcessors[1]).toBeInstanceOf(BaggageSpanProcessor);
+    expect(spanProcessors[2]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect(spanProcessors[3]).toBeInstanceOf(AwsSpanMetricsProcessor);
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
 
     try {
@@ -507,12 +509,13 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
-    expect(spanProcessors.length).toEqual(3);
+    expect(spanProcessors.length).toEqual(4);
 
     // Verify processors are added in the expected order
-    expect(spanProcessors[0]).toBeInstanceOf(BaggageSpanProcessor);
-    expect(spanProcessors[1]).toBeInstanceOf(AttributePropagatingSpanProcessor);
-    expect(spanProcessors[2]).toBeInstanceOf(AwsSpanMetricsProcessor);
+    expect(spanProcessors[0]).toBeInstanceOf(GenAiNestedClientSpanProcessor);
+    expect(spanProcessors[1]).toBeInstanceOf(BaggageSpanProcessor);
+    expect(spanProcessors[2]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect(spanProcessors[3]).toBeInstanceOf(AwsSpanMetricsProcessor);
 
     // shut down exporters for test cleanup
     spanProcessors.forEach(spanProcessor => {
@@ -525,13 +528,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   it('CustomizeSpanProcessorsWithAgentObservabilityTest', () => {
     const spanProcessorsToTest: SpanProcessor[] = [];
 
-    // Test that BaggageSpanProcessor is not added when agent observability is disabled
+    // Test that only BaggageSpanProcessor is added when agent observability is disabled
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
-    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
-    expect(spanProcessorsToTest).toEqual([]);
-
-    // Test that BaggageSpanProcessor is added when agent observability is enabled
-    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
     expect(spanProcessorsToTest.length).toEqual(1);
 
@@ -546,6 +544,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   it('BaggageSpanProcessorSessionIdFilteringTest', () => {
     // Set up agent observability
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+    delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
 
     // Create a SpanProcessor list for this test
     const spanProcessorsToTest: SpanProcessor[] = [];
@@ -575,6 +574,65 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     // Clean up
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
+  });
+
+  it('BaggageSpanProcessorCustomKeysTest', () => {
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+    process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'user.id, request.id';
+
+    const spanProcessorsToTest: SpanProcessor[] = [];
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
+
+    const baggageProcessor = spanProcessorsToTest.find(p => p instanceof BaggageSpanProcessor)!;
+    const predicate = (baggageProcessor as BaggageSpanProcessor)['_keyPredicate'].bind(baggageProcessor);
+
+    expect(predicate('user.id')).toBeTruthy();
+    expect(predicate('request.id')).toBeTruthy();
+    expect(predicate('session.id')).toBeTruthy();
+
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
+  });
+
+  it('BaggageSpanProcessorRejectsKeysWithoutCustomConfigTest', () => {
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+    delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
+
+    const spanProcessorsToTest: SpanProcessor[] = [];
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
+
+    const baggageProcessor = spanProcessorsToTest.find(p => p instanceof BaggageSpanProcessor)!;
+    const predicate = (baggageProcessor as BaggageSpanProcessor)['_keyPredicate'].bind(baggageProcessor);
+
+    expect(predicate('any.key')).toBeFalsy();
+
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
+  });
+
+  it('SessionIdAlwaysAddedWhenAgentObservabilityEnabledTest', () => {
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+
+    // Without custom baggage keys
+    delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
+    let spanProcessorsToTest: SpanProcessor[] = [];
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
+    let baggageProcessor = spanProcessorsToTest.find(p => p instanceof BaggageSpanProcessor)!;
+    let predicate = (baggageProcessor as BaggageSpanProcessor)['_keyPredicate'].bind(baggageProcessor);
+    expect(predicate('session.id')).toBeTruthy();
+
+    // With custom baggage keys
+    process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'custom.key';
+    spanProcessorsToTest = [];
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
+    baggageProcessor = spanProcessorsToTest.find(p => p instanceof BaggageSpanProcessor)!;
+    predicate = (baggageProcessor as BaggageSpanProcessor)['_keyPredicate'].bind(baggageProcessor);
+    expect(predicate('session.id')).toBeTruthy();
+    expect(predicate('custom.key')).toBeTruthy();
+
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
   });
 
   it('ApplicationSignalsExporterProviderTest', () => {
@@ -747,7 +805,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect((config.spanProcessors as any)[0]).toBeInstanceOf(BatchSpanProcessor);
     expect((config.spanProcessors as any)[0]._exporter).toBeInstanceOf(OTLPUdpSpanExporter);
     expect((config.spanProcessors as any)[0]._exporter._endpoint).toBe('www.test.com:2222');
-    expect(config.spanProcessors?.length).toEqual(1);
+    expect((config.spanProcessors as any)[1]).toBeInstanceOf(BaggageSpanProcessor);
+    expect(config.spanProcessors?.length).toEqual(2);
 
     delete process.env.AWS_LAMBDA_FUNCTION_NAME;
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
@@ -760,11 +819,10 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
     const spanProcessors: SpanProcessor[] = [];
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
-    expect(spanProcessors.length).toEqual(2);
-    const firstProcessor: SpanProcessor = spanProcessors[0];
-    expect(firstProcessor).toBeInstanceOf(AttributePropagatingSpanProcessor);
-    const secondProcessor: SpanProcessor = spanProcessors[1];
-    expect(secondProcessor).toBeInstanceOf(AwsBatchUnsampledSpanProcessor);
+    expect(spanProcessors.length).toEqual(3);
+    expect(spanProcessors[0]).toBeInstanceOf(BaggageSpanProcessor);
+    expect(spanProcessors[1]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect(spanProcessors[2]).toBeInstanceOf(AwsBatchUnsampledSpanProcessor);
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
     delete process.env.AWS_LAMBDA_FUNCTION_NAME;
   });
@@ -847,24 +905,27 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     // Default scenario where no trace exporter is specified
     process.env.OTEL_TRACES_EXPORTER = 'none';
     config = new AwsOpentelemetryConfigurator([]).configure();
-    expect((config.spanProcessors as any)[0]).toBeInstanceOf(AttributePropagatingSpanProcessor);
-    expect((config.spanProcessors as any)[1]).toBeInstanceOf(AwsSpanMetricsProcessor);
-    expect(config.spanProcessors?.length).toEqual(2);
+    expect((config.spanProcessors as any)[0]).toBeInstanceOf(BaggageSpanProcessor);
+    expect((config.spanProcessors as any)[1]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect((config.spanProcessors as any)[2]).toBeInstanceOf(AwsSpanMetricsProcessor);
+    expect(config.spanProcessors?.length).toEqual(3);
 
     // Scenario where otlp trace exporter is specified, adds one more exporter compared to default case
     process.env.OTEL_TRACES_EXPORTER = 'otlp';
     config = new AwsOpentelemetryConfigurator([]).configure();
     expect((config.spanProcessors as any)[0]._exporter.delegate).toBeInstanceOf(OTLPProtoTraceExporter);
-    expect((config.spanProcessors as any)[1]).toBeInstanceOf(AttributePropagatingSpanProcessor);
-    expect((config.spanProcessors as any)[2]).toBeInstanceOf(AwsSpanMetricsProcessor);
-    expect(config.spanProcessors?.length).toEqual(3);
+    expect((config.spanProcessors as any)[1]).toBeInstanceOf(BaggageSpanProcessor);
+    expect((config.spanProcessors as any)[2]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect((config.spanProcessors as any)[3]).toBeInstanceOf(AwsSpanMetricsProcessor);
+    expect(config.spanProcessors?.length).toEqual(4);
 
     // Specify invalid exporter, same result as default scenario where no trace exporter is specified
     process.env.OTEL_TRACES_EXPORTER = 'invalid_exporter_name';
     config = new AwsOpentelemetryConfigurator([]).configure();
-    expect((config.spanProcessors as any)[0]).toBeInstanceOf(AttributePropagatingSpanProcessor);
-    expect((config.spanProcessors as any)[1]).toBeInstanceOf(AwsSpanMetricsProcessor);
-    expect(config.spanProcessors?.length).toEqual(2);
+    expect((config.spanProcessors as any)[0]).toBeInstanceOf(BaggageSpanProcessor);
+    expect((config.spanProcessors as any)[1]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect((config.spanProcessors as any)[2]).toBeInstanceOf(AwsSpanMetricsProcessor);
+    expect(config.spanProcessors?.length).toEqual(3);
 
     // Cleanup
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;

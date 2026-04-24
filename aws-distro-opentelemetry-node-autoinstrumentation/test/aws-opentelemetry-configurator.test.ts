@@ -474,6 +474,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
     expect(spanProcessors.length).toEqual(4);
+    expect(spanProcessors[0]).toBeInstanceOf(BaggageSpanProcessor);
     expect(spanProcessors[1]).toBeInstanceOf(BaggageSpanProcessor);
     expect(spanProcessors[2]).toBeInstanceOf(AttributePropagatingSpanProcessor);
     expect(spanProcessors[3]).toBeInstanceOf(AwsSpanMetricsProcessor);

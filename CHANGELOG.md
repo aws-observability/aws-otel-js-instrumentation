@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix: Respect OTEL_EXPORTER_OTLP_ENDPOINT in agent observability endpoint configuration
+  ([#411](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/411))
 - feat(instrumentation-vercel-ai): Add native Vercel AI instrumentation support
   ([#394](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/394))
 - feat(instrumentation-langchain): Add native LangChain instrumentation support

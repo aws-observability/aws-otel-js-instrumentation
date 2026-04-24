@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat(agent-observability): register custom instrumentations in OTEL_NODE_ENABLED_INSTRUMENTATIONS default
+  ([#414](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/414))
 - fix: Respect OTEL_EXPORTER_OTLP_ENDPOINT in agent observability endpoint configuration
   ([#411](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/411))
 - feat(llo-handler): add gen_ai.input.messages, gen_ai.output.messages, and gen_ai.system_instructions support

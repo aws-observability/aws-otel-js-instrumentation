@@ -56,6 +56,20 @@ export const getAwsRegionFromEnvironment = (): string | undefined => {
   return undefined;
 };
 
+export const OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS';
+
+export const parseOtelBaggageKeysEnvVar = (): Set<string> => {
+  const raw = (process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] || '').trim();
+  const keys = new Set<string>();
+  for (const k of raw.split(',')) {
+    const trimmed = k.trim();
+    if (trimmed) {
+      keys.add(trimmed);
+    }
+  }
+  return keys;
+};
+
 export const isInstrumentationDisabled = (shortName: string): boolean => {
   const disabledEnv = process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
   if (disabledEnv) {

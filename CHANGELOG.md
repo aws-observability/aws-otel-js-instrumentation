@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat(instrumentation-vercel-ai): Add native Vercel AI instrumentation support
+  ([#394](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/394))
 - feat(instrumentation-langchain): Add native LangChain instrumentation support
   ([#391](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/391))
 

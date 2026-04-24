@@ -11,6 +11,7 @@ import {
 } from '@opentelemetry/instrumentation';
 import { LIB_VERSION } from '../../version';
 import { LangChainInstrumentationConfig } from './types';
+import { isAgenticInstrumentationOptIn, isInstrumentationDisabled, findInstrumentation } from '../../utils';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-langchain';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_langchain';
@@ -31,6 +32,25 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
   override setConfig(config: LangChainInstrumentationConfig = {}) {
     super.setConfig({ ...config, captureMessageContent: !!config.captureMessageContent });
     this._handler = undefined;
+  }
+
+  override enable() {
+    if (isInstrumentationDisabled(INSTRUMENTATION_SHORT_NAME)) {
+      this._diag.debug(`${INSTRUMENTATION_NAME} is disabled`);
+      return;
+    }
+
+    if (!isAgenticInstrumentationOptIn()) {
+      const conflict = findInstrumentation([['langchain'], ['langgraph']]);
+      if (conflict) {
+        this._diag.info(
+          `Skipping ${INSTRUMENTATION_NAME}: third-party '${conflict}' detected. ` +
+            'Set AWS_AGENTIC_INSTRUMENTATION_OPT_IN=true to override.'
+        );
+        return;
+      }
+    }
+    super.enable();
   }
 
   protected init() {

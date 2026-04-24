@@ -305,6 +305,9 @@ describe('patch and unpatch lifecycle', function () {
   let originalCall: any;
 
   before(function () {
+    contentCaptureInstrumentation._unpatchCallbackManager(CallbackManager);
+    contentCaptureInstrumentation._unpatchChatModelsModule(chatExports);
+    contentCaptureInstrumentation._unpatchToolsModule(toolExports);
     instrumentation._unpatchCallbackManager(CallbackManager);
     instrumentation._unpatchChatModelsModule(chatExports);
     instrumentation._unpatchToolsModule(toolExports);

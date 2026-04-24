@@ -1,9 +1,12 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { diag } from '@opentelemetry/api';
 
 const AGENT_OBSERVABILITY_ENABLED = 'AGENT_OBSERVABILITY_ENABLED';
+const AWS_AGENTIC_INSTRUMENTATION_OPT_IN = 'AWS_AGENTIC_INSTRUMENTATION_OPT_IN';
 export const OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS';
 
 // Bypass `readonly` restriction of a Type.
@@ -35,6 +38,11 @@ export const isAgentObservabilityEnabled = () => {
   }
 
   return agentObservabilityEnabled.toLowerCase() === 'true';
+};
+
+export const isAgenticInstrumentationOptIn = (): boolean => {
+  const v = process.env[AWS_AGENTIC_INSTRUMENTATION_OPT_IN];
+  return v !== undefined && v.toLowerCase() === 'true';
 };
 
 /**
@@ -87,6 +95,37 @@ export const isInstrumentationDisabled = (shortName: string): boolean => {
   }
 
   return false;
+};
+
+export const findInstrumentation = (keywordGroups: string[][], lookupPaths?: string[]): string | undefined => {
+  const matches = (name: string) =>
+    name.includes('instrumentation') && keywordGroups.some(group => group.every(k => name.includes(k)));
+
+  for (const nmDir of lookupPaths || require.resolve.paths('_') || []) {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(nmDir);
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (entry.startsWith('@')) {
+        if (entry === '@aws' || entry === '@opentelemetry') continue;
+        let pkgs: string[];
+        try {
+          pkgs = fs.readdirSync(path.join(nmDir, entry));
+        } catch {
+          continue;
+        }
+        const match = pkgs.find(matches);
+        if (match) return `${entry}/${match}`;
+      } else if (matches(entry)) {
+        return entry;
+      }
+    }
+  }
+  return undefined;
 };
 
 export const checkDigits = (str: string): boolean => {

@@ -525,30 +525,51 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   it('CustomizeSpanProcessorsWithAgentObservabilityTest', () => {
     const spanProcessorsToTest: SpanProcessor[] = [];
 
-    // BaggageSpanProcessor is always added, even when agent observability is disabled
+    // Test that only BaggageSpanProcessor is added when agent observability is disabled
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
     expect(spanProcessorsToTest.length).toEqual(1);
-    expect(spanProcessorsToTest[0]).toBeInstanceOf(BaggageSpanProcessor);
+
+    // Verify the added processor is BaggageSpanProcessor
+    const addedProcessor = spanProcessorsToTest[0];
+    expect(addedProcessor).toBeInstanceOf(BaggageSpanProcessor);
 
     // Clean up
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
   });
 
   it('BaggageSpanProcessorSessionIdFilteringTest', () => {
+    // Set up agent observability
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
     delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
 
+    // Create a SpanProcessor list for this test
     const spanProcessorsToTest: SpanProcessor[] = [];
+
+    // Add our span processors
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessorsToTest, emptyResource());
 
-    const baggageProcessor = spanProcessorsToTest.find(p => p instanceof BaggageSpanProcessor)!;
+    // Verify that the BaggageSpanProcessor was added
+    const baggageProcessors = spanProcessorsToTest.filter(
+      processor => processor.constructor.name === 'BaggageSpanProcessor'
+    );
+    expect(baggageProcessors.length).toBe(1);
+
+    // Verify the predicate function only accepts session.id
+    const baggageProcessor = baggageProcessors[0];
     expect(baggageProcessor).toBeInstanceOf(BaggageSpanProcessor);
     const predicate = (baggageProcessor as BaggageSpanProcessor)['_keyPredicate'].bind(baggageProcessor);
 
+    // Test the predicate function directly
     expect(predicate('session.id')).toBeTruthy();
     expect(predicate('user.id')).toBeFalsy();
+    expect(predicate('request.id')).toBeFalsy();
+    expect(predicate('other.key')).toBeFalsy();
+    expect(predicate('')).toBeFalsy();
+    expect(predicate('session')).toBeFalsy();
+    expect(predicate('id')).toBeFalsy();
 
+    // Clean up
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
     delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
   });

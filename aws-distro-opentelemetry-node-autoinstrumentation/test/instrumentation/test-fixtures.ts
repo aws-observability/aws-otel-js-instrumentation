@@ -365,6 +365,13 @@ export const OPENAI_RESPONSES_API_CHAT_RESPONSE = {
   tools: [],
 };
 
+export const OPENAI_RESPONSES_API_CHAT_RESPONSE_WITH_TOOLS = {
+  ...OPENAI_RESPONSES_API_CHAT_RESPONSE,
+  tools: [
+    { type: 'function', name: 'get_weather', description: 'Get weather for a city', parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] } },
+  ],
+};
+
 export const OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE = {
   id: 'resp_tool456',
   object: 'response',

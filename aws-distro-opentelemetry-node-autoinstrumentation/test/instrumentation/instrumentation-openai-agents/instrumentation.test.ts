@@ -22,6 +22,9 @@ import {
   ATTR_GEN_AI_TOOL_CALL_RESULT,
   ATTR_GEN_AI_TOOL_NAME,
   ATTR_GEN_AI_TOOL_TYPE,
+  ATTR_GEN_AI_REQUEST_TEMPERATURE,
+  ATTR_GEN_AI_REQUEST_TOP_P,
+  ATTR_GEN_AI_TOOL_DEFINITIONS,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
   GEN_AI_PROVIDER_NAME_VALUE_OPENAI,
@@ -30,10 +33,12 @@ import {
   FAKE_OPENAI_KEY,
   OPENAI_MODEL,
   OPENAI_RESPONSES_API_CHAT_RESPONSE,
+  OPENAI_RESPONSES_API_CHAT_RESPONSE_WITH_TOOLS,
   OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE,
   OPENAI_RESPONSES_API_ERROR_RESPONSE,
 } from '../test-fixtures';
 import { expect } from 'expect';
+import { validateOtelGenaiSchema } from '../otel-schema-validator';
 import { Agent, Runner, tool, OpenAIProvider } from '@openai/agents';
 import OpenAI from 'openai';
 import { z } from 'zod';
@@ -265,9 +270,15 @@ describe('OpenAI Agents Instrumentation', function () {
       const parsedInstr = JSON.parse(sysInstr!);
       expect(parsedInstr[0].content).toBe('You are helpful.');
 
+      const inputMsgs = chatSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string | undefined;
+      expect(inputMsgs).toBeDefined();
+      const parsedInput = JSON.parse(inputMsgs!);
+      await validateOtelGenaiSchema(parsedInput, 'gen-ai-input-messages');
+
       const outputMsgs = chatSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string | undefined;
       expect(outputMsgs).toBeDefined();
       const parsedOutput = JSON.parse(outputMsgs!);
+      await validateOtelGenaiSchema(parsedOutput, 'gen-ai-output-messages');
       expect(parsedOutput[0].role).toBe('assistant');
       expect(parsedOutput[0].parts[0].content).toBe('The answer is 4');
     });
@@ -392,6 +403,118 @@ describe('OpenAI Agents Instrumentation', function () {
       expect(toolSpans.length).toBe(1);
       expect(toolSpans[0].attributes[ATTR_GEN_AI_TOOL_NAME]).toBe('get_weather');
       expect(toolSpans[0].attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('Sunny in Tokyo');
+    });
+  });
+
+  describe('tool definitions', function () {
+    it('captures tool definitions on chat spans', async () => {
+      const getWeather = tool({
+        name: 'get_weather',
+        description: 'Get weather for a city',
+        parameters: z.object({ city: z.string() }),
+        execute: async ({ city }) => `Sunny in ${city}`,
+      });
+
+      const agent = new Agent({
+        name: 'ToolDefAgent',
+        instructions: 'Use tools.',
+        model: OPENAI_MODEL,
+        tools: [getWeather],
+      });
+
+      const runner = createRunner([OPENAI_RESPONSES_API_CHAT_RESPONSE_WITH_TOOLS]);
+      await runner.run(agent, 'Weather in Tokyo?');
+
+      const spans = getTestSpans();
+      const chatSpan = spans.find((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      expect(chatSpan).toBeDefined();
+
+      const toolDefs = chatSpan!.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string | undefined;
+      expect(toolDefs).toBeDefined();
+      const parsed = JSON.parse(toolDefs!);
+      expect(Array.isArray(parsed)).toBe(true);
+      const def = parsed.find((t: any) => t.name === 'get_weather');
+      expect(def).toBeDefined();
+      expect(def.type).toBe('function');
+      expect(def.description).toBe('Get weather for a city');
+    });
+  });
+
+  describe('request parameters', function () {
+    it('captures temperature and top_p from response', async () => {
+      const agent = new Agent({
+        name: 'ParamAgent',
+        instructions: 'Be helpful.',
+        model: OPENAI_MODEL,
+      });
+
+      const runner = createRunner([{
+        ...OPENAI_RESPONSES_API_CHAT_RESPONSE,
+        temperature: 0.7,
+        top_p: 0.9,
+      }]);
+      await runner.run(agent, 'Hello');
+
+      const spans = getTestSpans();
+      const chatSpan = spans.find((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      expect(chatSpan).toBeDefined();
+      expect(chatSpan!.attributes[ATTR_GEN_AI_REQUEST_TEMPERATURE]).toBe(0.7);
+      expect(chatSpan!.attributes[ATTR_GEN_AI_REQUEST_TOP_P]).toBe(0.9);
+    });
+  });
+
+  describe('system instructions schema', function () {
+    it('validates system instructions against OTel GenAI schema', async () => {
+      const agent = new Agent({
+        name: 'SchemaAgent',
+        instructions: 'You are a helpful assistant.',
+        model: OPENAI_MODEL,
+      });
+
+      const runner = createRunner([{
+        ...OPENAI_RESPONSES_API_CHAT_RESPONSE,
+        instructions: 'You are a helpful assistant.',
+      }]);
+      await runner.run(agent, 'Hello');
+
+      const spans = getTestSpans();
+      const chatSpan = spans.find((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      expect(chatSpan).toBeDefined();
+
+      const sysInstr = chatSpan!.attributes[ATTR_GEN_AI_SYSTEM_INSTRUCTIONS] as string | undefined;
+      expect(sysInstr).toBeDefined();
+      const parsed = JSON.parse(sysInstr!);
+      await validateOtelGenaiSchema(parsed, 'gen-ai-system-instructions');
+      expect(parsed[0].content).toBe('You are a helpful assistant.');
+    });
+  });
+
+  describe('tool execution error', function () {
+    it('records error when tool execution fails', async () => {
+      const failingTool = tool({
+        name: 'failing_tool',
+        description: 'A tool that fails',
+        parameters: z.object({ input: z.string() }),
+        execute: async () => { throw new Error('Tool execution failed'); },
+      });
+
+      const agent = new Agent({
+        name: 'ErrorToolAgent',
+        instructions: 'Use tools.',
+        model: OPENAI_MODEL,
+        tools: [failingTool],
+      });
+
+      const runner = createRunner([OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE, OPENAI_RESPONSES_API_CHAT_RESPONSE]);
+      try {
+        await runner.run(agent, 'Do something');
+      } catch {
+        // expected
+      }
+
+      const spans = getTestSpans();
+      const errorSpans = spans.filter((s: ReadableSpan) => s.status.code === SpanStatusCode.ERROR);
+      expect(errorSpans.length).toBeGreaterThanOrEqual(1);
     });
   });
 });

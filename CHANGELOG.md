@@ -13,6 +13,7 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix: register custom instrumentations in OTEL_NODE_ENABLED_INSTRUMENTATIONS default
 - feat(instrumentation-openai-agents): Add native OpenAI Agents instrumentation support
   ([#401](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/401))
 - feat(instrumentation-vercel-ai): Add native Vercel AI instrumentation support

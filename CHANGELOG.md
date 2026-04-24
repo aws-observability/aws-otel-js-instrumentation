@@ -14,6 +14,7 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 ## Unreleased
 
 - feat: add GenAiNestedClientSpanProcessor to deduplicate nested CLIENT spans
+  ([#413](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/413))
 - feat(instrumentation-openai-agents): Add native OpenAI Agents instrumentation support
   ([#401](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/401))
 - feat(instrumentation-vercel-ai): Add native Vercel AI instrumentation support

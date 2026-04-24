@@ -132,6 +132,21 @@ export const LLO_PATTERNS: { [key: string]: PatternConfig } = {
     role: ROLE_USER,
     source: 'prompt',
   },
+  'gen_ai.input.messages': {
+    type: PatternType.DIRECT,
+    role: ROLE_USER,
+    source: 'input',
+  },
+  'gen_ai.output.messages': {
+    type: PatternType.DIRECT,
+    role: ROLE_ASSISTANT,
+    source: 'output',
+  },
+  'gen_ai.system_instructions': {
+    type: PatternType.DIRECT,
+    role: ROLE_SYSTEM,
+    source: 'prompt',
+  },
 };
 
 /**

@@ -40,6 +40,9 @@ describe('TestLLOHandlerEvents', () => {
       'gen_ai.agent.actual_output': 'agent output',
       'crewai.crew.tasks_output': 'tasks output',
       'crewai.crew.result': 'crew result',
+      'gen_ai.input.messages': 'structured input',
+      'gen_ai.output.messages': 'structured output',
+      'gen_ai.system_instructions': 'system instructions',
     };
 
     const span = testBase.createMockSpan(attributes);
@@ -66,7 +69,7 @@ describe('TestLLOHandlerEvents', () => {
     expect(eventBody.output.messages).toBeDefined();
 
     const inputMessages = eventBody.input.messages;
-    expect(inputMessages.length).toBe(2);
+    expect(inputMessages.length).toBe(4);
 
     const userPrompt = inputMessages.find((msg: any) => msg.content === 'prompt content');
     expect(userPrompt).toBeDefined();
@@ -76,8 +79,16 @@ describe('TestLLOHandlerEvents', () => {
     expect(traceloopInput).toBeDefined();
     expect(traceloopInput.role).toBe('user');
 
+    const structuredInput = inputMessages.find((msg: any) => msg.content === 'structured input');
+    expect(structuredInput).toBeDefined();
+    expect(structuredInput.role).toBe('user');
+
+    const systemInstructions = inputMessages.find((msg: any) => msg.content === 'system instructions');
+    expect(systemInstructions).toBeDefined();
+    expect(systemInstructions.role).toBe('system');
+
     const outputMessages = eventBody.output.messages;
-    expect(outputMessages.length).toBeGreaterThanOrEqual(3);
+    expect(outputMessages.length).toBeGreaterThanOrEqual(5);
 
     const completion = outputMessages.find((msg: any) => msg.content === 'completion content');
     expect(completion).toBeDefined();
@@ -86,6 +97,10 @@ describe('TestLLOHandlerEvents', () => {
     const agentOutput = outputMessages.find((msg: any) => msg.content === 'agent output');
     expect(agentOutput).toBeDefined();
     expect(agentOutput.role).toBe('assistant');
+
+    const structuredOutput = outputMessages.find((msg: any) => msg.content === 'structured output');
+    expect(structuredOutput).toBeDefined();
+    expect(structuredOutput.role).toBe('assistant');
   });
 
   /**
@@ -105,6 +120,9 @@ describe('TestLLOHandlerEvents', () => {
       'input.value': 'How do transformers work?',
       'output.value': 'Transformers are a type of neural network architecture...',
       'crewai.crew.result': 'Task completed successfully',
+      'gen_ai.input.messages': 'OTel input messages',
+      'gen_ai.output.messages': 'OTel output messages',
+      'gen_ai.system_instructions': 'OTel system instructions',
     };
 
     const span = testBase.createMockSpan(attributes);
@@ -130,6 +148,8 @@ describe('TestLLOHandlerEvents', () => {
     expect(inputContents).toContain('What is machine learning?');
     expect(inputContents).toContain('Explain neural networks');
     expect(inputContents).toContain('How do transformers work?');
+    expect(inputContents).toContain('OTel input messages');
+    expect(inputContents).toContain('OTel system instructions');
 
     // Verify output messages from all frameworks
     const outputMessages = eventBody.output.messages;
@@ -139,6 +159,7 @@ describe('TestLLOHandlerEvents', () => {
     expect(outputContents).toContain('Neural networks are computing systems...');
     expect(outputContents).toContain('Transformers are a type of neural network architecture...');
     expect(outputContents).toContain('Task completed successfully');
+    expect(outputContents).toContain('OTel output messages');
 
     inputMessages.forEach((msg: any) => {
       expect(['user', 'system']).toContain(msg.role);

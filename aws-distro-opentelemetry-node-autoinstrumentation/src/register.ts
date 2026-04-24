@@ -68,7 +68,9 @@ export function setAwsDefaultEnvironmentVariables() {
   if (isAgentObservabilityEnabled()) {
     if (!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
       // Assume users only need aws-sdk and aws-lambda instrumentations, as well as
-      // instrumentations that are manually set-up outside of OpenTelemetry
+      // instrumentations that are manually set-up outside of OpenTelemetry.
+      // Our custom instrumentation short names are added after getNodeAutoInstrumentations()
+      // to avoid upstream logging "Provided instrumentation name not found" warnings.
       process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = 'aws-lambda,aws-sdk,http';
     }
 

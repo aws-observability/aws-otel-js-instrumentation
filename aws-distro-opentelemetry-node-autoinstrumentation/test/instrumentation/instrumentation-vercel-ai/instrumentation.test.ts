@@ -3,6 +3,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { SpanKind } from '@opentelemetry/api';
 import { instrumentation, ensureSpanProcessor } from './load-instrumentation';
 import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-utils';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
@@ -24,6 +25,7 @@ import {
   ATTR_GEN_AI_TOOL_TYPE,
   ATTR_GEN_AI_TOOL_CALL_ARGUMENTS,
   ATTR_GEN_AI_TOOL_CALL_RESULT,
+  ATTR_GEN_AI_TOOL_DEFINITIONS,
   ATTR_GEN_AI_OUTPUT_TYPE,
   GEN_AI_PROVIDER_NAME_VALUE_OPENAI,
 } from '../../../src/instrumentation/common/semconv';
@@ -137,6 +139,7 @@ describe('generateText basic chat spans', function () {
       expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(pc.expectedOutputTokens);
       expect(span.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
       expect(span.attributes[ATTR_GEN_AI_OUTPUT_TYPE]).toBe('text');
+      expect(span.kind).toBe(SpanKind.CLIENT);
     });
   }
 
@@ -267,6 +270,23 @@ describe('generateText tool calls', function () {
       expect(toolSpan.attributes[ATTR_GEN_AI_TOOL_TYPE]).toBe('function');
       expect(toolSpan.attributes[ATTR_GEN_AI_TOOL_CALL_ARGUMENTS]).toBeDefined();
       expect(toolSpan.attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBeDefined();
+      expect(toolSpan.kind).toBe(SpanKind.INTERNAL);
+
+      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      const toolDefs = chatSpans
+        .map((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string)
+        .find(v => v != null);
+      expect(toolDefs).toBeDefined();
+      const parsed = JSON.parse(toolDefs!);
+      expect(Array.isArray(parsed)).toBe(true);
+      const def = parsed.find((t: any) => t.name === 'get_weather');
+      expect(def).toBeDefined();
+      expect(def.type).toBe('function');
+      expect(def.description).toBe('Get weather for a location');
+      expect(def.parameters).toBeDefined();
+      expect(def.parameters.$schema).toBeUndefined();
+      expect(def.parameters.additionalProperties).toBeUndefined();
+      expect(def.inputSchema).toBeUndefined();
 
       resetMemoryExporter();
     });
@@ -337,6 +357,7 @@ describe('generateText agent detection', function () {
       const spans = getTestSpans();
       const agentSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent');
       expect(agentSpans.length).toBeGreaterThanOrEqual(1);
+      expect(agentSpans[0].kind).toBe(SpanKind.INTERNAL);
 
       resetMemoryExporter();
     });

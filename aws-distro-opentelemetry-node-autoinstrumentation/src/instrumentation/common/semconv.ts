@@ -41,7 +41,9 @@ export const ATTR_GEN_AI_OUTPUT_TYPE = 'gen_ai.output.type';
 export const GEN_AI_OPERATION_NAME_VALUE_CHAT = 'chat';
 export const GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS = 'embeddings';
 export const GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL = 'execute_tool';
+export const GEN_AI_OPERATION_NAME_VALUE_GENERATE_CONTENT = 'generate_content';
 export const GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT = 'invoke_agent';
+export const GEN_AI_OPERATION_NAME_VALUE_RETRIEVAL = 'retrieval';
 export const GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION = 'text_completion';
 
 export const GEN_AI_OUTPUT_TYPE_VALUE_TEXT = 'text';

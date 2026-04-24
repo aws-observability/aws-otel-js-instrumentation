@@ -4,6 +4,7 @@
 import { diag } from '@opentelemetry/api';
 
 const AGENT_OBSERVABILITY_ENABLED = 'AGENT_OBSERVABILITY_ENABLED';
+export const OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS';
 
 // Bypass `readonly` restriction of a Type.
 // Workaround provided from official TypeScript docs:
@@ -55,8 +56,6 @@ export const getAwsRegionFromEnvironment = (): string | undefined => {
 
   return undefined;
 };
-
-export const OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS';
 
 export const parseOtelBaggageKeysEnvVar = (): Set<string> => {
   const raw = (process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] || '').trim();

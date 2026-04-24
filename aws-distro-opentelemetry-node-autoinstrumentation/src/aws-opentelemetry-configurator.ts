@@ -319,15 +319,17 @@ export class AwsOpentelemetryConfigurator {
   }
 
   static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
-    // Propagates baggage entries matching OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS into span attributes.
     const baggageKeys: Set<string> = parseOtelBaggageKeysEnvVar();
 
     if (isAgentObservabilityEnabled()) {
-      // We always send 100% spans to Genesis platform for agent observability because
+      // We always send 100% spans to Bedrock AgentCore platform for agent observability because
       // AI applications typically have low throughput traffic patterns and require
       // comprehensive monitoring to catch subtle failure modes like hallucinations
       // and quality degradation that sampling could miss.
       this.exportUnsampledSpanForAgentObservability(spanProcessors, resource);
+
+      // Add session.id baggage attribute to span attributes to support AI Agent use cases
+      // enabling session ID tracking in spans.
       baggageKeys.add('session.id');
     }
 

@@ -46,7 +46,7 @@ import {
   GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
   GEN_AI_PROVIDER_NAME_VALUE_OPENAI,
 } from '../common/semconv';
-import { AttributeMapping, serializeToJson } from '../common/instrumentation-utils';
+import { AttributeMapping, serializeToJson, tryParseJson } from '../common/instrumentation-utils';
 
 interface SpanEntry {
   otelSpan: OtelSpan;
@@ -330,7 +330,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
               type: 'tool_call',
               id: item.callId ?? item.call_id ?? null,
               name: item.name ?? '',
-              arguments: item.arguments ?? '',
+              arguments: tryParseJson(item.arguments ?? ''),
             },
           ],
         };
@@ -369,7 +369,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
           type: 'tool_call',
           id: item.call_id ?? item.id ?? null,
           name: item.name ?? '',
-          arguments: item.arguments ?? '',
+          arguments: tryParseJson(item.arguments ?? ''),
         });
       }
     }

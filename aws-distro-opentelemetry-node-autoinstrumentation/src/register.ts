@@ -71,10 +71,6 @@ export function setAwsDefaultEnvironmentVariables() {
 
   if (isAgentObservabilityEnabled()) {
     if (!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
-      // Assume users only need aws-sdk and aws-lambda instrumentations, as well as
-      // instrumentations that are manually set-up outside of OpenTelemetry.
-      // Our custom instrumentation short names are added after getNodeAutoInstrumentations()
-      // to avoid upstream logging "Provided instrumentation name not found" warnings.
       process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = 'aws-lambda,aws-sdk,http';
     }
 
@@ -135,6 +131,17 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
   },
 };
 export const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
+
+const CUSTOM_SHORT_NAMES = [LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME];
+if (process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
+  const enabled = process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS.split(',').map(s => s.trim());
+  for (const name of CUSTOM_SHORT_NAMES) {
+    if (!enabled.includes(name)) {
+      enabled.push(name);
+    }
+  }
+  process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = enabled.join(',');
+}
 
 const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
 if (!isInstrumentationDisabled(LANGCHAIN_SHORT_NAME)) {

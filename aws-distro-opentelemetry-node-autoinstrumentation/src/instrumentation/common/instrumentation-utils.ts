@@ -56,6 +56,14 @@ export interface AttributeMapping {
   transform?: (value: any, attrs: Record<string, any>) => any;
 }
 
+export function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
 export function serializeToJson(value: unknown, maxDepth: number = 10): string {
   const seen = new WeakSet<object>();
   const sanitize = (obj: unknown, depth: number): unknown => {

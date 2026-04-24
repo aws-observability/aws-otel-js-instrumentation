@@ -24,6 +24,10 @@ import {
   LangChainInstrumentation,
   INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME,
 } from './instrumentation/instrumentation-langchain/instrumentation';
+import {
+  VercelAIInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
+} from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, isInstrumentationDisabled } from './utils';
 
@@ -64,7 +68,9 @@ export function setAwsDefaultEnvironmentVariables() {
   if (isAgentObservabilityEnabled()) {
     if (!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
       // Assume users only need aws-sdk and aws-lambda instrumentations, as well as
-      // instrumentations that are manually set-up outside of OpenTelemetry
+      // instrumentations that are manually set-up outside of OpenTelemetry.
+      // Our custom instrumentation short names are added after getNodeAutoInstrumentations()
+      // to avoid upstream logging "Provided instrumentation name not found" warnings.
       process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = 'aws-lambda,aws-sdk,http';
     }
 
@@ -129,6 +135,9 @@ export const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(i
 const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
 if (!isInstrumentationDisabled(LANGCHAIN_SHORT_NAME)) {
   instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
+}
+if (!isInstrumentationDisabled(VERCEL_AI_SHORT_NAME)) {
+  instrumentations.push(new VercelAIInstrumentation({ captureMessageContent }));
 }
 
 // Apply instrumentation patches

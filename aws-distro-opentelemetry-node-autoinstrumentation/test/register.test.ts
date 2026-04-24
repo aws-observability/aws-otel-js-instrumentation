@@ -7,11 +7,18 @@ import { spawnSync, SpawnSyncReturns } from 'child_process';
 import expect from 'expect';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import * as sinon from 'sinon';
+import { trace } from '@opentelemetry/api';
+import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base';
 import {
   LangChainInstrumentation,
   INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME,
   INSTRUMENTATION_NAME as LANGCHAIN_NAME,
 } from '../src/instrumentation/instrumentation-langchain/instrumentation';
+import {
+  VercelAIInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
+  INSTRUMENTATION_NAME as VERCEL_AI_NAME,
+} from '../src/instrumentation/instrumentation-vercel-ai/instrumentation';
 
 // The OpenTelemetry Authors code
 // Extend register.test.ts functionality to also test exported span with Application Signals enabled
@@ -94,6 +101,25 @@ describe('Register', function () {
     };
 
     testInstrumentation(LangChainInstrumentation, LANGCHAIN_NAME, LANGCHAIN_SHORT_NAME);
+    testInstrumentation(VercelAIInstrumentation, VERCEL_AI_NAME, VERCEL_AI_SHORT_NAME);
+
+    it('Vercel AI auto-registers VercelAISpanProcessor', () => {
+      const provider = new BasicTracerProvider();
+      trace.setGlobalTracerProvider(provider);
+
+      const instr = new VercelAIInstrumentation();
+      instr.setTracerProvider(trace.getTracerProvider() as any);
+
+      const delegate = (trace.getTracerProvider() as any).getDelegate?.() ?? provider;
+      const processors = delegate._activeSpanProcessor?._spanProcessors ?? [];
+      assert.ok(
+        processors.some((p: any) => p.constructor.name === 'VercelAISpanProcessor'),
+        'VercelAISpanProcessor should be auto-registered'
+      );
+
+      instr.disable();
+      trace.disable();
+    });
   });
 
   it('Requires without error', () => {

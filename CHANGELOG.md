@@ -13,8 +13,6 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
-- feat(agent-observability): register custom instrumentations in OTEL_NODE_ENABLED_INSTRUMENTATIONS default
-  ([#414](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/414))
 - feat: add GenAiNestedClientSpanProcessor to deduplicate nested CLIENT spans
   ([#413](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/413))
 - fix: Respect OTEL_EXPORTER_OTLP_ENDPOINT in agent observability endpoint configuration

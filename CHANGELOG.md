@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix(agent-observability): fall back to OTEL_EXPORTER_OTLP_ENDPOINT for unsampled spans
+  ([#420](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/420))
 - feat(agent-observability): add GenAiNestedClientSpanProcessor to deduplicate nested CLIENT spans
   ([#413](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/413))
 - feat: add BaggageSpanProcessor by default with OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS support

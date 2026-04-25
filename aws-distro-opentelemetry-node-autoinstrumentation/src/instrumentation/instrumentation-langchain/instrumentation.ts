@@ -11,7 +11,11 @@ import {
 } from '@opentelemetry/instrumentation';
 import { LIB_VERSION } from '../../version';
 import { LangChainInstrumentationConfig } from './types';
-import { isAgenticInstrumentationOptIn, isInstrumentationDisabled, findInstrumentation } from '../../utils';
+import {
+  isAgenticInstrumentationOptIn,
+  isInstrumentationDisabled,
+  detectConflictingInstrumentation,
+} from '../../utils';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-langchain';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_langchain';
@@ -41,7 +45,7 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     }
 
     if (!isAgenticInstrumentationOptIn()) {
-      const conflict = findInstrumentation([['langchain'], ['langgraph']]);
+      const conflict = detectConflictingInstrumentation(INSTRUMENTATION_SHORT_NAME);
       if (conflict) {
         this._diag.info(
           `Skipping ${INSTRUMENTATION_NAME}: third-party '${conflict}' detected. ` +

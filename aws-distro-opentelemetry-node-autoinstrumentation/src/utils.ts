@@ -1,8 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import * as fs from 'fs';
-import * as path from 'path';
 import { diag } from '@opentelemetry/api';
 
 const AGENT_OBSERVABILITY_ENABLED = 'AGENT_OBSERVABILITY_ENABLED';
@@ -97,32 +95,31 @@ export const isInstrumentationDisabled = (shortName: string): boolean => {
   return false;
 };
 
-export const findInstrumentation = (keywordGroups: string[][], lookupPaths?: string[]): string | undefined => {
-  const matches = (name: string) =>
-    name.includes('instrumentation') && keywordGroups.some(group => group.every(k => name.includes(k)));
+const CONFLICTING_INSTRUMENTATIONS: Record<string, string[]> = {
+  aws_langchain: [
+    '@traceloop/instrumentation-langchain',
+    '@arizeai/openinference-instrumentation-langchain',
+    '@arizeai/openinference-instrumentation-langchain-v0',
+    '@microsoft/agents-a365-observability-extensions-langchain',
+    '@langfuse/langchain',
+  ],
+  aws_openai_agents: [
+    '@respan/instrumentation-openai-agents',
+    '@microsoft/agents-a365-observability-extensions-openai',
+  ],
+  aws_vercel_ai: ['@monocle.sh/instrumentation-vercel-ai', '@respan/instrumentation-vercel'],
+};
 
-  for (const nmDir of lookupPaths || require.resolve.paths('_') || []) {
-    let entries: string[];
+export const detectConflictingInstrumentation = (shortName: string): string | undefined => {
+  const conflicts = CONFLICTING_INSTRUMENTATIONS[shortName];
+  if (!conflicts) return undefined;
+
+  for (const pkg of conflicts) {
     try {
-      entries = fs.readdirSync(nmDir);
+      require.resolve(pkg);
+      return pkg;
     } catch {
       continue;
-    }
-
-    for (const entry of entries) {
-      if (entry.startsWith('@')) {
-        if (entry === '@aws' || entry === '@opentelemetry') continue;
-        let pkgs: string[];
-        try {
-          pkgs = fs.readdirSync(path.join(nmDir, entry));
-        } catch {
-          continue;
-        }
-        const match = pkgs.find(matches);
-        if (match) return `${entry}/${match}`;
-      } else if (matches(entry)) {
-        return entry;
-      }
     }
   }
   return undefined;

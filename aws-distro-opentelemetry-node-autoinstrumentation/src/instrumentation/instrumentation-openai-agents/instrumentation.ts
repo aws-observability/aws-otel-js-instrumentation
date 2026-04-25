@@ -12,7 +12,11 @@ import {
 import { LIB_VERSION } from '../../version';
 import { OpenAIAgentsInstrumentationConfig } from './types';
 import { OpenTelemetryTracingProcessor } from './tracing-processor';
-import { isAgenticInstrumentationOptIn, isInstrumentationDisabled, findInstrumentation } from '../../utils';
+import {
+  isAgenticInstrumentationOptIn,
+  isInstrumentationDisabled,
+  detectConflictingInstrumentation,
+} from '../../utils';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-openai-agents';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_openai_agents';
@@ -42,7 +46,7 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     }
 
     if (!isAgenticInstrumentationOptIn()) {
-      const conflict = findInstrumentation([['openai', 'agents']]);
+      const conflict = detectConflictingInstrumentation(INSTRUMENTATION_SHORT_NAME);
       if (conflict) {
         this._diag.info(
           `Skipping ${INSTRUMENTATION_NAME}: third-party '${conflict}' detected. ` +

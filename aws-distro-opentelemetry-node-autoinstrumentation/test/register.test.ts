@@ -135,6 +135,24 @@ describe('Register', function () {
           expectedDisabled: true,
         },
         {
+          name: 'disables LangChain when @arizeai/openinference-instrumentation-langchain-v0 is installed',
+          fakePackage: '@arizeai/openinference-instrumentation-langchain-v0',
+          instrumentationName: LANGCHAIN_NAME,
+          expectedDisabled: true,
+        },
+        {
+          name: 'disables LangChain when @microsoft/agents-a365-observability-extensions-langchain is installed',
+          fakePackage: '@microsoft/agents-a365-observability-extensions-langchain',
+          instrumentationName: LANGCHAIN_NAME,
+          expectedDisabled: true,
+        },
+        {
+          name: 'disables LangChain when @langfuse/langchain is installed',
+          fakePackage: '@langfuse/langchain',
+          instrumentationName: LANGCHAIN_NAME,
+          expectedDisabled: true,
+        },
+        {
           name: 'enables LangChain with @traceloop/instrumentation-langchain when opt-in',
           fakePackage: '@traceloop/instrumentation-langchain',
           instrumentationName: LANGCHAIN_NAME,
@@ -142,11 +160,29 @@ describe('Register', function () {
           optIn: true,
         },
         {
-          name: 'enables LangChain with @arizeai/openinference-instrumentation-langchain when opt-in',
-          fakePackage: '@arizeai/openinference-instrumentation-langchain',
-          instrumentationName: LANGCHAIN_NAME,
+          name: 'disables OpenAI Agents when @respan/instrumentation-openai-agents is installed',
+          fakePackage: '@respan/instrumentation-openai-agents',
+          instrumentationName: OPENAI_AGENTS_NAME,
+          expectedDisabled: true,
+        },
+        {
+          name: 'disables OpenAI Agents when @microsoft/agents-a365-observability-extensions-openai is installed',
+          fakePackage: '@microsoft/agents-a365-observability-extensions-openai',
+          instrumentationName: OPENAI_AGENTS_NAME,
+          expectedDisabled: true,
+        },
+        {
+          name: 'enables OpenAI Agents with @respan/instrumentation-openai-agents when opt-in',
+          fakePackage: '@respan/instrumentation-openai-agents',
+          instrumentationName: OPENAI_AGENTS_NAME,
           expectedDisabled: false,
           optIn: true,
+        },
+        {
+          name: 'does not disable OpenAI Agents when @traceloop/instrumentation-openai is installed',
+          fakePackage: '@traceloop/instrumentation-openai',
+          instrumentationName: OPENAI_AGENTS_NAME,
+          expectedDisabled: false,
         },
         {
           name: 'disables Vercel AI when @monocle.sh/instrumentation-vercel-ai is installed',
@@ -167,25 +203,6 @@ describe('Register', function () {
           expectedDisabled: false,
           optIn: true,
         },
-        {
-          name: 'enables Vercel AI with @respan/instrumentation-vercel when opt-in',
-          fakePackage: '@respan/instrumentation-vercel',
-          instrumentationName: VERCEL_AI_NAME,
-          expectedDisabled: false,
-          optIn: true,
-        },
-        {
-          name: 'does not disable OpenAI Agents when @traceloop/instrumentation-openai is installed',
-          fakePackage: '@traceloop/instrumentation-openai',
-          instrumentationName: OPENAI_AGENTS_NAME,
-          expectedDisabled: false,
-        },
-        {
-          name: 'does not disable OpenAI Agents when @arizeai/openinference-instrumentation-openai is installed',
-          fakePackage: '@arizeai/openinference-instrumentation-openai',
-          instrumentationName: OPENAI_AGENTS_NAME,
-          expectedDisabled: false,
-        },
       ];
 
       for (const tc of conflictTestCases) {
@@ -196,7 +213,9 @@ describe('Register', function () {
             const path = require('path');
             const os = require('os');
             const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'otel-conflict-'));
-            fs.mkdirSync(path.join(tmpDir, '${tc.fakePackage}'), { recursive: true });
+            const pkgDir = path.join(tmpDir, '${tc.fakePackage}');
+            fs.mkdirSync(pkgDir, { recursive: true });
+            fs.writeFileSync(path.join(pkgDir, 'index.js'), '');
             process.env.NODE_PATH = tmpDir;
             require('module').Module._initPaths();
             const register = require('../build/src/register.js');

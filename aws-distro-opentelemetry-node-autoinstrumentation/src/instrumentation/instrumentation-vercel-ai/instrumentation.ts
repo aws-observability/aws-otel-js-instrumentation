@@ -8,7 +8,11 @@ import { InstrumentationBase, InstrumentationNodeModuleDefinition } from '@opent
 import { LIB_VERSION } from '../../version';
 import { VercelAIInstrumentationConfig } from './types';
 import { VercelAISpanProcessor } from './span-processor';
-import { isAgenticInstrumentationOptIn, isInstrumentationDisabled, findInstrumentation } from '../../utils';
+import {
+  isAgenticInstrumentationOptIn,
+  isInstrumentationDisabled,
+  detectConflictingInstrumentation,
+} from '../../utils';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-vercel-ai';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_vercel_ai';
@@ -50,7 +54,7 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     }
 
     if (!isAgenticInstrumentationOptIn()) {
-      const conflict = findInstrumentation([['vercel']]);
+      const conflict = detectConflictingInstrumentation(INSTRUMENTATION_SHORT_NAME);
       if (conflict) {
         this._diag.info(
           `Skipping ${INSTRUMENTATION_NAME}: third-party '${conflict}' detected. ` +

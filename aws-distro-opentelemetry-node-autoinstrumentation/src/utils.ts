@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { diag } from '@opentelemetry/api';
+import { INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME } from './instrumentation/instrumentation-langchain/instrumentation';
+import { INSTRUMENTATION_SHORT_NAME as OPENAI_AGENTS_SHORT_NAME } from './instrumentation/instrumentation-openai-agents/instrumentation';
+import { INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME } from './instrumentation/instrumentation-vercel-ai/instrumentation';
 
 const AGENT_OBSERVABILITY_ENABLED = 'AGENT_OBSERVABILITY_ENABLED';
 const AWS_AGENTIC_INSTRUMENTATION_OPT_IN = 'AWS_AGENTIC_INSTRUMENTATION_OPT_IN';
@@ -96,18 +99,18 @@ export const isInstrumentationDisabled = (shortName: string): boolean => {
 };
 
 const CONFLICTING_INSTRUMENTATIONS: Record<string, string[]> = {
-  aws_langchain: [
+  [LANGCHAIN_SHORT_NAME]: [
     '@traceloop/instrumentation-langchain',
     '@arizeai/openinference-instrumentation-langchain',
     '@arizeai/openinference-instrumentation-langchain-v0',
     '@microsoft/agents-a365-observability-extensions-langchain',
     '@langfuse/langchain',
   ],
-  aws_openai_agents: [
+  [OPENAI_AGENTS_SHORT_NAME]: [
     '@respan/instrumentation-openai-agents',
     '@microsoft/agents-a365-observability-extensions-openai',
   ],
-  aws_vercel_ai: ['@monocle.sh/instrumentation-vercel-ai', '@respan/instrumentation-vercel'],
+  [VERCEL_AI_SHORT_NAME]: ['@monocle.sh/instrumentation-vercel-ai', '@respan/instrumentation-vercel'],
 };
 
 export const detectConflictingInstrumentation = (shortName: string): string | undefined => {

@@ -1336,6 +1336,18 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     // Cleanup
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
     delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+
+    // Test fallback to OTEL_EXPORTER_OTLP_ENDPOINT
+    const fallbackProcessors: SpanProcessor[] = [];
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4318';
+
+    AwsOpentelemetryConfigurator.exportUnsampledSpanForAgentObservability(fallbackProcessors, emptyResource());
+    expect(fallbackProcessors.length).toEqual(1);
+    expect(fallbackProcessors[0]).toBeInstanceOf(AwsBatchUnsampledSpanProcessor);
+
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
   });
 
   it('ExportUnsampledSpanForAgentObservabilityUsesOtlpAwsSpanExporterTest', () => {

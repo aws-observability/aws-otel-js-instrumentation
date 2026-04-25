@@ -1345,6 +1345,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     AwsOpentelemetryConfigurator.exportUnsampledSpanForAgentObservability(fallbackProcessors, emptyResource());
     expect(fallbackProcessors.length).toEqual(1);
     expect(fallbackProcessors[0]).toBeInstanceOf(AwsBatchUnsampledSpanProcessor);
+    const fallbackExporter = (fallbackProcessors[0] as AwsBatchUnsampledSpanProcessor)['_exporter'];
+    expect(fallbackExporter['endpoint']).toEqual('http://localhost:4318/v1/traces');
 
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
     delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;

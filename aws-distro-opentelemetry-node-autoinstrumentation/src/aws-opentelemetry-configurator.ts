@@ -298,7 +298,10 @@ export class AwsOpentelemetryConfigurator {
       return;
     }
 
-    const tracesEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    let tracesEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+    if (!tracesEndpoint && process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+      tracesEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT.replace(/\/+$/, '') + '/v1/traces';
+    }
 
     if (!tracesEndpoint) {
       diag.warn('No traces endpoint configured for agent observability unsampled spans');

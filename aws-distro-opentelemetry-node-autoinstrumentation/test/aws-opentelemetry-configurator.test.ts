@@ -1350,6 +1350,38 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
     delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+    // Test AWS endpoint via base OTEL_EXPORTER_OTLP_ENDPOINT fallback
+    const awsFallbackProcessors: SpanProcessor[] = [];
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://xray.us-west-2.amazonaws.com';
+
+    AwsOpentelemetryConfigurator.exportUnsampledSpanForAgentObservability(awsFallbackProcessors, emptyResource());
+    expect(awsFallbackProcessors.length).toEqual(1);
+    expect(awsFallbackProcessors[0]).toBeInstanceOf(AwsBatchUnsampledSpanProcessor);
+    const awsFallbackExporter = (awsFallbackProcessors[0] as AwsBatchUnsampledSpanProcessor)['_exporter'];
+    expect(awsFallbackExporter).toBeInstanceOf(OTLPAwsSpanExporter);
+    expect(awsFallbackExporter['endpoint']).toEqual('https://xray.us-west-2.amazonaws.com/v1/traces');
+
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+    // Test precedence: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT wins over OTEL_EXPORTER_OTLP_ENDPOINT
+    const precedenceProcessors: SpanProcessor[] = [];
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+    process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'https://xray.us-east-1.amazonaws.com/v1/traces';
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4318';
+
+    AwsOpentelemetryConfigurator.exportUnsampledSpanForAgentObservability(precedenceProcessors, emptyResource());
+    expect(precedenceProcessors.length).toEqual(1);
+    expect(precedenceProcessors[0]).toBeInstanceOf(AwsBatchUnsampledSpanProcessor);
+    const precedenceExporter = (precedenceProcessors[0] as AwsBatchUnsampledSpanProcessor)['_exporter'];
+    expect(precedenceExporter).toBeInstanceOf(OTLPAwsSpanExporter);
+    expect(precedenceExporter['endpoint']).toEqual('https://xray.us-east-1.amazonaws.com/v1/traces');
+
+    delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+    delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
   });
 
   it('ExportUnsampledSpanForAgentObservabilityUsesOtlpAwsSpanExporterTest', () => {

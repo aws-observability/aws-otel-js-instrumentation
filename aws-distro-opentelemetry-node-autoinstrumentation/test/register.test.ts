@@ -377,7 +377,7 @@ describe('Register', function () {
       expect(process.env.OTEL_TRACES_SAMPLER).toEqual('parentbased_always_on');
       expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('fs,dns');
       expect(process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS).toEqual(
-        'aws-lambda,aws-sdk,http,aws_langchain,aws_openai_agents,aws_vercel_ai'
+        'aws-lambda,aws-sdk,http,undici,aws_langchain,aws_openai_agents,aws_vercel_ai'
       );
       expect(process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED).toEqual('false');
       expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual('https://xray.us-east-1.amazonaws.com/v1/traces');

@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- enhancement(agent-observability): add undici to default enabled instrumentations
+  ([#421](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/421))
 - feat: auto-detect and mutually exclude native vs third-party agentic instrumentors
   ([#417](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/417))
 - fix(agent-observability): fall back to OTEL_EXPORTER_OTLP_ENDPOINT for unsampled spans

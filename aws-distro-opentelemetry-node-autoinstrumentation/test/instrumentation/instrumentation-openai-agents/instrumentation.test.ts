@@ -4,7 +4,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { instrumentation } from './load-instrumentation';
+import { OpenAIAgentsInstrumentation } from '../../../src/instrumentation/instrumentation-openai-agents/instrumentation';
 import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-utils';
+import * as sinon from 'sinon';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import {
@@ -521,6 +523,40 @@ describe('OpenAI Agents Instrumentation', function () {
       const spans = getTestSpans();
       const errorSpans = spans.filter((s: ReadableSpan) => s.status.code === SpanStatusCode.ERROR);
       expect(errorSpans.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('enable override', () => {
+    afterEach(() => {
+      delete process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+      delete process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS;
+      delete process.env.AWS_AGENTIC_INSTRUMENTATION_OPT_IN;
+    });
+
+    it('skips enable when disabled via OTEL_NODE_DISABLED_INSTRUMENTATIONS', () => {
+      process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'aws_openai_agents';
+      const instr = new OpenAIAgentsInstrumentation();
+      const superEnable = sinon.spy(Object.getPrototypeOf(OpenAIAgentsInstrumentation.prototype), 'enable');
+      instr.enable();
+      expect(superEnable.called).toBeFalsy();
+      superEnable.restore();
+    });
+
+    it('skips enable when not in OTEL_NODE_ENABLED_INSTRUMENTATIONS', () => {
+      process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = 'http,aws-sdk';
+      const instr = new OpenAIAgentsInstrumentation();
+      const superEnable = sinon.spy(Object.getPrototypeOf(OpenAIAgentsInstrumentation.prototype), 'enable');
+      instr.enable();
+      expect(superEnable.called).toBeFalsy();
+      superEnable.restore();
+    });
+
+    it('calls super.enable when not disabled and no conflicts', () => {
+      const instr = new OpenAIAgentsInstrumentation();
+      const superEnable = sinon.spy(Object.getPrototypeOf(OpenAIAgentsInstrumentation.prototype), 'enable');
+      instr.enable();
+      expect(superEnable.called).toBeTruthy();
+      superEnable.restore();
     });
   });
 });

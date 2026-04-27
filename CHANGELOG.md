@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat: auto-detect and mutually exclude native vs third-party agentic instrumentors
+  ([#417](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/417))
 - fix(agent-observability): fall back to OTEL_EXPORTER_OTLP_ENDPOINT for unsampled spans
   ([#420](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/420))
 - feat(agent-observability): add GenAiNestedClientSpanProcessor to deduplicate nested CLIENT spans

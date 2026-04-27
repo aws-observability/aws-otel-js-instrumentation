@@ -5,6 +5,8 @@
 
 import { SpanKind } from '@opentelemetry/api';
 import { instrumentation, ensureSpanProcessor } from './load-instrumentation';
+import { VercelAIInstrumentation } from '../../../src/instrumentation/instrumentation-vercel-ai/instrumentation';
+import * as sinon from 'sinon';
 import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-utils';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
@@ -543,5 +545,39 @@ describe('disable/enable', function () {
     });
 
     expect(result.text).toContain('Paris');
+  });
+
+  describe('enable override', () => {
+    afterEach(() => {
+      delete process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+      delete process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS;
+      delete process.env.AWS_AGENTIC_INSTRUMENTATION_OPT_IN;
+    });
+
+    it('skips enable when disabled via OTEL_NODE_DISABLED_INSTRUMENTATIONS', () => {
+      process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'aws_vercel_ai';
+      const instr = new VercelAIInstrumentation();
+      const superEnable = sinon.spy(Object.getPrototypeOf(VercelAIInstrumentation.prototype), 'enable');
+      instr.enable();
+      expect(superEnable.called).toBeFalsy();
+      superEnable.restore();
+    });
+
+    it('skips enable when not in OTEL_NODE_ENABLED_INSTRUMENTATIONS', () => {
+      process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = 'http,aws-sdk';
+      const instr = new VercelAIInstrumentation();
+      const superEnable = sinon.spy(Object.getPrototypeOf(VercelAIInstrumentation.prototype), 'enable');
+      instr.enable();
+      expect(superEnable.called).toBeFalsy();
+      superEnable.restore();
+    });
+
+    it('calls super.enable when not disabled and no conflicts', () => {
+      const instr = new VercelAIInstrumentation();
+      const superEnable = sinon.spy(Object.getPrototypeOf(VercelAIInstrumentation.prototype), 'enable');
+      instr.enable();
+      expect(superEnable.called).toBeTruthy();
+      superEnable.restore();
+    });
   });
 });

@@ -40,7 +40,7 @@ import { Lambda } from '@aws-sdk/client-lambda';
 import * as nock from 'nock';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { getTestSpans } from '@opentelemetry/contrib-test-utils';
-import { instrumentationConfigs } from '../../src/register';
+import * as opentelemetry from '@opentelemetry/sdk-node';
 import { LoggerProvider } from '@opentelemetry/api-logs';
 import { STS } from '@aws-sdk/client-sts';
 import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
@@ -77,12 +77,23 @@ const mockHeaders = {
   'content-type': 'application/json',
 };
 
-const UNPATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
-
-const PATCHED_INSTRUMENTATIONS: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
-applyInstrumentationPatches(PATCHED_INSTRUMENTATIONS);
+let UNPATCHED_INSTRUMENTATIONS: Instrumentation[];
+let PATCHED_INSTRUMENTATIONS: Instrumentation[];
+let instrumentationConfigs: Record<string, any>;
 
 describe('InstrumentationPatchTest', () => {
+  before(() => {
+    const stub = sinon.stub(opentelemetry.NodeSDK.prototype, 'start');
+    const register = require('../../src/register');
+    stub.restore();
+    instrumentationConfigs = register.instrumentationConfigs;
+    UNPATCHED_INSTRUMENTATIONS = getNodeAutoInstrumentations(instrumentationConfigs);
+    PATCHED_INSTRUMENTATIONS = getNodeAutoInstrumentations(instrumentationConfigs);
+    applyInstrumentationPatches(PATCHED_INSTRUMENTATIONS);
+
+    propagation.disable();
+    propagation.setGlobalPropagator(getPropagator());
+  });
   it('SanityTestUnpatchedAwsSdkInstrumentation', () => {
     const awsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(awsSdkInstrumentation);
@@ -1073,6 +1084,7 @@ describe('customExtractor', () => {
 
   before(() => {
     process.env.OTEL_PROPAGATORS = 'baggage,xray,tracecontext';
+    propagation.disable();
     propagation.setGlobalPropagator(getPropagator());
     delete process.env.OTEL_PROPAGATORS;
   });

@@ -21,6 +21,7 @@ export const testTraceId = '0af7651916cd43dd8448eb211c80319c';
 describe('AwsXrayRemoteSampler', () => {
   afterEach(() => {
     sinon.restore();
+    nock.cleanAll();
   });
 
   it('testCreateRemoteSamplerWithEmptyResource', () => {
@@ -111,8 +112,8 @@ describe('AwsXrayRemoteSampler', () => {
   });
 
   it('testLargeReservoir', done => {
-    nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES));
-    nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS));
+    nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES)).persist();
+    nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS)).persist();
     const resource = resourceFromAttributes({
       [SEMRESATTRS_SERVICE_NAME]: 'test-service-name',
       [SEMRESATTRS_CLOUD_PLATFORM]: 'test-cloud-platform',
@@ -154,8 +155,8 @@ describe('AwsXrayRemoteSampler', () => {
   });
 
   it('testSomeReservoir', done => {
-    nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES));
-    nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS));
+    nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES)).persist();
+    nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS)).persist();
     const resource = resourceFromAttributes({
       [SEMRESATTRS_SERVICE_NAME]: 'test-service-name',
       [SEMRESATTRS_CLOUD_PLATFORM]: 'test-cloud-platform',

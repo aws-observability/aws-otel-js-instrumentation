@@ -20,6 +20,18 @@ import { getStringFromEnv, diagLogLevelFromString } from '@opentelemetry/core';
 import { Instrumentation } from '@opentelemetry/instrumentation';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
+import {
+  LangChainInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME,
+} from './instrumentation/instrumentation-langchain/instrumentation';
+import {
+  OpenAIAgentsInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as OPENAI_AGENTS_SHORT_NAME,
+} from './instrumentation/instrumentation-openai-agents/instrumentation';
+import {
+  VercelAIInstrumentation,
+  INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
+} from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled } from './utils';
 
@@ -59,9 +71,9 @@ export function setAwsDefaultEnvironmentVariables() {
 
   if (isAgentObservabilityEnabled()) {
     if (!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
-      // Assume users only need aws-sdk and aws-lambda instrumentations, as well as
-      // instrumentations that are manually set-up outside of OpenTelemetry
-      process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = 'aws-lambda,aws-sdk,http';
+      // Assume users only need aws-sdk, aws-lambda, and our custom GenAI instrumentations,
+      // as well as instrumentations that are manually set-up outside of OpenTelemetry.
+      process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = `aws-lambda,aws-sdk,http,undici,${LANGCHAIN_SHORT_NAME},${OPENAI_AGENTS_SHORT_NAME},${VERCEL_AI_SHORT_NAME}`;
     }
 
     // Set exporter defaults
@@ -90,20 +102,21 @@ export function setAwsDefaultEnvironmentVariables() {
       process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'false';
     }
 
-    // Set OTLP endpoints with AWS region if not already set
-    const region = getAwsRegionFromEnvironment();
-    if (region) {
-      if (!process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
-        process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = `https://xray.${region}.amazonaws.com/v1/traces`;
-      }
+    if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+      const region = getAwsRegionFromEnvironment();
+      if (region) {
+        if (!process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
+          process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = `https://xray.${region}.amazonaws.com/v1/traces`;
+        }
 
-      if (!process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT) {
-        process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = `https://logs.${region}.amazonaws.com/v1/logs`;
+        if (!process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT) {
+          process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = `https://logs.${region}.amazonaws.com/v1/logs`;
+        }
+      } else {
+        diag.error(
+          'AWS region could not be determined. OTLP endpoints will not be automatically configured. Please set AWS_REGION environment variable or configure OTLP endpoints manually.'
+        );
       }
-    } else {
-      diag.error(
-        'AWS region could not be determined. OTLP endpoints will not be automatically configured. Please set AWS_REGION environment variable or configure OTLP endpoints manually.'
-      );
     }
   }
 }
@@ -120,7 +133,12 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
     suppressInternalInstrumentation: true,
   },
 };
-const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
+export const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
+
+const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
+instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
+instrumentations.push(new OpenAIAgentsInstrumentation({ captureMessageContent }));
+instrumentations.push(new VercelAIInstrumentation({ captureMessageContent }));
 
 // Apply instrumentation patches
 applyInstrumentationPatches(instrumentations);

@@ -9,9 +9,10 @@ import { VercelAISpanProcessor } from '../../../src/instrumentation/instrumentat
 const vercelAIInstr = new VercelAIInstrumentation({
   captureMessageContent: false,
 });
-const registered = registerInstrumentationTesting(vercelAIInstr);
+// Cast through unknown due to private field mismatch between @opentelemetry/instrumentation versions
+const registered = registerInstrumentationTesting(vercelAIInstr as unknown as Parameters<typeof registerInstrumentationTesting>[0]);
 
-if (registered !== vercelAIInstr) {
+if ((registered as unknown) !== vercelAIInstr) {
   vercelAIInstr.enable();
 }
 

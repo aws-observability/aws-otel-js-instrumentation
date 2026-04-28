@@ -15,18 +15,15 @@ import { emptyResource, resourceFromAttributes } from '@opentelemetry/resources'
 import { PushMetricExporter } from '@opentelemetry/sdk-metrics';
 import {
   AlwaysOffSampler,
+  AlwaysOnSampler,
   BatchSpanProcessor,
+  ParentBasedSampler,
   ReadableSpan,
   SpanProcessor,
   TraceIdRatioBasedSampler,
 } from '@opentelemetry/sdk-trace-base';
-import {
-  AlwaysOnSampler,
-  NodeTracerProvider,
-  ParentBasedSampler,
-  Sampler,
-  SpanExporter,
-} from '@opentelemetry/sdk-trace-node';
+import type { Sampler, SpanExporter } from '@opentelemetry/sdk-trace-base';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import * as assert from 'assert';
 import expect from 'expect';
 import * as sinon from 'sinon';

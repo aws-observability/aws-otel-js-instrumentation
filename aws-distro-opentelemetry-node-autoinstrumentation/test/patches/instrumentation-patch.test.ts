@@ -924,6 +924,7 @@ describe('InstrumentationPatchTest', () => {
         getLogger: () => {
           return {
             emit: () => {},
+            enabled: () => true,
           };
         },
       };
@@ -941,6 +942,7 @@ describe('InstrumentationPatchTest', () => {
         getLogger: () => {
           return {
             emit: () => {},
+            enabled: () => true,
           };
         },
       };
@@ -958,6 +960,7 @@ describe('InstrumentationPatchTest', () => {
         getLogger: () => {
           return {
             emit: () => {},
+            enabled: () => true,
           };
         },
       };

@@ -6,7 +6,9 @@ import { OpenAIAgentsInstrumentation } from '../../../src/instrumentation/instru
 
 const agentsInstr = new OpenAIAgentsInstrumentation({ captureMessageContent: true });
 // Cast through unknown due to private field mismatch between @opentelemetry/instrumentation versions
-const registered = registerInstrumentationTesting(agentsInstr as unknown as Parameters<typeof registerInstrumentationTesting>[0]);
+const registered = registerInstrumentationTesting(
+  agentsInstr as unknown as Parameters<typeof registerInstrumentationTesting>[0]
+);
 
 if ((registered as unknown) !== agentsInstr) {
   agentsInstr.enable();

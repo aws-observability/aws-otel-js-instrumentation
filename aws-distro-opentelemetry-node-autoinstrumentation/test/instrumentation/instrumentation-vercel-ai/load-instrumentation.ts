@@ -10,7 +10,9 @@ const vercelAIInstr = new VercelAIInstrumentation({
   captureMessageContent: false,
 });
 // Cast through unknown due to private field mismatch between @opentelemetry/instrumentation versions
-const registered = registerInstrumentationTesting(vercelAIInstr as unknown as Parameters<typeof registerInstrumentationTesting>[0]);
+const registered = registerInstrumentationTesting(
+  vercelAIInstr as unknown as Parameters<typeof registerInstrumentationTesting>[0]
+);
 
 if ((registered as unknown) !== vercelAIInstr) {
   vercelAIInstr.enable();

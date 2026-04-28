@@ -280,6 +280,49 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
       expect(exportStub.callCount).toBe(1);
       expect(exportStub.getCall(0).args[0].length).toBe(logCount);
     });
+
+    it('should handle empty buffer gracefully on the timer path', async () => {
+      processor._finishedLogRecords = [];
+      processor._exportOneBatch();
+      await new Promise(resolve => setTimeout(resolve, 10));
+      expect(exportStub.callCount).toBe(0);
+    });
+  });
+
+  describe('error handling', () => {
+    let sandbox!: sinon.SinonSandbox;
+    let processor: any;
+
+    beforeEach(() => {
+      sandbox = sinon.createSandbox();
+      const mockExporter = {
+        export: sandbox.stub().callsFake((_logs: any, cb: any) => cb({ code: ExportResultCode.FAILED })),
+        shutdown: sandbox.stub().resolves(),
+        forceFlush: sandbox.stub().resolves(),
+      } as any;
+      processor = new AwsCloudWatchOtlpBatchLogRecordProcessor(mockExporter, {
+        maxExportBatchSize: 50,
+        exportTimeoutMillis: 5000,
+      });
+    });
+
+    afterEach(() => sandbox.restore());
+
+    it('should handle export failure in forceFlush without throwing', async () => {
+      const testLogs = generateTestLogData('test', 'key', 0, 3, true);
+      processor._finishedLogRecords = testLogs;
+      // Should not throw — errors are routed through globalErrorHandler
+      await (processor as AwsCloudWatchOtlpBatchLogRecordProcessor).forceFlush();
+      expect(processor._finishedLogRecords.length).toBe(0);
+    });
+
+    it('should handle export failure on the timer path without throwing', async () => {
+      const testLogs = generateTestLogData('test', 'key', 0, 3, true);
+      processor._finishedLogRecords = testLogs;
+      processor._exportOneBatch();
+      await processor._currentExport?.exportCompleted?.catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 10));
+    });
   });
 
   function generateTestLogData(

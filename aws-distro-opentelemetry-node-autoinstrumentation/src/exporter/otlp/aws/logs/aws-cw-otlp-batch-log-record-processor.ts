@@ -83,8 +83,7 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
       return;
     }
 
-    const logsToExport: SdkLogRecord[] = this['_finishedLogRecords'].splice(0);
-    this['_finishedLogRecords'] = [];
+    const logsToExport: SdkLogRecord[] = this['_finishedLogRecords'].splice(0, this['_maxExportBatchSize']);
     let batch: SdkLogRecord[] = [];
     let batchDataSize = 0;
     const exportPromises: Promise<void>[] = [];
@@ -106,7 +105,7 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
       exportPromises.push(this._exportBatch(batch));
     }
 
-    await Promise.all(exportPromises).catch();
+    await Promise.all(exportPromises).catch((e: Error) => globalErrorHandler(e));
   }
 
   /**

@@ -28,7 +28,7 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
 
     for (const logRecord of logs) {
       try {
-        process.stdout.write(JSON.stringify(this._toCompactJson(logRecord)) + '\n');
+        process.stdout.write(JSON.stringify(this._buildLogRecord(logRecord)) + '\n');
       } catch (e) {
         diag.debug('Failed to serialize log record with standardized format, falling back to upstream SDK', e);
         this._getFallback().export([logRecord], () => {});
@@ -53,37 +53,15 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
     return this._fallback;
   }
 
-  private _toCompactJson(logRecord: ReadableLogRecord): Record<string, unknown> {
-    // Resource — preserve attribute value types
-    const resourceAttrs: Record<string, unknown> = {};
-    if (logRecord.resource?.attributes) {
-      for (const [key, value] of Object.entries(logRecord.resource.attributes)) {
-        resourceAttrs[key] = value;
-      }
-    }
-
-    // Span context validity check
+  private _buildLogRecord(logRecord: ReadableLogRecord): Record<string, unknown> {
     const spanContext = logRecord.spanContext;
     const isValid =
       spanContext != null && spanContext.traceId !== INVALID_TRACEID && spanContext.spanId !== INVALID_SPANID;
-
-    // Attributes — preserve value types
-    const attrs: Record<string, unknown> = {};
-    if (logRecord.attributes) {
-      for (const [key, value] of Object.entries(logRecord.attributes)) {
-        attrs[key] = value;
-      }
-    }
-
-    // Severity text from severity number (OTel spec names)
-    const severityText = severityNumberToText(logRecord.severityNumber);
-
-    // Instrumentation scope
     const scope = logRecord.instrumentationScope;
 
     return {
       resource: {
-        attributes: resourceAttrs,
+        attributes: logRecord.resource?.attributes ?? {},
         schemaUrl: logRecord.resource?.schemaUrl ?? '',
       },
       scope: {
@@ -93,8 +71,8 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
       },
       body: logRecord.body ?? null,
       severityNumber: logRecord.severityNumber ?? 0,
-      severityText,
-      attributes: attrs,
+      severityText: severityNumberToText(logRecord.severityNumber),
+      attributes: logRecord.attributes ?? {},
       droppedAttributes: logRecord.droppedAttributesCount ?? 0,
       timeUnixNano: hrTimeToNanos(logRecord.hrTime),
       observedTimeUnixNano: hrTimeToNanos(logRecord.hrTimeObserved),

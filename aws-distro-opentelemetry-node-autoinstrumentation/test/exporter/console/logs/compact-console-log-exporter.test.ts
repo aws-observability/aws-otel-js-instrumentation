@@ -60,22 +60,28 @@ describe('CompactConsoleLogRecordExporter', () => {
 
       const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
 
-      // Validate all canonical fields present
-      expect(parsed.resource.attributes['service.name']).toBe('test-service');
-      expect(parsed.resource.schemaUrl).toBe('https://opentelemetry.io/schemas/1.0.0');
-      expect(parsed.body).toBe('Test log message');
-      expect(parsed.severityNumber).toBe(9);
-      expect(parsed.severityText).toBe('INFO');
-      expect(parsed.attributes).toEqual({ key: 'value' });
-      expect(parsed.droppedAttributes).toBe(2);
-      expect(parsed.timeUnixNano).toBe('1000000000000000000');
-      expect(parsed.observedTimeUnixNano).toBe('1000000000000000000');
-      expect(parsed.traceId).toBe('12345678901234567890123456789012');
-      expect(parsed.spanId).toBe('1234567890123456');
-      expect(parsed.flags).toBe(1);
-      expect(parsed.scope.name).toBe('test-scope');
-      expect(parsed.scope.version).toBe('1.0.0');
-      expect(parsed.scope.schemaUrl).toBe('https://opentelemetry.io/schemas/1.0.0');
+      expect(parsed).toEqual({
+        resource: {
+          attributes: { 'service.name': 'test-service' },
+          schemaUrl: 'https://opentelemetry.io/schemas/1.0.0',
+        },
+        scope: {
+          name: 'test-scope',
+          version: '1.0.0',
+          schemaUrl: 'https://opentelemetry.io/schemas/1.0.0',
+        },
+        body: 'Test log message',
+        severityNumber: 9,
+        severityText: 'INFO',
+        attributes: { key: 'value' },
+        droppedAttributes: 2,
+        timeUnixNano: '1000000000000000000',
+        observedTimeUnixNano: '1000000000000000000',
+        traceId: '12345678901234567890123456789012',
+        spanId: '1234567890123456',
+        flags: 1,
+        exportPath: 'console',
+      });
 
       done();
     });

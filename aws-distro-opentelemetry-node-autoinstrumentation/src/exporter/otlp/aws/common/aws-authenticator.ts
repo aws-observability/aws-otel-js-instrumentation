@@ -11,21 +11,7 @@ let dependenciesLoaded = false;
 
 if (getNodeVersion() >= 16) {
   try {
-    // Try loading the full credential provider chain first
-    try {
-      defaultProvider = require('@aws-sdk/credential-provider-node').defaultProvider;
-    } catch {
-      // Fallback: use Lambda environment credentials directly when the credential
-      // provider chain can't be loaded (e.g., webpack externals exclude @aws-sdk)
-      if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-        defaultProvider = () =>
-          Promise.resolve({
-            accessKeyId: process.env.AWS_ACCESS_KEY_ID as string,
-            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY as string,
-            sessionToken: process.env.AWS_SESSION_TOKEN,
-          });
-      }
-    }
+    defaultProvider = require('@aws-sdk/credential-provider-node').defaultProvider;
     Sha256 = require('@aws-crypto/sha256-js').Sha256;
     SignatureV4 = require('@smithy/signature-v4').SignatureV4;
     HttpRequest = require('@smithy/protocol-http').HttpRequest;

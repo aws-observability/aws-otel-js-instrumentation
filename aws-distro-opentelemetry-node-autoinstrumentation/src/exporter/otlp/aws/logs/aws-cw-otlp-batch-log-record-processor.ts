@@ -186,7 +186,11 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
     // Export all sub-batches, replicating the base class bookkeeping
     const exportAll = async () => {
       for (const subBatch of batches) {
-        await this._exportBatch(subBatch);
+        try {
+          await this._exportBatch(subBatch);
+        } catch (e) {
+          globalErrorHandler(e instanceof Error ? e : new Error(String(e)));
+        }
       }
     };
 

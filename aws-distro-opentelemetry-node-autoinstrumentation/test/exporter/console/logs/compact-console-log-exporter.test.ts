@@ -261,6 +261,42 @@ describe('CompactConsoleLogRecordExporter', () => {
     });
   });
 
+  it('should return FAILED after shutdown', done => {
+    exporter.shutdown().then(() => {
+      exporter.export([createMockLogRecord()], result => {
+        expect(result.code).toBe(ExportResultCode.FAILED);
+        expect(stdoutWriteSpy.called).toBeFalsy();
+        done();
+      });
+    });
+  });
+
+  it('should resolve forceFlush', async () => {
+    await expect(exporter.forceFlush()).resolves.toBeUndefined();
+  });
+
+  it('should fall back to ConsoleLogRecordExporter on serialization error', done => {
+    const circular: any = {};
+    circular.self = circular;
+    const badRecord = createMockLogRecord({ attributes: circular });
+
+    exporter.export([badRecord], result => {
+      expect(result.code).toBe(ExportResultCode.SUCCESS);
+      done();
+    });
+  });
+
+  it('should output UNSPECIFIED for null severity number', done => {
+    const logRecord = createMockLogRecord({ severityNumber: undefined as any });
+
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.severityText).toBe('UNSPECIFIED');
+      expect(parsed.severityNumber).toBe(0);
+      done();
+    });
+  });
+
   it('should handle empty resource and scope', done => {
     const logRecord = createMockLogRecord({
       resource: {

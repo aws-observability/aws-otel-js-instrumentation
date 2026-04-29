@@ -12,6 +12,11 @@ import {
 import { LIB_VERSION } from '../../version';
 import { OpenAIAgentsInstrumentationConfig } from './types';
 import { OpenTelemetryTracingProcessor } from './tracing-processor';
+import {
+  isAgenticInstrumentationOptIn,
+  isInstrumentationDisabled,
+  detectConflictingInstrumentation,
+} from '../../utils';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-openai-agents';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_openai_agents';
@@ -32,6 +37,25 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
 
   override setConfig(config: OpenAIAgentsInstrumentationConfig = {}) {
     super.setConfig({ ...config, captureMessageContent: !!config.captureMessageContent });
+  }
+
+  override enable() {
+    if (isInstrumentationDisabled(INSTRUMENTATION_SHORT_NAME)) {
+      this._diag.debug(`${INSTRUMENTATION_NAME} is disabled`);
+      return;
+    }
+
+    if (!isAgenticInstrumentationOptIn()) {
+      const conflict = detectConflictingInstrumentation(INSTRUMENTATION_SHORT_NAME);
+      if (conflict) {
+        this._diag.info(
+          `Skipping ${INSTRUMENTATION_NAME}: third-party '${conflict}' detected. ` +
+            'Set AWS_AGENTIC_INSTRUMENTATION_OPT_IN=true to override.'
+        );
+        return;
+      }
+    }
+    super.enable();
   }
 
   override _updateMetricInstruments() {}

@@ -70,11 +70,12 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
 
   /**
    * Overrides upstream _flushAll method to add AWS CloudWatch size-based batching.
-   * Splits log batches into sub-batches estimated to be at or under the 1 MB limit
-   * for CloudWatch Logs OTLP endpoint.
+   * Drains all buffered log records (matching upstream _flushAll semantics) and exports
+   * them sequentially in _maxExportBatchSize chunks. Within each chunk, sub-batches are
+   * created to stay at or under the 1 MB CloudWatch Logs OTLP endpoint limit.
    *
-   * Estimated data size of exported batches will typically be <= 1 MB except for the case below:
-   * If the estimated data size of an exported batch is ever > 1 MB then the batch size is guaranteed to be 1
+   * Estimated data size of exported sub-batches will typically be <= 1 MB except for the case below:
+   * If the estimated data size of an exported sub-batch is ever > 1 MB then the batch size is guaranteed to be 1
    */
   override async _flushAll(): Promise<void> {
     this['_clearTimer']();
@@ -83,29 +84,51 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
       return;
     }
 
-    const logsToExport: SdkLogRecord[] = this['_finishedLogRecords'].splice(0, this['_maxExportBatchSize']);
-    let batch: SdkLogRecord[] = [];
-    let batchDataSize = 0;
-    const exportPromises: Promise<void>[] = [];
+    // Drain all buffered records, matching upstream _flushAll semantics.
+    let toFlush: SdkLogRecord[] = this['_finishedLogRecords'];
+    this['_finishedLogRecords'] = [];
 
-    for (const logData of logsToExport) {
-      const logSize = AwsCloudWatchOtlpBatchLogRecordProcessor.estimateLogSize(logData);
-
-      if (batch.length > 0 && batchDataSize + logSize > MAX_LOG_REQUEST_BYTE_SIZE) {
-        exportPromises.push(this._exportBatch(batch));
-        batchDataSize = 0;
-        batch = [];
+    // Process in _maxExportBatchSize chunks sequentially, matching upstream back-pressure behavior.
+    while (toFlush.length > 0) {
+      let chunk: SdkLogRecord[];
+      if (toFlush.length <= this['_maxExportBatchSize']) {
+        chunk = toFlush;
+        toFlush = [];
+      } else {
+        chunk = toFlush.splice(0, this['_maxExportBatchSize']);
       }
 
-      batchDataSize += logSize;
-      batch.push(logData);
-    }
+      // Within each chunk, apply size-based sub-batching for CloudWatch's 1 MB limit.
+      const subBatches: SdkLogRecord[][] = [];
+      let batch: SdkLogRecord[] = [];
+      let batchDataSize = 0;
 
-    if (batch.length > 0) {
-      exportPromises.push(this._exportBatch(batch));
-    }
+      for (const logData of chunk) {
+        const logSize = AwsCloudWatchOtlpBatchLogRecordProcessor.estimateLogSize(logData);
 
-    await Promise.all(exportPromises).catch((e: Error) => globalErrorHandler(e));
+        if (batch.length > 0 && batchDataSize + logSize > MAX_LOG_REQUEST_BYTE_SIZE) {
+          subBatches.push(batch);
+          batchDataSize = 0;
+          batch = [];
+        }
+
+        batchDataSize += logSize;
+        batch.push(logData);
+      }
+
+      if (batch.length > 0) {
+        subBatches.push(batch);
+      }
+
+      // Export sub-batches sequentially to maintain back-pressure.
+      for (const subBatch of subBatches) {
+        try {
+          await this._exportBatch(subBatch);
+        } catch (e) {
+          globalErrorHandler(e instanceof Error ? e : new Error(String(e)));
+        }
+      }
+    }
   }
 
   /**

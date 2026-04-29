@@ -225,6 +225,32 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
         expect(call.args[0].length).toBe(expectedBatchSizes[index]);
       });
     });
+
+    it('should drain all records across multiple maxExportBatchSize chunks', async () => {
+      // Use a small maxExportBatchSize to force multiple chunks
+      const smallBatchProcessor = new AwsCloudWatchOtlpBatchLogRecordProcessor(mockExporter, {
+        maxExportBatchSize: 5,
+        exportTimeoutMillis: 5000,
+      });
+
+      const logCount = 12;
+      const logBody = 'test';
+      const testLogs = generateTestLogData(logBody, 'key', 0, logCount, true);
+      (smallBatchProcessor as any)._finishedLogRecords = testLogs;
+
+      await smallBatchProcessor.forceFlush();
+
+      // All 12 records should be drained
+      expect((smallBatchProcessor as any)._finishedLogRecords.length).toBe(0);
+      // 12 small logs all fit under 1 MB, so each chunk of 5 becomes one export call:
+      // chunk 1: 5 logs -> 1 export, chunk 2: 5 logs -> 1 export, chunk 3: 2 logs -> 1 export
+      expect(exportStub.callCount).toBe(3);
+
+      const calls = exportStub.getCalls();
+      expect(calls[0].args[0].length).toBe(5);
+      expect(calls[1].args[0].length).toBe(5);
+      expect(calls[2].args[0].length).toBe(2);
+    });
   });
 
   describe('_exportOneBatch (timer path)', () => {

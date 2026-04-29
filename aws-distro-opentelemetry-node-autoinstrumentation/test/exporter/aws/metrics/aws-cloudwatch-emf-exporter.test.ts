@@ -10,7 +10,8 @@ import { applyInstrumentationPatches } from '../../../../src/patches/instrumenta
 const instrumentations: AwsInstrumentation[] = [new AwsInstrumentation()];
 applyInstrumentationPatches(instrumentations);
 process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = 'http';
-registerInstrumentationTesting(instrumentations[0]);
+// Cast through unknown due to private field mismatch between @opentelemetry/instrumentation versions
+registerInstrumentationTesting(instrumentations[0] as unknown as Parameters<typeof registerInstrumentationTesting>[0]);
 
 import { Attributes, ValueType } from '@opentelemetry/api';
 import {

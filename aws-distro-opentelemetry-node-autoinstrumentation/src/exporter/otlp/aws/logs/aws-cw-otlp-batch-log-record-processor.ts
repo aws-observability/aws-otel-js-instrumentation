@@ -3,7 +3,7 @@
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import type { SdkLogRecord, BufferConfig } from '@opentelemetry/sdk-logs';
 import { AnyValue } from '@opentelemetry/api-logs';
-import { callWithTimeout } from '@opentelemetry/core';
+import { ExportResultCode, globalErrorHandler } from '@opentelemetry/core';
 import { OTLPAwsLogExporter } from './otlp-aws-log-exporter';
 
 /*
@@ -69,30 +69,108 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
   }
 
   /**
-   * Explicitly overrides upstream _flushOneBatch method to add AWS CloudWatch size-based batching.
-   * Returns a list of promise export requests where each promise will be estimated to be at or under
-   * the 1 MB limit for CloudWatch Logs OTLP endpoint.
+   * Overrides upstream _flushAll method to add AWS CloudWatch size-based batching.
+   * Drains all buffered log records (matching upstream _flushAll semantics) and exports
+   * them sequentially in _maxExportBatchSize chunks. Within each chunk, sub-batches are
+   * created to stay at or under the 1 MB CloudWatch Logs OTLP endpoint limit.
    *
-   * Estimated data size of exported batches will typically be <= 1 MB except for the case below:
-   * If the estimated data size of an exported batch is ever > 1 MB then the batch size is guaranteed to be 1
+   * Estimated data size of exported sub-batches will typically be <= 1 MB except for the case below:
+   * If the estimated data size of an exported sub-batch is ever > 1 MB then the batch size is guaranteed to be 1
    */
-  override _flushOneBatch(): Promise<void> {
+  override async _flushAll(): Promise<void> {
     this['_clearTimer']();
 
     if (this['_finishedLogRecords'].length === 0) {
-      return Promise.resolve();
+      return;
     }
 
-    const logsToExport: SdkLogRecord[] = this['_finishedLogRecords'].splice(0, this['_maxExportBatchSize']);
+    // Drain all buffered records, matching upstream _flushAll semantics.
+    let toFlush: SdkLogRecord[] = this['_finishedLogRecords'];
+    this['_finishedLogRecords'] = [];
+
+    // Process in _maxExportBatchSize chunks sequentially, matching upstream back-pressure behavior.
+    while (toFlush.length > 0) {
+      let chunk: SdkLogRecord[];
+      if (toFlush.length <= this['_maxExportBatchSize']) {
+        chunk = toFlush;
+        toFlush = [];
+      } else {
+        chunk = toFlush.splice(0, this['_maxExportBatchSize']);
+      }
+
+      // Within each chunk, apply size-based sub-batching for CloudWatch's 1 MB limit.
+      const subBatches: SdkLogRecord[][] = [];
+      let batch: SdkLogRecord[] = [];
+      let batchDataSize = 0;
+
+      for (const logData of chunk) {
+        const logSize = AwsCloudWatchOtlpBatchLogRecordProcessor.estimateLogSize(logData);
+
+        if (batch.length > 0 && batchDataSize + logSize > MAX_LOG_REQUEST_BYTE_SIZE) {
+          subBatches.push(batch);
+          batchDataSize = 0;
+          batch = [];
+        }
+
+        batchDataSize += logSize;
+        batch.push(logData);
+      }
+
+      if (batch.length > 0) {
+        subBatches.push(batch);
+      }
+
+      // Export sub-batches sequentially to maintain back-pressure.
+      for (const subBatch of subBatches) {
+        try {
+          await this._exportBatch(subBatch);
+        } catch (e) {
+          globalErrorHandler(e instanceof Error ? e : new Error(String(e)));
+        }
+      }
+    }
+  }
+
+  /**
+   * Exports a batch of log records using the exporter with a timeout.
+   */
+  private _exportBatch(batch: SdkLogRecord[]): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error('Timeout'));
+      }, this['_exportTimeoutMillis']);
+
+      this['_exporter'].export(batch, (result: { code: number }) => {
+        clearTimeout(timer);
+        if (result.code === ExportResultCode.SUCCESS) {
+          resolve();
+        } else {
+          reject(new Error('BatchLogRecordProcessor: log record export failed'));
+        }
+      });
+    });
+  }
+
+  /**
+   * Overrides upstream _exportOneBatch to add AWS CloudWatch size-based batching
+   * on the timer-based periodic flush path.
+   */
+  override _exportOneBatch(): void {
+    this['_clearTimer']();
+    const logRecords: SdkLogRecord[] | null = this['_extractBatch']();
+    if (logRecords === null) {
+      return;
+    }
+
+    const batches: SdkLogRecord[][] = [];
     let batch: SdkLogRecord[] = [];
     let batchDataSize = 0;
-    const exportPromises: Promise<void>[] = [];
 
-    for (const logData of logsToExport) {
+    for (const logData of logRecords) {
       const logSize = AwsCloudWatchOtlpBatchLogRecordProcessor.estimateLogSize(logData);
 
       if (batch.length > 0 && batchDataSize + logSize > MAX_LOG_REQUEST_BYTE_SIZE) {
-        exportPromises.push(callWithTimeout(this['_export'](batch), this['_exportTimeoutMillis']));
+        batches.push(batch);
         batchDataSize = 0;
         batch = [];
       }
@@ -102,12 +180,33 @@ export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProc
     }
 
     if (batch.length > 0) {
-      exportPromises.push(callWithTimeout(this['_export'](batch), this['_exportTimeoutMillis']));
+      batches.push(batch);
     }
-    // Explicitly returns Promise<void> because of upstream's method signature for this function
-    return Promise.all(exportPromises)
-      .then(() => {})
-      .catch();
+
+    // Export all sub-batches, replicating the base class bookkeeping
+    const exportAll = async () => {
+      for (const subBatch of batches) {
+        try {
+          await this._exportBatch(subBatch);
+        } catch (e) {
+          globalErrorHandler(e instanceof Error ? e : new Error(String(e)));
+        }
+      }
+    };
+
+    const exportPromise = exportAll();
+    this['_currentExport'] = { exportCompleted: exportPromise, exportScheduled: Promise.resolve() };
+
+    exportPromise
+      .then(() => {
+        this['_currentExport'] = null;
+        this['_maybeStartTimer']();
+      })
+      .catch((error: Error) => {
+        this['_currentExport'] = null;
+        globalErrorHandler(error);
+        this['_maybeStartTimer']();
+      });
   }
 
   /**

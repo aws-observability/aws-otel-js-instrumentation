@@ -57,3 +57,5 @@ ADD THIRD-PARTY-LICENSES ./THIRD-PARTY-LICENSES
 
 COPY --from=builder /usr/src/cp-utility/bin/cp-utility /bin/cp
 COPY --from=build /operator-build/build/workspace /autoinstrumentation
+
+USER 65534:65534

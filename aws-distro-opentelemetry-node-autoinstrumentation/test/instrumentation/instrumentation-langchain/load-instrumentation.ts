@@ -5,12 +5,15 @@ import { registerInstrumentationTesting } from '@opentelemetry/contrib-test-util
 import { LangChainInstrumentation } from '../../../src/instrumentation/instrumentation-langchain/instrumentation';
 
 const langchainInstr = new LangChainInstrumentation();
-const registered = registerInstrumentationTesting(langchainInstr);
+// Cast through unknown due to private field mismatch between @opentelemetry/instrumentation versions
+const registered = registerInstrumentationTesting(
+  langchainInstr as unknown as Parameters<typeof registerInstrumentationTesting>[0]
+);
 
 // If another instrumentation was already registered as the singleton,
 // registerInstrumentationTesting disables ours and returns the existing one.
 // Re-enable ours so that langchain tests produce spans.
-if (registered !== langchainInstr) {
+if ((registered as unknown) !== langchainInstr) {
   langchainInstr.enable();
 }
 

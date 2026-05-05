@@ -13,6 +13,13 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- Fix(lambda-layer): CompactConsoleLogRecordExporter output with CloudWatch OTLP backend schema.
+  Field renames: `timestamp` → `timeUnixNano`, `observedTimestamp` → `observedTimeUnixNano`,
+  `instrumentationScope` → `scope`, `traceFlags` → `flags`. Attribute values preserve native
+  types. Added `exportPath: "console"` discriminator field.
+  ([#392](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/392))
+- Support environment-configured endpoint visibility for HTTP operation names
+  ([#388](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/388))
 - enhancement(agent-observability): add undici to default enabled instrumentations
   ([#421](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/421))
 - feat: auto-detect and mutually exclude native vs third-party agentic instrumentors

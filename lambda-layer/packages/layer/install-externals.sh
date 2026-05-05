@@ -7,7 +7,7 @@ set -euf -o pipefail
 # import-in-the-middle's hook.mjs is used as a module loader for ESM-based handlers and must be available at runtime,
 # so we have to install it a standalone package separate from the bundled layer.
 # require-in-the-middle must also be external because it uses dynamic require() that can't be bundled.
-EXTERNAL_PACKAGES=( "import-in-the-middle" "require-in-the-middle" )
+EXTERNAL_PACKAGES=( "import-in-the-middle" "require-in-the-middle" "@smithy/signature-v4" "@smithy/protocol-http" "@aws-crypto/sha256-js" )
 
 for EXTERNAL_PACKAGE in "${EXTERNAL_PACKAGES[@]}"
 do

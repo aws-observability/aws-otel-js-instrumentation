@@ -85,5 +85,8 @@
   "workspaces": [
     "aws-distro-opentelemetry-node-autoinstrumentation/",
     "exporters/aws-distro-opentelemetry-exporter-xray-udp/"
-  ]
+  ],
+  "overrides": {
+    "protobufjs": "7.5.5"
+  }
 }

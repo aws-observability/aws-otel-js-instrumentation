@@ -26,15 +26,21 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
       return;
     }
 
+    let hasFailures = false;
     for (const logRecord of logs) {
       try {
         process.stdout.write(JSON.stringify(this._buildLogRecord(logRecord)) + '\n');
       } catch (e) {
         diag.debug('Failed to serialize log record with standardized format, falling back to upstream SDK', e);
-        this._getFallback().export([logRecord], () => {});
+        try {
+          process.stdout.write(JSON.stringify(this._getFallback()['_exportInfo'](logRecord)) + '\n');
+        } catch (fallbackError) {
+          diag.debug('Fallback serialization also failed', fallbackError);
+          hasFailures = true;
+        }
       }
     }
-    resultCallback({ code: ExportResultCode.SUCCESS });
+    resultCallback({ code: hasFailures ? ExportResultCode.FAILED : ExportResultCode.SUCCESS });
   }
 
   shutdown(): Promise<void> {
@@ -53,13 +59,14 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
     return this._fallback;
   }
 
+  // Aligns with other ADOT SDKs and the CloudWatch OTLP backend schema.
   private _buildLogRecord(logRecord: ReadableLogRecord): Record<string, unknown> {
     const spanContext = logRecord.spanContext;
     const isValid =
       spanContext != null && spanContext.traceId !== INVALID_TRACEID && spanContext.spanId !== INVALID_SPANID;
     const scope = logRecord.instrumentationScope;
 
-    return {
+    const record: Record<string, unknown> = {
       resource: {
         attributes: logRecord.resource?.attributes ?? {},
         schemaUrl: logRecord.resource?.schemaUrl ?? '',
@@ -71,7 +78,7 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
       },
       body: logRecord.body ?? null,
       severityNumber: logRecord.severityNumber ?? 0,
-      severityText: severityNumberToText(logRecord.severityNumber),
+      severityText: logRecord.severityText || severityNumberToText(logRecord.severityNumber),
       attributes: logRecord.attributes ?? {},
       droppedAttributes: logRecord.droppedAttributesCount ?? 0,
       timeUnixNano: hrTimeToNanos(logRecord.hrTime),
@@ -79,8 +86,13 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
       traceId: isValid ? spanContext!.traceId : '',
       spanId: isValid ? spanContext!.spanId : '',
       flags: spanContext?.traceFlags ?? 0,
-      exportPath: 'console',
     };
+
+    if (process.env.ADOT_TEST_EXPORT_PATH_ENABLED === 'true') {
+      record.exportPath = 'console';
+    }
+
+    return record;
   }
 }
 
@@ -96,10 +108,6 @@ function hrTimeToNanos(hrTime: [number, number] | undefined): string {
   return (BigInt(hrTime[0]) * BigInt(1000000000) + BigInt(hrTime[1])).toString();
 }
 
-/**
- * Map severity number to OTel spec severity text.
- * SeverityNumber enum in JS has bidirectional mapping (e.g. SeverityNumber[9] === "INFO").
- */
 function severityNumberToText(severityNumber: SeverityNumber | undefined): string {
   if (severityNumber == null || severityNumber === SeverityNumber.UNSPECIFIED) {
     return 'UNSPECIFIED';

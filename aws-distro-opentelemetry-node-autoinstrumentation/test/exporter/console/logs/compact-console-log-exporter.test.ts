@@ -80,9 +80,22 @@ describe('CompactConsoleLogRecordExporter', () => {
         traceId: '12345678901234567890123456789012',
         spanId: '1234567890123456',
         flags: 1,
-        exportPath: 'console',
       });
+      expect(parsed.exportPath).toBeUndefined();
 
+      done();
+    });
+  });
+
+  it('should include exportPath when ADOT_TEST_EXPORT_PATH_ENABLED is set', done => {
+    process.env.ADOT_TEST_EXPORT_PATH_ENABLED = 'true';
+    const logRecord = createMockLogRecord();
+
+    exporter.export([logRecord], result => {
+      expect(result.code).toBe(ExportResultCode.SUCCESS);
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.exportPath).toBe('console');
+      delete process.env.ADOT_TEST_EXPORT_PATH_ENABLED;
       done();
     });
   });
@@ -238,7 +251,7 @@ describe('CompactConsoleLogRecordExporter', () => {
       sinon.restore();
       stdoutWriteSpy = sinon.spy(process.stdout, 'write');
       const newExporter = new CompactConsoleLogRecordExporter();
-      const logRecord = createMockLogRecord({ severityNumber: sevNum });
+      const logRecord = createMockLogRecord({ severityNumber: sevNum, severityText: '' });
 
       newExporter.export([logRecord], result => {
         const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
@@ -275,19 +288,39 @@ describe('CompactConsoleLogRecordExporter', () => {
     await expect(exporter.forceFlush()).resolves.toBeUndefined();
   });
 
-  it('should fall back to ConsoleLogRecordExporter on serialization error', done => {
+  it('should fall back to _exportInfo JSON output when _buildLogRecord fails', done => {
+    const originalBuild = (exporter as any)._buildLogRecord;
+    (exporter as any)._buildLogRecord = () => {
+      throw new Error('simulated failure');
+    };
+
+    const logRecord = createMockLogRecord();
+
+    exporter.export([logRecord], result => {
+      expect(result.code).toBe(ExportResultCode.SUCCESS);
+      expect(stdoutWriteSpy.calledOnce).toBeTruthy();
+      const output = stdoutWriteSpy.firstCall.args[0] as string;
+      const parsed = JSON.parse(output);
+      expect(parsed.body).toBe('Test log message');
+      expect(parsed.severityNumber).toBe(SeverityNumber.INFO);
+      (exporter as any)._buildLogRecord = originalBuild;
+      done();
+    });
+  });
+
+  it('should report FAILED when both primary and fallback serialization fail', done => {
     const circular: any = {};
     circular.self = circular;
     const badRecord = createMockLogRecord({ attributes: circular });
 
     exporter.export([badRecord], result => {
-      expect(result.code).toBe(ExportResultCode.SUCCESS);
+      expect(result.code).toBe(ExportResultCode.FAILED);
       done();
     });
   });
 
   it('should output UNSPECIFIED for null severity number', done => {
-    const logRecord = createMockLogRecord({ severityNumber: undefined as any });
+    const logRecord = createMockLogRecord({ severityNumber: undefined as any, severityText: '' });
 
     exporter.export([logRecord], result => {
       const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);

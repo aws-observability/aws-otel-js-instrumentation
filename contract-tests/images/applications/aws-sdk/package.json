@@ -24,6 +24,7 @@
     "@aws-sdk/client-sns": "^3.750.0",
     "@aws-sdk/client-sqs": "^3.750.0",
     "@smithy/node-http-handler": "^4.0.0",
+    "@smithy/client": "4.12.13",
     "jszip": "^3.10.1",
     "node-fetch": "^2.7.0"
   }

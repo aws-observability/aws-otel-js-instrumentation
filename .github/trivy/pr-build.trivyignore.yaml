@@ -11,4 +11,8 @@
 vulnerabilities:
   - id: CVE-2026-33036
     statement: "fast-xml-parser numeric entity expansion DoS. Low risk for ADOT JS: XML parsing only occurs on trusted AWS API responses, not user-supplied input. Fix in PR #369, will ship with next scheduled release. Ticket: V2145663734"
-    expired_at: 2026-05-18
+    expired_at: 2026-06-22
+
+  - id: CVE-2026-44665
+    statement: "fast-xml-builder attribute value quote bypass. Low risk for ADOT JS: XML building only occurs for trusted AWS API request payloads, not user-supplied input. Fix available in 1.1.7."
+    expired_at: 2026-06-22

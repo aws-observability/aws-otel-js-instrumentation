@@ -26,5 +26,8 @@
     "@smithy/node-http-handler": "^4.0.0",
     "jszip": "^3.10.1",
     "node-fetch": "^2.7.0"
+  },
+  "overrides": {
+    "@smithy/smithy-client": "4.12.13"
   }
 }

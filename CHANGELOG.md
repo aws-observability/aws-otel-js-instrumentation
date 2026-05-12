@@ -18,6 +18,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   `instrumentationScope` → `scope`, `traceFlags` → `flags`. Attribute values preserve native
   types. Added `exportPath: "console"` discriminator field.
   ([#392](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/392))
+  
+## v0.11.0 - 2026-04-30
+
 - Support environment-configured endpoint visibility for HTTP operation names
   ([#388](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/388))
 - enhancement(agent-observability): add undici to default enabled instrumentations

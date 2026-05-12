@@ -124,7 +124,7 @@
     "zod": "^4.0.0"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudwatch-logs": "3.982.0",
+    "@aws-sdk/client-cloudwatch-logs": "3.1045.0",
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/api-logs": "0.215.0",
     "@opentelemetry/auto-configuration-propagators": "0.4.6",

@@ -31,8 +31,6 @@ import {
   BedrockRuntimeServiceExtension,
   BedrockServiceExtension,
 } from './aws/services/bedrock';
-import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
-import { StepFunctionsServiceExtension } from './aws/services/step-functions';
 import type { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import type { Command as AwsV3Command } from '@aws-sdk/types';
 import { LoggerProvider } from '@opentelemetry/api-logs';
@@ -71,8 +69,6 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
       const services: Map<string, ServiceExtension> | undefined = (instrumentations[index] as any).servicesExtensions
         ?.services;
       if (services) {
-        services.set('SecretsManager', new SecretsManagerServiceExtension());
-        services.set('SFN', new StepFunctionsServiceExtension());
         services.set('Bedrock', new BedrockServiceExtension());
         services.set('BedrockAgent', new BedrockAgentServiceExtension());
         services.set('BedrockAgentRuntime', new BedrockAgentRuntimeServiceExtension());

@@ -68,6 +68,10 @@ import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-
 import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
 import { OTLPAwsSpanExporter } from './exporter/otlp/aws/traces/otlp-aws-span-exporter';
 import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
+import {
+  parseAdaptiveSamplingConfig,
+  AWS_XRAY_ADAPTIVE_SAMPLING_CONFIG_ENV,
+} from './sampler/adaptive-sampling-config';
 import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
@@ -211,7 +215,7 @@ export class AwsOpentelemetryConfigurator {
     const awsSpanProcessorProvider: AwsSpanProcessorProvider = new AwsSpanProcessorProvider(this.resource);
     this.spanProcessors = awsSpanProcessorProvider.getSpanProcessors();
     this.logRecordProcessors = AwsLoggerProcessorProvider.getlogRecordProcessors();
-    AwsOpentelemetryConfigurator.customizeSpanProcessors(this.spanProcessors, this.resource);
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(this.spanProcessors, this.resource, this.sampler);
 
     const isEmfEnabled = checkEmfExporterEnabled();
     this.customizeMetricReader(isEmfEnabled);
@@ -320,7 +324,7 @@ export class AwsOpentelemetryConfigurator {
     spanProcessors.push(new AwsBatchUnsampledSpanProcessor(spanExporter));
   }
 
-  static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
+  static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource, sampler?: Sampler): void {
     const baggageKeys: Set<string> = parseOtelBaggageKeysEnvVar();
 
     if (isAgentObservabilityEnabled()) {
@@ -376,11 +380,37 @@ export class AwsOpentelemetryConfigurator {
         resource: resource,
         readers: [periodicExportingMetricReader],
       });
+
+      // Extract the XRay sampler to wire adaptive sampling
+      let xraySampler: AwsXRayRemoteSampler | undefined;
+      if (sampler instanceof AlwaysRecordSampler) {
+        const wrapped = sampler.getWrappedSampler();
+        if (wrapped instanceof AwsXRayRemoteSampler) {
+          xraySampler = wrapped;
+        }
+      } else if (sampler instanceof AwsXRayRemoteSampler) {
+        xraySampler = sampler;
+      }
+
+      // Wire span batcher into the sampler for anomaly capture
+      if (xraySampler) {
+        const anomalyExporter = AwsMetricAttributesSpanExporterBuilder.create(
+          AwsSpanProcessorProvider.configureOtlp(), resource
+        ).build();
+        const anomalyBatchProcessor = new BatchSpanProcessor(anomalyExporter);
+        spanProcessors.push(anomalyBatchProcessor);
+        xraySampler.setSpanBatcher((span) => {
+          (anomalyBatchProcessor as any)._addToBuffer(span);
+        });
+        diag.info('Adaptive sampling anomaly capture enabled');
+      }
+
       spanProcessors.push(
         AwsSpanMetricsProcessorBuilder.create(
           meterProvider,
           resource,
-          meterProvider.forceFlush.bind(meterProvider)
+          meterProvider.forceFlush.bind(meterProvider),
+          xraySampler
         ).build()
       );
     }
@@ -438,7 +468,16 @@ export function customBuildSamplerFromEnv(resource: Resource, useXraySampler: bo
     diag.info('AWS XRay Sampler enabled');
     diag.debug(`XRay Sampler Endpoint: ${endpoint}`);
     diag.debug(`XRay Sampler Polling Interval: ${pollingInterval}`);
-    return new AwsXRayRemoteSampler({ resource: resource, endpoint: endpoint, pollingInterval: pollingInterval });
+
+    const sampler = new AwsXRayRemoteSampler({ resource: resource, endpoint: endpoint, pollingInterval: pollingInterval });
+
+    const adaptiveConfig = parseAdaptiveSamplingConfig(process.env[AWS_XRAY_ADAPTIVE_SAMPLING_CONFIG_ENV]);
+    if (adaptiveConfig) {
+      sampler.setAdaptiveSamplingConfig(adaptiveConfig);
+      diag.info('AWS XRay Adaptive Sampling configured');
+    }
+
+    return sampler;
   }
 
   return buildSamplerFromEnv();

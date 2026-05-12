@@ -1,8 +1,10 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Attributes, Context, DiagLogger, Link, SpanKind, diag } from '@opentelemetry/api';
-import { ParentBasedSampler, Sampler, SamplingResult } from '@opentelemetry/sdk-trace-base';
+import { Attributes, Context, DiagLogger, Link, SpanKind, TraceFlags, diag } from '@opentelemetry/api';
+import { ParentBasedSampler, ReadableSpan, Sampler, SamplingResult } from '@opentelemetry/sdk-trace-base';
+import { AdaptiveSamplingConfig } from './adaptive-sampling-config';
+import { AnomalyDetector, AWS_XRAY_ADAPTIVE_SAMPLING_CONFIGURED_ATTRIBUTE } from './anomaly-detector';
 import { AwsXraySamplingClient } from './aws-xray-sampling-client';
 import { FallbackSampler } from './fallback-sampler';
 import {
@@ -26,9 +28,13 @@ const DEFAULT_AWS_PROXY_ENDPOINT: string = 'http://localhost:2000';
 // uses ParentBased logic to respect the parent span's sampling decision
 export class AwsXRayRemoteSampler implements Sampler {
   private _root: ParentBasedSampler;
+  private _inner: _AwsXRayRemoteSampler;
+
   constructor(samplerConfig: AwsXRayRemoteSamplerConfig) {
-    this._root = new ParentBasedSampler({ root: new _AwsXRayRemoteSampler(samplerConfig) });
+    this._inner = new _AwsXRayRemoteSampler(samplerConfig);
+    this._root = new ParentBasedSampler({ root: this._inner });
   }
+
   public shouldSample(
     context: Context,
     traceId: string,
@@ -38,6 +44,18 @@ export class AwsXRayRemoteSampler implements Sampler {
     links: Link[]
   ): SamplingResult {
     return this._root.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+  }
+
+  public setAdaptiveSamplingConfig(config: AdaptiveSamplingConfig): void {
+    this._inner.setAdaptiveSamplingConfig(config);
+  }
+
+  public setSpanBatcher(batcher: (span: ReadableSpan) => void): void {
+    this._inner.setSpanBatcher(batcher);
+  }
+
+  public adaptSampling(span: ReadableSpan): void {
+    this._inner.adaptSampling(span);
   }
 
   public toString(): string {
@@ -61,6 +79,9 @@ export class _AwsXRayRemoteSampler implements Sampler {
   private rulePollingJitterMillis: number;
   private targetPollingJitterMillis: number;
   private samplingClient: AwsXraySamplingClient;
+  private anomalyDetector: AnomalyDetector | undefined;
+  private spanBatcher: ((span: ReadableSpan) => void) | undefined;
+  private serviceName: string;
 
   constructor(samplerConfig: AwsXRayRemoteSamplerConfig) {
     this.samplerDiag = diag;
@@ -82,6 +103,7 @@ export class _AwsXRayRemoteSampler implements Sampler {
     this.fallbackSampler = new FallbackSampler();
     this.clientId = _AwsXRayRemoteSampler.generateClientId();
     this.ruleCache = new RuleCache(samplerConfig.resource);
+    this.serviceName = String(samplerConfig.resource.attributes['service.name'] || '');
 
     this.samplingClient = new AwsXraySamplingClient(this.awsProxyEndpoint, this.samplerDiag);
 
@@ -96,6 +118,34 @@ export class _AwsXRayRemoteSampler implements Sampler {
     return DEFAULT_TARGET_POLLING_INTERVAL_SECONDS;
   }
 
+  public setAdaptiveSamplingConfig(config: AdaptiveSamplingConfig): void {
+    this.anomalyDetector = new AnomalyDetector(config);
+    this.samplerDiag.info('Adaptive sampling enabled');
+  }
+
+  public setSpanBatcher(batcher: (span: ReadableSpan) => void): void {
+    this.spanBatcher = batcher;
+  }
+
+  public adaptSampling(span: ReadableSpan): void {
+    if (!this.anomalyDetector) {
+      return;
+    }
+
+    const isSampled = (span.spanContext().traceFlags & TraceFlags.SAMPLED) !== 0;
+    const traceId = span.spanContext().traceId;
+
+    this.anomalyDetector.recordTrace();
+
+    if (this.anomalyDetector.isAnomaly(span)) {
+      this.anomalyDetector.recordAnomaly(isSampled);
+
+      if (!isSampled && this.spanBatcher && this.anomalyDetector.shouldCaptureAnomaly(traceId)) {
+        this.spanBatcher(span);
+      }
+    }
+  }
+
   public shouldSample(
     context: Context,
     traceId: string,
@@ -104,20 +154,35 @@ export class _AwsXRayRemoteSampler implements Sampler {
     attributes: Attributes,
     links: Link[]
   ): SamplingResult {
+    let result: SamplingResult;
+
     if (this.ruleCache.isExpired()) {
       this.samplerDiag.debug('Rule cache is expired, so using fallback sampling strategy');
-      return this.fallbackSampler.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+      result = this.fallbackSampler.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+    } else {
+      const matchedRule: SamplingRuleApplier | undefined = this.ruleCache.getMatchedRule(attributes);
+      if (matchedRule) {
+        result = matchedRule.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+      } else {
+        this.samplerDiag.debug(
+          'Using fallback sampler as no rule match was found. This is likely due to a bug, since default rule should always match'
+        );
+        result = this.fallbackSampler.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+      }
     }
 
-    const matchedRule: SamplingRuleApplier | undefined = this.ruleCache.getMatchedRule(attributes);
-    if (matchedRule) {
-      return matchedRule.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+    if (this.anomalyDetector) {
+      return {
+        decision: result.decision,
+        attributes: {
+          ...result.attributes,
+          [AWS_XRAY_ADAPTIVE_SAMPLING_CONFIGURED_ATTRIBUTE]: 'true',
+        },
+        traceState: result.traceState,
+      };
     }
 
-    this.samplerDiag.debug(
-      'Using fallback sampler as no rule match was found. This is likely due to a bug, since default rule should always match'
-    );
-    return this.fallbackSampler.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+    return result;
   }
 
   public toString(): string {
@@ -150,6 +215,23 @@ export class _AwsXRayRemoteSampler implements Sampler {
     const requestBody: GetSamplingTargetsBody = {
       SamplingStatisticsDocuments: this.ruleCache.createSamplingStatisticsDocuments(this.clientId),
     };
+
+    if (this.anomalyDetector) {
+      const boostStats = this.anomalyDetector.snapshotAndResetStatistics();
+      if (boostStats.TotalCount > 0) {
+        requestBody.SamplingBoostStatisticsDocuments = [
+          {
+            ClientID: this.clientId,
+            RuleName: 'Default',
+            ServiceName: this.serviceName,
+            Timestamp: Math.floor(Date.now() / 1000),
+            TotalCount: boostStats.TotalCount,
+            AnomalyCount: boostStats.AnomalyCount,
+            SampledAnomalyCount: boostStats.SampledAnomalyCount,
+          },
+        ];
+      }
+    }
 
     this.samplingClient.fetchSamplingTargets(requestBody, this.updateSamplingTargets.bind(this));
   }

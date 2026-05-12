@@ -7,6 +7,7 @@ import { AwsMetricAttributeGenerator } from './aws-metric-attribute-generator';
 import { AwsSpanMetricsProcessor } from './aws-span-metrics-processor';
 import { MetricAttributeGenerator } from './metric-attribute-generator';
 import { ForceFlushFunction } from './aws-span-processing-util';
+import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 
 // Metric instrument configuration constants
 const ERROR: string = 'Error';
@@ -28,19 +29,27 @@ export class AwsSpanMetricsProcessorBuilder {
   // Optional builder elements
   private generator: MetricAttributeGenerator = AwsSpanMetricsProcessorBuilder.DEFAULT_GENERATOR;
   private scopeName: string = AwsSpanMetricsProcessorBuilder.DEFAULT_SCOPE_NAME;
+  private sampler: AwsXRayRemoteSampler | undefined;
 
   public static create(
     meterProvider: MeterProvider,
     resource: Resource,
-    meterProviderForceFlusher: ForceFlushFunction
+    meterProviderForceFlusher: ForceFlushFunction,
+    sampler?: AwsXRayRemoteSampler
   ): AwsSpanMetricsProcessorBuilder {
-    return new AwsSpanMetricsProcessorBuilder(meterProvider, resource, meterProviderForceFlusher);
+    return new AwsSpanMetricsProcessorBuilder(meterProvider, resource, meterProviderForceFlusher, sampler);
   }
 
-  private constructor(meterProvider: MeterProvider, resource: Resource, meterProviderForceFlusher: ForceFlushFunction) {
+  private constructor(
+    meterProvider: MeterProvider,
+    resource: Resource,
+    meterProviderForceFlusher: ForceFlushFunction,
+    sampler?: AwsXRayRemoteSampler
+  ) {
     this.meterProvider = meterProvider;
     this.resource = resource;
     this.forceFlushFunction = meterProviderForceFlusher;
+    this.sampler = sampler;
   }
 
   /**
@@ -80,7 +89,8 @@ export class AwsSpanMetricsProcessorBuilder {
       latencyHistogram,
       this.generator,
       this.resource,
-      this.forceFlushFunction
+      this.forceFlushFunction,
+      this.sampler
     );
   }
 }

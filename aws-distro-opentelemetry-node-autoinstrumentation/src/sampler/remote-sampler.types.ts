@@ -118,9 +118,20 @@ export interface UnprocessedStatistic {
   RuleName: string;
 }
 
+export interface SamplingBoostStatisticsDocument {
+  ClientID: string;
+  RuleName: string;
+  ServiceName: string;
+  Timestamp: number;
+  TotalCount: number;
+  AnomalyCount: number;
+  SampledAnomalyCount: number;
+}
+
 // https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_RequestBody
 export interface GetSamplingTargetsBody {
   SamplingStatisticsDocuments: SamplingStatisticsDocument[];
+  SamplingBoostStatisticsDocuments?: SamplingBoostStatisticsDocument[];
 }
 
 // https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_ResponseSyntax

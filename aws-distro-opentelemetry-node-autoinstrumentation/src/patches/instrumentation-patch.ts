@@ -28,7 +28,6 @@ import { RequestMetadata } from '../third-party/otel/aws/services/ServiceExtensi
 import {
   BedrockAgentRuntimeServiceExtension,
   BedrockAgentServiceExtension,
-  BedrockRuntimeServiceExtension,
   BedrockServiceExtension,
 } from './aws/services/bedrock';
 import type { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
@@ -72,7 +71,6 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
         services.set('Bedrock', new BedrockServiceExtension());
         services.set('BedrockAgent', new BedrockAgentServiceExtension());
         services.set('BedrockAgentRuntime', new BedrockAgentRuntimeServiceExtension());
-        services.set('BedrockRuntime', new BedrockRuntimeServiceExtension());
         patchSqsServiceExtension(services.get('SQS'));
         patchSnsServiceExtension(services.get('SNS'));
         patchLambdaServiceExtension(services.get('Lambda'));

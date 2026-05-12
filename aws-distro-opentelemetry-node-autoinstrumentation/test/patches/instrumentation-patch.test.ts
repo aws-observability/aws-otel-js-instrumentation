@@ -67,7 +67,6 @@ const _BEDROCK_DATASOURCE_ID: string = 'DataSourceId';
 const _BEDROCK_GUARDRAIL_ID: string = 'GuardrailId';
 const _BEDROCK_GUARDRAIL_ARN: string = 'arn:aws:bedrock:us-east-1:123456789012:guardrail/abc123';
 const _BEDROCK_KNOWLEDGEBASE_ID: string = 'KnowledgeBaseId';
-const _GEN_AI_SYSTEM: string = 'aws.bedrock';
 const _GEN_AI_REQUEST_MODEL: string = 'genAiReuqestModelId';
 const _STREAM_ARN: string = 'arn:aws:kinesis:us-west-2:123456789012:stream/testStream';
 const _TABLE_ARN: string = 'arn:aws:dynamodb:us-west-2:123456789012:table/testTable';
@@ -117,8 +116,8 @@ describe('InstrumentationPatchTest', () => {
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Kinesis')._requestPreSpanHook).toBeFalsy();
     expect(services.get('Kinesis').requestPreSpanHook).toBeTruthy();
-    // BedrockRuntime is now in upstream (starting from instrumentation-aws-sdk 0.65.0+)
-    // with GenAI metrics instrumentation. Our patches still provide enhanced functionality.
+    // BedrockRuntime is now fully handled by upstream (starting from instrumentation-aws-sdk 0.65.0+)
+    // with GenAI metrics instrumentation.
     expect(services.get('BedrockRuntime')).toBeTruthy();
     // Bedrock, BedrockAgent, BedrockAgentRuntime are added via our patches
     expect(services.has('Bedrock')).toBeFalsy();
@@ -154,6 +153,7 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('Bedrock')).toBeTruthy();
     expect(services.has('BedrockAgent')).toBeTruthy();
     expect(services.get('BedrockAgentRuntime')).toBeTruthy();
+    // BedrockRuntime is now fully handled by upstream
     expect(services.get('BedrockRuntime')).toBeTruthy();
     // Sanity check
     expect(services.has('InvalidService')).toBeFalsy();
@@ -367,16 +367,10 @@ describe('InstrumentationPatchTest', () => {
   });
 
   it('Bedrock Runtime with patching', () => {
+    // BedrockRuntime is now fully handled by upstream - verify it still exists
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const bedrockAttributes: Attributes = doExtractBedrockAttributes(services, 'BedrockRuntime');
-
-    expect(Object.entries(bedrockAttributes).length).toBe(2);
-    expect(bedrockAttributes['gen_ai.system']).toEqual(_GEN_AI_SYSTEM);
-    expect(bedrockAttributes['gen_ai.request.model']).toEqual(_GEN_AI_REQUEST_MODEL);
-
-    const bedrockAttributesAfterResponse: Attributes = doResponseHookBedrock(services, 'BedrockRuntime');
-    expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(0);
+    expect(services.get('BedrockRuntime')).toBeTruthy();
   });
 
   it('Lambda with custom eventContextExtractor patching', () => {

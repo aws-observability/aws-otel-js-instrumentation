@@ -23,14 +23,26 @@ export class AnomalyDetector {
   private rateLimiter: RateLimiter | undefined;
   private traceCache: TTLCache<string, boolean>;
   private stats: BoostStatistics;
+  private compiledRegexes: Map<string, RegExp>;
 
   constructor(config: AdaptiveSamplingConfig) {
     this.config = config;
     this.traceCache = new TTLCache({ max: TRACE_CACHE_MAX_SIZE, ttl: TRACE_CACHE_TTL_MS });
     this.stats = { TotalCount: 0, AnomalyCount: 0, SampledAnomalyCount: 0 };
+    this.compiledRegexes = new Map();
 
     if (config.anomalyCaptureLimit) {
       this.rateLimiter = new RateLimiter(config.anomalyCaptureLimit.anomalyTracesPerSecond);
+    }
+
+    if (config.anomalyConditions) {
+      for (const condition of config.anomalyConditions) {
+        if (condition.errorCodeRegex) {
+          const pattern = condition.errorCodeRegex;
+          const anchored = pattern.startsWith('^') && pattern.endsWith('$') ? pattern : `^(?:${pattern})$`;
+          this.compiledRegexes.set(pattern, new RegExp(anchored));
+        }
+      }
     }
   }
 
@@ -113,13 +125,9 @@ export class AnomalyDetector {
     const statusCode = this.getHttpStatusCode(span);
     if (statusCode === undefined) return false;
 
-    try {
-      // Anchor the regex to match fullmatch semantics (like Python's re.fullmatch)
-      const anchored = regex.startsWith('^') && regex.endsWith('$') ? regex : `^(?:${regex})$`;
-      return new RegExp(anchored).test(String(statusCode));
-    } catch {
-      return false;
-    }
+    const compiled = this.compiledRegexes.get(regex);
+    if (!compiled) return false;
+    return compiled.test(String(statusCode));
   }
 
   private matchesHighLatency(thresholdMs: number, span: ReadableSpan): boolean {
@@ -128,9 +136,7 @@ export class AnomalyDetector {
   }
 
   private getHttpStatusCode(span: ReadableSpan): number | undefined {
-    const code =
-      span.attributes['http.status_code'] ??
-      span.attributes['http.response.status_code'];
+    const code = span.attributes['http.status_code'] ?? span.attributes['http.response.status_code'];
     if (code === undefined) return undefined;
     const num = Number(code);
     return isNaN(num) ? undefined : num;

@@ -125,6 +125,12 @@ function validateAnomalyCondition(raw: unknown): AnomalyCondition | undefined {
       diag.warn('AWS_XRAY_ADAPTIVE_SAMPLING_CONFIG: errorCodeRegex must be a string');
       return undefined;
     }
+    try {
+      new RegExp(obj['errorCodeRegex']);
+    } catch (e) {
+      diag.warn(`AWS_XRAY_ADAPTIVE_SAMPLING_CONFIG: invalid errorCodeRegex: ${e}`);
+      return undefined;
+    }
     condition.errorCodeRegex = obj['errorCodeRegex'];
   }
 

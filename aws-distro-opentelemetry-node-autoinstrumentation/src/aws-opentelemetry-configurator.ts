@@ -68,10 +68,7 @@ import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-
 import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
 import { OTLPAwsSpanExporter } from './exporter/otlp/aws/traces/otlp-aws-span-exporter';
 import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
-import {
-  parseAdaptiveSamplingConfig,
-  AWS_XRAY_ADAPTIVE_SAMPLING_CONFIG_ENV,
-} from './sampler/adaptive-sampling-config';
+import { parseAdaptiveSamplingConfig, AWS_XRAY_ADAPTIVE_SAMPLING_CONFIG_ENV } from './sampler/adaptive-sampling-config';
 import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
@@ -395,12 +392,13 @@ export class AwsOpentelemetryConfigurator {
       // Wire span batcher into the sampler for anomaly capture
       if (xraySampler) {
         const anomalyExporter = AwsMetricAttributesSpanExporterBuilder.create(
-          AwsSpanProcessorProvider.configureOtlp(), resource
+          AwsSpanProcessorProvider.configureOtlp(),
+          resource
         ).build();
         const anomalyBatchProcessor = new BatchSpanProcessor(anomalyExporter);
         spanProcessors.push(anomalyBatchProcessor);
-        xraySampler.setSpanBatcher((span) => {
-          (anomalyBatchProcessor as any)._addToBuffer(span);
+        xraySampler.setSpanBatcher(span => {
+          anomalyBatchProcessor.onEnd(span);
         });
         diag.info('Adaptive sampling anomaly capture enabled');
       }
@@ -469,7 +467,11 @@ export function customBuildSamplerFromEnv(resource: Resource, useXraySampler: bo
     diag.debug(`XRay Sampler Endpoint: ${endpoint}`);
     diag.debug(`XRay Sampler Polling Interval: ${pollingInterval}`);
 
-    const sampler = new AwsXRayRemoteSampler({ resource: resource, endpoint: endpoint, pollingInterval: pollingInterval });
+    const sampler = new AwsXRayRemoteSampler({
+      resource: resource,
+      endpoint: endpoint,
+      pollingInterval: pollingInterval,
+    });
 
     const adaptiveConfig = parseAdaptiveSamplingConfig(process.env[AWS_XRAY_ADAPTIVE_SAMPLING_CONFIG_ENV]);
     if (adaptiveConfig) {

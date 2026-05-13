@@ -399,6 +399,37 @@ describe('InstrumentationPatchTest', () => {
     expect(requestMetadata.spanName).toEqual('chat anthropic.claude-v2:1');
   });
 
+  it('Bedrock Runtime ai21.jamba patch - InvokeModel', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const serviceExtension: any = services.get('BedrockRuntime');
+    expect(serviceExtension).toBeTruthy();
+    expect(serviceExtension._requestPreSpanHook).toBeTruthy();
+
+    const requestMetadata = serviceExtension.requestPreSpanHook(
+      {
+        serviceName: 'BedrockRuntime',
+        commandName: 'InvokeModel',
+        commandInput: {
+          modelId: 'ai21.jamba-1-5-large-v1:0',
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: 'test' }],
+            max_tokens: 512,
+            temperature: 0.6,
+            top_p: 0.8,
+          }),
+        },
+      },
+      {},
+      diag
+    );
+    expect(requestMetadata.spanAttributes['gen_ai.system']).toEqual('aws.bedrock');
+    expect(requestMetadata.spanAttributes['gen_ai.request.model']).toEqual('ai21.jamba-1-5-large-v1:0');
+    expect(requestMetadata.spanAttributes['gen_ai.request.max_tokens']).toEqual(512);
+    expect(requestMetadata.spanAttributes['gen_ai.request.temperature']).toEqual(0.6);
+    expect(requestMetadata.spanAttributes['gen_ai.request.top_p']).toEqual(0.8);
+  });
+
   it('Lambda with custom eventContextExtractor patching', () => {
     const patchedAwsSdkInstrumentation: AwsLambdaInstrumentation =
       extractLambdaInstrumentation(PATCHED_INSTRUMENTATIONS);

@@ -660,6 +660,34 @@ class AWSSDKTest(ContractTestBase):
             span_name="BedrockRuntime.InvokeModel"
         )
 
+    def test_bedrock_runtime_invoke_model_ai21_jamba(self):
+        self.do_test_requests(
+            "bedrock/invokemodel/invoke-model/ai21.jamba-1-5-large-v1:0",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock",
+            rpc_service="BedrockRuntime",
+            remote_service="AWS::BedrockRuntime",
+            remote_operation="InvokeModel",
+            remote_resource_type="AWS::Bedrock::Model",
+            remote_resource_identifier='ai21.jamba-1-5-large-v1:0',
+            cloudformation_primary_identifier="ai21.jamba-1-5-large-v1:0",
+            request_specific_attributes={
+                _GEN_AI_REQUEST_MODEL: 'ai21.jamba-1-5-large-v1:0',
+                _GEN_AI_REQUEST_MAX_TOKENS: 512,
+                _GEN_AI_REQUEST_TEMPERATURE: 0.6,
+                _GEN_AI_REQUEST_TOP_P: 0.8
+                },
+            response_specific_attributes={
+                _GEN_AI_RESPONSE_FINISH_REASONS: ['stop'],
+                _GEN_AI_USAGE_INPUT_TOKENS: 21,
+                _GEN_AI_USAGE_OUTPUT_TOKENS: 24
+                },
+            span_name="BedrockRuntime.InvokeModel"
+        )
+
     def test_bedrock_runtime_invoke_model_mistral_mistral(self):
         self.do_test_requests(
             "bedrock/invokemodel/invoke-model/mistral.mistral-7b-instruct-v0:2",

@@ -25,6 +25,7 @@ import { AWSXRAY_TRACE_ID_HEADER } from '@opentelemetry/propagator-aws-xray';
 import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
 import { AWS_ATTRIBUTE_KEYS } from '../aws-attribute-keys';
 import { RequestMetadata } from '../third-party/otel/aws/services/ServiceExtension';
+import { AwsSpanProcessingUtil } from '../aws-span-processing-util';
 import {
   BedrockAgentRuntimeServiceExtension,
   BedrockAgentServiceExtension,
@@ -72,6 +73,7 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
         services.set('BedrockAgent', new BedrockAgentServiceExtension());
         services.set('BedrockAgentRuntime', new BedrockAgentRuntimeServiceExtension());
         patchSqsServiceExtension(services.get('SQS'));
+        patchBedrockRuntimeServiceExtension(services.get('BedrockRuntime'));
         patchLambdaServiceExtension(services.get('Lambda'));
         patchKinesisServiceExtension(services.get('Kinesis'));
         patchDynamoDbServiceExtension(services.get('DynamoDB'));
@@ -151,6 +153,84 @@ function patchSqsServiceExtension(sqsServiceExtension: any): void {
       return requestMetadata;
     };
     sqsServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
+  }
+}
+
+/*
+ * This patch extends the existing upstream extension for BedrockRuntime to add support for the
+ * ai21.jamba model family, which is not covered by upstream.
+ *
+ * @param bedrockRuntimeServiceExtension BedrockRuntime Service Extension from the AWS SDK OTel Instrumentation
+ */
+function patchBedrockRuntimeServiceExtension(bedrockRuntimeServiceExtension: any): void {
+  if (bedrockRuntimeServiceExtension) {
+    const originalRequestPreSpanHook = bedrockRuntimeServiceExtension.requestPreSpanHook;
+    bedrockRuntimeServiceExtension._requestPreSpanHook = originalRequestPreSpanHook;
+
+    bedrockRuntimeServiceExtension.requestPreSpanHook = function (
+      request: NormalizedRequest,
+      config: AwsSdkInstrumentationConfig,
+      diagLogger: any
+    ): RequestMetadata {
+      const requestMetadata: RequestMetadata = bedrockRuntimeServiceExtension._requestPreSpanHook.call(
+        this,
+        request,
+        config,
+        diagLogger
+      );
+      const modelId = request.commandInput?.modelId;
+      if (modelId?.includes('ai21.jamba') && request.commandInput?.body) {
+        const requestBody = JSON.parse(request.commandInput.body);
+        if (!requestMetadata.spanAttributes) {
+          requestMetadata.spanAttributes = {};
+        }
+        if (requestBody.max_tokens !== undefined) {
+          requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
+        }
+        if (requestBody.temperature !== undefined) {
+          requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
+        }
+        if (requestBody.top_p !== undefined) {
+          requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
+        }
+      }
+      return requestMetadata;
+    };
+
+    if (typeof bedrockRuntimeServiceExtension.responseHook === 'function') {
+      const originalResponseHook = bedrockRuntimeServiceExtension.responseHook;
+
+      bedrockRuntimeServiceExtension.responseHook = function (
+        response: NormalizedResponse,
+        span: Span,
+        tracer: Tracer,
+        config: AwsSdkInstrumentationConfig
+      ): void {
+        originalResponseHook.call(this, response, span, tracer, config);
+
+        const currentModelId = response.request.commandInput?.modelId;
+        if (currentModelId?.includes('ai21.jamba') && response.data?.body) {
+          let decodedResponseBody: string;
+          if (response.data.body instanceof Uint8Array) {
+            decodedResponseBody = new TextDecoder().decode(response.data.body);
+          } else {
+            return;
+          }
+          const responseBody = JSON.parse(decodedResponseBody);
+          if (responseBody.usage?.prompt_tokens !== undefined) {
+            span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.prompt_tokens);
+          }
+          if (responseBody.usage?.completion_tokens !== undefined) {
+            span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.usage.completion_tokens);
+          }
+          if (responseBody.choices?.[0]?.finish_reason !== undefined) {
+            span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
+              responseBody.choices[0].finish_reason,
+            ]);
+          }
+        }
+      };
+    }
   }
 }
 

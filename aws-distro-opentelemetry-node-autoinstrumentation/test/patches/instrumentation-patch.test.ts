@@ -334,26 +334,69 @@ describe('InstrumentationPatchTest', () => {
     expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(0);
   });
 
-  it('Bedrock Runtime upstream attributes', () => {
+  it('Bedrock Runtime upstream attributes - InvokeModel', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const serviceName = 'BedrockRuntime';
-    const serviceExtension: any = services.get(serviceName);
+    const serviceExtension: any = services.get('BedrockRuntime');
     expect(serviceExtension).toBeTruthy();
+
     const requestMetadata = serviceExtension.requestPreSpanHook(
       {
-        serviceName: serviceName,
+        serviceName: 'BedrockRuntime',
         commandName: 'InvokeModel',
         commandInput: {
-          modelId: _GEN_AI_REQUEST_MODEL,
-          body: JSON.stringify({ max_tokens: 100 }),
+          modelId: 'anthropic.claude-v2:1',
+          body: JSON.stringify({
+            max_tokens: 1000,
+            temperature: 0.7,
+            top_p: 0.9,
+            stop_sequences: ['Human:'],
+          }),
         },
       },
       {},
       diag
     );
     expect(requestMetadata.spanAttributes['gen_ai.system']).toEqual('aws.bedrock');
-    expect(requestMetadata.spanAttributes['gen_ai.request.model']).toEqual(_GEN_AI_REQUEST_MODEL);
+    expect(requestMetadata.spanAttributes['gen_ai.request.model']).toEqual('anthropic.claude-v2:1');
+    expect(requestMetadata.spanAttributes['gen_ai.request.max_tokens']).toEqual(1000);
+    expect(requestMetadata.spanAttributes['gen_ai.request.temperature']).toEqual(0.7);
+    expect(requestMetadata.spanAttributes['gen_ai.request.top_p']).toEqual(0.9);
+    expect(requestMetadata.spanAttributes['gen_ai.request.stop_sequences']).toEqual(['Human:']);
+  });
+
+  it('Bedrock Runtime upstream attributes - Converse', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const serviceExtension: any = services.get('BedrockRuntime');
+    expect(serviceExtension).toBeTruthy();
+
+    // Test Converse API (model-agnostic, sets operation name)
+    const requestMetadata = serviceExtension.requestPreSpanHook(
+      {
+        serviceName: 'BedrockRuntime',
+        commandName: 'Converse',
+        commandInput: {
+          modelId: 'anthropic.claude-v2:1',
+          inferenceConfig: {
+            maxTokens: 500,
+            temperature: 0.8,
+            topP: 0.95,
+            stopSequences: ['END'],
+          },
+        },
+      },
+      {},
+      diag
+    );
+    expect(requestMetadata.spanAttributes['gen_ai.system']).toEqual('aws.bedrock');
+    expect(requestMetadata.spanAttributes['gen_ai.operation.name']).toEqual('chat');
+    expect(requestMetadata.spanAttributes['gen_ai.request.model']).toEqual('anthropic.claude-v2:1');
+    expect(requestMetadata.spanAttributes['gen_ai.request.max_tokens']).toEqual(500);
+    expect(requestMetadata.spanAttributes['gen_ai.request.temperature']).toEqual(0.8);
+    expect(requestMetadata.spanAttributes['gen_ai.request.top_p']).toEqual(0.95);
+    expect(requestMetadata.spanAttributes['gen_ai.request.stop_sequences']).toEqual(['END']);
+    expect(requestMetadata.spanName).toEqual('chat anthropic.claude-v2:1');
   });
 
   it('Lambda with custom eventContextExtractor patching', () => {

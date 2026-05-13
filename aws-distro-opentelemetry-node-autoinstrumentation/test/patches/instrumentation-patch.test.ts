@@ -241,6 +241,25 @@ describe('InstrumentationPatchTest', () => {
     expect(responseLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toEqual(_FUNCTION_ARN);
   });
 
+  it('Lambda with patching extracts function name from ARN', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const serviceExtension: any = services.get('Lambda');
+    const requestMetadata = serviceExtension.requestPreSpanHook(
+      {
+        serviceName: 'Lambda',
+        commandName: 'mockCommandName',
+        commandInput: {
+          UUID: _UUID,
+          FunctionName: _FUNCTION_ARN,
+        },
+      },
+      {}
+    );
+    expect(requestMetadata.spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_RESOURCE_MAPPING_ID]).toEqual(_UUID);
+    expect(requestMetadata.spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]).toEqual(_FUNCTION_NAME);
+  });
+
   it('Kinesis with patching', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);

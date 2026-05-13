@@ -427,18 +427,6 @@ describe('basic chat spans', function () {
       await model.invoke([new HumanMessage('What is the capital of France?')]);
 
       const spans = getTestSpans();
-      // Temporary: print all spans for manual comparison
-      if (pc.name === 'Amazon Bedrock') {
-        console.log('\n=== ALL SPANS FOR BEDROCK ===');
-        spans.forEach((s: ReadableSpan, i: number) => {
-          console.log(`\n--- Span ${i} ---`);
-          console.log(`  name: ${s.name}`);
-          console.log(`  scope: ${s.instrumentationScope.name}`);
-          console.log(`  kind: ${s.kind}`);
-          console.log('  attributes:', JSON.stringify(s.attributes, null, 4));
-        });
-        console.log('=== END SPANS ===\n');
-      }
       const chatSpans = spans.filter(
         (s: ReadableSpan) =>
           s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME

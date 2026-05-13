@@ -128,14 +128,13 @@ describe('InstrumentationPatchTest', () => {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     const services: Map<string, any> = (awsSdkInstrumentation as AwsInstrumentation).servicesExtensions?.services;
-    // Services supported by upstream
+    // Services supported by upstream (not patched by us)
     expect(services.has('S3')).toBeTruthy();
     expect(services.has('SNS')).toBeTruthy();
     expect(services.has('SecretsManager')).toBeTruthy();
     expect(services.has('SFN')).toBeTruthy();
-    expect(services.has('BedrockRuntime')).toBeTruthy();
 
-    // Services we patch
+    // Upstream services that we patch (wrap to add extra attributes)
     expect(services.has('SQS')).toBeTruthy();
     expect(services.get('SQS')._requestPreSpanHook).toBeTruthy();
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
@@ -146,6 +145,10 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('Kinesis')).toBeTruthy();
     expect(services.get('Kinesis')._requestPreSpanHook).toBeTruthy();
     expect(services.get('Kinesis').requestPreSpanHook).toBeTruthy();
+    expect(services.has('BedrockRuntime')).toBeTruthy();
+    expect(services.get('BedrockRuntime')._requestPreSpanHook).toBeTruthy();
+
+    // Services added entirely by our patches (not in upstream)
     expect(services.has('Bedrock')).toBeTruthy();
     expect(services.has('BedrockAgent')).toBeTruthy();
     expect(services.get('BedrockAgentRuntime')).toBeTruthy();
@@ -428,6 +431,41 @@ describe('InstrumentationPatchTest', () => {
     expect(requestMetadata.spanAttributes['gen_ai.request.max_tokens']).toEqual(512);
     expect(requestMetadata.spanAttributes['gen_ai.request.temperature']).toEqual(0.6);
     expect(requestMetadata.spanAttributes['gen_ai.request.top_p']).toEqual(0.8);
+  });
+
+  it('Bedrock Runtime ai21.jamba patch - responseHook', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const serviceExtension: any = services.get('BedrockRuntime');
+
+    const mockResponseBody = {
+      usage: { prompt_tokens: 21, completion_tokens: 24 },
+      choices: [{ finish_reason: 'stop' }],
+    };
+    const response: Partial<NormalizedResponse> = {
+      data: {
+        body: new TextEncoder().encode(JSON.stringify(mockResponseBody)),
+      },
+      request: {
+        commandInput: { modelId: 'ai21.jamba-1-5-large-v1:0' },
+        commandName: 'InvokeModel',
+        serviceName: 'BedrockRuntime',
+      },
+    };
+
+    const spanAttributes: Attributes = {};
+    const mockSpan: any = {
+      setAttribute: (key: string, value: any) => {
+        spanAttributes[key] = value;
+      },
+      isRecording: () => true,
+    };
+
+    serviceExtension.responseHook(response, mockSpan, {}, {});
+
+    expect(spanAttributes['gen_ai.usage.input_tokens']).toEqual(21);
+    expect(spanAttributes['gen_ai.usage.output_tokens']).toEqual(24);
+    expect(spanAttributes['gen_ai.response.finish_reasons']).toEqual(['stop']);
   });
 
   it('Lambda with custom eventContextExtractor patching', () => {

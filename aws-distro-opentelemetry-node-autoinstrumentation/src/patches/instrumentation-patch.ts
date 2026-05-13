@@ -164,73 +164,85 @@ function patchSqsServiceExtension(sqsServiceExtension: any): void {
  */
 function patchBedrockRuntimeServiceExtension(bedrockRuntimeServiceExtension: any): void {
   if (bedrockRuntimeServiceExtension) {
-    const originalRequestPreSpanHook = bedrockRuntimeServiceExtension.requestPreSpanHook;
-    bedrockRuntimeServiceExtension._requestPreSpanHook = originalRequestPreSpanHook;
+    const requestPreSpanHook = bedrockRuntimeServiceExtension.requestPreSpanHook;
+    bedrockRuntimeServiceExtension._requestPreSpanHook = requestPreSpanHook;
 
-    bedrockRuntimeServiceExtension.requestPreSpanHook = function (
+    const patchedRequestPreSpanHook = function (
       request: NormalizedRequest,
       config: AwsSdkInstrumentationConfig,
       diagLogger: any
     ): RequestMetadata {
       const requestMetadata: RequestMetadata = bedrockRuntimeServiceExtension._requestPreSpanHook.call(
-        this,
+        bedrockRuntimeServiceExtension,
         request,
         config,
         diagLogger
       );
       const modelId = request.commandInput?.modelId;
       if (modelId?.includes('ai21.jamba') && request.commandInput?.body) {
-        const requestBody = JSON.parse(request.commandInput.body);
-        if (!requestMetadata.spanAttributes) {
-          requestMetadata.spanAttributes = {};
-        }
-        if (requestBody.max_tokens !== undefined) {
-          requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
-        }
-        if (requestBody.temperature !== undefined) {
-          requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
-        }
-        if (requestBody.top_p !== undefined) {
-          requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
+        try {
+          const requestBody = JSON.parse(request.commandInput.body);
+          if (!requestMetadata.spanAttributes) {
+            requestMetadata.spanAttributes = {};
+          }
+          if (requestBody.max_tokens !== undefined) {
+            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
+          }
+          if (requestBody.temperature !== undefined) {
+            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] =
+              requestBody.temperature;
+          }
+          if (requestBody.top_p !== undefined) {
+            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
+          }
+        } catch {
+          // Malformed JSON body — skip attribute extraction
         }
       }
       return requestMetadata;
     };
+    bedrockRuntimeServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
 
     if (typeof bedrockRuntimeServiceExtension.responseHook === 'function') {
-      const originalResponseHook = bedrockRuntimeServiceExtension.responseHook;
+      const responseHook = bedrockRuntimeServiceExtension.responseHook;
 
-      bedrockRuntimeServiceExtension.responseHook = function (
+      const patchedResponseHook = function (
         response: NormalizedResponse,
         span: Span,
         tracer: Tracer,
         config: AwsSdkInstrumentationConfig,
         ...args: any[]
       ): void {
-        originalResponseHook.call(this, response, span, tracer, config, ...args);
+        responseHook.call(bedrockRuntimeServiceExtension, response, span, tracer, config, ...args);
 
         const currentModelId = response.request.commandInput?.modelId;
         if (currentModelId?.includes('ai21.jamba') && response.data?.body) {
-          let decodedResponseBody: string;
-          if (response.data.body instanceof Uint8Array) {
-            decodedResponseBody = new TextDecoder().decode(response.data.body);
-          } else {
+          if (!(response.data.body instanceof Uint8Array)) {
             return;
           }
-          const responseBody = JSON.parse(decodedResponseBody);
-          if (responseBody.usage?.prompt_tokens !== undefined) {
-            span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.prompt_tokens);
-          }
-          if (responseBody.usage?.completion_tokens !== undefined) {
-            span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.usage.completion_tokens);
-          }
-          if (responseBody.choices?.[0]?.finish_reason !== undefined) {
-            span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
-              responseBody.choices[0].finish_reason,
-            ]);
+          try {
+            const decodedResponseBody = new TextDecoder().decode(response.data.body);
+            const responseBody = JSON.parse(decodedResponseBody);
+            if (responseBody.usage?.prompt_tokens !== undefined) {
+              span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.prompt_tokens);
+            }
+            if (responseBody.usage?.completion_tokens !== undefined) {
+              span.setAttribute(
+                AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS,
+                responseBody.usage.completion_tokens
+              );
+            }
+            if (responseBody.choices?.[0]?.finish_reason !== undefined) {
+              span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
+                responseBody.choices[0].finish_reason,
+              ]);
+            }
+          } catch {
+            // Malformed response body — skip attribute extraction
           }
         }
       };
+      bedrockRuntimeServiceExtension.responseHook = patchedResponseHook;
     }
   }
 }

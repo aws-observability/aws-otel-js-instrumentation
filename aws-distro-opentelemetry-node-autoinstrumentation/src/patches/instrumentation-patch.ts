@@ -25,14 +25,12 @@ import { AWSXRAY_TRACE_ID_HEADER } from '@opentelemetry/propagator-aws-xray';
 import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
 import { AWS_ATTRIBUTE_KEYS } from '../aws-attribute-keys';
 import { RequestMetadata } from '../third-party/otel/aws/services/ServiceExtension';
+import { AwsSpanProcessingUtil } from '../aws-span-processing-util';
 import {
   BedrockAgentRuntimeServiceExtension,
   BedrockAgentServiceExtension,
-  BedrockRuntimeServiceExtension,
   BedrockServiceExtension,
 } from './aws/services/bedrock';
-import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
-import { StepFunctionsServiceExtension } from './aws/services/step-functions';
 import type { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import type { Command as AwsV3Command } from '@aws-sdk/types';
 import { LoggerProvider } from '@opentelemetry/api-logs';
@@ -71,14 +69,11 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
       const services: Map<string, ServiceExtension> | undefined = (instrumentations[index] as any).servicesExtensions
         ?.services;
       if (services) {
-        services.set('SecretsManager', new SecretsManagerServiceExtension());
-        services.set('SFN', new StepFunctionsServiceExtension());
         services.set('Bedrock', new BedrockServiceExtension());
         services.set('BedrockAgent', new BedrockAgentServiceExtension());
         services.set('BedrockAgentRuntime', new BedrockAgentRuntimeServiceExtension());
-        services.set('BedrockRuntime', new BedrockRuntimeServiceExtension());
         patchSqsServiceExtension(services.get('SQS'));
-        patchSnsServiceExtension(services.get('SNS'));
+        patchBedrockRuntimeServiceExtension(services.get('BedrockRuntime'));
         patchLambdaServiceExtension(services.get('Lambda'));
         patchKinesisServiceExtension(services.get('Kinesis'));
         patchDynamoDbServiceExtension(services.get('DynamoDB'));
@@ -162,33 +157,89 @@ function patchSqsServiceExtension(sqsServiceExtension: any): void {
 }
 
 /*
- * This patch extends the existing upstream extension for SNS. Extensions allow for custom logic for adding
- * service-specific information to spans, such as attributes. Specifically, we are adding logic to add
- * `aws.sns.topic.arn` attribute, to be used to generate RemoteTarget and achieve parity with the Java/Python instrumentation.
+ * This patch extends the existing upstream extension for BedrockRuntime to add support for the
+ * ai21.jamba model family, which is not covered by upstream.
  *
- *
- * @param snsServiceExtension SNS Service Extension obtained the service extension list from the AWS SDK OTel Instrumentation
+ * @param bedrockRuntimeServiceExtension BedrockRuntime Service Extension from the AWS SDK OTel Instrumentation
  */
-function patchSnsServiceExtension(snsServiceExtension: any): void {
-  if (snsServiceExtension) {
-    const requestPreSpanHook = snsServiceExtension.requestPreSpanHook;
-    snsServiceExtension._requestPreSpanHook = requestPreSpanHook;
+function patchBedrockRuntimeServiceExtension(bedrockRuntimeServiceExtension: any): void {
+  if (bedrockRuntimeServiceExtension) {
+    const requestPreSpanHook = bedrockRuntimeServiceExtension.requestPreSpanHook;
+    bedrockRuntimeServiceExtension._requestPreSpanHook = requestPreSpanHook;
 
-    const patchedRequestPreSpanHook = (
+    const patchedRequestPreSpanHook = function (
       request: NormalizedRequest,
-      _config: AwsSdkInstrumentationConfig
-    ): RequestMetadata => {
-      const requestMetadata: RequestMetadata = snsServiceExtension._requestPreSpanHook(request, _config);
-      if (requestMetadata.spanAttributes) {
-        const topicArn = request.commandInput?.TopicArn;
-        if (topicArn) {
-          requestMetadata.spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN] = topicArn;
+      config: AwsSdkInstrumentationConfig,
+      diagLogger: any
+    ): RequestMetadata {
+      const requestMetadata: RequestMetadata = bedrockRuntimeServiceExtension._requestPreSpanHook.call(
+        bedrockRuntimeServiceExtension,
+        request,
+        config,
+        diagLogger
+      );
+      const modelId = request.commandInput?.modelId;
+      if (modelId?.includes('ai21.jamba') && request.commandInput?.body) {
+        try {
+          const requestBody = JSON.parse(request.commandInput.body);
+          if (!requestMetadata.spanAttributes) {
+            requestMetadata.spanAttributes = {};
+          }
+          if (requestBody.max_tokens !== undefined) {
+            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
+          }
+          if (requestBody.temperature !== undefined) {
+            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
+          }
+          if (requestBody.top_p !== undefined) {
+            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
+          }
+        } catch {
+          // Malformed JSON body — skip attribute extraction
         }
       }
       return requestMetadata;
     };
+    bedrockRuntimeServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
 
-    snsServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
+    if (typeof bedrockRuntimeServiceExtension.responseHook === 'function') {
+      const responseHook = bedrockRuntimeServiceExtension.responseHook;
+
+      const patchedResponseHook = function (
+        response: NormalizedResponse,
+        span: Span,
+        tracer: Tracer,
+        config: AwsSdkInstrumentationConfig,
+        ...args: any[]
+      ): void {
+        responseHook.call(bedrockRuntimeServiceExtension, response, span, tracer, config, ...args);
+
+        const currentModelId = response.request.commandInput?.modelId;
+        if (currentModelId?.includes('ai21.jamba') && response.data?.body) {
+          if (!(response.data.body instanceof Uint8Array)) {
+            return;
+          }
+          try {
+            const decodedResponseBody = new TextDecoder().decode(response.data.body);
+            const responseBody = JSON.parse(decodedResponseBody);
+            if (responseBody.usage?.prompt_tokens !== undefined) {
+              span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.prompt_tokens);
+            }
+            if (responseBody.usage?.completion_tokens !== undefined) {
+              span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.usage.completion_tokens);
+            }
+            if (responseBody.choices?.[0]?.finish_reason !== undefined) {
+              span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
+                responseBody.choices[0].finish_reason,
+              ]);
+            }
+          } catch {
+            // Malformed response body — skip attribute extraction
+          }
+        }
+      };
+      bedrockRuntimeServiceExtension.responseHook = patchedResponseHook;
+    }
   }
 }
 

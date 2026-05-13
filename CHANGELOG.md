@@ -13,7 +13,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
-- refactor: remove BedrockRuntime, SecretsManager, StepFunction instrumentation patches
+### Breaking Changes
+
+- refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.
   ([#446](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/446))
 
 ## v0.11.0 - 2026-04-30

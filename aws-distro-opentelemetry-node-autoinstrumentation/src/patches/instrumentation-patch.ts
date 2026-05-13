@@ -204,9 +204,10 @@ function patchBedrockRuntimeServiceExtension(bedrockRuntimeServiceExtension: any
         response: NormalizedResponse,
         span: Span,
         tracer: Tracer,
-        config: AwsSdkInstrumentationConfig
+        config: AwsSdkInstrumentationConfig,
+        ...args: any[]
       ): void {
-        originalResponseHook.call(this, response, span, tracer, config);
+        originalResponseHook.call(this, response, span, tracer, config, ...args);
 
         const currentModelId = response.request.commandInput?.modelId;
         if (currentModelId?.includes('ai21.jamba') && response.data?.body) {

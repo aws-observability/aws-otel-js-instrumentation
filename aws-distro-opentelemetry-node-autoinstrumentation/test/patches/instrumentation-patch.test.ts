@@ -128,13 +128,13 @@ describe('InstrumentationPatchTest', () => {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     const services: Map<string, any> = (awsSdkInstrumentation as AwsInstrumentation).servicesExtensions?.services;
-    // Services supported by upstream (not patched by us)
+    // Services supported by upstream
     expect(services.has('S3')).toBeTruthy();
     expect(services.has('SNS')).toBeTruthy();
     expect(services.has('SecretsManager')).toBeTruthy();
     expect(services.has('SFN')).toBeTruthy();
 
-    // Upstream services that we patch (wrap to add extra attributes)
+    // Services in upstream that we patch
     expect(services.has('SQS')).toBeTruthy();
     expect(services.get('SQS')._requestPreSpanHook).toBeTruthy();
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
@@ -148,7 +148,7 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('BedrockRuntime')).toBeTruthy();
     expect(services.get('BedrockRuntime')._requestPreSpanHook).toBeTruthy();
 
-    // Services added entirely by our patches (not in upstream)
+    // Services not in upstream at all
     expect(services.has('Bedrock')).toBeTruthy();
     expect(services.has('BedrockAgent')).toBeTruthy();
     expect(services.get('BedrockAgentRuntime')).toBeTruthy();

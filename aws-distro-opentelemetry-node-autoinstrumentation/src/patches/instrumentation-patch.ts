@@ -189,8 +189,7 @@ function patchBedrockRuntimeServiceExtension(bedrockRuntimeServiceExtension: any
             requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
           }
           if (requestBody.temperature !== undefined) {
-            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] =
-              requestBody.temperature;
+            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
           }
           if (requestBody.top_p !== undefined) {
             requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
@@ -227,10 +226,7 @@ function patchBedrockRuntimeServiceExtension(bedrockRuntimeServiceExtension: any
               span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.prompt_tokens);
             }
             if (responseBody.usage?.completion_tokens !== undefined) {
-              span.setAttribute(
-                AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS,
-                responseBody.usage.completion_tokens
-              );
+              span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.usage.completion_tokens);
             }
             if (responseBody.choices?.[0]?.finish_reason !== undefined) {
               span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [

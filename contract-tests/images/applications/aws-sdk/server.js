@@ -771,35 +771,6 @@ async function handleBedrockRequest(req, res, path) {
             }
           }
   
-          if (path.includes('ai21.jamba')) {
-            modelId = 'ai21.jamba-1-5-large-v1:0';
-            
-            request_body = {
-              messages: [
-                {
-                  role: 'user',
-                  content: prompt,
-                },
-              ],
-              top_p: 0.8,
-              temperature: 0.6,
-              max_tokens: 512,
-            };
-
-            response_body = {
-              stop_reason: 'end_turn',
-              usage: {
-                prompt_tokens: 21,
-                completion_tokens: 24,
-              },
-              choices: [
-                {
-                  finish_reason: 'stop',
-                },
-              ],
-            }
-          }
-  
           if (path.includes('mistral')) {
             modelId = 'mistral.mistral-7b-instruct-v0:2';
             

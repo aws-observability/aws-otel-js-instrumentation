@@ -54,6 +54,7 @@ const { createReactAgent } = require('@langchain/langgraph/prebuilt');
 import { z } from 'zod';
 import type { ChatResult } from '@langchain/core/outputs';
 import { validateOtelGenaiSchema } from '../otel-schema-validator';
+import { INSTRUMENTATION_NAME } from '../../../src/instrumentation/instrumentation-langchain/instrumentation';
 import {
   ProviderName,
   getProviderCases,
@@ -426,7 +427,10 @@ describe('basic chat spans', function () {
       await model.invoke([new HumanMessage('What is the capital of France?')]);
 
       const spans = getTestSpans();
-      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      const chatSpans = spans.filter(
+        (s: ReadableSpan) =>
+          s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+      );
       expect(chatSpans.length).toBe(1);
 
       const span = chatSpans[0];
@@ -453,7 +457,10 @@ describe('basic chat spans', function () {
         await model.invoke([new HumanMessage('What is the capital of France?')]);
 
         const spans = getTestSpans();
-        const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+        const chatSpans = spans.filter(
+          (s: ReadableSpan) =>
+            s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+        );
         expect(chatSpans.length).toBe(1);
 
         const span = chatSpans[0];
@@ -482,7 +489,10 @@ describe('basic chat spans', function () {
     await model.invoke([new HumanMessage('What is the capital of France?')]);
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(1);
 
     const span = chatSpans[0];
@@ -503,7 +513,10 @@ describe('basic chat spans', function () {
     await model.invoke([new HumanMessage('What is the capital of France?')]);
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(1);
 
     const span = chatSpans[0];
@@ -538,7 +551,10 @@ describe('content capture', function () {
       ]);
 
       const spans = getTestSpans();
-      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      const chatSpans = spans.filter(
+        (s: ReadableSpan) =>
+          s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+      );
       expect(chatSpans.length).toBe(1);
 
       const span = chatSpans[0];
@@ -567,7 +583,10 @@ describe('content capture', function () {
         ]);
 
         const spans = getTestSpans();
-        const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+        const chatSpans = spans.filter(
+          (s: ReadableSpan) =>
+            s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+        );
         expect(chatSpans.length).toBe(1);
 
         const span = chatSpans[0];
@@ -595,7 +614,10 @@ describe('content capture', function () {
     await model.invoke([new HumanMessage('What is the capital of France?')]);
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(1);
     expect(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeUndefined();
     expect(chatSpans[0].attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeUndefined();
@@ -693,7 +715,10 @@ describe('error handling', function () {
     restore();
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(1);
     expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
   });
@@ -717,7 +742,10 @@ describe('error handling', function () {
     }
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(1);
   });
 });
@@ -740,7 +768,10 @@ describe('message content', function () {
     await llm.invoke('Say hello');
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(1);
     const span = chatSpans[0];
 
@@ -762,7 +793,10 @@ describe('message content', function () {
     await llm.invoke([new SystemMessage('You are a helpful assistant.'), new HumanMessage('Hello')]);
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(1);
     const span = chatSpans[0];
 
@@ -832,7 +866,10 @@ describe('disable/uninstrument', function () {
     await llm.invoke('test');
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(0);
   });
 });
@@ -890,7 +927,10 @@ describe('tool call responses', function () {
       await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
 
       const spans = getTestSpans();
-      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      const chatSpans = spans.filter(
+        (s: ReadableSpan) =>
+          s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+      );
       expect(chatSpans.length).toBe(1);
 
       const span = chatSpans[0];
@@ -915,7 +955,10 @@ describe('tool call responses', function () {
         await model.invoke([new HumanMessage('What is the weather in Tokyo?')]);
 
         const spans = getTestSpans();
-        const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+        const chatSpans = spans.filter(
+          (s: ReadableSpan) =>
+            s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+        );
         expect(chatSpans.length).toBe(1);
 
         const span = chatSpans[0];
@@ -960,7 +1003,10 @@ describe('provider error handling', function () {
       }
 
       const spans = getTestSpans();
-      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      const chatSpans = spans.filter(
+        (s: ReadableSpan) =>
+          s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+      );
       expect(chatSpans.length).toBe(1);
       expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
       expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
@@ -982,7 +1028,10 @@ describe('provider error handling', function () {
       restore();
 
       const spans = getTestSpans();
-      const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      const chatSpans = spans.filter(
+        (s: ReadableSpan) =>
+          s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+      );
       expect(chatSpans.length).toBe(1);
       expect(chatSpans[0].status.code).toBe(SpanStatusCode.ERROR);
       expect(chatSpans[0].attributes[ATTR_ERROR_TYPE]).toBeDefined();
@@ -1016,7 +1065,10 @@ describe('message formatting edge cases', function () {
     ]);
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(1);
 
     const inputMessages = JSON.parse(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
@@ -1053,7 +1105,10 @@ describe('message formatting edge cases', function () {
     ]);
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(1);
 
     const inputMessages = JSON.parse(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
@@ -1106,7 +1161,10 @@ describe('streaming', function () {
     expect(chunks.join('')).toContain('World');
 
     const spans = getTestSpans();
-    const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
     expect(chatSpans.length).toBe(1);
   });
 });
@@ -1292,7 +1350,11 @@ describe('finish reason normalization', function () {
           await model.invoke([new HumanMessage('test')]);
 
           const spans = getTestSpans();
-          const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+          const chatSpans = spans.filter(
+            (s: ReadableSpan) =>
+              s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' &&
+              s.instrumentationScope.name === INSTRUMENTATION_NAME
+          );
           expect(chatSpans.length).toBe(1);
           expect(chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual([expected]);
         } finally {

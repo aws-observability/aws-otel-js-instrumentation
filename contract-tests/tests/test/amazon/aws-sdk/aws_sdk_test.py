@@ -44,8 +44,8 @@ _AWS_BEDROCK_DATA_SOURCE_ID: str = "aws.bedrock.data_source.id"
 _AWS_SECRET_ARN: str = "aws.secretsmanager.secret.arn"
 _AWS_SNS_TOPIC_ARN: str = 'aws.sns.topic.arn'
 _AWS_LAMBDA_RESOURCE_MAPPING_ID: str = 'aws.lambda.resource_mapping.id'
-_AWS_STATE_MACHINE_ARN: str = "aws.stepfunctions.state_machine.arn"
-_AWS_ACTIVITY_ARN: str = "aws.stepfunctions.activity.arn"
+_AWS_STATE_MACHINE_ARN: str = "aws.step_functions.state_machine.arn"
+_AWS_ACTIVITY_ARN: str = "aws.step_functions.activity.arn"
 _GEN_AI_REQUEST_MODEL: str = "gen_ai.request.model"
 _GEN_AI_REQUEST_TEMPERATURE: str = "gen_ai.request.temperature"
 _GEN_AI_REQUEST_TOP_P: str = "gen_ai.request.top_p"
@@ -687,7 +687,7 @@ class AWSSDKTest(ContractTestBase):
                 },
             span_name="BedrockRuntime.InvokeModel"
         )
-    
+
     def test_bedrock_runtime_invoke_model_mistral_mistral(self):
         self.do_test_requests(
             "bedrock/invokemodel/invoke-model/mistral.mistral-7b-instruct-v0:2",

@@ -72,7 +72,6 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
         services.set('BedrockAgent', new BedrockAgentServiceExtension());
         services.set('BedrockAgentRuntime', new BedrockAgentRuntimeServiceExtension());
         patchSqsServiceExtension(services.get('SQS'));
-        patchSnsServiceExtension(services.get('SNS'));
         patchLambdaServiceExtension(services.get('Lambda'));
         patchKinesisServiceExtension(services.get('Kinesis'));
         patchDynamoDbServiceExtension(services.get('DynamoDB'));
@@ -152,37 +151,6 @@ function patchSqsServiceExtension(sqsServiceExtension: any): void {
       return requestMetadata;
     };
     sqsServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
-  }
-}
-
-/*
- * This patch extends the existing upstream extension for SNS. Extensions allow for custom logic for adding
- * service-specific information to spans, such as attributes. Specifically, we are adding logic to add
- * `aws.sns.topic.arn` attribute, to be used to generate RemoteTarget and achieve parity with the Java/Python instrumentation.
- *
- *
- * @param snsServiceExtension SNS Service Extension obtained the service extension list from the AWS SDK OTel Instrumentation
- */
-function patchSnsServiceExtension(snsServiceExtension: any): void {
-  if (snsServiceExtension) {
-    const requestPreSpanHook = snsServiceExtension.requestPreSpanHook;
-    snsServiceExtension._requestPreSpanHook = requestPreSpanHook;
-
-    const patchedRequestPreSpanHook = (
-      request: NormalizedRequest,
-      _config: AwsSdkInstrumentationConfig
-    ): RequestMetadata => {
-      const requestMetadata: RequestMetadata = snsServiceExtension._requestPreSpanHook(request, _config);
-      if (requestMetadata.spanAttributes) {
-        const topicArn = request.commandInput?.TopicArn;
-        if (topicArn) {
-          requestMetadata.spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN] = topicArn;
-        }
-      }
-      return requestMetadata;
-    };
-
-    snsServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
   }
 }
 

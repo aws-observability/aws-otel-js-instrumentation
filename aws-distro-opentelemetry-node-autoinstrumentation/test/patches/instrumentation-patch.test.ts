@@ -104,8 +104,6 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('DynamoDB')).toBeTruthy();
     expect(services.has('S3')).toBeTruthy();
     expect(services.has('Kinesis')).toBeTruthy();
-    // SecretsManager and SFN are now in upstream (starting from instrumentation-aws-sdk 0.51.0+)
-    // These checks verify they exist but we still apply our patches for enhanced functionality
     expect(services.has('SecretsManager')).toBeTruthy();
     expect(services.has('SFN')).toBeTruthy();
     expect(services.get('SNS')._requestPreSpanHook).toBeFalsy();
@@ -116,8 +114,6 @@ describe('InstrumentationPatchTest', () => {
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Kinesis')._requestPreSpanHook).toBeFalsy();
     expect(services.get('Kinesis').requestPreSpanHook).toBeTruthy();
-    // BedrockRuntime is now fully handled by upstream (starting from instrumentation-aws-sdk 0.65.0+)
-    // with GenAI metrics instrumentation.
     expect(services.get('BedrockRuntime')).toBeTruthy();
     // Bedrock, BedrockAgent, BedrockAgentRuntime are added via our patches
     expect(services.has('Bedrock')).toBeFalsy();
@@ -132,29 +128,28 @@ describe('InstrumentationPatchTest', () => {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     const services: Map<string, any> = (awsSdkInstrumentation as AwsInstrumentation).servicesExtensions?.services;
-    // Not from patching
-    expect(services.has('SQS')).toBeTruthy();
-    expect(services.has('SNS')).toBeTruthy();
-    expect(services.has('DynamoDB')).toBeTruthy();
-    expect(services.has('Lambda')).toBeTruthy();
+    // Services supported by upstream
     expect(services.has('S3')).toBeTruthy();
-    expect(services.has('Kinesis')).toBeTruthy();
-    // SecretsManager and SFN are now fully handled by upstream
+    expect(services.has('SNS')).toBeTruthy();
     expect(services.has('SecretsManager')).toBeTruthy();
     expect(services.has('SFN')).toBeTruthy();
-    expect(services.get('SNS')._requestPreSpanHook).toBeTruthy();
-    expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
-    expect(services.get('Lambda')._requestPreSpanHook).toBeTruthy();
-    expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
+    expect(services.has('BedrockRuntime')).toBeTruthy();
+
+    // Services we patch
+    expect(services.has('SQS')).toBeTruthy();
     expect(services.get('SQS')._requestPreSpanHook).toBeTruthy();
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
+    expect(services.has('DynamoDB')).toBeTruthy();
+    expect(services.has('Lambda')).toBeTruthy();
+    expect(services.get('Lambda')._requestPreSpanHook).toBeTruthy();
+    expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
+    expect(services.has('Kinesis')).toBeTruthy();
     expect(services.get('Kinesis')._requestPreSpanHook).toBeTruthy();
     expect(services.get('Kinesis').requestPreSpanHook).toBeTruthy();
     expect(services.has('Bedrock')).toBeTruthy();
     expect(services.has('BedrockAgent')).toBeTruthy();
     expect(services.get('BedrockAgentRuntime')).toBeTruthy();
-    // BedrockRuntime is now fully handled by upstream
-    expect(services.get('BedrockRuntime')).toBeTruthy();
+
     // Sanity check
     expect(services.has('InvalidService')).toBeFalsy();
   });
@@ -173,16 +168,6 @@ describe('InstrumentationPatchTest', () => {
     expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]).toBeUndefined();
   });
 
-  it('SNS without patching', () => {
-    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
-    expect(() => doExtractSNSAttributes(services)).not.toThrow();
-
-    // SNS topic ARN is now extracted by upstream instrumentation-aws-sdk (0.51.0+)
-    const snsAttributes = doExtractSNSAttributes(services);
-    expect(snsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]).toBeDefined();
-  });
-
   it('Lambda without patching', () => {
     const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
@@ -194,18 +179,19 @@ describe('InstrumentationPatchTest', () => {
     expect(lambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toBeUndefined();
   });
 
-  it('SFN without patching', () => {
-    // SFN service extension is now in upstream instrumentation-aws-sdk (0.51.0+)
-    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
-    expect(() => doExtractSFNAttributes(services)).not.toThrow();
+  it('SFN upstream attributes', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const requestSFNAttributes: Attributes = doExtractSFNAttributes(services);
+    expect(requestSFNAttributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN]).toEqual(_STATE_MACHINE_ARN);
+    expect(requestSFNAttributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN]).toEqual(_ACTIVITY_ARN);
   });
 
-  it('SecretsManager without patching', () => {
-    // SecretsManager service extension is now in upstream instrumentation-aws-sdk (0.51.0+)
-    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
-    expect(() => doExtractSecretsManagerAttributes(services)).not.toThrow();
+  it('SecretsManager upstream attributes', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const requestSecretsManagerAttributes: Attributes = doExtractSecretsManagerAttributes(services);
+    expect(requestSecretsManagerAttributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(_SECRETS_ARN);
   });
 
   it('Bedrock without patching', () => {
@@ -222,10 +208,9 @@ describe('InstrumentationPatchTest', () => {
     expect(kinesisAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN);
   });
 
-  it('SNS with patching', () => {
+  it('SNS upstream attributes', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-
     const snsAttributes = doExtractSNSAttributes(services);
     expect(snsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]).toBe(_TOPIC_ARN);
   });
@@ -254,23 +239,6 @@ describe('InstrumentationPatchTest', () => {
     expect(requestLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]).toEqual(_FUNCTION_NAME);
     const responseLambdaAttributes: Attributes = doResponseHookLambda(services);
     expect(responseLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toEqual(_FUNCTION_ARN);
-  });
-
-  it('SFN with patching', () => {
-    // SFN is now fully handled by upstream - verify it still exists from upstream
-    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const requestSFNAttributes: Attributes = doExtractSFNAttributes(services);
-    // Upstream uses 'aws.step_functions.*' attribute keys (different from our previous 'aws.stepfunctions.*')
-    expect(requestSFNAttributes).toBeDefined();
-  });
-
-  it('SecretsManager with patching', () => {
-    // SecretsManager is now fully handled by upstream - verify it still exists from upstream
-    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const requestSecretsManagerAttributes: Attributes = doExtractSecretsManagerAttributes(services);
-    expect(requestSecretsManagerAttributes).toBeDefined();
   });
 
   it('Kinesis with patching', () => {
@@ -366,11 +334,26 @@ describe('InstrumentationPatchTest', () => {
     expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(0);
   });
 
-  it('Bedrock Runtime with patching', () => {
-    // BedrockRuntime is now fully handled by upstream - verify it still exists
+  it('Bedrock Runtime upstream attributes', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    expect(services.get('BedrockRuntime')).toBeTruthy();
+    const serviceName = 'BedrockRuntime';
+    const serviceExtension: any = services.get(serviceName);
+    expect(serviceExtension).toBeTruthy();
+    const requestMetadata = serviceExtension.requestPreSpanHook(
+      {
+        serviceName: serviceName,
+        commandName: 'InvokeModel',
+        commandInput: {
+          modelId: _GEN_AI_REQUEST_MODEL,
+          body: JSON.stringify({ max_tokens: 100 }),
+        },
+      },
+      {},
+      diag
+    );
+    expect(requestMetadata.spanAttributes['gen_ai.system']).toEqual('aws.bedrock');
+    expect(requestMetadata.spanAttributes['gen_ai.request.model']).toEqual(_GEN_AI_REQUEST_MODEL);
   });
 
   it('Lambda with custom eventContextExtractor patching', () => {

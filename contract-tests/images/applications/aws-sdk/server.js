@@ -884,7 +884,6 @@ async function handleBedrockRequest(req, res, path) {
   res.end();
 }
 
-
 async function handleSecretsRequest(req, res, path) {
   const secretsClient = new SecretsManagerClient({
     endpoint: _AWS_SDK_ENDPOINT,

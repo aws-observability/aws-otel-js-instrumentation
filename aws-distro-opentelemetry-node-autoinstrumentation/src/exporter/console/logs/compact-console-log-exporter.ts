@@ -85,7 +85,7 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
       observedTimeUnixNano: hrTimeToNanos(logRecord.hrTimeObserved),
       traceId: isValid ? spanContext!.traceId : '',
       spanId: isValid ? spanContext!.spanId : '',
-      flags: spanContext?.traceFlags ?? 0,
+      flags: isValid ? spanContext!.traceFlags : 0,
     };
 
     if (process.env.ADOT_TEST_EXPORT_PATH_ENABLED === 'true') {

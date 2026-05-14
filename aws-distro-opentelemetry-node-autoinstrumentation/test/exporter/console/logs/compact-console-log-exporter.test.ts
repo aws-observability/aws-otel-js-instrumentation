@@ -49,6 +49,7 @@ describe('CompactConsoleLogRecordExporter', () => {
 
   afterEach(() => {
     sinon.restore();
+    delete process.env.ADOT_TEST_EXPORT_PATH_ENABLED;
   });
 
   it('should export with all fields matching canonical schema', done => {

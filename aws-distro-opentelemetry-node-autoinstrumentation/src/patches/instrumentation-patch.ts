@@ -211,13 +211,13 @@ function patchBedrockRuntimeServiceExtension(bedrockRuntimeServiceExtension: any
         tracer: Tracer,
         config: AwsSdkInstrumentationConfig,
         ...args: any[]
-      ): void {
-        responseHook.call(bedrockRuntimeServiceExtension, response, span, tracer, config, ...args);
+      ): any {
+        const result = responseHook.call(bedrockRuntimeServiceExtension, response, span, tracer, config, ...args);
 
         const currentModelId = response.request.commandInput?.modelId;
         if (currentModelId?.includes('ai21.jamba') && response.data?.body) {
           if (!(response.data.body instanceof Uint8Array)) {
-            return;
+            return result;
           }
           try {
             const decodedResponseBody = new TextDecoder().decode(response.data.body);
@@ -237,6 +237,7 @@ function patchBedrockRuntimeServiceExtension(bedrockRuntimeServiceExtension: any
             // Malformed response body — skip attribute extraction
           }
         }
+        return result;
       };
       bedrockRuntimeServiceExtension.responseHook = patchedResponseHook;
     }

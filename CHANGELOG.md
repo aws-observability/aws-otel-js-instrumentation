@@ -19,6 +19,11 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   types. Added `exportPath: "console"` discriminator field.
   ([#392](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/392))
   
+### Breaking Changes
+
+- refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.
+  ([#446](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/446))
+
 ## v0.11.0 - 2026-04-30
 
 - Support environment-configured endpoint visibility for HTTP operation names

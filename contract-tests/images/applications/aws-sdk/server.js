@@ -14,7 +14,7 @@ const { SQSClient, CreateQueueCommand, SendMessageCommand, ReceiveMessageCommand
 const { KinesisClient, CreateStreamCommand, PutRecordCommand, DescribeStreamCommand } = require('@aws-sdk/client-kinesis');
 const { BedrockClient, GetGuardrailCommand } = require('@aws-sdk/client-bedrock');
 const { BedrockAgentClient, GetKnowledgeBaseCommand, GetDataSourceCommand, GetAgentCommand } = require('@aws-sdk/client-bedrock-agent');
-const { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } = require('@aws-sdk/client-bedrock-runtime');
+const { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand, ConverseStreamCommand } = require('@aws-sdk/client-bedrock-runtime');
 const { BedrockAgentRuntimeClient, InvokeAgentCommand, RetrieveCommand } = require('@aws-sdk/client-bedrock-agent-runtime');
 const { SNSClient, CreateTopicCommand, GetTopicAttributesCommand } = require('@aws-sdk/client-sns');
 const { SecretsManagerClient, CreateSecretCommand, DescribeSecretCommand } = require('@aws-sdk/client-secrets-manager');
@@ -870,6 +870,40 @@ async function handleBedrockRequest(req, res, path) {
             },
           })
         );
+      });
+
+      res.statusCode = 200;
+    } else if (path.includes('conversestream/converse-stream')) {
+      const converseStreamResponse = {
+        stream: (async function* () {
+          yield { contentBlockDelta: { delta: { text: 'Hello! ' } } };
+          yield { contentBlockDelta: { delta: { text: 'How can I help?' } } };
+          yield { messageStop: { stopReason: 'end_turn' } };
+          yield { metadata: { usage: { inputTokens: 15, outputTokens: 10 } } };
+        })(),
+      };
+
+      await withInjected200Success(bedrockRuntimeClient, ['ConverseStreamCommand'], converseStreamResponse, async () => {
+        const response = await bedrockRuntimeClient.send(
+          new ConverseStreamCommand({
+            modelId: 'anthropic.claude-v2:1',
+            messages: [
+              {
+                role: 'user',
+                content: [{ text: 'Hello' }],
+              },
+            ],
+            inferenceConfig: {
+              maxTokens: 256,
+              temperature: 0.8,
+              topP: 0.95,
+              stopSequences: ['Assistant:'],
+            },
+          })
+        );
+        for await (const chunk of response.stream) {
+          // consume stream so instrumentation can extract attributes
+        }
       });
 
       res.statusCode = 200;

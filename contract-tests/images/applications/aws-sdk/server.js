@@ -14,7 +14,7 @@ const { SQSClient, CreateQueueCommand, SendMessageCommand, ReceiveMessageCommand
 const { KinesisClient, CreateStreamCommand, PutRecordCommand, DescribeStreamCommand } = require('@aws-sdk/client-kinesis');
 const { BedrockClient, GetGuardrailCommand } = require('@aws-sdk/client-bedrock');
 const { BedrockAgentClient, GetKnowledgeBaseCommand, GetDataSourceCommand, GetAgentCommand } = require('@aws-sdk/client-bedrock-agent');
-const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
+const { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand, ConverseStreamCommand } = require('@aws-sdk/client-bedrock-runtime');
 const { BedrockAgentRuntimeClient, InvokeAgentCommand, RetrieveCommand } = require('@aws-sdk/client-bedrock-agent-runtime');
 const { SNSClient, CreateTopicCommand, GetTopicAttributesCommand } = require('@aws-sdk/client-sns');
 const { SecretsManagerClient, CreateSecretCommand, DescribeSecretCommand } = require('@aws-sdk/client-secrets-manager');
@@ -837,6 +837,76 @@ async function handleBedrockRequest(req, res, path) {
       });
 
       res.statusCode = 200;
+    } else if (path.includes('converse/converse')) {
+      const converseResponse = {
+        output: {
+          message: {
+            role: 'assistant',
+            content: [{ text: 'Hello! How can I help you today?' }],
+          },
+        },
+        stopReason: 'end_turn',
+        usage: {
+          inputTokens: 12,
+          outputTokens: 8,
+        },
+      };
+
+      await withInjected200Success(bedrockRuntimeClient, ['ConverseCommand'], converseResponse, async () => {
+        await bedrockRuntimeClient.send(
+          new ConverseCommand({
+            modelId: 'anthropic.claude-v2:1',
+            messages: [
+              {
+                role: 'user',
+                content: [{ text: 'Hello' }],
+              },
+            ],
+            inferenceConfig: {
+              maxTokens: 512,
+              temperature: 0.7,
+              topP: 0.9,
+              stopSequences: ['Human:'],
+            },
+          })
+        );
+      });
+
+      res.statusCode = 200;
+    } else if (path.includes('conversestream/converse-stream')) {
+      const converseStreamResponse = {
+        stream: (async function* () {
+          yield { contentBlockDelta: { delta: { text: 'Hello! ' } } };
+          yield { contentBlockDelta: { delta: { text: 'How can I help?' } } };
+          yield { messageStop: { stopReason: 'end_turn' } };
+          yield { metadata: { usage: { inputTokens: 15, outputTokens: 10 } } };
+        })(),
+      };
+
+      await withInjected200Success(bedrockRuntimeClient, ['ConverseStreamCommand'], converseStreamResponse, async () => {
+        const response = await bedrockRuntimeClient.send(
+          new ConverseStreamCommand({
+            modelId: 'anthropic.claude-v2:1',
+            messages: [
+              {
+                role: 'user',
+                content: [{ text: 'Hello' }],
+              },
+            ],
+            inferenceConfig: {
+              maxTokens: 256,
+              temperature: 0.8,
+              topP: 0.95,
+              stopSequences: ['Assistant:'],
+            },
+          })
+        );
+        for await (const chunk of response.stream) {
+          // consume stream so instrumentation can extract attributes
+        }
+      });
+
+      res.statusCode = 200;
     } else {
       res.statusCode = 404;
     }
@@ -847,7 +917,6 @@ async function handleBedrockRequest(req, res, path) {
 
   res.end();
 }
-
 
 async function handleSecretsRequest(req, res, path) {
   const secretsClient = new SecretsManagerClient({

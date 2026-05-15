@@ -468,6 +468,33 @@ describe('InstrumentationPatchTest', () => {
     expect(spanAttributes['gen_ai.response.finish_reasons']).toEqual(['stop']);
   });
 
+  it('Bedrock Runtime patch preserves responseHook return value for streaming', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const serviceExtension: any = services.get('BedrockRuntime');
+
+    const mockStream = (async function* () {
+      yield { messageStop: { stopReason: 'end_turn' } };
+      yield { metadata: { usage: { inputTokens: 10, outputTokens: 5 } } };
+    })();
+    const response: Partial<NormalizedResponse> = {
+      data: { stream: mockStream },
+      request: {
+        commandInput: { modelId: 'anthropic.claude-v2:1' },
+        commandName: 'ConverseStream',
+        serviceName: 'BedrockRuntime',
+      },
+    };
+
+    const mockSpan: any = {
+      setAttribute: () => mockSpan,
+      isRecording: () => true,
+    };
+
+    const result = serviceExtension.responseHook(response, mockSpan, {}, {});
+    expect(result).toBeDefined();
+  });
+
   it('Lambda with custom eventContextExtractor patching', () => {
     const patchedAwsSdkInstrumentation: AwsLambdaInstrumentation =
       extractLambdaInstrumentation(PATCHED_INSTRUMENTATIONS);

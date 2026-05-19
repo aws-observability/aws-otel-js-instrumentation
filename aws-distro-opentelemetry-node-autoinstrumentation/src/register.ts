@@ -123,7 +123,7 @@ export function setAwsDefaultEnvironmentVariables() {
 setAwsDefaultEnvironmentVariables();
 
 export const isHttpPingRequest = (request: { url?: string }) => request.url === '/ping';
-export const isUndicPingRequest = (request: { path: string }) => request.path === '/ping';
+export const isUndiciPingRequest = (request: { path: string }) => request.path === '/ping';
 
 export const instrumentationConfigs: InstrumentationConfigMap = {
   '@opentelemetry/instrumentation-aws-lambda': {
@@ -140,7 +140,7 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
       ignoreIncomingRequestHook: isHttpPingRequest,
     },
     '@opentelemetry/instrumentation-undici': {
-      ignoreRequestHook: isUndicPingRequest,
+      ignoreRequestHook: isUndiciPingRequest,
     },
   }),
 };

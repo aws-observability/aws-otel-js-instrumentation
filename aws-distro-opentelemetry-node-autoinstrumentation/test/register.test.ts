@@ -413,9 +413,8 @@ describe('Register', function () {
   });
 
   describe('Healthcheck suppression', () => {
-    const { isHttpPingRequest, isUndicPingRequest } = require('../src/register');
-
     it('suppresses /ping for incoming HTTP requests', () => {
+      const { isHttpPingRequest } = require('../src/register');
       assert.strictEqual(isHttpPingRequest({ url: '/ping' }), true);
       assert.strictEqual(isHttpPingRequest({ url: '/invocations' }), false);
       assert.strictEqual(isHttpPingRequest({ url: '/' }), false);
@@ -423,9 +422,10 @@ describe('Register', function () {
     });
 
     it('suppresses /ping for undici requests', () => {
-      assert.strictEqual(isUndicPingRequest({ path: '/ping' }), true);
-      assert.strictEqual(isUndicPingRequest({ path: '/invocations' }), false);
-      assert.strictEqual(isUndicPingRequest({ path: '/' }), false);
+      const { isUndiciPingRequest } = require('../src/register');
+      assert.strictEqual(isUndiciPingRequest({ path: '/ping' }), true);
+      assert.strictEqual(isUndiciPingRequest({ path: '/invocations' }), false);
+      assert.strictEqual(isUndiciPingRequest({ path: '/' }), false);
     });
   });
 

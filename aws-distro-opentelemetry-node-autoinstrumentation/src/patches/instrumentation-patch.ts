@@ -31,6 +31,10 @@ import {
   BedrockAgentServiceExtension,
   BedrockServiceExtension,
 } from './aws/services/bedrock';
+import {
+  BedrockAgentCoreServiceExtension,
+  BedrockAgentCoreControlServiceExtension,
+} from './aws/services/bedrock-agentcore';
 import type { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import type { Command as AwsV3Command } from '@aws-sdk/types';
 import { LoggerProvider } from '@opentelemetry/api-logs';
@@ -72,6 +76,8 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
         services.set('Bedrock', new BedrockServiceExtension());
         services.set('BedrockAgent', new BedrockAgentServiceExtension());
         services.set('BedrockAgentRuntime', new BedrockAgentRuntimeServiceExtension());
+        services.set('BedrockAgentCore', new BedrockAgentCoreServiceExtension());
+        services.set('BedrockAgentCoreControl', new BedrockAgentCoreControlServiceExtension());
         patchSqsServiceExtension(services.get('SQS'));
         patchBedrockRuntimeServiceExtension(services.get('BedrockRuntime'));
         patchLambdaServiceExtension(services.get('Lambda'));

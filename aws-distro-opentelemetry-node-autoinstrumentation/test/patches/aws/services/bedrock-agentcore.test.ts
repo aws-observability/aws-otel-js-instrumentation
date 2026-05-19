@@ -90,9 +90,7 @@ describe('BedrockAgentCore', () => {
         .catch(() => {});
 
       const testSpans: ReadableSpan[] = getTestSpans();
-      const spans = testSpans.filter(
-        (s: ReadableSpan) => s.name === 'BedrockAgentCore.StartCodeInterpreterSession'
-      );
+      const spans = testSpans.filter((s: ReadableSpan) => s.name === 'BedrockAgentCore.StartCodeInterpreterSession');
       expect(spans.length).toBe(1);
       expect(spans[0].attributes[AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID]).toBe(dummyId);
       expect(spans[0].kind).toBe(SpanKind.CLIENT);
@@ -160,10 +158,12 @@ describe('BedrockAgentCoreServiceExtension unit tests', () => {
         {} as any
       );
 
-      expect(setAttributeStub.calledWith(
-        AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN,
-        'arn:aws:bedrock-agentcore:us-east-1:123:runtime/test-id'
-      )).toBe(true);
+      expect(
+        setAttributeStub.calledWith(
+          AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN,
+          'arn:aws:bedrock-agentcore:us-east-1:123:runtime/test-id'
+        )
+      ).toBe(true);
     });
 
     it('extracts nested attributes using dot notation (workloadIdentityDetails.workloadIdentityArn)', () => {
@@ -183,10 +183,12 @@ describe('BedrockAgentCoreServiceExtension unit tests', () => {
         {} as any
       );
 
-      expect(setAttributeStub.calledWith(
-        AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_WORKLOAD_IDENTITY_ARN,
-        'arn:aws:bedrock-agentcore:us-east-1:123:workload-identity/test'
-      )).toBe(true);
+      expect(
+        setAttributeStub.calledWith(
+          AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_WORKLOAD_IDENTITY_ARN,
+          'arn:aws:bedrock-agentcore:us-east-1:123:workload-identity/test'
+        )
+      ).toBe(true);
     });
 
     it('does not set attributes when response data is empty', () => {

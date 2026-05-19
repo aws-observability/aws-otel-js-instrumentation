@@ -31,9 +31,7 @@ import {
   BedrockAgentServiceExtension,
   BedrockServiceExtension,
 } from './aws/services/bedrock';
-import {
-  BedrockAgentCoreServiceExtension,
-} from './aws/services/bedrock-agentcore';
+import { BedrockAgentCoreServiceExtension } from './aws/services/bedrock-agentcore';
 import type { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import type { Command as AwsV3Command } from '@aws-sdk/types';
 import { LoggerProvider } from '@opentelemetry/api-logs';

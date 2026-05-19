@@ -30,17 +30,13 @@ import {
 describe('Register', function () {
   let instrumentations: any[];
   let setAwsDefaultEnvironmentVariables: () => void;
-  let instrumentationConfigs: any;
 
   before(() => {
-    // Set AGENT_OBSERVABILITY_ENABLED so instrumentationConfigs includes the /ping hooks
-    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
     const stub = sinon.stub(opentelemetry.NodeSDK.prototype, 'start');
     const register = require('../src/register');
     stub.restore();
     instrumentations = register.instrumentations;
     setAwsDefaultEnvironmentVariables = register.setAwsDefaultEnvironmentVariables;
-    instrumentationConfigs = register.instrumentationConfigs;
     for (const instr of instrumentations) {
       instr.disable();
     }
@@ -417,22 +413,19 @@ describe('Register', function () {
   });
 
   describe('Healthcheck suppression', () => {
-    it('configures ignoreIncomingRequestHook for http when AGENT_OBSERVABILITY_ENABLED is true', () => {
-      const httpConfig = instrumentationConfigs['@opentelemetry/instrumentation-http'];
-      assert.ok(httpConfig, 'http config should exist');
-      assert.ok(httpConfig.ignoreIncomingRequestHook, 'ignoreIncomingRequestHook should be set');
-      assert.strictEqual(httpConfig.ignoreIncomingRequestHook({ url: '/ping' }), true);
-      assert.strictEqual(httpConfig.ignoreIncomingRequestHook({ url: '/invocations' }), false);
-      assert.strictEqual(httpConfig.ignoreIncomingRequestHook({ url: '/' }), false);
+    const { isHttpPingRequest, isUndicPingRequest } = require('../src/register');
+
+    it('suppresses /ping for incoming HTTP requests', () => {
+      assert.strictEqual(isHttpPingRequest({ url: '/ping' }), true);
+      assert.strictEqual(isHttpPingRequest({ url: '/invocations' }), false);
+      assert.strictEqual(isHttpPingRequest({ url: '/' }), false);
+      assert.strictEqual(isHttpPingRequest({}), false);
     });
 
-    it('configures ignoreRequestHook for undici when AGENT_OBSERVABILITY_ENABLED is true', () => {
-      const undiciConfig = instrumentationConfigs['@opentelemetry/instrumentation-undici'];
-      assert.ok(undiciConfig, 'undici config should exist');
-      assert.ok(undiciConfig.ignoreRequestHook, 'ignoreRequestHook should be set');
-      assert.strictEqual(undiciConfig.ignoreRequestHook({ path: '/ping' }), true);
-      assert.strictEqual(undiciConfig.ignoreRequestHook({ path: '/invocations' }), false);
-      assert.strictEqual(undiciConfig.ignoreRequestHook({ path: '/' }), false);
+    it('suppresses /ping for undici requests', () => {
+      assert.strictEqual(isUndicPingRequest({ path: '/ping' }), true);
+      assert.strictEqual(isUndicPingRequest({ path: '/invocations' }), false);
+      assert.strictEqual(isUndicPingRequest({ path: '/' }), false);
     });
   });
 

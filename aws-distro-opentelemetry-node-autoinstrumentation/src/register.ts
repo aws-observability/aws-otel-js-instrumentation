@@ -122,6 +122,9 @@ export function setAwsDefaultEnvironmentVariables() {
 }
 setAwsDefaultEnvironmentVariables();
 
+export const isHttpPingRequest = (request: { url?: string }) => request.url === '/ping';
+export const isUndicPingRequest = (request: { path: string }) => request.path === '/ping';
+
 export const instrumentationConfigs: InstrumentationConfigMap = {
   '@opentelemetry/instrumentation-aws-lambda': {
     eventContextExtractor: customExtractor,
@@ -134,14 +137,10 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
   },
   ...(isAgentObservabilityEnabled() && {
     '@opentelemetry/instrumentation-http': {
-      ignoreIncomingRequestHook: (request: { url?: string }) => {
-        return request.url === '/ping';
-      },
+      ignoreIncomingRequestHook: isHttpPingRequest,
     },
     '@opentelemetry/instrumentation-undici': {
-      ignoreRequestHook: (request: { path: string }) => {
-        return request.path === '/ping';
-      },
+      ignoreRequestHook: isUndicPingRequest,
     },
   }),
 };

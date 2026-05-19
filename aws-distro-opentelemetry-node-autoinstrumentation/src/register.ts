@@ -132,7 +132,6 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
   '@opentelemetry/instrumentation-mongoose': {
     suppressInternalInstrumentation: true,
   },
-  // Suppress healthcheck (/ping) traces in AgentCore environments to reduce noise
   ...(isAgentObservabilityEnabled() && {
     '@opentelemetry/instrumentation-http': {
       ignoreIncomingRequestHook: (request: { url?: string }) => {

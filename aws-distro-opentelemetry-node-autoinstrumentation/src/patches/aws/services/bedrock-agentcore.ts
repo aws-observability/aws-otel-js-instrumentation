@@ -97,32 +97,3 @@ export class BedrockAgentCoreServiceExtension implements ServiceExtension {
     }
   }
 }
-
-/**
- * Service extension for Bedrock AgentCore Control (control plane).
- * Uses the same generic attribute extraction as the data plane.
- */
-export class BedrockAgentCoreControlServiceExtension implements ServiceExtension {
-  requestPreSpanHook(
-    request: NormalizedRequest,
-    config: AwsSdkInstrumentationConfig,
-    diag: DiagLogger
-  ): RequestMetadata {
-    const spanAttributes = extractAttributes(request.commandInput);
-    return {
-      isIncoming: false,
-      spanAttributes,
-      spanKind: SpanKind.CLIENT,
-      spanName: undefined,
-    };
-  }
-
-  responseHook(response: NormalizedResponse, span: Span, tracer: Tracer, config: AwsSdkInstrumentationConfig): void {
-    const attrs = extractAttributes(response.data);
-    for (const [key, value] of Object.entries(attrs)) {
-      if (value) {
-        span.setAttribute(key, value);
-      }
-    }
-  }
-}

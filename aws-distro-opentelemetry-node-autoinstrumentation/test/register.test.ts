@@ -412,6 +412,67 @@ describe('Register', function () {
     });
   });
 
+  describe('Healthcheck suppression', () => {
+    const baseEnv = {
+      ...process.env,
+      OTEL_NODE_RESOURCE_DETECTORS: 'none',
+      OTEL_TRACES_EXPORTER: 'none',
+      OTEL_METRICS_EXPORTER: 'none',
+      OTEL_LOGS_EXPORTER: 'none',
+      OTEL_LOG_LEVEL: 'NONE',
+    };
+
+    const loadConfigsInChildProcess = (env: Record<string, string | undefined>): SpawnSyncReturns<Buffer> => {
+      const script = `
+        const register = require('../build/src/register.js');
+        // Output configs as JSON for the parent to assert on
+        const configs = register.instrumentationConfigs;
+        const httpHook = configs['@opentelemetry/instrumentation-http']?.ignoreIncomingRequestHook;
+        const undiciHook = configs['@opentelemetry/instrumentation-undici']?.ignoreRequestHook;
+        const result = {
+          hasHttpConfig: !!httpHook,
+          hasUndiciConfig: !!undiciHook,
+          httpIgnoresPing: httpHook ? httpHook({ url: '/ping' }) : null,
+          httpIgnoresInvocations: httpHook ? httpHook({ url: '/invocations' }) : null,
+          undiciIgnoresPing: undiciHook ? undiciHook({ path: '/ping' }) : null,
+          undiciIgnoresInvocations: undiciHook ? undiciHook({ path: '/invocations' }) : null,
+        };
+        process.stdout.write(JSON.stringify(result));
+        process.exit(0);
+      `;
+      return spawnSync(process.execPath, ['-e', script], {
+        cwd: __dirname,
+        timeout: 10000,
+        killSignal: 'SIGKILL',
+        env: { ...baseEnv, ...env },
+      });
+    };
+
+    it('configures /ping suppression when AGENT_OBSERVABILITY_ENABLED is true', () => {
+      const proc = loadConfigsInChildProcess({ AGENT_OBSERVABILITY_ENABLED: 'true' });
+      assert.ifError(proc.error);
+      assert.equal(proc.status, 0, proc.stderr?.toString());
+
+      const result = JSON.parse(proc.stdout.toString());
+      expect(result.hasHttpConfig).toBe(true);
+      expect(result.hasUndiciConfig).toBe(true);
+      expect(result.httpIgnoresPing).toBe(true);
+      expect(result.httpIgnoresInvocations).toBe(false);
+      expect(result.undiciIgnoresPing).toBe(true);
+      expect(result.undiciIgnoresInvocations).toBe(false);
+    });
+
+    it('does not configure /ping suppression when AGENT_OBSERVABILITY_ENABLED is not set', () => {
+      const proc = loadConfigsInChildProcess({});
+      assert.ifError(proc.error);
+      assert.equal(proc.status, 0, proc.stderr?.toString());
+
+      const result = JSON.parse(proc.stdout.toString());
+      expect(result.hasHttpConfig).toBe(false);
+      expect(result.hasUndiciConfig).toBe(false);
+    });
+  });
+
   it('can load auto instrumentation from command line', () => {
     const proc: SpawnSyncReturns<Buffer> = spawnSync(
       process.execPath,

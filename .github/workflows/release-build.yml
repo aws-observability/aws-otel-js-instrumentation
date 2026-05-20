@@ -176,9 +176,10 @@ jobs:
       - name: Tag platform images in private ECR
         env:
           REPO_NAME: adot-autoinstrumentation-node
+          VERSION: ${{ env.VERSION }}
+          REGION: ${{ env.AWS_PRIVATE_ECR_REGION }}
         run: |
-          VERSION="${{ env.VERSION }}"
-          REGION="${{ env.AWS_PRIVATE_ECR_REGION }}"
+          set -euo pipefail
 
           # Read the manifest index for the multi-arch tag we just pushed
           MANIFEST_INDEX=$(aws ecr batch-get-image \
@@ -188,12 +189,24 @@ jobs:
             --query 'images[0].imageManifest' \
             --output text)
 
+          # Validate the response is a non-empty manifest index. An empty or non-JSON
+          # response would otherwise cause silent no-ops in the loops below.
+          if [ -z "$MANIFEST_INDEX" ] || [ "$MANIFEST_INDEX" = "None" ]; then
+            echo "ERROR: aws ecr batch-get-image returned an empty manifest for v${VERSION}"
+            exit 1
+          fi
+          if ! echo "$MANIFEST_INDEX" | jq -e '.manifests | type == "array" and length > 0' > /dev/null; then
+            echo "ERROR: manifest for v${VERSION} is not a non-empty image index"
+            echo "$MANIFEST_INDEX"
+            exit 1
+          fi
+
           # Tag platform images (amd64, arm64) with v$VERSION-$arch
           for arch in amd64 arm64; do
-            DIGEST=$(echo "$MANIFEST_INDEX" | jq -r ".manifests[] | select(.platform.architecture==\"${arch}\") | .digest")
+            DIGEST=$(echo "$MANIFEST_INDEX" | jq -r --arg a "$arch" '.manifests[] | select(.platform.architecture == $a) | .digest')
             if [ -z "$DIGEST" ] || [ "$DIGEST" = "null" ]; then
-              echo "No ${arch} image found in manifest index, skipping"
-              continue
+              echo "ERROR: no ${arch} image found in manifest index for v${VERSION}"
+              exit 1
             fi
             MANIFEST=$(aws ecr batch-get-image \
               --repository-name "${REPO_NAME}" \
@@ -209,7 +222,9 @@ jobs:
             echo "Tagged ${DIGEST} as v${VERSION}-${arch}"
           done
 
-          # Tag attestation manifests (architecture=unknown) with their sha hex
+          # Tag attestation manifests (architecture=unknown) with their sha hex.
+          # Zero attestations is a valid state for some buildkit configurations,
+          # so the loop running zero times is not an error.
           for DIGEST in $(echo "$MANIFEST_INDEX" | jq -r '.manifests[] | select(.platform.architecture=="unknown") | .digest'); do
             SHA_HEX="${DIGEST#sha256:}"
             MANIFEST=$(aws ecr batch-get-image \

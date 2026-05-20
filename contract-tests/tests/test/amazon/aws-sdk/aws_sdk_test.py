@@ -896,6 +896,74 @@ class AWSSDKTest(ContractTestBase):
             span_name="BedrockAgent.GetDataSource",
         )
 
+    def test_bedrock_agentcore_invoke_agent_runtime(self):
+        self.do_test_requests(
+            "bedrock-agentcore/invoke-agent-runtime",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="InvokeAgentRuntime",
+            request_specific_attributes={
+                "aws.bedrock.agentcore.runtime.arn": "arn:aws:bedrock-agentcore:us-west-2:000000000000:runtime/test-runtime-abc123",
+            },
+            span_name="BedrockAgentCore.InvokeAgentRuntime",
+        )
+
+    def test_bedrock_agentcore_start_code_interpreter(self):
+        self.do_test_requests(
+            "bedrock-agentcore/start-code-interpreter",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="StartCodeInterpreterSession",
+            request_specific_attributes={
+                "gen_ai.code_interpreter.id": "test-ci-id",
+            },
+            span_name="BedrockAgentCore.StartCodeInterpreterSession",
+        )
+
+    def test_bedrock_agentcore_start_browser_session(self):
+        self.do_test_requests(
+            "bedrock-agentcore/start-browser-session",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="StartBrowserSession",
+            request_specific_attributes={
+                "gen_ai.browser.id": "test-browser-id",
+            },
+            span_name="BedrockAgentCore.StartBrowserSession",
+        )
+
+    def test_bedrock_agentcore_get_resource_api_key(self):
+        self.do_test_requests(
+            "bedrock-agentcore/get-resource-api-key",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="GetResourceApiKey",
+            request_specific_attributes={
+                "aws.auth.credential_provider": "my-credential-provider",
+            },
+            span_name="BedrockAgentCore.GetResourceApiKey",
+        )
+
     def test_secretsmanager_fault(self):
         self.do_test_requests(
             "secretsmanager/fault",

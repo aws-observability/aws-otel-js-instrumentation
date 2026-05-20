@@ -21,7 +21,7 @@ const { SecretsManagerClient, CreateSecretCommand, DescribeSecretCommand } = req
 const { SFNClient, CreateStateMachineCommand, CreateActivityCommand, DescribeStateMachineCommand, DescribeActivityCommand } = require('@aws-sdk/client-sfn');
 const { IAMClient, AttachRolePolicyCommand, CreateRoleCommand } = require('@aws-sdk/client-iam')
 const { LambdaClient, CreateFunctionCommand, GetEventSourceMappingCommand, CreateEventSourceMappingCommand, UpdateEventSourceMappingCommand } = require('@aws-sdk/client-lambda');
-const { BedrockAgentCoreClient, InvokeAgentRuntimeCommand, StopRuntimeSessionCommand, StartCodeInterpreterSessionCommand, StartBrowserSessionCommand, GetResourceApiKeyCommand } = require('@aws-sdk/client-bedrock-agentcore');
+const { BedrockAgentCoreClient, InvokeAgentRuntimeCommand, StartCodeInterpreterSessionCommand, StartBrowserSessionCommand, GetResourceApiKeyCommand, GetMemoryRecordCommand, GetABTestCommand } = require('@aws-sdk/client-bedrock-agentcore');
 
 
 const _PORT = 8080;
@@ -603,6 +603,29 @@ async function handleBedrockAgentCoreRequest(req, res, path) {
         await agentCoreClient.send(new GetResourceApiKeyCommand({
           workloadIdentityToken: 'dummy-token',
           resourceCredentialProviderName: 'my-credential-provider',
+        }));
+      });
+      res.statusCode = 200;
+    } else if (path.includes('get-memory-record')) {
+      await withInjected200Success(agentCoreClient, ['GetMemoryRecordCommand'], { memoryRecord: { memoryRecordId: 'record-123', content: { text: 'test' }, memoryStrategyId: 'strategy-1', namespaces: ['default'], createdAt: new Date() } }, async () => {
+        await agentCoreClient.send(new GetMemoryRecordCommand({
+          memoryId: 'test-memory-id-abc123',
+          memoryRecordId: 'record-123',
+        }));
+      });
+      res.statusCode = 200;
+    } else if (path.includes('get-ab-test')) {
+      await withInjected200Success(agentCoreClient, ['GetABTestCommand'], {
+        abTestId: 'test-ab-test-id',
+        abTestArn: 'arn:aws:bedrock-agentcore:us-west-2:000000000000:ab-test/test-ab-test-id',
+        name: 'test-ab-test',
+        status: 'ACTIVE',
+        executionStatus: 'RUNNING',
+        gatewayArn: 'arn:aws:bedrock-agentcore:us-west-2:000000000000:gateway/test-gateway-abc123',
+        variants: [],
+      }, async () => {
+        await agentCoreClient.send(new GetABTestCommand({
+          abTestId: 'test-ab-test-id',
         }));
       });
       res.statusCode = 200;

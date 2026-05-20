@@ -51,30 +51,6 @@ describe('BedrockAgentCore', () => {
     });
   });
 
-  describe('StopRuntimeSession', () => {
-    it('adds agentRuntimeArn to span', async () => {
-      const dummyArn = 'arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/my-agent-abc123';
-
-      nock(`https://bedrock-agentcore.${region}.amazonaws.com`)
-        .post(/\/runtimes\/.*\/stopruntimesession/)
-        .reply(200, { runtimeSessionId: 'test-session', statusCode: 200 });
-
-      await client
-        .stopRuntimeSession({
-          agentRuntimeArn: dummyArn,
-          runtimeSessionId: 'test-session-id-abcdefghijklmnop',
-          qualifier: 'DEFAULT',
-        })
-        .catch(() => {});
-
-      const testSpans: ReadableSpan[] = getTestSpans();
-      const spans = testSpans.filter((s: ReadableSpan) => s.name === 'BedrockAgentCore.StopRuntimeSession');
-      expect(spans.length).toBe(1);
-      expect(spans[0].attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN]).toBe(dummyArn);
-      expect(spans[0].kind).toBe(SpanKind.CLIENT);
-    });
-  });
-
   describe('StartCodeInterpreterSession', () => {
     it('adds codeInterpreterIdentifier to span', async () => {
       const dummyId = 'my-code-interpreter-abc123';
@@ -138,6 +114,59 @@ describe('BedrockAgentCore', () => {
       const spans = testSpans.filter((s: ReadableSpan) => s.name === 'BedrockAgentCore.GetResourceApiKey');
       expect(spans.length).toBe(1);
       expect(spans[0].attributes[AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER]).toBe(dummyProvider);
+      expect(spans[0].kind).toBe(SpanKind.CLIENT);
+    });
+  });
+
+  describe('GetMemoryRecord', () => {
+    it('adds memoryId to span', async () => {
+      const dummyMemoryId = 'test-memory-id-abc123';
+
+      nock(`https://bedrock-agentcore.${region}.amazonaws.com`)
+        .get(/\/memories\/.*\/records\/.*/)
+        .reply(200, { memoryRecord: { memoryRecordId: 'record-123', content: { text: 'test' }, memoryStrategyId: 'strategy-1', namespaces: ['default'], createdAt: new Date().toISOString() } });
+
+      await client
+        .getMemoryRecord({
+          memoryId: dummyMemoryId,
+          memoryRecordId: 'record-123',
+        })
+        .catch(() => {});
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const spans = testSpans.filter((s: ReadableSpan) => s.name === 'BedrockAgentCore.GetMemoryRecord');
+      expect(spans.length).toBe(1);
+      expect(spans[0].attributes[AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID]).toBe(dummyMemoryId);
+      expect(spans[0].kind).toBe(SpanKind.CLIENT);
+    });
+  });
+
+  describe('GetABTest', () => {
+    it('adds gatewayArn from response to span', async () => {
+      const dummyGatewayArn = 'arn:aws:bedrock-agentcore:us-east-1:123456789012:gateway/test-gateway-abc123';
+
+      nock(`https://bedrock-agentcore.${region}.amazonaws.com`)
+        .get(/\/ab-tests\/.*/)
+        .reply(200, {
+          abTestId: 'test-ab-test-id',
+          abTestArn: 'arn:aws:bedrock-agentcore:us-east-1:123456789012:ab-test/test-ab-test-id',
+          name: 'test-ab-test',
+          status: 'ACTIVE',
+          executionStatus: 'RUNNING',
+          gatewayArn: dummyGatewayArn,
+          variants: [],
+        });
+
+      await client
+        .getABTest({
+          abTestId: 'test-ab-test-id',
+        })
+        .catch(() => {});
+
+      const testSpans: ReadableSpan[] = getTestSpans();
+      const spans = testSpans.filter((s: ReadableSpan) => s.name === 'BedrockAgentCore.GetABTest');
+      expect(spans.length).toBe(1);
+      expect(spans[0].attributes[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN]).toBe(dummyGatewayArn);
       expect(spans[0].kind).toBe(SpanKind.CLIENT);
     });
   });

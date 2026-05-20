@@ -964,6 +964,40 @@ class AWSSDKTest(ContractTestBase):
             span_name="BedrockAgentCore.GetResourceApiKey",
         )
 
+    def test_bedrock_agentcore_get_memory_record(self):
+        self.do_test_requests(
+            "bedrock-agentcore/get-memory-record",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="GetMemoryRecord",
+            request_specific_attributes={
+                "gen_ai.memory.id": "test-memory-id-abc123",
+            },
+            span_name="BedrockAgentCore.GetMemoryRecord",
+        )
+
+    def test_bedrock_agentcore_get_ab_test(self):
+        self.do_test_requests(
+            "bedrock-agentcore/get-ab-test",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="GetABTest",
+            request_specific_attributes={
+                "aws.bedrock.agentcore.gateway.arn": "arn:aws:bedrock-agentcore:us-west-2:000000000000:gateway/test-gateway-abc123",
+            },
+            span_name="BedrockAgentCore.GetABTest",
+        )
+
     def test_secretsmanager_fault(self):
         self.do_test_requests(
             "secretsmanager/fault",

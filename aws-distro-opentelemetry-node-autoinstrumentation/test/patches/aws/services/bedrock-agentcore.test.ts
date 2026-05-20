@@ -124,7 +124,15 @@ describe('BedrockAgentCore', () => {
 
       nock(`https://bedrock-agentcore.${region}.amazonaws.com`)
         .get(/\/memories\/.*\/records\/.*/)
-        .reply(200, { memoryRecord: { memoryRecordId: 'record-123', content: { text: 'test' }, memoryStrategyId: 'strategy-1', namespaces: ['default'], createdAt: new Date().toISOString() } });
+        .reply(200, {
+          memoryRecord: {
+            memoryRecordId: 'record-123',
+            content: { text: 'test' },
+            memoryStrategyId: 'strategy-1',
+            namespaces: ['default'],
+            createdAt: new Date().toISOString(),
+          },
+        });
 
       await client
         .getMemoryRecord({

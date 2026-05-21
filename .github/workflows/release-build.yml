@@ -214,6 +214,10 @@ jobs:
               --region "${REGION}" \
               --query 'images[0].imageManifest' \
               --output text)
+            if [ -z "$MANIFEST" ] || [ "$MANIFEST" = "None" ]; then
+              echo "ERROR: failed to fetch ${arch} platform manifest at ${DIGEST}"
+              exit 1
+            fi
             aws ecr put-image \
               --repository-name "${REPO_NAME}" \
               --image-tag "v${VERSION}-${arch}" \
@@ -226,13 +230,20 @@ jobs:
           # Zero attestations is a valid state for some buildkit configurations,
           # so the loop running zero times is not an error.
           for DIGEST in $(echo "$MANIFEST_INDEX" | jq -r '.manifests[] | select(.platform.architecture=="unknown") | .digest'); do
-            SHA_HEX="${DIGEST#sha256:}"
+            if [ -z "$DIGEST" ] || [ "$DIGEST" = "null" ]; then
+              continue
+            fi
             MANIFEST=$(aws ecr batch-get-image \
               --repository-name "${REPO_NAME}" \
               --image-ids imageDigest="${DIGEST}" \
               --region "${REGION}" \
               --query 'images[0].imageManifest' \
               --output text)
+            if [ -z "$MANIFEST" ] || [ "$MANIFEST" = "None" ]; then
+              echo "ERROR: failed to fetch attestation manifest at ${DIGEST}"
+              exit 1
+            fi
+            SHA_HEX="${DIGEST#sha256:}"
             aws ecr put-image \
               --repository-name "${REPO_NAME}" \
               --image-tag "${SHA_HEX}" \

@@ -902,9 +902,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   /**
    * Handler for BedrockAgentCore Browser resources.
    */
-  private static handleBrowserAttrs(
-    attrs: Attributes
-  ): [string | undefined, string | undefined, string | undefined] {
+  private static handleBrowserAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
     const browserId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID];
     const browserArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN];
 
@@ -925,9 +923,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   /**
    * Handler for BedrockAgentCore Gateway resources.
    */
-  private static handleGatewayAttrs(
-    attrs: Attributes
-  ): [string | undefined, string | undefined, string | undefined] {
+  private static handleGatewayAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
     const gatewayId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID];
     const gatewayArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN];
     const gatewayTargetId = attrs[AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID];
@@ -960,16 +956,18 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   /**
    * Handler for BedrockAgentCore Runtime resources.
    */
-  private static handleRuntimeAttrs(
-    attrs: Attributes
-  ): [string | undefined, string | undefined, string | undefined] {
+  private static handleRuntimeAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
     const runtimeId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_RUNTIME_ID];
     const runtimeArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN];
     const runtimeEndpointArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ENDPOINT_ARN];
 
     if (runtimeEndpointArn) {
       const cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(runtimeEndpointArn);
-      return ['RuntimeEndpoint', cfnIdentifier, typeof runtimeEndpointArn === 'string' ? runtimeEndpointArn : undefined];
+      return [
+        'RuntimeEndpoint',
+        cfnIdentifier,
+        typeof runtimeEndpointArn === 'string' ? runtimeEndpointArn : undefined,
+      ];
     }
 
     if (runtimeArn || runtimeId) {
@@ -1012,9 +1010,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   /**
    * Handler for BedrockAgentCore Identity resources.
    */
-  private static handleIdentityAttrs(
-    attrs: Attributes
-  ): [string | undefined, string | undefined, string | undefined] {
+  private static handleIdentityAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
     const credentialsProvider = attrs[AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER];
     const rpcMethod = attrs[SEMATTRS_RPC_METHOD];
 
@@ -1043,9 +1039,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   /**
    * Handler for BedrockAgentCore Memory resources.
    */
-  private static handleMemoryAttrs(
-    attrs: Attributes
-  ): [string | undefined, string | undefined, string | undefined] {
+  private static handleMemoryAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
     const memoryId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID];
     const memoryArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN];
 
@@ -1057,8 +1051,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         cfnIdentifier = memoryId;
       }
       if (typeof memoryArn === 'string') {
-        cfnIdentifier =
-          cfnIdentifier || RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(memoryArn);
+        cfnIdentifier = cfnIdentifier || RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(memoryArn);
         cfnPrimaryIdentifier = memoryArn;
       }
 

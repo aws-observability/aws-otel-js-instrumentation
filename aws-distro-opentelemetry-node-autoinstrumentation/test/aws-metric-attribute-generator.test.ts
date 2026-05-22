@@ -1477,10 +1477,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       'arn:aws:bedrock:us-west-2:123456789012:credential-provider/my-oauth2-provider'
     );
     mockAttribute(SEMATTRS_RPC_METHOD, 'GetOAuth2Credentials');
-    validateRemoteResourceAttributes(
-      'AWS::BedrockAgentCore::OAuth2CredentialProvider',
-      'my-oauth2-provider'
-    );
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::OAuth2CredentialProvider', 'my-oauth2-provider');
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, undefined);
     mockAttribute(SEMATTRS_RPC_METHOD, undefined);
 

@@ -75,35 +75,20 @@ it('testExtractBedrockAgentCoreResourceIdFromArn', () => {
   validateBedrockAgentCoreResourceId(':', undefined);
   validateBedrockAgentCoreResourceId('::::::', undefined);
   validateBedrockAgentCoreResourceId('not:an:arn:string', undefined);
-  validateBedrockAgentCoreResourceId(
-    'arn:aws:bedrock:us-west-2:123456789012:agent-runtime/rt-12345',
-    'rt-12345'
-  );
-  validateBedrockAgentCoreResourceId(
-    'arn:aws:bedrock:us-west-2:123456789012:browser/aws.browser.v1',
-    'aws.browser.v1'
-  );
-  validateBedrockAgentCoreResourceId(
-    'arn:aws:bedrock:us-west-2:123456789012:gateway/gw-12345',
-    'gw-12345'
-  );
+  validateBedrockAgentCoreResourceId('arn:aws:bedrock:us-west-2:123456789012:agent-runtime/rt-12345', 'rt-12345');
+  validateBedrockAgentCoreResourceId('arn:aws:bedrock:us-west-2:123456789012:browser/aws.browser.v1', 'aws.browser.v1');
+  validateBedrockAgentCoreResourceId('arn:aws:bedrock:us-west-2:123456789012:gateway/gw-12345', 'gw-12345');
   validateBedrockAgentCoreResourceId(
     'arn:aws:bedrock:us-west-2:123456789012:code-interpreter/aws.codeinterpreter.v1',
     'aws.codeinterpreter.v1'
   );
-  validateBedrockAgentCoreResourceId(
-    'arn:aws:bedrock:us-west-2:123456789012:memory/mem-12345',
-    'mem-12345'
-  );
+  validateBedrockAgentCoreResourceId('arn:aws:bedrock:us-west-2:123456789012:memory/mem-12345', 'mem-12345');
   validateBedrockAgentCoreResourceId(
     'arn:aws:bedrock:us-west-2:123456789012:credential-provider/my-provider',
     'my-provider'
   );
   // Resource with no slash (just resource name)
-  validateBedrockAgentCoreResourceId(
-    'arn:aws:bedrock:us-west-2:123456789012:simple-resource',
-    'simple-resource'
-  );
+  validateBedrockAgentCoreResourceId('arn:aws:bedrock:us-west-2:123456789012:simple-resource', 'simple-resource');
 });
 
 function validateDynamoDbTableName(arn: string | undefined, expectedName: string | undefined): void {

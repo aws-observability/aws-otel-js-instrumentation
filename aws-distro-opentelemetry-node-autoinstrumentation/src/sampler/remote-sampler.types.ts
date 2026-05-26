@@ -98,6 +98,11 @@ export interface SamplingStatisticsDocument {
 }
 
 // https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_RequestBody
+export interface SamplingBoost {
+  BoostRate: number;
+  BoostRateTTL: number;
+}
+
 export interface SamplingTargetDocument {
   // The percentage of matching requests to instrument, after the reservoir is exhausted.
   FixedRate: number;
@@ -109,6 +114,8 @@ export interface SamplingTargetDocument {
   ReservoirQuotaTTL?: number | null;
   // The name of the sampling rule
   RuleName: string;
+  // Boost configuration returned by X-Ray when anomalies are detected
+  SamplingBoost?: SamplingBoost | null;
 }
 
 // https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_RequestBody

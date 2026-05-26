@@ -36,6 +36,8 @@ export class SamplingRuleApplier {
   public samplingRule: SamplingRule;
   private reservoirSampler: RateLimitingSampler;
   private fixedRateSampler: TraceIdRatioBasedSampler;
+  private boostedFixedRateSampler: TraceIdRatioBasedSampler;
+  private boostEndTimeMillis: number;
   private statistics: Statistics;
   private borrowingEnabled: boolean;
   private reservoirExpiryTimeInMillis: number;
@@ -44,6 +46,9 @@ export class SamplingRuleApplier {
     this.samplingRule = new SamplingRule(samplingRule);
 
     this.fixedRateSampler = new TraceIdRatioBasedSampler(this.samplingRule.FixedRate);
+    this.boostedFixedRateSampler = this.fixedRateSampler;
+    this.boostEndTimeMillis = 0;
+
     if (samplingRule.ReservoirSize > 0) {
       this.reservoirSampler = new RateLimitingSampler(1);
     } else {
@@ -69,6 +74,11 @@ export class SamplingRuleApplier {
 
       if (typeof target.FixedRate === 'number') {
         this.fixedRateSampler = new TraceIdRatioBasedSampler(target.FixedRate);
+      }
+
+      if (target.SamplingBoost && typeof target.SamplingBoost.BoostRate === 'number') {
+        this.boostedFixedRateSampler = new TraceIdRatioBasedSampler(target.SamplingBoost.BoostRate);
+        this.boostEndTimeMillis = target.SamplingBoost.BoostRateTTL * 1000;
       }
     }
   }
@@ -151,7 +161,11 @@ export class SamplingRuleApplier {
     }
 
     if (result.decision === SamplingDecision.NOT_RECORD) {
-      result = this.fixedRateSampler.shouldSample(context, traceId);
+      if (nowInMillis < this.boostEndTimeMillis) {
+        result = this.boostedFixedRateSampler.shouldSample(context, traceId);
+      } else {
+        result = this.fixedRateSampler.shouldSample(context, traceId);
+      }
     }
 
     this.statistics.SampleCount += result.decision !== SamplingDecision.NOT_RECORD ? 1 : 0;

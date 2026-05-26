@@ -203,12 +203,10 @@ export class _AwsXRayRemoteSampler implements Sampler {
   }
 
   private startSamplingTargetsPoller(): void {
-    // Update sampling targets every targetPollingInterval (usually 10 seconds)
     this.targetPoller = setInterval(
       () => this.getAndUpdateSamplingTargets(),
       this.targetPollingInterval * 1000 + this.targetPollingJitterMillis
     );
-    this.targetPoller.unref();
   }
 
   private getAndUpdateSamplingTargets(): void {
@@ -219,17 +217,23 @@ export class _AwsXRayRemoteSampler implements Sampler {
     if (this.anomalyDetector) {
       const boostStats = this.anomalyDetector.snapshotAndResetStatistics();
       if (boostStats.TotalCount > 0) {
-        requestBody.SamplingBoostStatisticsDocuments = [
-          {
-            ClientID: this.clientId,
-            RuleName: 'Default',
-            ServiceName: this.serviceName,
-            Timestamp: Math.floor(Date.now() / 1000),
-            TotalCount: boostStats.TotalCount,
-            AnomalyCount: boostStats.AnomalyCount,
-            SampledAnomalyCount: boostStats.SampledAnomalyCount,
-          },
-        ];
+        const boostDocs: typeof requestBody.SamplingBoostStatisticsDocuments = [];
+        for (const doc of requestBody.SamplingStatisticsDocuments) {
+          if (doc.RequestCount > 0 && doc.RuleName !== 'Default') {
+            boostDocs.push({
+              ClientID: this.clientId,
+              RuleName: doc.RuleName,
+              ServiceName: this.serviceName,
+              Timestamp: Math.floor(Date.now() / 1000),
+              TotalCount: boostStats.TotalCount,
+              AnomalyCount: boostStats.AnomalyCount,
+              SampledAnomalyCount: boostStats.SampledAnomalyCount,
+            });
+          }
+        }
+        if (boostDocs.length > 0) {
+          requestBody.SamplingBoostStatisticsDocuments = boostDocs;
+        }
       }
     }
 

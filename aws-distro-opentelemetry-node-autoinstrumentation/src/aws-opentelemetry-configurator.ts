@@ -185,7 +185,6 @@ export class AwsOpentelemetryConfigurator {
       // Only keep env detector here
       defaultDetectors.push(envDetector);
     } else {
-      // envDetector needs to be last so it can override any conflicting resource attributes.
       defaultDetectors = [processDetector, hostDetector, awsEc2Detector, awsEcsDetector, awsEksDetector, envDetector];
     }
 
@@ -193,8 +192,27 @@ export class AwsOpentelemetryConfigurator {
       detectors: defaultDetectors,
     };
 
-    autoResource = this.customizeResource(autoResource.merge(detectResources(internalConfig)));
+    const detectedResource = detectResources(internalConfig);
+    autoResource = this.customizeResource(autoResource.merge(detectedResource));
     this.resource = autoResource;
+
+    // Ensure async resource detection doesn't block trace export indefinitely.
+    // BatchSpanProcessor waits for resource.waitForAsyncAttributes() before exporting.
+    // If a detector (e.g., EKS on plain EC2) hangs, exports are blocked forever.
+    // This resolves each pending attribute promise with a timeout so exports proceed.
+    if (autoResource.asyncAttributesPending) {
+      const rawAttrs = (autoResource as unknown as { _rawAttributes: [string, unknown][] })._rawAttributes;
+      if (rawAttrs) {
+        const RESOURCE_TIMEOUT_MS = 5000;
+        const timeout = new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), RESOURCE_TIMEOUT_MS).unref());
+        for (let i = 0; i < rawAttrs.length; i++) {
+          const [key, val] = rawAttrs[i];
+          if (val && typeof (val as Promise<unknown>).then === 'function') {
+            rawAttrs[i] = [key, Promise.race([val as Promise<unknown>, timeout])];
+          }
+        }
+      }
+    }
 
     this.instrumentations = instrumentations;
     this.propagator = getPropagator();
@@ -830,10 +848,12 @@ export class AwsSpanProcessorProvider {
       const configuredExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(exporter, this.resource);
       if (exporter instanceof ConsoleSpanExporter) {
         return new SimpleSpanProcessor(configuredExporter);
-      } else {
+      } else if (isLambdaEnvironment()) {
         return new BatchSpanProcessor(configuredExporter, {
           maxExportBatchSize: getSpanExportBatchSize(),
         });
+      } else {
+        return new SimpleSpanProcessor(configuredExporter);
       }
     });
   }

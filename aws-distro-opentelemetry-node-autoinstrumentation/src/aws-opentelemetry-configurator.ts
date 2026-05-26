@@ -204,7 +204,9 @@ export class AwsOpentelemetryConfigurator {
       const rawAttrs = (autoResource as unknown as { _rawAttributes: [string, unknown][] })._rawAttributes;
       if (rawAttrs) {
         const RESOURCE_TIMEOUT_MS = 5000;
-        const timeout = new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), RESOURCE_TIMEOUT_MS).unref());
+        const timeout = new Promise<undefined>(resolve =>
+          setTimeout(() => resolve(undefined), RESOURCE_TIMEOUT_MS).unref()
+        );
         for (let i = 0; i < rawAttrs.length; i++) {
           const [key, val] = rawAttrs[i];
           if (val && typeof (val as Promise<unknown>).then === 'function') {

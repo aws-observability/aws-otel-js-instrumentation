@@ -412,6 +412,23 @@ describe('Register', function () {
     });
   });
 
+  describe('Healthcheck suppression', () => {
+    it('suppresses /ping for incoming HTTP requests', () => {
+      const { isHttpPingRequest } = require('../src/register');
+      assert.strictEqual(isHttpPingRequest({ url: '/ping' }), true);
+      assert.strictEqual(isHttpPingRequest({ url: '/invocations' }), false);
+      assert.strictEqual(isHttpPingRequest({ url: '/' }), false);
+      assert.strictEqual(isHttpPingRequest({}), false);
+    });
+
+    it('suppresses /ping for undici requests', () => {
+      const { isUndiciPingRequest } = require('../src/register');
+      assert.strictEqual(isUndiciPingRequest({ path: '/ping' }), true);
+      assert.strictEqual(isUndiciPingRequest({ path: '/invocations' }), false);
+      assert.strictEqual(isUndiciPingRequest({ path: '/' }), false);
+    });
+  });
+
   it('can load auto instrumentation from command line', () => {
     const proc: SpawnSyncReturns<Buffer> = spawnSync(
       process.execPath,

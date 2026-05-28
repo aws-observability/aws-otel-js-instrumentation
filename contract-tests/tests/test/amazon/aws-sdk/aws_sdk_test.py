@@ -896,6 +896,126 @@ class AWSSDKTest(ContractTestBase):
             span_name="BedrockAgent.GetDataSource",
         )
 
+    def test_bedrock_agentcore_invoke_agent_runtime(self):
+        self.do_test_requests(
+            "bedrock-agentcore/invoke-agent-runtime",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="InvokeAgentRuntime",
+            remote_resource_type="AWS::BedrockAgentCore::Runtime",
+            remote_resource_identifier="test-runtime-abc123",
+            cloudformation_primary_identifier="test-runtime-abc123",
+            request_specific_attributes={
+                "aws.bedrock.agentcore.runtime.arn": "arn:aws:bedrock-agentcore:us-west-2:000000000000:runtime/test-runtime-abc123",
+            },
+            span_name="BedrockAgentCore.InvokeAgentRuntime",
+        )
+
+    def test_bedrock_agentcore_start_code_interpreter(self):
+        self.do_test_requests(
+            "bedrock-agentcore/start-code-interpreter",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="StartCodeInterpreterSession",
+            remote_resource_type="AWS::BedrockAgentCore::CodeInterpreterCustom",
+            remote_resource_identifier="test-ci-id",
+            cloudformation_primary_identifier="test-ci-id",
+            request_specific_attributes={
+                "gen_ai.code_interpreter.id": "test-ci-id",
+            },
+            span_name="BedrockAgentCore.StartCodeInterpreterSession",
+        )
+
+    def test_bedrock_agentcore_start_browser_session(self):
+        self.do_test_requests(
+            "bedrock-agentcore/start-browser-session",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="StartBrowserSession",
+            remote_resource_type="AWS::BedrockAgentCore::BrowserCustom",
+            remote_resource_identifier="test-browser-id",
+            cloudformation_primary_identifier="test-browser-id",
+            request_specific_attributes={
+                "gen_ai.browser.id": "test-browser-id",
+            },
+            span_name="BedrockAgentCore.StartBrowserSession",
+        )
+
+    def test_bedrock_agentcore_get_resource_api_key(self):
+        self.do_test_requests(
+            "bedrock-agentcore/get-resource-api-key",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="GetResourceApiKey",
+            remote_resource_type="AWS::BedrockAgentCore::APIKeyCredentialProvider",
+            remote_resource_identifier="my-credential-provider",
+            cloudformation_primary_identifier="my-credential-provider",
+            request_specific_attributes={
+                "aws.auth.credential_provider": "my-credential-provider",
+            },
+            span_name="BedrockAgentCore.GetResourceApiKey",
+        )
+
+    def test_bedrock_agentcore_get_memory_record(self):
+        self.do_test_requests(
+            "bedrock-agentcore/get-memory-record",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="GetMemoryRecord",
+            remote_resource_type="AWS::BedrockAgentCore::Memory",
+            remote_resource_identifier="test-memory-id-abc123",
+            cloudformation_primary_identifier="test-memory-id-abc123",
+            request_specific_attributes={
+                "gen_ai.memory.id": "test-memory-id-abc123",
+            },
+            span_name="BedrockAgentCore.GetMemoryRecord",
+        )
+
+    def test_bedrock_agentcore_get_ab_test(self):
+        self.do_test_requests(
+            "bedrock-agentcore/get-ab-test",
+            "GET",
+            200,
+            0,
+            0,
+            local_operation="GET /bedrock-agentcore",
+            rpc_service="BedrockAgentCore",
+            remote_service="AWS::BedrockAgentCore",
+            remote_operation="GetABTest",
+            remote_resource_type="AWS::BedrockAgentCore::Gateway",
+            remote_resource_identifier="test-gateway-abc123",
+            cloudformation_primary_identifier="test-gateway-abc123",
+            request_specific_attributes={
+                "aws.bedrock.agentcore.gateway.arn": "arn:aws:bedrock-agentcore:us-west-2:000000000000:gateway/test-gateway-abc123",
+            },
+            span_name="BedrockAgentCore.GetABTest",
+        )
+
     def test_secretsmanager_fault(self):
         self.do_test_requests(
             "secretsmanager/fault",

@@ -90,9 +90,10 @@ describe('CompactConsoleLogRecordExporter', () => {
 
   it('should include exportPath when ADOT_TEST_EXPORT_PATH_ENABLED is set', done => {
     process.env.ADOT_TEST_EXPORT_PATH_ENABLED = 'true';
+    const testExporter = new CompactConsoleLogRecordExporter();
     const logRecord = createMockLogRecord();
 
-    exporter.export([logRecord], result => {
+    testExporter.export([logRecord], result => {
       expect(result.code).toBe(ExportResultCode.SUCCESS);
       const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
       expect(parsed.exportPath).toBe('console');

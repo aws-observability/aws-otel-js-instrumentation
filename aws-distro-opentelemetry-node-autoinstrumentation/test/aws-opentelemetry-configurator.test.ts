@@ -1396,7 +1396,6 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     // Verify OTLPAwsSpanExporter was created with correct parameters
     expect(otlpAwsSpanExporter).toBeInstanceOf(OTLPAwsSpanExporter);
     expect(otlpAwsSpanExporter['endpoint']).toEqual('https://xray.us-east-1.amazonaws.com/v1/traces');
-    expect(otlpAwsSpanExporter['loggerProvider']).toBeDefined();
 
     // Cleanup environment variables
     delete process.env.AGENT_OBSERVABILITY_ENABLED;

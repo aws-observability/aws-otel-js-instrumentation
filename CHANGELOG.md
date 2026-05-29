@@ -24,6 +24,11 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 - refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.
   ([#446](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/446))
 
+### Enhancements
+
+- feat: add Bedrock AgentCore data plane instrumentation
+  ([#455](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/455))
+
 ### Bug Fixes
 
 - suppress /ping endpoint instrumentation for HTTP libraries in AgentCore

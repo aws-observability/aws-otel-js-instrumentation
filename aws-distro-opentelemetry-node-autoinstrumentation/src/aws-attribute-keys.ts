@@ -53,4 +53,20 @@ export const AWS_ATTRIBUTE_KEYS = {
   AWS_LAMBDA_RESOURCE_MAPPING_ID: 'aws.lambda.resource_mapping.id',
   AWS_LAMBDA_FUNCTION_ARN: 'aws.lambda.function.arn',
   AWS_SERVICE_TYPE: 'aws.service.type',
+  AWS_BEDROCK_AGENTCORE_RUNTIME_ARN: 'aws.bedrock.agentcore.runtime.arn',
+  AWS_BEDROCK_AGENTCORE_RUNTIME_ENDPOINT_ARN: 'aws.bedrock.agentcore.runtime_endpoint.arn',
+  AWS_BEDROCK_AGENTCORE_CODE_INTERPRETER_ARN: 'aws.bedrock.agentcore.code_interpreter.arn',
+  AWS_BEDROCK_AGENTCORE_BROWSER_ARN: 'aws.bedrock.agentcore.browser.arn',
+  AWS_BEDROCK_AGENTCORE_MEMORY_ARN: 'aws.bedrock.agentcore.memory.arn',
+  AWS_BEDROCK_AGENTCORE_GATEWAY_ARN: 'aws.bedrock.agentcore.gateway.arn',
+  AWS_BEDROCK_AGENTCORE_WORKLOAD_IDENTITY_ARN: 'aws.bedrock.agentcore.identity.workload_identity.arn',
+  AWS_AUTH_CREDENTIAL_PROVIDER: 'aws.auth.credential_provider',
+  AWS_GATEWAY_TARGET_ID: 'aws.gateway.target.id',
+
+  // TODO: contribute gen_ai.* attributes to upstream semconv
+  GEN_AI_RUNTIME_ID: 'gen_ai.runtime.id',
+  GEN_AI_BROWSER_ID: 'gen_ai.browser.id',
+  GEN_AI_CODE_INTERPRETER_ID: 'gen_ai.code_interpreter.id',
+  GEN_AI_MEMORY_ID: 'gen_ai.memory.id',
+  GEN_AI_GATEWAY_ID: 'gen_ai.gateway.id',
 };

@@ -1310,6 +1310,221 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
   });
 
+  it('testBedrockAgentCoreRemoteResourceAttributes', () => {
+    // Set up as an AWS SDK span with BedrockAgentCore service
+    mockAttribute(SEMATTRS_RPC_SYSTEM, 'aws-api');
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'BedrockAgentCore');
+
+    // Browser: managed (aws.browser.v1)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID, 'aws.browser.v1');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::Browser', 'aws.browser.v1');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID, undefined);
+
+    // Browser: custom ID
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID, 'my-custom-browser');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::BrowserCustom', 'my-custom-browser');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID, undefined);
+
+    // Browser: from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:browser/aws.browser.v1'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::Browser',
+      'aws.browser.v1',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN, undefined);
+
+    // Browser: custom from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:browser/my-custom-browser'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::BrowserCustom',
+      'my-custom-browser',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN, undefined);
+
+    // Gateway: with gateway ID only
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID, 'gw-12345');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::Gateway', 'gw-12345');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID, undefined);
+
+    // Gateway: from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:gateway/gw-from-arn'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::Gateway',
+      'gw-from-arn',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN, undefined);
+
+    // GatewayTarget: with target ID and gateway ID
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, 'target-123');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID, 'gw-12345');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::GatewayTarget', 'gw-12345');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID, undefined);
+
+    // GatewayTarget: with target ID only (no gateway ID or ARN)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, 'target-123');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::GatewayTarget', 'target-123');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, undefined);
+
+    // GatewayTarget: with target ID and gateway ARN
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, 'target-123');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:gateway/gw-from-arn'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::GatewayTarget',
+      'gw-from-arn',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN, undefined);
+
+    // Runtime: with runtime ID
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_RUNTIME_ID, 'rt-12345');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::Runtime', 'rt-12345');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_RUNTIME_ID, undefined);
+
+    // Runtime: from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:agent-runtime/rt-from-arn'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::Runtime',
+      'rt-from-arn',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN, undefined);
+
+    // RuntimeEndpoint: from endpoint ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ENDPOINT_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:agent-runtime-endpoint/ep-12345'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::RuntimeEndpoint',
+      'ep-12345',
+      'arn:aws:bedrock:us-west-2:123456789012:agent-runtime-endpoint/ep-12345',
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ENDPOINT_ARN, undefined);
+
+    // CodeInterpreter: managed (aws.codeinterpreter.v1)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID, 'aws.codeinterpreter.v1');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::CodeInterpreter', 'aws.codeinterpreter.v1');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID, undefined);
+
+    // CodeInterpreter: custom ID
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID, 'my-custom-ci');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::CodeInterpreterCustom', 'my-custom-ci');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID, undefined);
+
+    // CodeInterpreter: from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_CODE_INTERPRETER_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:code-interpreter/aws.codeinterpreter.v1'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::CodeInterpreter',
+      'aws.codeinterpreter.v1',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_CODE_INTERPRETER_ARN, undefined);
+
+    // Identity: OAuth2 credential provider (by name)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, 'my-oauth2-provider');
+    mockAttribute(SEMATTRS_RPC_METHOD, 'GetOAuth2Credentials');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::OAuth2CredentialProvider', 'my-oauth2-provider');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, undefined);
+    mockAttribute(SEMATTRS_RPC_METHOD, undefined);
+
+    // Identity: APIKey credential provider (by name)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, 'my-apikey-provider');
+    mockAttribute(SEMATTRS_RPC_METHOD, 'GetAPIKeyCredentials');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::APIKeyCredentialProvider', 'my-apikey-provider');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, undefined);
+    mockAttribute(SEMATTRS_RPC_METHOD, undefined);
+
+    // Identity: credential provider from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER,
+      'arn:aws:bedrock:us-west-2:123456789012:credential-provider/my-oauth2-provider'
+    );
+    mockAttribute(SEMATTRS_RPC_METHOD, 'GetOAuth2Credentials');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::OAuth2CredentialProvider', 'my-oauth2-provider');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, undefined);
+    mockAttribute(SEMATTRS_RPC_METHOD, undefined);
+
+    // Memory: with memory ID
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID, 'mem-12345');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::Memory', 'mem-12345');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID, undefined);
+
+    // Memory: with memory ARN (uses ARN as CFN primary identifier)
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:memory/mem-from-arn'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::Memory',
+      'mem-from-arn',
+      'arn:aws:bedrock:us-west-2:123456789012:memory/mem-from-arn',
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN, undefined);
+
+    // Memory: with both memory ID and ARN (ID takes precedence, ARN is CFN primary identifier)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID, 'mem-12345');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:memory/mem-from-arn'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::Memory',
+      'mem-12345',
+      'arn:aws:bedrock:us-west-2:123456789012:memory/mem-from-arn',
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN, undefined);
+
+    // Clean up BedrockAgentCore service attributes
+    mockAttribute(SEMATTRS_RPC_SYSTEM, undefined);
+    mockAttribute(SEMATTRS_RPC_SERVICE, undefined);
+  });
+
+  it('testNormalizeRemoteServiceName_BedrockAgentCore', () => {
+    testAwsSdkServiceNormalization('BedrockAgentCore', 'AWS::BedrockAgentCore');
+  });
+
   it('testDBClientSpanWithRemoteResourceAttributes', () => {
     mockAttribute(SEMATTRS_DB_SYSTEM, 'mysql');
     // Validate behaviour of SEMATTRS_DB_NAME, _SERVER_ADDRESS and _SERVER_PORT exist, then remove it.

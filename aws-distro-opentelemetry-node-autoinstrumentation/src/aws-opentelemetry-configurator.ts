@@ -307,8 +307,7 @@ export class AwsOpentelemetryConfigurator {
       return;
     }
 
-    let spanExporter: SpanExporter;
-    spanExporter = new OTLPAwsSpanExporter(tracesEndpoint);
+    const spanExporter = new OTLPAwsSpanExporter(tracesEndpoint);
 
     // Add the unsampled span processor
     spanProcessors.push(new AwsBatchUnsampledSpanProcessor(spanExporter));

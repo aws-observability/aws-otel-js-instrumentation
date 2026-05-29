@@ -13,6 +13,12 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- Fix(lambda-layer): CompactConsoleLogRecordExporter output with CloudWatch OTLP backend schema.
+  Field renames: `timestamp` → `timeUnixNano`, `observedTimestamp` → `observedTimeUnixNano`,
+  `instrumentationScope` → `scope`, `traceFlags` → `flags`. Attribute values preserve native
+  types.
+  ([#392](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/392))
+  
 ### Breaking Changes
 
 - refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.

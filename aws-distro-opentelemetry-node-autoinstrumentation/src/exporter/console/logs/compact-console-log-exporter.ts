@@ -19,6 +19,7 @@ import { ConsoleLogRecordExporter, LogRecordExporter, ReadableLogRecord } from '
 export class CompactConsoleLogRecordExporter implements LogRecordExporter {
   private _isShutdown: boolean = false;
   private _fallback: ConsoleLogRecordExporter | undefined;
+  private readonly _exportPathEnabled: boolean = process.env.ADOT_TEST_EXPORT_PATH_ENABLED === 'true';
 
   export(logs: ReadableLogRecord[], resultCallback: (result: ExportResult) => void): void {
     if (this._isShutdown) {
@@ -88,7 +89,7 @@ export class CompactConsoleLogRecordExporter implements LogRecordExporter {
       flags: isValid ? spanContext!.traceFlags : 0,
     };
 
-    if (process.env.ADOT_TEST_EXPORT_PATH_ENABLED === 'true') {
+    if (this._exportPathEnabled) {
       record.exportPath = 'console';
     }
 

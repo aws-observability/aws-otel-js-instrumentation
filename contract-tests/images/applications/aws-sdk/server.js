@@ -21,6 +21,7 @@ const { SecretsManagerClient, CreateSecretCommand, DescribeSecretCommand } = req
 const { SFNClient, CreateStateMachineCommand, CreateActivityCommand, DescribeStateMachineCommand, DescribeActivityCommand } = require('@aws-sdk/client-sfn');
 const { IAMClient, AttachRolePolicyCommand, CreateRoleCommand } = require('@aws-sdk/client-iam')
 const { LambdaClient, CreateFunctionCommand, GetEventSourceMappingCommand, CreateEventSourceMappingCommand, UpdateEventSourceMappingCommand } = require('@aws-sdk/client-lambda');
+const { BedrockAgentCoreClient, InvokeAgentRuntimeCommand, StartCodeInterpreterSessionCommand, StartBrowserSessionCommand, GetResourceApiKeyCommand, GetMemoryRecordCommand, GetABTestCommand } = require('@aws-sdk/client-bedrock-agentcore');
 
 
 const _PORT = 8080;
@@ -184,6 +185,8 @@ async function handleGetRequest(req, res, path) {
     await handleSqsRequest(req, res, path);
   } else if (path.includes('kinesis')) {
     await handleKinesisRequest(req, res, path);
+  } else if (path.includes('bedrock-agentcore')) {
+    await handleBedrockAgentCoreRequest(req, res, path);
   } else if (path.includes('bedrock')) {
     await handleBedrockRequest(req, res, path);
   } else if (path.includes('secretsmanager')) {
@@ -565,6 +568,75 @@ async function handleKinesisRequest(req, res, path) {
     res.statusCode = 404;
     res.end();
   }
+}
+
+async function handleBedrockAgentCoreRequest(req, res, path) {
+  const agentCoreClient = new BedrockAgentCoreClient({ endpoint: _AWS_SDK_ENDPOINT, region: _AWS_REGION });
+
+  try {
+    if (path.includes('invoke-agent-runtime')) {
+      await withInjected200Success(agentCoreClient, ['InvokeAgentRuntimeCommand'], { runtimeSessionId: 'test-session' }, async () => {
+        await agentCoreClient.send(new InvokeAgentRuntimeCommand({
+          agentRuntimeArn: 'arn:aws:bedrock-agentcore:us-west-2:000000000000:runtime/test-runtime-abc123',
+          runtimeSessionId: 'test-session-id-abcdefghijklmnop',
+          payload: '{"prompt": "hello"}',
+          qualifier: 'DEFAULT',
+        }));
+      });
+      res.statusCode = 200;
+    } else if (path.includes('start-code-interpreter')) {
+      await withInjected200Success(agentCoreClient, ['StartCodeInterpreterSessionCommand'], { codeInterpreterIdentifier: 'test-ci-id', sessionId: 'session-123' }, async () => {
+        await agentCoreClient.send(new StartCodeInterpreterSessionCommand({
+          codeInterpreterIdentifier: 'test-ci-id',
+        }));
+      });
+      res.statusCode = 200;
+    } else if (path.includes('start-browser-session')) {
+      await withInjected200Success(agentCoreClient, ['StartBrowserSessionCommand'], { browserIdentifier: 'test-browser-id', sessionId: 'session-456' }, async () => {
+        await agentCoreClient.send(new StartBrowserSessionCommand({
+          browserIdentifier: 'test-browser-id',
+        }));
+      });
+      res.statusCode = 200;
+    } else if (path.includes('get-resource-api-key')) {
+      await withInjected200Success(agentCoreClient, ['GetResourceApiKeyCommand'], { apiKey: 'dummy-key' }, async () => {
+        await agentCoreClient.send(new GetResourceApiKeyCommand({
+          workloadIdentityToken: 'dummy-token',
+          resourceCredentialProviderName: 'my-credential-provider',
+        }));
+      });
+      res.statusCode = 200;
+    } else if (path.includes('get-memory-record')) {
+      await withInjected200Success(agentCoreClient, ['GetMemoryRecordCommand'], { memoryRecord: { memoryRecordId: 'record-123', content: { text: 'test' }, memoryStrategyId: 'strategy-1', namespaces: ['default'], createdAt: new Date() } }, async () => {
+        await agentCoreClient.send(new GetMemoryRecordCommand({
+          memoryId: 'test-memory-id-abc123',
+          memoryRecordId: 'record-123',
+        }));
+      });
+      res.statusCode = 200;
+    } else if (path.includes('get-ab-test')) {
+      await withInjected200Success(agentCoreClient, ['GetABTestCommand'], {
+        abTestId: 'test-ab-test-id',
+        abTestArn: 'arn:aws:bedrock-agentcore:us-west-2:000000000000:ab-test/test-ab-test-id',
+        name: 'test-ab-test',
+        status: 'ACTIVE',
+        executionStatus: 'RUNNING',
+        gatewayArn: 'arn:aws:bedrock-agentcore:us-west-2:000000000000:gateway/test-gateway-abc123',
+        variants: [],
+      }, async () => {
+        await agentCoreClient.send(new GetABTestCommand({
+          abTestId: 'test-ab-test-id',
+        }));
+      });
+      res.statusCode = 200;
+    } else {
+      res.statusCode = 404;
+    }
+  } catch (e) {
+    console.error('Error in bedrock-agentcore handler:', e);
+    res.statusCode = 500;
+  }
+  res.end();
 }
 
 async function handleBedrockRequest(req, res, path) {

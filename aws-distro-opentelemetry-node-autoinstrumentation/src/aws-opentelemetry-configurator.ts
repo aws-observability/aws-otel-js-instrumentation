@@ -520,7 +520,7 @@ export class AwsLoggerProcessorProvider {
     const exporters = AwsLoggerProcessorProvider.configureLogExportersFromEnv();
 
     return exporters.map(exporter => {
-      if (exporter instanceof ConsoleLogRecordExporter) {
+      if (exporter instanceof ConsoleLogRecordExporter || exporter instanceof CompactConsoleLogRecordExporter) {
         return new SimpleLogRecordProcessor(exporter);
       } else if (exporter instanceof OTLPAwsLogExporter && isAgentObservabilityEnabled()) {
         return new AwsCloudWatchOtlpBatchLogRecordProcessor(exporter);

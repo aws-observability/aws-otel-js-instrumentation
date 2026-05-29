@@ -3,25 +3,43 @@
 
 import { expect } from 'expect';
 import * as sinon from 'sinon';
+import { INVALID_TRACEID, INVALID_SPANID } from '@opentelemetry/api';
+import { SeverityNumber } from '@opentelemetry/api-logs';
 import { ExportResultCode } from '@opentelemetry/core';
 import { ReadableLogRecord } from '@opentelemetry/sdk-logs';
-import { emptyResource } from '@opentelemetry/resources';
 import { CompactConsoleLogRecordExporter } from '../../../../src/exporter/console/logs/compact-console-log-exporter';
-import { Attributes } from '@opentelemetry/api';
 
 describe('CompactConsoleLogRecordExporter', () => {
   let exporter: CompactConsoleLogRecordExporter;
   let stdoutWriteSpy: sinon.SinonSpy;
 
-  const createMockLogRecord = (body: string, attributes: Attributes = {}): ReadableLogRecord => ({
-    hrTime: [1640995200, 0],
-    hrTimeObserved: [1640995200, 0],
-    body,
+  const createMockLogRecord = (overrides: Partial<ReadableLogRecord> = {}): ReadableLogRecord => ({
+    hrTime: [1000000000, 0],
+    hrTimeObserved: [1000000000, 0],
+    body: 'Test log message',
     severityText: 'INFO',
-    attributes,
-    resource: emptyResource(),
-    instrumentationScope: { name: 'test', version: '1.0.0' },
-    droppedAttributesCount: 0,
+    severityNumber: SeverityNumber.INFO,
+    attributes: { key: 'value' },
+    resource: {
+      attributes: { 'service.name': 'test-service' },
+      schemaUrl: 'https://opentelemetry.io/schemas/1.0.0',
+      merge: () => ({} as any),
+      getRawAttributes: () => [],
+    },
+    instrumentationScope: {
+      name: 'test-scope',
+      version: '1.0.0',
+      schemaUrl: 'https://opentelemetry.io/schemas/1.0.0',
+    },
+    droppedAttributesCount: 2,
+    spanContext: {
+      traceId: '12345678901234567890123456789012',
+      spanId: '1234567890123456',
+      traceFlags: 1,
+      traceState: undefined as any,
+      isRemote: false,
+    },
+    ...overrides,
   });
 
   beforeEach(() => {
@@ -31,58 +49,168 @@ describe('CompactConsoleLogRecordExporter', () => {
 
   afterEach(() => {
     sinon.restore();
+    delete process.env.ADOT_TEST_EXPORT_PATH_ENABLED;
   });
 
-  it('should export logs and call callback with success', done => {
-    const mockLogRecord = createMockLogRecord('test log message');
-    const logs = [mockLogRecord];
+  it('should export with all fields matching canonical schema', done => {
+    const logRecord = createMockLogRecord();
 
-    exporter.export(logs, result => {
+    exporter.export([logRecord], result => {
       expect(result.code).toBe(ExportResultCode.SUCCESS);
       expect(stdoutWriteSpy.calledOnce).toBeTruthy();
 
-      const writtenData = stdoutWriteSpy.firstCall.args[0];
-      expect(writtenData).toBe(
-        '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"test log message","attributes":{}}\n'
-      );
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
 
-      const loggedContent = JSON.parse(writtenData);
-      expect(loggedContent.body).toBe('test log message');
-      expect(loggedContent.severityText).toBe('INFO');
-      expect(loggedContent.instrumentationScope.name).toBe('test');
-      expect(loggedContent.instrumentationScope.version).toBe('1.0.0');
+      expect(parsed).toEqual({
+        resource: {
+          attributes: { 'service.name': 'test-service' },
+          schemaUrl: 'https://opentelemetry.io/schemas/1.0.0',
+        },
+        scope: {
+          name: 'test-scope',
+          version: '1.0.0',
+          schemaUrl: 'https://opentelemetry.io/schemas/1.0.0',
+        },
+        body: 'Test log message',
+        severityNumber: 9,
+        severityText: 'INFO',
+        attributes: { key: 'value' },
+        droppedAttributes: 2,
+        timeUnixNano: '1000000000000000000',
+        observedTimeUnixNano: '1000000000000000000',
+        traceId: '12345678901234567890123456789012',
+        spanId: '1234567890123456',
+        flags: 1,
+      });
+      expect(parsed.exportPath).toBeUndefined();
 
       done();
     });
   });
 
-  it('should export multiple logs', done => {
-    const mockLogRecords = [createMockLogRecord('log 1'), createMockLogRecord('log 2')];
+  it('should include exportPath when ADOT_TEST_EXPORT_PATH_ENABLED is set', done => {
+    process.env.ADOT_TEST_EXPORT_PATH_ENABLED = 'true';
+    const testExporter = new CompactConsoleLogRecordExporter();
+    const logRecord = createMockLogRecord();
 
-    exporter.export(mockLogRecords, result => {
+    testExporter.export([logRecord], result => {
+      expect(result.code).toBe(ExportResultCode.SUCCESS);
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.exportPath).toBe('console');
+      delete process.env.ADOT_TEST_EXPORT_PATH_ENABLED;
+      done();
+    });
+  });
+
+  it('should handle null body', done => {
+    const logRecord = createMockLogRecord({ body: undefined });
+
+    exporter.export([logRecord], result => {
+      expect(result.code).toBe(ExportResultCode.SUCCESS);
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.body).toBeNull();
+      done();
+    });
+  });
+
+  it('should handle zero timestamps', done => {
+    const logRecord = createMockLogRecord({ hrTime: [0, 0], hrTimeObserved: [0, 0] });
+
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.timeUnixNano).toBe('0');
+      expect(parsed.observedTimeUnixNano).toBe('0');
+      done();
+    });
+  });
+
+  it('should output empty traceId/spanId for invalid span context (all zeros)', done => {
+    const logRecord = createMockLogRecord({
+      spanContext: {
+        traceId: INVALID_TRACEID,
+        spanId: INVALID_SPANID,
+        traceFlags: 1,
+        traceState: undefined as any,
+        isRemote: false,
+      },
+    });
+
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.traceId).toBe('');
+      expect(parsed.spanId).toBe('');
+      done();
+    });
+  });
+
+  it('should output empty traceId/spanId for invalid traceId only', done => {
+    const logRecord = createMockLogRecord({
+      spanContext: {
+        traceId: INVALID_TRACEID,
+        spanId: '1234567890123456',
+        traceFlags: 1,
+        traceState: undefined as any,
+        isRemote: false,
+      },
+    });
+
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.traceId).toBe('');
+      expect(parsed.spanId).toBe('');
+      done();
+    });
+  });
+
+  it('should output empty traceId/spanId when no span context', done => {
+    const logRecord = createMockLogRecord({ spanContext: undefined });
+
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.traceId).toBe('');
+      expect(parsed.spanId).toBe('');
+      expect(parsed.flags).toBe(0);
+      done();
+    });
+  });
+
+  it('should preserve attribute value types', done => {
+    const logRecord = createMockLogRecord({ attributes: { count: 42, enabled: true, rate: 3.14, name: 'test' } });
+
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.attributes.count).toBe(42);
+      expect(parsed.attributes.enabled).toBe(true);
+      expect(parsed.attributes.rate).toBe(3.14);
+      expect(parsed.attributes.name).toBe('test');
+      done();
+    });
+  });
+
+  it('should handle empty attributes', done => {
+    const logRecord = createMockLogRecord({ attributes: {} });
+
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.attributes).toEqual({});
+      done();
+    });
+  });
+
+  it('should export multiple log records as separate lines', done => {
+    const log1 = createMockLogRecord({ body: 'first' });
+    const log2 = createMockLogRecord({ body: 'second' });
+
+    exporter.export([log1, log2], result => {
       expect(result.code).toBe(ExportResultCode.SUCCESS);
       expect(stdoutWriteSpy.callCount).toBe(2);
-
-      const firstWrittenData = stdoutWriteSpy.firstCall.args[0];
-      const secondWrittenData = stdoutWriteSpy.secondCall.args[0];
-      expect(firstWrittenData).toBe(
-        '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"log 1","attributes":{}}\n'
-      );
-      expect(secondWrittenData).toBe(
-        '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"log 2","attributes":{}}\n'
-      );
-
-      const firstLogContent = JSON.parse(firstWrittenData);
-      const secondLogContent = JSON.parse(secondWrittenData);
-
-      expect(firstLogContent.body).toBe('log 1');
-      expect(secondLogContent.body).toBe('log 2');
-
+      expect(JSON.parse(stdoutWriteSpy.firstCall.args[0] as string).body).toBe('first');
+      expect(JSON.parse(stdoutWriteSpy.secondCall.args[0] as string).body).toBe('second');
       done();
     });
   });
 
-  it('should handle empty logs array', done => {
+  it('should handle empty batch', done => {
     exporter.export([], result => {
       expect(result.code).toBe(ExportResultCode.SUCCESS);
       expect(stdoutWriteSpy.called).toBeFalsy();
@@ -90,61 +218,137 @@ describe('CompactConsoleLogRecordExporter', () => {
     });
   });
 
-  it('should work without callback', () => {
-    const mockLogRecord = createMockLogRecord('test log message');
+  it('should output raw epoch nanos for timestamp', done => {
+    const logRecord = createMockLogRecord({ hrTime: [1000000000, 123000000] });
 
-    expect(() => {
-      exporter.export([mockLogRecord], () => {});
-    }).not.toThrow();
-    expect(stdoutWriteSpy.calledOnce).toBeTruthy();
-
-    const writtenData = stdoutWriteSpy.firstCall.args[0];
-    expect(writtenData).toBe(
-      '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"test log message","attributes":{}}\n'
-    );
-
-    const loggedContent = JSON.parse(writtenData);
-    expect(loggedContent.body).toBe('test log message');
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.timeUnixNano).toBe('1000000000123000000');
+      done();
+    });
   });
 
-  it('should handle undefined callback gracefully', () => {
-    const mockLogRecord = createMockLogRecord('test log message');
+  it('should preserve full nanosecond precision', done => {
+    const logRecord = createMockLogRecord({ hrTime: [1000000000, 100000000] });
 
-    expect(() => {
-      exporter['_sendLogRecordsToLambdaConsole']([mockLogRecord]);
-    }).not.toThrow();
-    expect(stdoutWriteSpy.calledOnce).toBeTruthy();
-
-    const writtenData = stdoutWriteSpy.firstCall.args[0];
-    expect(writtenData).toBe(
-      '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"test log message","attributes":{}}\n'
-    );
-
-    const loggedContent = JSON.parse(writtenData);
-    expect(loggedContent.body).toBe('test log message');
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.timeUnixNano).toBe('1000000000100000000');
+      done();
+    });
   });
 
-  it('should format log record with all expected fields', done => {
-    const mockLogRecord = createMockLogRecord('detailed test message', {
-      customKey: 'customValue',
-      requestId: '12345',
+  it('should map severity numbers to OTel spec names', done => {
+    const cases: [SeverityNumber, string][] = [
+      [SeverityNumber.TRACE, 'TRACE'],
+      [SeverityNumber.DEBUG, 'DEBUG'],
+      [SeverityNumber.INFO, 'INFO'],
+      [SeverityNumber.WARN, 'WARN'],
+      [SeverityNumber.ERROR, 'ERROR'],
+      [SeverityNumber.FATAL, 'FATAL'],
+    ];
+
+    let completed = 0;
+    for (const [sevNum, expectedText] of cases) {
+      sinon.restore();
+      stdoutWriteSpy = sinon.spy(process.stdout, 'write');
+      const newExporter = new CompactConsoleLogRecordExporter();
+      const logRecord = createMockLogRecord({ severityNumber: sevNum, severityText: '' });
+
+      newExporter.export([logRecord], result => {
+        const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+        expect(parsed.severityText).toBe(expectedText);
+        expect(parsed.severityNumber).toBe(sevNum);
+        completed++;
+        if (completed === cases.length) done();
+      });
+    }
+  });
+
+  it('should output compact single-line JSON', done => {
+    const logRecord = createMockLogRecord();
+
+    exporter.export([logRecord], result => {
+      const output = (stdoutWriteSpy.firstCall.args[0] as string).trim();
+      expect(output).not.toContain('\n');
+      expect(output).not.toContain('  ');
+      done();
+    });
+  });
+
+  it('should return FAILED after shutdown', done => {
+    exporter.shutdown().then(() => {
+      exporter.export([createMockLogRecord()], result => {
+        expect(result.code).toBe(ExportResultCode.FAILED);
+        expect(stdoutWriteSpy.called).toBeFalsy();
+        done();
+      });
+    });
+  });
+
+  it('should resolve forceFlush', async () => {
+    await expect(exporter.forceFlush()).resolves.toBeUndefined();
+  });
+
+  it('should fall back to _exportInfo JSON output when _buildLogRecord fails', done => {
+    const originalBuild = (exporter as any)._buildLogRecord;
+    (exporter as any)._buildLogRecord = () => {
+      throw new Error('simulated failure');
+    };
+
+    const logRecord = createMockLogRecord();
+
+    exporter.export([logRecord], result => {
+      expect(result.code).toBe(ExportResultCode.SUCCESS);
+      expect(stdoutWriteSpy.calledOnce).toBeTruthy();
+      const output = stdoutWriteSpy.firstCall.args[0] as string;
+      const parsed = JSON.parse(output);
+      expect(parsed.body).toBe('Test log message');
+      expect(parsed.severityNumber).toBe(SeverityNumber.INFO);
+      (exporter as any)._buildLogRecord = originalBuild;
+      done();
+    });
+  });
+
+  it('should report FAILED when both primary and fallback serialization fail', done => {
+    const circular: any = {};
+    circular.self = circular;
+    const badRecord = createMockLogRecord({ attributes: circular });
+
+    exporter.export([badRecord], result => {
+      expect(result.code).toBe(ExportResultCode.FAILED);
+      done();
+    });
+  });
+
+  it('should output UNSPECIFIED for null severity number', done => {
+    const logRecord = createMockLogRecord({ severityNumber: undefined as any, severityText: '' });
+
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.severityText).toBe('UNSPECIFIED');
+      expect(parsed.severityNumber).toBe(0);
+      done();
+    });
+  });
+
+  it('should handle empty resource and scope', done => {
+    const logRecord = createMockLogRecord({
+      resource: {
+        attributes: {},
+        merge: () => ({} as any),
+        getRawAttributes: () => [],
+      },
+      instrumentationScope: { name: '' },
     });
 
-    exporter.export([mockLogRecord], result => {
-      expect(result.code).toBe(ExportResultCode.SUCCESS);
-
-      const writtenData = stdoutWriteSpy.firstCall.args[0];
-      expect(writtenData).toBe(
-        '{"resource":{"attributes":{}},"instrumentationScope":{"name":"test","version":"1.0.0"},"timestamp":1640995200000000,"severityText":"INFO","body":"detailed test message","attributes":{"customKey":"customValue","requestId":"12345"}}\n'
-      );
-
-      const loggedContent = JSON.parse(writtenData);
-      expect(loggedContent.body).toBe('detailed test message');
-      expect(loggedContent.severityText).toBe('INFO');
-      expect(loggedContent.instrumentationScope.name).toBe('test');
-      expect(loggedContent.instrumentationScope.version).toBe('1.0.0');
-      expect(loggedContent.attributes).toEqual({ customKey: 'customValue', requestId: '12345' });
-
+    exporter.export([logRecord], result => {
+      const parsed = JSON.parse(stdoutWriteSpy.firstCall.args[0] as string);
+      expect(parsed.resource.attributes).toEqual({});
+      expect(parsed.resource.schemaUrl).toBe('');
+      expect(parsed.scope.name).toBe('');
+      expect(parsed.scope.version).toBe('');
+      expect(parsed.scope.schemaUrl).toBe('');
       done();
     });
   });

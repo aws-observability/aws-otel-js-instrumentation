@@ -12,23 +12,20 @@ const AWS_LOCAL_OPERATION_ATTRIBUTE = 'aws.local.operation';
 const TRACE_CACHE_TTL_MS = 600 * 1000;
 const TRACE_CACHE_MAX_SIZE = 100_000;
 
-export interface BoostStatistics {
-  TotalCount: number;
-  AnomalyCount: number;
-  SampledAnomalyCount: number;
+export interface AnomalyMatch {
+  forBoost: boolean;
+  forCapture: boolean;
 }
 
 export class AnomalyDetector {
   private config: AdaptiveSamplingConfig;
   private rateLimiter: RateLimiter | undefined;
   private traceCache: TTLCache<string, boolean>;
-  private stats: BoostStatistics;
   private compiledRegexes: Map<string, RegExp>;
 
   constructor(config: AdaptiveSamplingConfig) {
     this.config = config;
     this.traceCache = new TTLCache({ max: TRACE_CACHE_MAX_SIZE, ttl: TRACE_CACHE_TTL_MS });
-    this.stats = { TotalCount: 0, AnomalyCount: 0, SampledAnomalyCount: 0 };
     this.compiledRegexes = new Map();
 
     if (config.anomalyCaptureLimit) {
@@ -46,46 +43,37 @@ export class AnomalyDetector {
     }
   }
 
-  public isAnomaly(span: ReadableSpan): boolean {
+  public getAnomalyMatch(span: ReadableSpan): AnomalyMatch | null {
     const conditions = this.config.anomalyConditions;
     if (!conditions || conditions.length === 0) {
-      return false;
+      return null;
     }
 
-    // OR across conditions: any single condition match means anomaly
-    return conditions.some(condition => this.matchesCondition(condition, span));
+    // OR across conditions: first matching condition determines usage flags
+    for (const condition of conditions) {
+      if (this.matchesCondition(condition, span)) {
+        return {
+          forBoost: condition.usage === UsageType.BOTH || condition.usage === UsageType.SAMPLING_BOOST,
+          forCapture: condition.usage === UsageType.BOTH || condition.usage === UsageType.ANOMALY_TRACE_CAPTURE,
+        };
+      }
+    }
+    return null;
   }
 
   public shouldCaptureAnomaly(traceId: string): boolean {
-    // Deduplicate by trace ID
+    // If trace already flagged for capture, capture all subsequent spans too
     if (this.traceCache.has(traceId)) {
-      return false;
+      return true;
     }
 
-    // Rate limit
+    // Rate limit: only gate on accepting new traces
     if (this.rateLimiter && !this.rateLimiter.take(1)) {
       return false;
     }
 
     this.traceCache.set(traceId, true);
     return true;
-  }
-
-  public recordTrace(): void {
-    this.stats.TotalCount++;
-  }
-
-  public recordAnomaly(isSampled: boolean): void {
-    this.stats.AnomalyCount++;
-    if (isSampled) {
-      this.stats.SampledAnomalyCount++;
-    }
-  }
-
-  public snapshotAndResetStatistics(): BoostStatistics {
-    const snapshot = { ...this.stats };
-    this.stats = { TotalCount: 0, AnomalyCount: 0, SampledAnomalyCount: 0 };
-    return snapshot;
   }
 
   private matchesCondition(condition: AnomalyCondition, span: ReadableSpan): boolean {

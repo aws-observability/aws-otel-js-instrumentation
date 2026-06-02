@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Attributes, Context, DiagLogger, Link, SpanKind, TraceFlags, diag } from '@opentelemetry/api';
+import { Attributes, Context, DiagLogger, Link, SpanKind, TraceFlags, createTraceState, diag, trace } from '@opentelemetry/api';
 import { ParentBasedSampler, ReadableSpan, Sampler, SamplingResult } from '@opentelemetry/sdk-trace-base';
 import { AdaptiveSamplingConfig } from './adaptive-sampling-config';
 import { AnomalyDetector, AWS_XRAY_ADAPTIVE_SAMPLING_CONFIGURED_ATTRIBUTE } from './anomaly-detector';
@@ -16,7 +16,7 @@ import {
   SamplingTargetDocument,
   TargetMap,
 } from './remote-sampler.types';
-import { DEFAULT_TARGET_POLLING_INTERVAL_SECONDS, RuleCache } from './rule-cache';
+import { DEFAULT_TARGET_POLLING_INTERVAL_SECONDS, RuleCache, XRSR_TRACE_STATE_KEY } from './rule-cache';
 import { SamplingRuleApplier } from './sampling-rule-applier';
 
 // 5 minute default sampling rules polling interval
@@ -132,15 +132,30 @@ export class _AwsXRayRemoteSampler implements Sampler {
       return;
     }
 
+    // Only count stats for root spans (spans whose sampling decision was made by this service)
+    // Python: _rule_cache.py line 211 — "not span.parent.is_valid"
+    if (span.parentSpanContext?.spanId) {
+      return;
+    }
+
     const isSampled = (span.spanContext().traceFlags & TraceFlags.SAMPLED) !== 0;
     const traceId = span.spanContext().traceId;
 
-    this.anomalyDetector.recordTrace();
+    // Resolve the effective rule applier via xrsr tracestate
+    // Python: _rule_cache.py lines 197-214
+    const xrsrHash = span.spanContext().traceState?.get(XRSR_TRACE_STATE_KEY);
+    const effectiveApplier = xrsrHash ? this.ruleCache.getRuleApplierByHash(xrsrHash) : undefined;
 
-    if (this.anomalyDetector.isAnomaly(span)) {
-      this.anomalyDetector.recordAnomaly(isSampled);
+    if (effectiveApplier) {
+      effectiveApplier.countTrace(traceId);
+    }
 
-      if (!isSampled && this.spanBatcher && this.anomalyDetector.shouldCaptureAnomaly(traceId)) {
+    const match = this.anomalyDetector.getAnomalyMatch(span);
+    if (match) {
+      if (match.forBoost && effectiveApplier) {
+        effectiveApplier.countAnomalyTrace(isSampled);
+      }
+      if (match.forCapture && !isSampled && this.spanBatcher && this.anomalyDetector.shouldCaptureAnomaly(traceId)) {
         this.spanBatcher(span);
       }
     }
@@ -155,6 +170,7 @@ export class _AwsXRayRemoteSampler implements Sampler {
     links: Link[]
   ): SamplingResult {
     let result: SamplingResult;
+    let matchedRuleName: string | undefined;
 
     if (this.ruleCache.isExpired()) {
       this.samplerDiag.debug('Rule cache is expired, so using fallback sampling strategy');
@@ -163,6 +179,7 @@ export class _AwsXRayRemoteSampler implements Sampler {
       const matchedRule: SamplingRuleApplier | undefined = this.ruleCache.getMatchedRule(attributes);
       if (matchedRule) {
         result = matchedRule.shouldSample(context, traceId, spanName, spanKind, attributes, links);
+        matchedRuleName = matchedRule.samplingRule.RuleName;
       } else {
         this.samplerDiag.debug(
           'Using fallback sampler as no rule match was found. This is likely due to a bug, since default rule should always match'
@@ -171,18 +188,39 @@ export class _AwsXRayRemoteSampler implements Sampler {
       }
     }
 
-    if (this.anomalyDetector) {
-      return {
-        decision: result.decision,
-        attributes: {
-          ...result.attributes,
-          [AWS_XRAY_ADAPTIVE_SAMPLING_CONFIGURED_ATTRIBUTE]: 'true',
-        },
-        traceState: result.traceState,
-      };
+    // Determine xrsr tracestate value to propagate
+    // Python: _rule_cache.py lines 82-111
+    const parentSpanContext = trace.getSpan(context)?.spanContext();
+    const upstreamXrsr = parentSpanContext?.traceState?.get(XRSR_TRACE_STATE_KEY);
+
+    let hashedRuleName: string | undefined;
+    if (upstreamXrsr) {
+      // Downstream service: propagate upstream's hash unchanged
+      hashedRuleName = upstreamXrsr;
+    } else if (parentSpanContext?.spanId) {
+      // Child span with valid parent but no upstream xrsr: don't set new xrsr
+      hashedRuleName = undefined;
+    } else if (matchedRuleName) {
+      // Root span: set xrsr to hash of our matched rule
+      hashedRuleName = this.ruleCache.getHashForRule(matchedRuleName);
     }
 
-    return result;
+    // Build traceState with xrsr (only if not already present)
+    // Python: _aws_sampling_result.py lines 39-42
+    let traceState = result.traceState ?? createTraceState();
+    if (hashedRuleName && !traceState.get(XRSR_TRACE_STATE_KEY)) {
+      traceState = traceState.set(XRSR_TRACE_STATE_KEY, hashedRuleName);
+    }
+
+    const finalAttributes = this.anomalyDetector
+      ? { ...result.attributes, [AWS_XRAY_ADAPTIVE_SAMPLING_CONFIGURED_ATTRIBUTE]: 'true' }
+      : result.attributes;
+
+    return {
+      decision: result.decision,
+      attributes: finalAttributes,
+      traceState,
+    };
   }
 
   public toString(): string {
@@ -207,6 +245,7 @@ export class _AwsXRayRemoteSampler implements Sampler {
       () => this.getAndUpdateSamplingTargets(),
       this.targetPollingInterval * 1000 + this.targetPollingJitterMillis
     );
+    this.targetPoller.unref();
   }
 
   private getAndUpdateSamplingTargets(): void {
@@ -214,26 +253,11 @@ export class _AwsXRayRemoteSampler implements Sampler {
       SamplingStatisticsDocuments: this.ruleCache.createSamplingStatisticsDocuments(this.clientId),
     };
 
+    // Collect per-rule boost stats (Python: _rule_cache.py lines 383-393)
     if (this.anomalyDetector) {
-      const boostStats = this.anomalyDetector.snapshotAndResetStatistics();
-      if (boostStats.TotalCount > 0) {
-        const boostDocs: typeof requestBody.SamplingBoostStatisticsDocuments = [];
-        for (const doc of requestBody.SamplingStatisticsDocuments) {
-          if (doc.RequestCount > 0 && doc.RuleName !== 'Default') {
-            boostDocs.push({
-              ClientID: this.clientId,
-              RuleName: doc.RuleName,
-              ServiceName: this.serviceName,
-              Timestamp: Math.floor(Date.now() / 1000),
-              TotalCount: boostStats.TotalCount,
-              AnomalyCount: boostStats.AnomalyCount,
-              SampledAnomalyCount: boostStats.SampledAnomalyCount,
-            });
-          }
-        }
-        if (boostDocs.length > 0) {
-          requestBody.SamplingBoostStatisticsDocuments = boostDocs;
-        }
+      const boostDocs = this.ruleCache.createBoostStatisticsDocuments(this.clientId, this.serviceName);
+      if (boostDocs.length > 0) {
+        requestBody.SamplingBoostStatisticsDocuments = boostDocs;
       }
     }
 

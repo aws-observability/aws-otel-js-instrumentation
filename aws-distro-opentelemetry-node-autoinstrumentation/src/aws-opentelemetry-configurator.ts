@@ -410,15 +410,16 @@ export class AwsOpentelemetryConfigurator {
       }
 
       // Wire span batcher into the sampler for anomaly capture
+      // Anomaly-captured spans are unsampled — must use AwsBatchUnsampledSpanProcessor
       if (xraySampler) {
         const anomalyExporter = AwsMetricAttributesSpanExporterBuilder.create(
           AwsSpanProcessorProvider.configureOtlp(),
           resource
         ).build();
-        const anomalyBatchProcessor = new BatchSpanProcessor(anomalyExporter);
-        spanProcessors.push(anomalyBatchProcessor);
+        const anomalyUnsampledProcessor = new AwsBatchUnsampledSpanProcessor(anomalyExporter);
+        spanProcessors.push(anomalyUnsampledProcessor);
         xraySampler.setSpanBatcher(span => {
-          anomalyBatchProcessor.onEnd(span);
+          anomalyUnsampledProcessor.onEnd(span);
         });
         diag.info('Adaptive sampling anomaly capture enabled');
       }
@@ -855,7 +856,7 @@ export class AwsSpanProcessorProvider {
           maxExportBatchSize: getSpanExportBatchSize(),
         });
       } else {
-        return new SimpleSpanProcessor(configuredExporter);
+        return new BatchSpanProcessor(configuredExporter);
       }
     });
   }

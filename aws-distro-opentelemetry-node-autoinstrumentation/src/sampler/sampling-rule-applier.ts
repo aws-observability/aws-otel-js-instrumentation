@@ -32,6 +32,12 @@ import { CLOUD_PLATFORM_MAPPING, attributeMatch, wildcardMatch } from './utils';
 // Max date time in JavaScript
 const MAX_DATE_TIME_MILLIS: number = new Date(8_640_000_000_000_000).getTime();
 
+export interface BoostStatistics {
+  TotalCount: number;
+  AnomalyCount: number;
+  SampledAnomalyCount: number;
+}
+
 export class SamplingRuleApplier {
   public samplingRule: SamplingRule;
   private reservoirSampler: RateLimitingSampler;
@@ -39,6 +45,8 @@ export class SamplingRuleApplier {
   private boostedFixedRateSampler: TraceIdRatioBasedSampler;
   private boostEndTimeMillis: number;
   private statistics: Statistics;
+  private boostStats: BoostStatistics = { TotalCount: 0, AnomalyCount: 0, SampledAnomalyCount: 0 };
+  private seenTraceIds: Set<string> = new Set();
   private borrowingEnabled: boolean;
   private reservoirExpiryTimeInMillis: number;
 
@@ -179,6 +187,28 @@ export class SamplingRuleApplier {
     const statisticsCopy: ISamplingStatistics = { ...this.statistics };
     this.statistics.resetStatistics();
     return statisticsCopy;
+  }
+
+  public countTrace(traceId: string): void {
+    if (this.seenTraceIds.has(traceId)) {
+      return;
+    }
+    this.seenTraceIds.add(traceId);
+    this.boostStats.TotalCount++;
+  }
+
+  public countAnomalyTrace(isSampled: boolean): void {
+    this.boostStats.AnomalyCount++;
+    if (isSampled) {
+      this.boostStats.SampledAnomalyCount++;
+    }
+  }
+
+  public snapshotBoostStatistics(): BoostStatistics {
+    const snapshot = { ...this.boostStats };
+    this.boostStats = { TotalCount: 0, AnomalyCount: 0, SampledAnomalyCount: 0 };
+    this.seenTraceIds.clear();
+    return snapshot;
   }
 
   private getArn(resource: Resource, attributes: Attributes): AttributeValue | undefined {

@@ -132,22 +132,16 @@ export class _AwsXRayRemoteSampler implements Sampler {
       return;
     }
 
-    // Only count stats for root spans (spans whose sampling decision was made by this service)
-    // Python: _rule_cache.py line 211 — "not span.parent.is_valid"
-    if (span.parentSpanContext?.spanId) {
-      return;
-    }
-
     const isSampled = (span.spanContext().traceFlags & TraceFlags.SAMPLED) !== 0;
     const traceId = span.spanContext().traceId;
 
     // Resolve the effective rule applier
-    // First try xrsr from traceState (for downstream services receiving propagated context)
-    // For local root spans, traceState on spanContext is empty — fall back to rule matching
-    // Python: _rule_cache.py lines 197-214
+    // 1. If xrsr in traceState resolves to a known rule, use it (works for downstream services)
+    // 2. If no xrsr match, fall back to local rule match ONLY for root spans (no valid parent)
+    // 3. Otherwise return — no stats counted (local child spans or remote parent without xrsr)
     const xrsrHash = span.spanContext().traceState?.get(XRSR_TRACE_STATE_KEY);
     let effectiveApplier = xrsrHash ? this.ruleCache.getRuleApplierByHash(xrsrHash) : undefined;
-    if (!effectiveApplier) {
+    if (!effectiveApplier && !span.parentSpanContext?.spanId) {
       effectiveApplier = this.ruleCache.getMatchedRule(span.attributes);
     }
 

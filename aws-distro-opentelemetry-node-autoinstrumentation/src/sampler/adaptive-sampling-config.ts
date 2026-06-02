@@ -8,7 +8,7 @@ import * as yaml from 'js-yaml';
 export enum UsageType {
   BOTH = 'both',
   SAMPLING_BOOST = 'sampling-boost',
-  ANOMALY_TRACE_CAPTURE = 'anomaly_trace_capture',
+  ANOMALY_TRACE_CAPTURE = 'anomaly-trace-capture',
   NEITHER = 'neither',
 }
 
@@ -86,7 +86,11 @@ function validateConfig(raw: unknown): AdaptiveSamplingConfig | undefined {
 
   // Validate anomalyCaptureLimit
   let anomalyCaptureLimit: AnomalyCaptureLimit | undefined;
-  if (obj['anomalyCaptureLimit'] !== undefined) {
+  if (obj['anomalyCaptureLimit'] !== undefined && obj['anomalyCaptureLimit'] !== null) {
+    if (typeof obj['anomalyCaptureLimit'] !== 'object') {
+      diag.warn('AWS_XRAY_ADAPTIVE_SAMPLING_CONFIG: anomalyCaptureLimit must be an object');
+      return undefined;
+    }
     const limit = obj['anomalyCaptureLimit'] as Record<string, unknown>;
     const tps = Number(limit['anomalyTracesPerSecond']);
     if (!Number.isInteger(tps) || tps < 0) {

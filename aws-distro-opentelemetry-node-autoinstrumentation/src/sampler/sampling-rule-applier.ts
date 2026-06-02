@@ -193,6 +193,9 @@ export class SamplingRuleApplier {
     if (this.seenTraceIds.has(traceId)) {
       return;
     }
+    if (this.seenTraceIds.size >= 10_000) {
+      return;
+    }
     this.seenTraceIds.add(traceId);
     this.boostStats.TotalCount++;
   }

@@ -85,7 +85,7 @@ jobs:
       caller-workflow-name: 'main-build'
       
   eks:
-    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-eks-test.yml@main
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-eks-test.yml@rds-migration
     secrets: inherit
     with:
       aws-region: us-east-1

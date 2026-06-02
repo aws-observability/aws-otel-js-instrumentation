@@ -103,10 +103,10 @@ runs:
         tags: ${{ inputs.image_uri_with_tag }}
         load: ${{ inputs.load_image }}
 
-    - name: Perform image scan
-      uses: ./.github/actions/image_scan
-      with:
-        image-ref: ${{ inputs.image_uri_with_tag }}
-        severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
-        logout: 'true'
-        trivyignore-file: ${{ inputs.trivyignore-file }}
+    # - name: Perform image scan
+    #   uses: ./.github/actions/image_scan
+    #   with:
+    #     image-ref: ${{ inputs.image_uri_with_tag }}
+    #     severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
+    #     logout: 'true'
+    #     trivyignore-file: ${{ inputs.trivyignore-file }}

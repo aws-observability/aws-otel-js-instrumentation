@@ -141,10 +141,15 @@ export class _AwsXRayRemoteSampler implements Sampler {
     const isSampled = (span.spanContext().traceFlags & TraceFlags.SAMPLED) !== 0;
     const traceId = span.spanContext().traceId;
 
-    // Resolve the effective rule applier via xrsr tracestate
+    // Resolve the effective rule applier
+    // First try xrsr from traceState (for downstream services receiving propagated context)
+    // For local root spans, traceState on spanContext is empty — fall back to rule matching
     // Python: _rule_cache.py lines 197-214
     const xrsrHash = span.spanContext().traceState?.get(XRSR_TRACE_STATE_KEY);
-    const effectiveApplier = xrsrHash ? this.ruleCache.getRuleApplierByHash(xrsrHash) : undefined;
+    let effectiveApplier = xrsrHash ? this.ruleCache.getRuleApplierByHash(xrsrHash) : undefined;
+    if (!effectiveApplier) {
+      effectiveApplier = this.ruleCache.getMatchedRule(span.attributes);
+    }
 
     if (effectiveApplier) {
       effectiveApplier.countTrace(traceId);

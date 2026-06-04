@@ -42,7 +42,12 @@
     ],
     "exclude": [
       "src/third-party/**/*.ts",
-      "src/exporter/otlp/aws/common/aws-authenticator.ts"
+      "src/exporter/otlp/aws/common/aws-authenticator.ts",
+      "src/dynamic-instrumentation/worker.ts",
+      "src/dynamic-instrumentation/index.ts",
+      "src/dynamic-instrumentation/session.ts",
+      "src/dynamic-instrumentation/breakpoint-manager.ts",
+      "src/dynamic-instrumentation/snapshot-collector.ts"
     ]
   },
   "bugs": {

@@ -125,6 +125,53 @@ setAwsDefaultEnvironmentVariables();
 export const isHttpPingRequest = (request: { url?: string }) => request.url === '/ping';
 export const isUndiciPingRequest = (request: { path: string }) => request.path === '/ping';
 
+/**
+ * Initialize Dynamic Instrumentation (DI), the on-demand snapshot capture feature.
+ *
+ * DI is opt-in via OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED (default off) and is not
+ * supported in Lambda (no CloudWatch Agent proxy). It runs only on the main thread:
+ * the DI manager spawns a Worker, and Node re-runs `--require register` inside the
+ * worker's isolated context, so the isMainThread guard prevents recursive spawning.
+ *
+ * Wrapped in try/catch so a DI initialization failure can never break SDK startup —
+ * the SAFETY tenet: DI must never take down the user's application. Exported for testing.
+ */
+export function initializeDynamicInstrumentation(env: NodeJS.ProcessEnv): void {
+  try {
+    const { isMainThread } = require('worker_threads');
+    const diEnabled = (env.OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED ?? 'false').trim().toLowerCase() === 'true';
+    const isLambda = !!env.AWS_LAMBDA_FUNCTION_NAME;
+    if (isMainThread && diEnabled && !isLambda) {
+      const { DynamicInstrumentationManager } = require('./dynamic-instrumentation');
+      const diManager = DynamicInstrumentationManager.getInstance();
+
+      // Defer startup to ensure OTel SDK is fully initialized (service name, environment resolved)
+      setTimeout(() => {
+        diManager.initialize();
+      }, 100);
+    }
+  } catch (diError) {
+    diag.error('Failed to initialize Dynamic Instrumentation', diError);
+  }
+}
+
+/**
+ * Shutdown Dynamic Instrumentation (main thread only). Guarded so it never blocks SDK
+ * shutdown. Exported for testing.
+ */
+export function shutdownDynamicInstrumentation(): void {
+  try {
+    const { isMainThread } = require('worker_threads');
+    if (isMainThread) {
+      const { DynamicInstrumentationManager } = require('./dynamic-instrumentation');
+      const diManager = DynamicInstrumentationManager.getInstance();
+      diManager.shutdown();
+    }
+  } catch {
+    // Ignore - DI may not have been initialized
+  }
+}
+
 export const instrumentationConfigs: InstrumentationConfigMap = {
   '@opentelemetry/instrumentation-aws-lambda': {
     eventContextExtractor: customExtractor,
@@ -178,6 +225,8 @@ try {
   diag.debug(`Environment variable OTEL_PROPAGATORS is set to '${process.env.OTEL_PROPAGATORS}'`);
   diag.debug(`Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to '${process.env.OTEL_EXPORTER_OTLP_PROTOCOL}'`);
   diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
+
+  initializeDynamicInstrumentation(process.env);
 } catch (error) {
   diag.error(
     'Error initializing AWS Distro of OpenTelemetry SDK. Your application is not instrumented and will not produce telemetry',
@@ -186,6 +235,8 @@ try {
 }
 
 process.on('SIGTERM', () => {
+  shutdownDynamicInstrumentation();
+
   sdk
     .shutdown()
     .then(() => diag.debug('AWS Distro of OpenTelemetry SDK terminated'))

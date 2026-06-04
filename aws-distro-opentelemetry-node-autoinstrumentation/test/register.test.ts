@@ -429,6 +429,76 @@ describe('Register', function () {
     });
   });
 
+  describe('Dynamic Instrumentation wiring', () => {
+    // register.ts is already required once by the top-level before() hook; re-requiring it
+    // here returns the cached module (no re-execution of its side effects).
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let initializeDynamicInstrumentation: (env: NodeJS.ProcessEnv) => void;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let shutdownDynamicInstrumentation: () => void;
+    let initStub: sinon.SinonStub;
+    let shutdownStub: sinon.SinonStub;
+    let setTimeoutSpy: sinon.SinonStub;
+
+    beforeEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const register = require('../src/register');
+      initializeDynamicInstrumentation = register.initializeDynamicInstrumentation;
+      shutdownDynamicInstrumentation = register.shutdownDynamicInstrumentation;
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { DynamicInstrumentationManager } = require('../src/dynamic-instrumentation');
+      const manager = DynamicInstrumentationManager.getInstance();
+      initStub = sinon.stub(manager, 'initialize');
+      shutdownStub = sinon.stub(manager, 'shutdown');
+      // Stub global setTimeout so the deferred init runs synchronously in-test, WITHOUT
+      // faking the global clock (faking it leaks into other suites' real-timer async tests).
+      setTimeoutSpy = sinon.stub(global, 'setTimeout').callsFake(((fn: () => void) => {
+        fn();
+        return 0 as unknown as NodeJS.Timeout;
+      }) as unknown as typeof setTimeout);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('initializes DI (deferred via setTimeout) when enabled and not in Lambda', () => {
+      initializeDynamicInstrumentation({ OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED: 'true' });
+      assert.strictEqual(setTimeoutSpy.calledOnce, true);
+      assert.strictEqual(setTimeoutSpy.firstCall.args[1], 100); // 100ms defer
+      assert.strictEqual(initStub.calledOnce, true);
+    });
+
+    it('does not initialize DI when the flag is unset (default off)', () => {
+      initializeDynamicInstrumentation({});
+      assert.strictEqual(initStub.called, false);
+      assert.strictEqual(setTimeoutSpy.called, false);
+    });
+
+    it('does not initialize DI when the flag is explicitly false', () => {
+      initializeDynamicInstrumentation({ OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED: 'false' });
+      assert.strictEqual(initStub.called, false);
+    });
+
+    it('does not initialize DI in a Lambda environment even when enabled', () => {
+      initializeDynamicInstrumentation({
+        OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED: 'true',
+        AWS_LAMBDA_FUNCTION_NAME: 'my-fn',
+      });
+      assert.strictEqual(initStub.called, false);
+    });
+
+    it('treats a whitespace/mixed-case true value as enabled', () => {
+      initializeDynamicInstrumentation({ OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED: '  TRUE  ' });
+      assert.strictEqual(initStub.calledOnce, true);
+    });
+
+    it('shutdownDynamicInstrumentation invokes the manager shutdown', () => {
+      shutdownDynamicInstrumentation();
+      assert.strictEqual(shutdownStub.calledOnce, true);
+    });
+  });
+
   it('can load auto instrumentation from command line', () => {
     const proc: SpawnSyncReturns<Buffer> = spawnSync(
       process.execPath,

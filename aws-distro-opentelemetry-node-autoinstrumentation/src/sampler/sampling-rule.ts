@@ -16,7 +16,11 @@ export class SamplingRule implements ISamplingRule {
   public URLPath: string;
   public ResourceARN: string;
   public Attributes: { [key: string]: string } | undefined;
-  public SamplingRateBoost?: { MaxRate: number; CooldownWindowMinutes: number; DisableDefaultAnomalyDetection?: boolean } | null;
+  public SamplingRateBoost?: {
+    MaxRate: number;
+    CooldownWindowMinutes: number;
+    DisableDefaultAnomalyDetection?: boolean;
+  } | null;
   public Version: number;
 
   constructor(samplingRule: ISamplingRule) {

@@ -96,7 +96,10 @@ export class SamplingRuleApplier {
   }
 
   public isDefaultAnomalyDetectionDisabled(): boolean {
-    return this.samplingRule.SamplingRateBoost != null && !!this.samplingRule.SamplingRateBoost.DisableDefaultAnomalyDetection;
+    return (
+      this.samplingRule.SamplingRateBoost != null &&
+      !!this.samplingRule.SamplingRateBoost.DisableDefaultAnomalyDetection
+    );
   }
 
   public withTarget(target: SamplingTargetDocument): SamplingRuleApplier {

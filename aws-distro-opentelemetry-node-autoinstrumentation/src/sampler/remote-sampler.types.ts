@@ -54,7 +54,11 @@ export interface ISamplingRule {
   Attributes?: { [key: string]: string };
 
   // Static boost eligibility from GetSamplingRules (not the dynamic target response)
-  SamplingRateBoost?: { MaxRate: number; CooldownWindowMinutes: number; DisableDefaultAnomalyDetection?: boolean } | null;
+  SamplingRateBoost?: {
+    MaxRate: number;
+    CooldownWindowMinutes: number;
+    DisableDefaultAnomalyDetection?: boolean;
+  } | null;
 
   Version: number;
 }

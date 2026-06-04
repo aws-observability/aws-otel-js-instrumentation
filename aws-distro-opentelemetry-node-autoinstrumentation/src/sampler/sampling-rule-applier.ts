@@ -91,6 +91,14 @@ export class SamplingRuleApplier {
     }
   }
 
+  public hasBoost(): boolean {
+    return this.samplingRule.SamplingRateBoost != null;
+  }
+
+  public isDefaultAnomalyDetectionDisabled(): boolean {
+    return this.samplingRule.SamplingRateBoost != null && !!this.samplingRule.SamplingRateBoost.DisableDefaultAnomalyDetection;
+  }
+
   public withTarget(target: SamplingTargetDocument): SamplingRuleApplier {
     const newApplier: SamplingRuleApplier = new SamplingRuleApplier(this.samplingRule, this.statistics, target);
     return newApplier;

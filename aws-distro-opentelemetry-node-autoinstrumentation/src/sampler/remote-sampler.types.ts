@@ -53,6 +53,9 @@ export interface ISamplingRule {
   // Segment attributes to be matched when the sampling decision is being made.
   Attributes?: { [key: string]: string };
 
+  // Static boost eligibility from GetSamplingRules (not the dynamic target response)
+  SamplingRateBoost?: { MaxRate: number; CooldownWindowMinutes: number; DisableDefaultAnomalyDetection?: boolean } | null;
+
   Version: number;
 }
 

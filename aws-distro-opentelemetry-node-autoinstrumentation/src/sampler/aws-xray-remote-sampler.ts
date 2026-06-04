@@ -1,7 +1,18 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Attributes, Context, DiagLogger, Link, SpanKind, TraceFlags, createTraceState, diag, trace } from '@opentelemetry/api';
+import {
+  Attributes,
+  Context,
+  DiagLogger,
+  Link,
+  SpanKind,
+  TraceFlags,
+  createTraceState,
+  diag,
+  propagation,
+  trace,
+} from '@opentelemetry/api';
 import { ParentBasedSampler, ReadableSpan, Sampler, SamplingResult } from '@opentelemetry/sdk-trace-base';
 import { AdaptiveSamplingConfig } from './adaptive-sampling-config';
 import { AnomalyDetector, AWS_XRAY_ADAPTIVE_SAMPLING_CONFIGURED_ATTRIBUTE } from './anomaly-detector';
@@ -145,13 +156,14 @@ export class _AwsXRayRemoteSampler implements Sampler {
       effectiveApplier = this.ruleCache.getMatchedRule(span.attributes);
     }
 
-    if (effectiveApplier) {
+    if (effectiveApplier?.hasBoost()) {
       effectiveApplier.countTrace(traceId);
     }
 
-    const match = this.anomalyDetector.getAnomalyMatch(span);
+    const defaultDisabled = effectiveApplier?.isDefaultAnomalyDetectionDisabled() ?? false;
+    const match = this.anomalyDetector.getAnomalyMatch(span, defaultDisabled);
     if (match) {
-      if (match.forBoost && effectiveApplier) {
+      if (match.forBoost && effectiveApplier?.hasBoost()) {
         effectiveApplier.countAnomalyTrace(isSampled);
       }
       if (match.forCapture && !isSampled && this.spanBatcher && this.anomalyDetector.shouldCaptureAnomaly(traceId)) {
@@ -188,9 +200,12 @@ export class _AwsXRayRemoteSampler implements Sampler {
     }
 
     // Determine xrsr tracestate value to propagate
-    // Python: _rule_cache.py lines 82-111
+    // Python: _rule_cache.py lines 82-90 — tracestate first, baggage fallback
     const parentSpanContext = trace.getSpan(context)?.spanContext();
-    const upstreamXrsr = parentSpanContext?.traceState?.get(XRSR_TRACE_STATE_KEY);
+    let upstreamXrsr = parentSpanContext?.traceState?.get(XRSR_TRACE_STATE_KEY);
+    if (!upstreamXrsr) {
+      upstreamXrsr = propagation.getBaggage(context)?.getEntry(XRSR_TRACE_STATE_KEY)?.value;
+    }
 
     let hashedRuleName: string | undefined;
     if (upstreamXrsr) {

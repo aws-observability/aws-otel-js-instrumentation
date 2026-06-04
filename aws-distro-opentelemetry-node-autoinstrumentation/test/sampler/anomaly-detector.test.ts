@@ -21,10 +21,17 @@ const createMockSpan = (statusCode?: string, durationMs?: number, operation?: st
 
 describe('AnomalyDetector', () => {
   describe('getAnomalyMatch', () => {
-    it('returns null when no conditions configured', () => {
+    it('uses default anomaly detection when no conditions configured (5xx triggers)', () => {
       const config: AdaptiveSamplingConfig = { version: 1.0 };
       const detector = new AnomalyDetector(config);
-      expect(detector.getAnomalyMatch(createMockSpan('500'))).toBeNull();
+      expect(detector.getAnomalyMatch(createMockSpan('500'))).toEqual({ forBoost: true, forCapture: true });
+      expect(detector.getAnomalyMatch(createMockSpan('200'))).toBeNull();
+    });
+
+    it('default anomaly detection disabled when flag is set', () => {
+      const config: AdaptiveSamplingConfig = { version: 1.0 };
+      const detector = new AnomalyDetector(config);
+      expect(detector.getAnomalyMatch(createMockSpan('500'), true)).toBeNull();
     });
 
     it('matches error code regex', () => {

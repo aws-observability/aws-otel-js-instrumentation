@@ -16,6 +16,7 @@ export class SamplingRule implements ISamplingRule {
   public URLPath: string;
   public ResourceARN: string;
   public Attributes: { [key: string]: string } | undefined;
+  public SamplingRateBoost?: { MaxRate: number; CooldownWindowMinutes: number; DisableDefaultAnomalyDetection?: boolean } | null;
   public Version: number;
 
   constructor(samplingRule: ISamplingRule) {
@@ -35,6 +36,7 @@ export class SamplingRule implements ISamplingRule {
     this.ResourceARN = samplingRule.ResourceARN;
     this.Version = samplingRule.Version;
     this.Attributes = samplingRule.Attributes;
+    this.SamplingRateBoost = samplingRule.SamplingRateBoost;
   }
 
   public equals(other: ISamplingRule): boolean {

@@ -77,9 +77,7 @@ export class RuleCache {
     this.ruleToHashMap = new Map(
       newRuleAppliers.map(a => [a.samplingRule.RuleName, RuleCache.hashRuleName(a.samplingRule.RuleName)])
     );
-    this.hashToRuleMap = new Map(
-      Array.from(this.ruleToHashMap.entries()).map(([k, v]) => [v, k])
-    );
+    this.hashToRuleMap = new Map(Array.from(this.ruleToHashMap.entries()).map(([k, v]) => [v, k]));
 
     // sort ruleAppliers by priority and update lastUpdatedEpochMillis
     this.sortRulesByPriority();
@@ -125,7 +123,10 @@ export class RuleCache {
   }
 
   // Python: _rule_cache.py lines 383-393 — get_all_statistics collects per-rule boost stats
-  public createBoostStatisticsDocuments(clientId: string, serviceName: string): Array<{
+  public createBoostStatisticsDocuments(
+    clientId: string,
+    serviceName: string
+  ): Array<{
     ClientID: string;
     RuleName: string;
     ServiceName: string;

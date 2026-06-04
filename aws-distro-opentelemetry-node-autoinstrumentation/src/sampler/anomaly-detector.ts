@@ -43,19 +43,27 @@ export class AnomalyDetector {
     }
   }
 
-  public getAnomalyMatch(span: ReadableSpan): AnomalyMatch | null {
+  // Python: _rule_cache.py __is_anomaly lines 217-286
+  // Java: XrayRulesSampler.isAnomaly (patch lines 285-310)
+  public getAnomalyMatch(span: ReadableSpan, defaultAnomalyDetectionDisabled: boolean = false): AnomalyMatch | null {
     const conditions = this.config.anomalyConditions;
-    if (!conditions || conditions.length === 0) {
-      return null;
-    }
-
-    // OR across conditions: first matching condition determines usage flags
-    for (const condition of conditions) {
-      if (this.matchesCondition(condition, span)) {
-        return {
-          forBoost: condition.usage === UsageType.BOTH || condition.usage === UsageType.SAMPLING_BOOST,
-          forCapture: condition.usage === UsageType.BOTH || condition.usage === UsageType.ANOMALY_TRACE_CAPTURE,
-        };
+    if (conditions && conditions.length > 0) {
+      // OR across conditions: first matching condition determines usage flags
+      for (const condition of conditions) {
+        if (this.matchesCondition(condition, span)) {
+          return {
+            forBoost: condition.usage === UsageType.BOTH || condition.usage === UsageType.SAMPLING_BOOST,
+            forCapture: condition.usage === UsageType.BOTH || condition.usage === UsageType.ANOMALY_TRACE_CAPTURE,
+          };
+        }
+      }
+    } else if (!defaultAnomalyDetectionDisabled) {
+      // Default anomaly detection: 5xx status or StatusCode.ERROR
+      const statusCode = span.attributes['http.status_code'] ?? span.attributes['http.response.status_code'];
+      const is5xx = statusCode !== undefined && Number(statusCode) > 499;
+      const isError = statusCode === undefined && span.status?.code === 2;
+      if (is5xx || isError) {
+        return { forBoost: true, forCapture: true };
       }
     }
     return null;

@@ -23,6 +23,21 @@ Meanwhile, check out the [getting started documentation for manual instrumentati
 
 For the complete list of supported frameworks, please refer to the [OpenTelemetry for JavaScript documentation](https://github.com/open-telemetry/opentelemetry-js-contrib/tree/main/metapackages/auto-instrumentations-node#supported-instrumentations).
 
+## Dynamic Instrumentation
+
+Dynamic Instrumentation lets you capture runtime "snapshots" (local variables, arguments, call stack, and trace context) from a running application on demand — without redeploying or restarting it. The SDK periodically polls instrumentation configurations from the AWS control plane (proxied through the CloudWatch Agent), applies them at runtime using the V8 Inspector in an isolated worker thread, and emits captured snapshots as OTLP logs.
+
+This feature is **disabled by default** and is **not active in AWS Lambda**. It is opt-in via environment variables:
+
+| Environment Variable | Default | Description |
+| --- | --- | --- |
+| `OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED` | `false` | Set to `true` to enable Dynamic Instrumentation. |
+| `OTEL_AWS_DYNAMIC_INSTRUMENTATION_API_URL` | `http://localhost:2000` | Control plane endpoint, proxied by the CloudWatch Agent. |
+| `OTEL_AWS_DYNAMIC_INSTRUMENTATION_BREAKPOINT_POLL_INTERVAL` | `60` | Seconds between breakpoint configuration polls (range: 5–86400). |
+| `OTEL_AWS_DYNAMIC_INSTRUMENTATION_PROBE_POLL_INTERVAL` | `600` | Seconds between probe configuration polls (range: 5–86400). |
+| `OTEL_AWS_DYNAMIC_INSTRUMENTATION_OUTPUT_DIRECTORY` | `aws-di-snapshots` | Directory for snapshot output. |
+| `OTEL_AWS_OTLP_LOGS_ENDPOINT` | `http://localhost:4316/v1/logs` | OTLP/HTTP endpoint that captured snapshots are exported to as log records. |
+
 ## Support
 
 Please note that as per policy, we're providing support via GitHub on a best effort basis. However, if you have AWS Enterprise Support you can create a ticket and we will provide direct support within the respective SLAs.

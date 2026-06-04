@@ -26,6 +26,12 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ### Enhancements
 
+- feat: add Dynamic Instrumentation — opt-in, on-demand runtime snapshot capture. The SDK polls
+  instrumentation configurations from the AWS control plane (via the CloudWatch Agent proxy), sets
+  V8 Inspector breakpoints at runtime in an isolated worker thread, and emits captured snapshots as
+  OTLP logs. Disabled by default (`OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED=false`) and not active in
+  AWS Lambda.
+  ([#466](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/466))
 - feat: add Bedrock AgentCore data plane instrumentation
   ([#455](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/455))
 

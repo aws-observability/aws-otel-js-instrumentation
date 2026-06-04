@@ -213,7 +213,7 @@ describe('ServiceEventsMonitor — sampling-aware histogram wiring', function ()
 
   it('skips SEH aggregation when histogram is wired (histogram is the source of truth)', async function () {
     // When the OTel histogram is wired it becomes the sole function-call signal.
-    // SEH/EMF aggregation is skipped — call_count, caller_map, and exception_name 
+    // SEH/EMF aggregation is skipped — call_count, caller_map, and exception_name
     // are not emitted via `aws.service_events.function_call` LogRecords on this path.
     // Mirrors the Python `record_function_call_metrics` -> bool contract.
     setSamplingMode('never');

@@ -26,10 +26,18 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ### Enhancements
 
+- feat: add ServiceEvents deep observability instrumentation — endpoint, function-call,
+  deployment, and incident-snapshot telemetry with profiling support
+  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
+
 - feat: add Bedrock AgentCore data plane instrumentation
   ([#455](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/455))
 
 ### Bug Fixes
+
+- fix: AWS SDK v3 span creation when using `@smithy/core` >= 3.24.0 (`@smithy/smithy-client` >= 4.13.0)
+  by backporting the upstream aws-sdk instrumentation fix via patch
+  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
 
 - suppress /ping endpoint instrumentation for HTTP libraries in AgentCore
   ([#453](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/453))

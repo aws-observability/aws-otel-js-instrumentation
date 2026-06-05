@@ -5,6 +5,7 @@ import { OTLPAwsSpanExporter } from '../../../../../src/exporter/otlp/aws/traces
 import expect from 'expect';
 import { ExportResult, ExportResultCode } from '@opentelemetry/core';
 import { LoggerProvider } from '@opentelemetry/sdk-logs';
+import { logs } from '@opentelemetry/api-logs';
 
 class OTLPAwsSpanExporterTest extends OTLPAwsBaseExporterTest {
   protected override getExporter() {
@@ -61,6 +62,9 @@ describe('OTLPAwsSpanExporter', () => {
 
   it('ensureLloHandler returns false when loggerProvider is not an SDK LoggerProvider', () => {
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+    // Clear any global LoggerProvider registered by earlier test files so this
+    // test observes the proxy (unset) state that the assertion requires.
+    logs.disable();
     const exporter = new OTLPAwsSpanExporter('https://xray.us-east-1.amazonaws.com/v1/traces');
 
     const result = (exporter as any).ensureLloHandler();

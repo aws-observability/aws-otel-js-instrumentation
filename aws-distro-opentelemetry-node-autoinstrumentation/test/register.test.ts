@@ -5,7 +5,10 @@
 import * as assert from 'assert';
 import { spawnSync, SpawnSyncReturns } from 'child_process';
 import expect from 'expect';
-import { resolveServiceEventsBootstrap } from '../src/register';
+import type { resolveServiceEventsBootstrap as ResolveServiceEventsBootstrapFn } from '../src/register';
+// Populated lazily inside describe('resolveServiceEventsBootstrap()') — see before() hook.
+// Do NOT import from '../src/register' statically: register.ts calls sdk.start() on load.
+let resolveServiceEventsBootstrap: typeof ResolveServiceEventsBootstrapFn;
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import * as sinon from 'sinon';
 import { trace } from '@opentelemetry/api';
@@ -414,6 +417,12 @@ describe('Register', function () {
   });
 
   describe('resolveServiceEventsBootstrap()', () => {
+    before(() => {
+      const stub = sinon.stub(opentelemetry.NodeSDK.prototype, 'start');
+      resolveServiceEventsBootstrap = require('../src/register').resolveServiceEventsBootstrap;
+      stub.restore();
+    });
+
     it('skips on Lambda regardless of other flags', () => {
       expect(
         resolveServiceEventsBootstrap({

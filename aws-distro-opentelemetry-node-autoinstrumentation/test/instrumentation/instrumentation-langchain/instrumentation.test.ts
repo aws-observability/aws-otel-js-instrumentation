@@ -97,8 +97,8 @@ function createModel(
       return new ChatBedrockConverse({
         model: BEDROCK_MODEL,
         region: AWS_REGION,
+        credentials: { accessKeyId: FAKE_AWS_ACCESS_KEY_ID, secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY },
         clientOptions: {
-          credentials: { accessKeyId: FAKE_AWS_ACCESS_KEY_ID, secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY },
           requestHandler: new NodeHttpHandler(),
         },
         ...opts,

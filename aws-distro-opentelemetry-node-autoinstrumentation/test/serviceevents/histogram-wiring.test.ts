@@ -160,6 +160,60 @@ describe('ServiceEventsMonitor — histogram wiring integration', function () {
     expect(dps[0].value.count).toBe(5);
   });
 
+  it('records caller, function_at_line, async, and error status attrs via recordFunctionCallMetrics', async function () {
+    // Drive the histogram record path directly so caller / functionLine / isAsync
+    // attribute branches are exercised, plus the exceptionName -> status=error branch.
+    handles.state.recordFunctionCallMetrics(
+      'mod.enriched',
+      5_000_000, // 5ms in ns
+      true, // isSampled
+      'mod.caller',
+      'TypeError', // exceptionName -> status=error
+      99, // functionLine
+      true // isAsync
+    );
+
+    const found = await getDurationMetric(handles);
+    expect(found).not.toBeNull();
+    const dps = dataPointsByFunction(found!.metric, 'mod.enriched');
+    expect(dps.length).toBe(1);
+    const attrs = dps[0].attributes;
+    expect(attrs['aws.service_events.caller']).toBe('mod.caller');
+    expect(attrs['aws.service_events.function_at_line']).toBe(99);
+    expect(attrs['aws.service_events.async']).toBe(true);
+    expect(attrs.status).toBe('error');
+  });
+
+  it('records no caller/line/async attrs and status=success when those are absent', async function () {
+    handles.state.recordFunctionCallMetrics('mod.bare', 1_000_000, true, null, undefined, undefined, false);
+
+    const found = await getDurationMetric(handles);
+    expect(found).not.toBeNull();
+    const dps = dataPointsByFunction(found!.metric, 'mod.bare');
+    expect(dps.length).toBe(1);
+    const attrs = dps[0].attributes;
+    expect(attrs['aws.service_events.caller']).toBeUndefined();
+    expect(attrs['aws.service_events.function_at_line']).toBeUndefined();
+    expect(attrs['aws.service_events.async']).toBeUndefined();
+    expect(attrs.status).toBe('success');
+  });
+
+  it('records nothing when not sampled even if histogram is wired', async function () {
+    handles.state.recordFunctionCallMetrics(
+      'mod.unsampled_direct',
+      1_000_000,
+      false,
+      null,
+      undefined,
+      undefined,
+      false
+    );
+    const found = await getDurationMetric(handles);
+    if (found !== null) {
+      expect(dataPointsByFunction(found.metric, 'mod.unsampled_direct').length).toBe(0);
+    }
+  });
+
   it('updates _aggregations when histogram is detached (covers EMF-only path)', async function () {
     handles.state.setFunctionDurationHistogram(null);
 

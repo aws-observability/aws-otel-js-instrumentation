@@ -9,6 +9,7 @@ import {
 } from '../../../src/serviceevents/models/function-telemetry';
 import {
   EndpointMetricEvent,
+  EndpointErrorMetric,
   ErrorBreakdownEntry,
   IncidentExemplar,
 } from '../../../src/serviceevents/models/endpoint-telemetry';
@@ -448,6 +449,108 @@ describe('EndpointMetricEvent', function () {
     const emfDuration = emf.duration as Record<string, unknown>;
     expect(emfDuration.Values).toEqual([100]);
     expect(emfDuration.Max).toBe(100);
+  });
+
+  it('toDict() includes incident_count, incidents_exemplar, MetricsStats, git/deployment when set', function () {
+    const exemplar: IncidentExemplar = {
+      snapshot_id: 'snap_1',
+      trigger_type: 'exception',
+      severity: 'critical',
+      timestamp: 123,
+    };
+    const metricsStats: MetricsStatsEntry[] = [
+      { Dimensions: [['service_name']], Metrics: [{ Name: 'duration', Unit: 'Microseconds' }] },
+    ];
+    const event = new EndpointMetricEvent({
+      environment: 'dev',
+      service_name: 'svc',
+      sdk_version: '1.0',
+      instance_id: 'host',
+      method: 'GET',
+      route: '/test',
+      operation: 'GET /test',
+      pid: 1,
+      timestamp: '2026-01-01T00:00:00Z',
+      count: 50,
+      incident_count: 2,
+      incidents_exemplar: [exemplar],
+      MetricsStats: metricsStats,
+      git_commit_sha: 'sha-1',
+      deployment_id: 'dep-1',
+    });
+
+    const dict = event.toDict();
+    expect(dict.incident_count).toBe(2);
+    expect(dict.incidents_exemplar).toEqual([exemplar]);
+    expect(dict.MetricsStats).toBe(metricsStats);
+    expect(dict.git_commit_sha).toBe('sha-1');
+    expect(dict.deployment_id).toBe('dep-1');
+  });
+});
+
+describe('EndpointErrorMetric', function () {
+  it('toEmfDict() includes the environment dimension when set', function () {
+    const metric = new EndpointErrorMetric({
+      environment: 'prod',
+      service_name: 'svc',
+      operation: 'GET /t',
+      instance_id: 'host',
+      pid: 1,
+      exception: 'TypeError',
+      count: 4,
+    });
+    const emf = metric.toEmfDict();
+    expect(emf.telemetry_type).toBe('EndpointErrorMetric');
+    expect(emf.sdk_lang).toBe('nodejs');
+    expect(emf.service_name).toBe('svc');
+    expect(emf.exception).toBe('TypeError');
+    expect(emf.count).toBe(4);
+    expect(emf.environment).toBe('prod');
+    const aws = emf._aws as Record<string, unknown>;
+    const cw = (aws.CloudWatchMetrics as Array<Record<string, unknown>>)[0];
+    expect(cw.Dimensions).toEqual([['environment', 'service_name', 'operation', 'exception']]);
+    expect(cw.Namespace).toBe('ServiceEvents');
+  });
+
+  it('toEmfDict() omits the environment dimension and field when unset', function () {
+    const metric = new EndpointErrorMetric({
+      service_name: 'svc',
+      operation: 'GET /t',
+      instance_id: 'host',
+      pid: 1,
+      exception: 'ValueError',
+      count: 1,
+    });
+    const emf = metric.toEmfDict();
+    expect(emf.environment).toBeUndefined();
+    const aws = emf._aws as Record<string, unknown>;
+    const cw = (aws.CloudWatchMetrics as Array<Record<string, unknown>>)[0];
+    expect(cw.Dimensions).toEqual([['service_name', 'operation', 'exception']]);
+  });
+
+  it('toErrorTypeMetrics() dedupes by exception type and sums counts', function () {
+    const breakdown: ErrorBreakdownEntry[] = [
+      { failure_type: '500', count: 2, errors: [{ error_type: 'TypeError', function_name: 'a' }] },
+      { failure_type: '500', count: 3, errors: [{ error_type: 'TypeError', function_name: 'b' }] },
+      { failure_type: '500', count: 1, errors: [{ error_type: 'ValueError', function_name: 'c' }] },
+    ];
+    const event = new EndpointMetricEvent({
+      environment: 'dev',
+      service_name: 'svc',
+      sdk_version: '1.0',
+      instance_id: 'host',
+      method: 'GET',
+      route: '/t',
+      operation: 'GET /t',
+      pid: 1,
+      timestamp: '2026-01-01T00:00:00Z',
+      count: 6,
+      error_breakdown: breakdown,
+    });
+    const metrics = event.toErrorTypeMetrics();
+    const byExc = new Map(metrics.map(m => [m.exception, m.count]));
+    expect(byExc.get('TypeError')).toBe(5);
+    expect(byExc.get('ValueError')).toBe(1);
   });
 });
 

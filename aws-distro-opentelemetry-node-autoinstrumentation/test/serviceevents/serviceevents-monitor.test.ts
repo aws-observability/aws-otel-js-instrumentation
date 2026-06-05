@@ -18,6 +18,10 @@ import {
   markOperationHot,
   tickHotOperations,
   isOperationHot,
+  setDetachThreshold,
+  shouldSample,
+  setSamplingThresholds,
+  setCurrentOperation as setOp,
 } from '../../src/serviceevents/serviceevents-monitor';
 
 describe('ServiceEventsMonitor', function () {
@@ -662,6 +666,98 @@ describe('ServiceEventsMonitor', function () {
       const agg = state.getAndSwapAggregations();
       expect(agg.get('func-a')!.get('ep-1')!.count).toBe(2);
       expect(agg.get('func-b')!.get('ep-1')!.count).toBe(1);
+    });
+  });
+
+  describe('shouldSample() (ALS-based, exported for tests)', function () {
+    it("always samples in 'always' mode", function () {
+      setSamplingMode('always');
+      expect(shouldSample(1_000_000)).toBe(true);
+    });
+
+    it("never samples in 'never' mode", function () {
+      setSamplingMode('never');
+      expect(shouldSample(1)).toBe(false);
+    });
+
+    it('samples hot operations in adaptive mode regardless of call count', function () {
+      setSamplingMode('adaptive');
+      setSamplingThresholds({ tier1Threshold: 5, tier2Threshold: 50, tier2Rate: 10, tier3Rate: 100 });
+      setOp('GET /hot');
+      markOperationHot('GET /hot');
+      // Well above all tier thresholds, but the hot operation forces sampling.
+      expect(shouldSample(999_999)).toBe(true);
+    });
+
+    it('applies tiered sampling when the operation is not hot in adaptive mode', function () {
+      setSamplingMode('adaptive');
+      setSamplingThresholds({ tier1Threshold: 5, tier2Threshold: 50, tier2Rate: 10, tier3Rate: 100 });
+      setOp('GET /cold');
+      // tier1: count <= 5 -> always sampled.
+      expect(shouldSample(1)).toBe(true);
+      // tier2: 5 < count <= 50 -> sampled every 10th.
+      expect(shouldSample(20)).toBe(true);
+      expect(shouldSample(21)).toBe(false);
+      // tier3: count > 50 -> sampled every 100th.
+      expect(shouldSample(100)).toBe(true);
+      expect(shouldSample(101)).toBe(false);
+    });
+
+    it('applies tiered sampling in auto mode', function () {
+      setSamplingMode('auto');
+      setSamplingThresholds({ tier1Threshold: 5, tier2Threshold: 50, tier2Rate: 10, tier3Rate: 100 });
+      expect(shouldSample(3)).toBe(true);
+      expect(shouldSample(30)).toBe(true);
+      expect(shouldSample(31)).toBe(false);
+      expect(shouldSample(200)).toBe(true);
+      expect(shouldSample(201)).toBe(false);
+    });
+  });
+
+  describe('incrementCount()', function () {
+    it('counts repeated calls for the same function via the last-bucket cache', function () {
+      const state = ServiceEventsMonitorState.getInstance();
+      for (let i = 0; i < 4; i++) {
+        state.incrementCount('inc-func');
+      }
+      const agg = state.getAndSwapAggregations();
+      // Unsampled increments land in the null-operation bucket.
+      expect(agg.get('inc-func')!.get(null)!.count).toBe(4);
+    });
+
+    it('creates separate buckets when the function name changes', function () {
+      const state = ServiceEventsMonitorState.getInstance();
+      state.incrementCount('inc-a');
+      state.incrementCount('inc-b');
+      state.incrementCount('inc-a');
+      const agg = state.getAndSwapAggregations();
+      expect(agg.get('inc-a')!.get(null)!.count).toBe(2);
+      expect(agg.get('inc-b')!.get(null)!.count).toBe(1);
+    });
+  });
+
+  describe('null-context guards', function () {
+    it('__serviceeventsMonitorException is a no-op for a null context', function () {
+      expect(() => __serviceeventsMonitorException(null, new Error('x'))).not.toThrow();
+    });
+
+    it('__serviceeventsMonitorExit is a no-op for a null context', function () {
+      expect(() => __serviceeventsMonitorExit(null)).not.toThrow();
+    });
+  });
+
+  describe('setDetachThreshold()', function () {
+    afterEach(function () {
+      // Leave detach disabled so the module-level check timer stays inert for
+      // other tests (the interval is created lazily and never torn down).
+      setDetachThreshold(0);
+    });
+
+    it('is callable with a positive threshold and a zero (disable) threshold without throwing', function () {
+      expect(() => setDetachThreshold(1000)).not.toThrow();
+      // Calling again is idempotent (the interval is only created once).
+      expect(() => setDetachThreshold(2000)).not.toThrow();
+      expect(() => setDetachThreshold(0)).not.toThrow();
     });
   });
 });

@@ -429,6 +429,190 @@ describe('ServiceEventsOtlpEmitter', function () {
     });
   });
 
+  describe('getDeploymentContext / getFunctionDurationHistogram', function () {
+    it('returns the configured deployment context', function () {
+      const ctx = emitter.getDeploymentContext();
+      expect(ctx.git_commit_sha).toBe('abc123');
+      expect(ctx.git_repo_url).toBe('https://github.com/x/y');
+      expect(ctx.deployment_id).toBe('dep-1');
+    });
+
+    it('returns a Histogram once initialized via injected meter provider', function () {
+      const hist = emitter.getFunctionDurationHistogram();
+      // ensureInitialized() builds the histogram from the injected meter provider.
+      expect(hist).not.toBeNull();
+    });
+  });
+
+  describe('emitDeploymentEvent optional attributes', function () {
+    it('emits deployment.url and deployment.timestamp when present', function () {
+      const richEmitter = new ServiceEventsOtlpEmitter({
+        serviceName: 'svc',
+        environment: 'env',
+        loggerProvider: loggerProvider as any,
+        meterProvider: meterProvider as any,
+        deploymentContext: new DeploymentContext({
+          deployment_id: 'dep-9',
+          deployment_url: 'https://deploy.example/9',
+          deployment_timestamp: '2026-01-01T00:00:00Z',
+        }),
+      });
+      richEmitter.emitDeploymentEvent('manual');
+      const a = loggerProvider.logger.records[0].attributes;
+      expect(a['aws.service_events.deployment.url']).toBe('https://deploy.example/9');
+      expect(a['aws.service_events.deployment.timestamp']).toBe('2026-01-01T00:00:00Z');
+      expect(a['aws.service_events.deployment.trigger']).toBe('manual');
+    });
+  });
+
+  describe('endpoint summary body with missing optional collections', function () {
+    it('emits empty exception_breakdown and incidents_exemplar when undefined', function () {
+      const sparse = new EndpointMetricEvent({
+        environment: 'env',
+        service_name: 'svc',
+        sdk_version: '1.0',
+        instance_id: 'inst',
+        method: 'GET',
+        route: '/sparse',
+        operation: 'GET /sparse',
+        pid: 1,
+        timestamp: new Date().toISOString(),
+        count: 1,
+        faults: 0,
+        errors: 0,
+        error_breakdown: undefined as never,
+        incident_count: 0,
+        incidents_exemplar: undefined as never,
+        duration: undefined as never,
+        MetricsStats: null,
+        resource_attributes: null,
+      });
+      emitter.emitEndpointSummary(sparse);
+      const body = loggerProvider.logger.records[0].body;
+      expect(body.exception_breakdown).toEqual([]);
+      expect(body.incidents_exemplar).toEqual([]);
+      expect(body.duration).toBeUndefined();
+    });
+  });
+
+  describe('incident snapshot without telemetry_correlation', function () {
+    it('emits no trace context when telemetry_correlation is absent', function () {
+      const { context, trace, ROOT_CONTEXT } = require('@opentelemetry/api');
+      const snap = makeIncidentSnapshot(false);
+      // Force the correlation to be entirely absent to exercise extractTraceContext's
+      // `if (!corr) return undefined` guard.
+      (snap as any).telemetry_correlation = undefined;
+      context.with(ROOT_CONTEXT, () => {
+        emitter.emitIncidentSnapshot(snap);
+      });
+      const rec = loggerProvider.logger.records[0];
+      expect(trace.getSpan(rec.context)).toBeUndefined();
+    });
+  });
+
+  describe('emit error-path resilience (catch blocks)', function () {
+    // A logger whose emit() throws drives every emitX try/catch into its catch.
+    class ThrowingLogger {
+      emit(): void {
+        throw new Error('emit failed');
+      }
+    }
+    class ThrowingLoggerProvider {
+      getLogger(): ThrowingLogger {
+        return new ThrowingLogger();
+      }
+      async forceFlush(): Promise<void> {}
+      async shutdown(): Promise<void> {}
+    }
+    class ThrowingCounter {
+      add(): void {
+        throw new Error('counter failed');
+      }
+    }
+    class ThrowingMeter {
+      createCounter(): ThrowingCounter {
+        return new ThrowingCounter();
+      }
+      createHistogram(): CapturedHistogram {
+        return new CapturedHistogram();
+      }
+    }
+    class ThrowingMeterProvider {
+      getMeter(): ThrowingMeter {
+        return new ThrowingMeter();
+      }
+      async forceFlush(): Promise<void> {}
+      async shutdown(): Promise<void> {}
+    }
+
+    let throwingEmitter: ServiceEventsOtlpEmitter;
+
+    beforeEach(function () {
+      throwingEmitter = new ServiceEventsOtlpEmitter({
+        serviceName: 'svc',
+        environment: 'env',
+        loggerProvider: new ThrowingLoggerProvider() as any,
+        meterProvider: new ThrowingMeterProvider() as any,
+        deploymentContext: new DeploymentContext({ git_commit_sha: 'abc' }),
+      });
+    });
+
+    it('swallows errors from every log-emitting method', function () {
+      expect(() => throwingEmitter.emitEndpointSummary(makeEndpointEvent())).not.toThrow();
+      expect(() => throwingEmitter.emitFunctionCall(makeFunctionCall())).not.toThrow();
+      expect(() => throwingEmitter.emitIncidentSnapshot(makeIncidentSnapshot(true))).not.toThrow();
+      expect(() => throwingEmitter.emitDeploymentEvent()).not.toThrow();
+      expect(() =>
+        throwingEmitter.emitOtlpProfile({ encoding: 'zstd', data: 'd', trace_links: [], operations: [] })
+      ).not.toThrow();
+    });
+
+    it('swallows errors from the error-counter add path', function () {
+      expect(() =>
+        throwingEmitter.emitEndpointErrorMetric(
+          new EndpointErrorMetric({
+            environment: 'env',
+            service_name: 'svc',
+            operation: 'op',
+            instance_id: 'i',
+            pid: 1,
+            exception: 'E',
+            count: 2,
+          })
+        )
+      ).not.toThrow();
+    });
+  });
+
+  describe('shutdown error-path resilience', function () {
+    it('swallows provider shutdown errors when the emitter owns its providers', async function () {
+      class FailingProvider {
+        getLogger(): CapturedLogger {
+          return new CapturedLogger();
+        }
+        getMeter(): CapturedMeter {
+          return new CapturedMeter();
+        }
+        async forceFlush(): Promise<void> {
+          throw new Error('flush failed');
+        }
+        async shutdown(): Promise<void> {
+          throw new Error('shutdown failed');
+        }
+      }
+      const ownEmitter = new ServiceEventsOtlpEmitter({
+        serviceName: 'svc',
+        environment: 'env',
+        deploymentContext: new DeploymentContext({}),
+      });
+      // Force "owned provider" state with failing providers; externalProviders=false.
+      (ownEmitter as any).loggerProvider = new FailingProvider();
+      (ownEmitter as any).profileLoggerProvider = new FailingProvider();
+      (ownEmitter as any).meterProvider = new FailingProvider();
+      await expect(ownEmitter.shutdown()).resolves.toBeUndefined();
+    });
+  });
+
   describe('Resource attributes', function () {
     it('includes aws.local.service as a copy of service.name', async function () {
       // No external provider → emitter builds its own LoggerProvider with the

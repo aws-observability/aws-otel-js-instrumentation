@@ -14,8 +14,7 @@
  *   - EndpointErrorMetrics  → OTel Sum metric (Delta, monotonic, unit=Count)
  *
  * Uses dedicated LoggerProvider + MeterProvider to isolate ServiceEvents telemetry
- * from application telemetry. Pattern mirrors
- * `src/dynamic-instrumentation/snapshot-otlp-emitter.ts`.
+ * from application telemetry.
  */
 
 import { diag, Counter, Histogram, trace, context as otelContext, TraceFlags, ROOT_CONTEXT } from '@opentelemetry/api';

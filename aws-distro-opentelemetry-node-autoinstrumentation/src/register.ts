@@ -247,24 +247,6 @@ try {
   } catch (serviceeventsError) {
     diag.error('Failed to initialize ServiceEvents instrumentation', serviceeventsError);
   }
-
-  // Initialize Dynamic Instrumentation (main thread only — worker threads must not spawn more workers)
-  try {
-    const { isMainThread } = require('worker_threads');
-    const diEnabled = (process.env.OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED ?? 'false').toLowerCase() === 'true';
-    const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
-    if (isMainThread && diEnabled && !isLambda) {
-      const { DynamicInstrumentationManager } = require('./dynamic-instrumentation');
-      const diManager = DynamicInstrumentationManager.getInstance();
-
-      // Defer startup to ensure OTel SDK is fully initialized (service name, environment resolved)
-      setTimeout(() => {
-        diManager.initialize();
-      }, 100);
-    }
-  } catch (diError) {
-    diag.error('Failed to initialize Dynamic Instrumentation', diError);
-  }
 } catch (error) {
   diag.error(
     'Error initializing AWS Distro of OpenTelemetry SDK. Your application is not instrumented and will not produce telemetry',
@@ -273,18 +255,6 @@ try {
 }
 
 process.on('SIGTERM', () => {
-  // Shutdown Dynamic Instrumentation (main thread only)
-  try {
-    const { isMainThread: isMain } = require('worker_threads');
-    if (isMain) {
-      const { DynamicInstrumentationManager } = require('./dynamic-instrumentation');
-      const diManager = DynamicInstrumentationManager.getInstance();
-      diManager.shutdown();
-    }
-  } catch {
-    // Ignore - DI may not have been initialized
-  }
-
   // Shutdown ServiceEvents (main thread only — matches init-side guard).
   // shutdown() is async (it force-flushes buffered telemetry); await it before
   // tearing down the core SDK so the final window of ServiceEvents data is not

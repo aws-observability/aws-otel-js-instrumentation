@@ -322,67 +322,6 @@ describe('ServiceEventsOtlpEmitter', function () {
     });
   });
 
-  describe('emitOtlpProfile (spec §8 compressed wrapper)', function () {
-    const sampleWrapper = {
-      encoding: 'zstd' as const,
-      data: 'KLUv/aA3Rw...base64-zstd...==',
-      trace_links: [{ trace_id: 'abc123', span_id: 's1' }],
-      operations: ['GET /users'],
-    };
-
-    it('emits with correct event name and only spec attributes', function () {
-      emitter.emitOtlpProfile(sampleWrapper);
-      const rec = loggerProvider.logger.records[0];
-      expect(rec.eventName).toBe('aws.service_events.aggregate_profile');
-      // VCS/deployment attrs still propagate from putVcsAndDeploymentAttrs.
-      expect(rec.attributes['vcs.ref.head.revision']).toBe('abc123');
-      // Stale attrs from the old design must NOT appear.
-      expect(rec.attributes['aws.service_events.aggregation_type']).toBeUndefined();
-      expect(rec.attributes['aws.service_events.profile.total_samples']).toBeUndefined();
-      expect(rec.attributes['aws.service_events.profile.window_start_ms']).toBeUndefined();
-      expect(rec.attributes['aws.service_events.profile.window_end_ms']).toBeUndefined();
-      expect(rec.attributes['aws.service_events.operation']).toBeUndefined();
-      expect(rec.attributes['aws.service_events.request.count']).toBeUndefined();
-    });
-
-    it('body is the compressed wrapper as-is', function () {
-      emitter.emitOtlpProfile(sampleWrapper);
-      const rec = loggerProvider.logger.records[0];
-      expect(rec.body.encoding).toBe('zstd');
-      expect(rec.body.data).toBe(sampleWrapper.data);
-      expect(rec.body.trace_links).toEqual(sampleWrapper.trace_links);
-      expect(rec.body.operations).toEqual(sampleWrapper.operations);
-      // Old body keys must NOT appear.
-      expect(rec.body.profiler_call_tree).toBeUndefined();
-      expect(rec.body.request_statistics).toBeUndefined();
-    });
-
-    it('routes aggregate profile records to the dedicated profile logger when injected', function () {
-      const profileLoggerProvider = new CapturedLoggerProvider();
-      const splitEmitter = new ServiceEventsOtlpEmitter({
-        serviceName: 'svc',
-        environment: 'env',
-        loggerProvider: loggerProvider as any,
-        meterProvider: meterProvider as any,
-        profileLoggerProvider: profileLoggerProvider as any,
-      });
-
-      splitEmitter.emitOtlpProfile(sampleWrapper);
-
-      // The aggregate profile record lands on the dedicated profile provider,
-      // not the main logger provider.
-      expect(loggerProvider.logger.records.length).toBe(0);
-      expect(profileLoggerProvider.logger.records.length).toBe(1);
-      expect(profileLoggerProvider.logger.records[0].eventName).toBe('aws.service_events.aggregate_profile');
-
-      // Main-pipeline signals still land on the main provider.
-      splitEmitter.emitEndpointSummary(makeEndpointEvent());
-      expect(loggerProvider.logger.records.length).toBe(1);
-      expect(loggerProvider.logger.records[0].eventName).toBe('aws.service_events.endpoint_summary');
-      expect(profileLoggerProvider.logger.records.length).toBe(1);
-    });
-  });
-
   describe('emitEndpointErrorMetric', function () {
     it('adds a counter data-point with Telemetry.Source="ServiceEvents"', function () {
       emitter.emitEndpointErrorMetric(
@@ -562,9 +501,6 @@ describe('ServiceEventsOtlpEmitter', function () {
       expect(() => throwingEmitter.emitFunctionCall(makeFunctionCall())).not.toThrow();
       expect(() => throwingEmitter.emitIncidentSnapshot(makeIncidentSnapshot(true))).not.toThrow();
       expect(() => throwingEmitter.emitDeploymentEvent()).not.toThrow();
-      expect(() =>
-        throwingEmitter.emitOtlpProfile({ encoding: 'zstd', data: 'd', trace_links: [], operations: [] })
-      ).not.toThrow();
     });
 
     it('swallows errors from the error-counter add path', function () {
@@ -607,7 +543,6 @@ describe('ServiceEventsOtlpEmitter', function () {
       });
       // Force "owned provider" state with failing providers; externalProviders=false.
       (ownEmitter as any).loggerProvider = new FailingProvider();
-      (ownEmitter as any).profileLoggerProvider = new FailingProvider();
       (ownEmitter as any).meterProvider = new FailingProvider();
       await expect(ownEmitter.shutdown()).resolves.toBeUndefined();
     });

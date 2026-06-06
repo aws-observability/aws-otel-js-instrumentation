@@ -15,7 +15,6 @@ import { setCurrentOperation, clearCurrentOperation, ServiceEventsMonitorState }
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
-import { endRequest } from '../profiler/request-tracker';
 
 // Global references to collectors
 let _endpointCollector: EndpointMetricCollector | null = null;
@@ -164,22 +163,6 @@ export function installKoaMiddleware(app: any): void {
         const errStatus = exception ? (exception as any).status ?? (exception as any).statusCode ?? 500 : undefined;
         const statusCode = exception ? (errStatus >= 400 ? errStatus : 500) : ctx.status ?? 200;
         const route = getRoutePattern(ctx);
-
-        // Profiler sample→operation correlation — push under the
-        // router-resolved pattern; ring's last-write-wins handles any
-        // prior push from the universal res.end hook.
-        const rawReq = ctx.req;
-        const seq = rawReq?.__serviceeventsSeq;
-        if (typeof seq === 'number') {
-          rawReq.__serviceeventsRequestEnded = true;
-          try {
-            const startNs = rawReq.__serviceeventsStartNs ?? Date.now() * 1_000_000 - durationMs * 1_000_000;
-            const endNs = Date.now() * 1_000_000;
-            endRequest(seq, `${ctx.method} ${route}`, startNs, endNs);
-          } catch {
-            // Best-effort
-          }
-        }
 
         // Endpoint filter — skip recording if not tracked
         if (!_config || shouldTrackEndpoint(_config, route, ctx.method)) {

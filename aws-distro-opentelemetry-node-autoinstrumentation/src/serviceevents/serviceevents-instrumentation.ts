@@ -34,10 +34,6 @@ import { installFastifyHooks } from './instrumentation/fastify-instrumentation';
 import { installKoaHooks } from './instrumentation/koa-instrumentation';
 import { installNextJsHooks } from './instrumentation/nextjs-instrumentation';
 import { DeploymentEventCollector } from './collectors/deployment-event-collector';
-import { ProfilerCollector } from './profiler/profiler-collector';
-import { SampleRing } from './profiler/sample-ring';
-import { getCompletedRequests } from './profiler/request-tracker';
-import { isRunningInLambda } from './profiler/lambda-guard';
 
 // Module-level singleton instance
 let _serviceeventsInstance: ServiceEventsInstrumentation | null = null;
@@ -110,22 +106,15 @@ export class ServiceEventsInstrumentation {
         diag.info(`Function detach threshold: ${this.config.functionDetachThreshold} calls/sec`);
       }
 
-      // Initialize OTLP emitter — all signals flow here. AggregateProfile
-      // records go through a standalone LoggerProvider with its own batching
-      // and compression knobs (matches Python/Java SDK pattern). When
-      // logsEndpoint points at the CloudWatch OTLP endpoint, the emitter
-      // swaps in the SigV4-signed exporter and injects the configured
-      // log-group/stream as headers.
+      // Initialize OTLP emitter — all signals flow here. When logsEndpoint
+      // points at the CloudWatch OTLP endpoint, the emitter swaps in the
+      // SigV4-signed exporter and injects the configured log-group/stream
+      // as headers.
       this.otlpEmitter = new ServiceEventsOtlpEmitter({
         serviceName: this.config.serviceName,
         environment: this.config.environment,
         sdkVersion: this.config.sdkVersion,
         outputFile: this.config.outputFile,
-        profileExportCompression: this.config.profileExportCompression,
-        profileExportBatchSize: this.config.profileExportBatchSize,
-        profileExportScheduleDelayMs: this.config.profileExportScheduleDelayMs,
-        profileExportMaxQueueSize: this.config.profileExportMaxQueueSize,
-        profileExportTimeoutMs: this.config.profileExportTimeoutMs,
         logGroup: this.config.logGroup,
         logStream: this.config.logStream,
       });
@@ -160,7 +149,7 @@ export class ServiceEventsInstrumentation {
 
         // One-shot misconfig warning: function instrumentation is enabled but the allowlist
         // is empty, so no functions will be instrumented (there is no implicit default
-        // scope. The process keeps running; profiler/endpoint signals are unaffected.
+        // scope). The process keeps running; endpoint signals are unaffected.
         if (this.config.packagesInclude.length === 0) {
           diag.warn(
             'OTEL_AWS_SERVICE_EVENTS_FUNCTION_INSTRUMENT_ENABLED=true but ' +
@@ -232,24 +221,6 @@ export class ServiceEventsInstrumentation {
       }
       this.collectors.push(endpointCollector, incidentSnapshotCollector);
 
-      // Profiler collector — independent of AST per design (Python parity).
-      // Conditionally enabled, hard-gated off in Lambda until prebuild plumbing
-      // is added. Trace correlation between IncidentSnapshot and AggregateProfile
-      // is now backend-side via traceId/spanId, so no sample-ring wiring is needed.
-      if (this.config.profilerEnabled && !isRunningInLambda()) {
-        const sampleRing = new SampleRing(10_000);
-        const profilerCollector = new ProfilerCollector({
-          windowSeconds: this.config.profilerWindowSeconds,
-          // Canonical cross-SDK env var is in ms; pprof.time.start needs µs.
-          intervalMicros: this.config.profilerSampleIntervalMs * 1000,
-          emitter: this.otlpEmitter,
-          completedRequests: getCompletedRequests(),
-          sampleRing,
-          fullPaths: this.config.profilerFullPaths,
-        });
-        this.collectors.push(profilerCollector);
-      }
-
       if (this.otlpEmitter) {
         this.collectors.push(new DeploymentEventCollector(this.config.deploymentEventFlushInterval, this.otlpEmitter));
       }
@@ -257,7 +228,7 @@ export class ServiceEventsInstrumentation {
       for (const c of this.collectors) c.start();
 
       // Install universal HTTP patches unconditionally, BEFORE framework hooks.
-      // This guarantees profiler correlation works even when Express isn't
+      // This guarantees endpoint metrics work even when Express isn't
       // a dependency (Fastify/Koa/Next.js-only apps). Idempotent.
       try {
         installGlobalHttpPatches();

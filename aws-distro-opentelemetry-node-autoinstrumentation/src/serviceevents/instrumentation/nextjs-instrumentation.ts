@@ -26,7 +26,6 @@ import { setCurrentOperation, clearCurrentOperation, ServiceEventsMonitorState }
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
-import { endRequest } from '../profiler/request-tracker';
 
 // Global references to collectors
 let _endpointCollector: EndpointMetricCollector | null = null;
@@ -213,19 +212,6 @@ export function installNextJsHooks(
           const durationNs = durationMs * 1_000_000;
           const statusCode = res.statusCode || 500;
           const route = getRoutePattern(req);
-
-          // Profiler sample→operation correlation — route is post-hoc in Next.
-          const seq = req.__serviceeventsSeq;
-          if (typeof seq === 'number') {
-            req.__serviceeventsRequestEnded = true;
-            try {
-              const startNs = req.__serviceeventsStartNs ?? Date.now() * 1_000_000 - durationMs * 1_000_000;
-              const endNs = Date.now() * 1_000_000;
-              endRequest(seq, `${method} ${route}`, startNs, endNs);
-            } catch {
-              // Best-effort
-            }
-          }
 
           // Endpoint filter — skip recording if not tracked
           if (!_config || shouldTrackEndpoint(_config, route, method)) {

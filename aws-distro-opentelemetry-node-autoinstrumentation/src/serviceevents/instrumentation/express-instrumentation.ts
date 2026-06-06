@@ -15,7 +15,6 @@ import { setCurrentOperation, clearCurrentOperation, ServiceEventsMonitorState }
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
-import { beginRequest, endRequest } from '../profiler/request-tracker';
 
 // Global references to collectors
 let _endpointCollector: EndpointMetricCollector | null = null;
@@ -204,25 +203,6 @@ function _processFinish(req: any, res: any, startTime: number) {
     // End investigation and clear operation context
     ServiceEventsMonitorState.getInstance().getInvestigationData();
     clearCurrentOperation();
-
-    // Push completed-request record for profiler sample→operation correlation.
-    // Express path: getRoutePattern(req) is accurate once the router has matched.
-    // Other frameworks call endRequest from their own response hooks (where their
-    // framework-specific getRoutePattern gives the right answer); the __serviceeventsRequestEnded
-    // guard prevents double-push.
-    const seq = req.__serviceeventsSeq;
-    if (typeof seq === 'number' && !req.__serviceeventsRequestEnded) {
-      req.__serviceeventsRequestEnded = true;
-      try {
-        const startNs = req.__serviceeventsStartNs ?? 0;
-        const endNs = Date.now() * 1_000_000;
-        const route = getRoutePattern(req);
-        const op = `${req.method} ${route}`;
-        endRequest(seq, op, startNs, endNs);
-      } catch (err) {
-        // Best-effort; never block response
-      }
-    }
   }
 }
 
@@ -231,9 +211,8 @@ function _processFinish(req: any, res: any, startTime: number) {
  * frameworks since they patch Node's http.ServerResponse and http.Server.
  *
  * Exported so ServiceEventsInstrumentation.initialize() can call this unconditionally
- * — profiler correlation requires the 'request' emit hook even when Express
- * is not installed. Idempotent via `__serviceeventsPatched` / `__serviceeventsRequestHooked`
- * guards.
+ * so endpoint metrics work even when Express is not installed. Idempotent via
+ * `__serviceeventsPatched` / `__serviceeventsRequestHooked` guards.
  */
 export function installGlobalHttpPatches(): void {
   const http = require('http');
@@ -263,14 +242,9 @@ export function installGlobalHttpPatches(): void {
         const req = args[0];
         if (req && !req.__serviceeventsStartTime) {
           req.__serviceeventsStartTime = performance.now();
-          req.__serviceeventsStartNs = Date.now() * 1_000_000;
-          // Seq ties profiler samples taken during this request to the operation
-          // we resolve at response-end (getRoutePattern is post-hoc across frameworks).
-          req.__serviceeventsSeq = beginRequest();
           // Stamp the ALS with the raw URL path on arrival; framework middleware
           // overwrites with the resolved operation ("METHOD /route") once routing
-          // has matched. Profiler uses the seq label for sample→operation mapping
-          // via the completed-requests ring; the ALS is AST-only scaffolding.
+          // has matched. The ALS is AST-only scaffolding.
           const url = req.url || '/';
           const qIdx = url.indexOf('?');
           setCurrentOperation(qIdx >= 0 ? url.substring(0, qIdx) : url);

@@ -21,16 +21,12 @@ import { createServiceEventsConfigFromEnv } from '../../src/serviceevents/config
 describe('ServiceEventsInstrumentation.shutdown() awaitable flush', function () {
   let prevEnabled: string | undefined;
   let prevOutFile: string | undefined;
-  let prevProfiler: string | undefined;
 
   beforeEach(function () {
     prevEnabled = process.env.OTEL_AWS_SERVICE_EVENTS_ENABLED;
     prevOutFile = process.env.OTEL_AWS_SERVICE_EVENTS_OUTPUT_FILE;
-    prevProfiler = process.env.OTEL_AWS_SERVICE_EVENTS_PROFILER_ENABLED;
     process.env.OTEL_AWS_SERVICE_EVENTS_ENABLED = 'true';
     process.env.OTEL_AWS_SERVICE_EVENTS_OUTPUT_FILE = path.join(os.tmpdir(), `se-shutdown-test-${process.pid}.ndjson`);
-    // Keep the native profiler out of this unit test.
-    process.env.OTEL_AWS_SERVICE_EVENTS_PROFILER_ENABLED = 'false';
   });
 
   afterEach(function () {
@@ -38,7 +34,6 @@ describe('ServiceEventsInstrumentation.shutdown() awaitable flush', function () 
       v === undefined ? delete process.env[k] : (process.env[k] = v);
     restore('OTEL_AWS_SERVICE_EVENTS_ENABLED', prevEnabled);
     restore('OTEL_AWS_SERVICE_EVENTS_OUTPUT_FILE', prevOutFile);
-    restore('OTEL_AWS_SERVICE_EVENTS_PROFILER_ENABLED', prevProfiler);
   });
 
   it('shutdown() returns a promise that resolves (awaits the emitter flush)', async function () {

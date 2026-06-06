@@ -210,29 +210,6 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
     expect(emitter.snapshots[0].is_partial).toBe(true);
   });
 
-  describe('profiler_call_path removed (spec §5)', function () {
-    // The field was removed from spec §5; profiler stack correlation is now
-    // backend-side via traceId/spanId joined to AggregateProfile.link_table.
-    // These tests guard against regression: the snapshot must NEVER carry it.
-
-    it('IncidentSnapshot has no profiler_call_path field', function () {
-      collector.processPotentialIncident('/api/x', 'POST', 500, 50, new Error('boom'), makeRequestData());
-      collector.collect();
-      const snap = emitter.snapshots[0];
-      expect(snap).toBeDefined();
-      expect((snap as unknown as Record<string, unknown>).profiler_call_path).toBeUndefined();
-      expect((snap as unknown as Record<string, unknown>).profiler_stacks).toBeUndefined();
-    });
-
-    it('serialized snapshot dict has no profiler_call_path', function () {
-      collector.processPotentialIncident('/api/x', 'POST', 500, 50, new Error('boom'), makeRequestData());
-      collector.collect();
-      const dict = emitter.snapshots[0].toDict();
-      expect(dict.profiler_call_path).toBeUndefined();
-      expect(dict.profiler_stacks).toBeUndefined();
-    });
-  });
-
   describe('trigger and severity branches', function () {
     it('triggers exception snapshot on 5xx with no Error object', function () {
       const exemplar = collector.processPotentialIncident('/api/x', 'GET', 503, 10, null, makeRequestData());

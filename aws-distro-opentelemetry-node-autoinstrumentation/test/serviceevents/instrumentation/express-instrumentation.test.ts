@@ -5,8 +5,6 @@ import * as http from 'http';
 import expect from 'expect';
 import { installGlobalHttpPatches } from '../../../src/serviceevents/instrumentation/express-instrumentation';
 import { getCurrentOperation, resetMonitorState } from '../../../src/serviceevents/serviceevents-monitor';
-import { getCompletedRequests, resetRequestTracker } from '../../../src/serviceevents/profiler/request-tracker';
-import { getHolder, resetProfilerContext } from '../../../src/serviceevents/profiler/profiler-context';
 
 /**
  * Strategy: don't rely on http.Server.prototype.emit for this test, because
@@ -29,7 +27,6 @@ describe('installGlobalHttpPatches', function () {
   // not `@opentelemetry/instrumentation-http`'s socket-dependent wrappers,
   // which other tests in this suite may have already installed.
   let patchedServerEmit: any;
-  let patchedResponseEnd: any;
 
   before(function () {
     // Install a clean stub so our patch captures it as its "original".
@@ -45,7 +42,6 @@ describe('installGlobalHttpPatches', function () {
 
     installGlobalHttpPatches();
     patchedServerEmit = http.Server.prototype.emit;
-    patchedResponseEnd = http.ServerResponse.prototype.end;
   });
 
   after(function () {
@@ -58,14 +54,10 @@ describe('installGlobalHttpPatches', function () {
 
   beforeEach(function () {
     resetMonitorState();
-    resetRequestTracker();
-    resetProfilerContext();
   });
 
   afterEach(function () {
     resetMonitorState();
-    resetRequestTracker();
-    resetProfilerContext();
   });
 
   // Fake `this` for emit — provides a no-op original emit so chain stops at our patch.
@@ -88,66 +80,25 @@ describe('installGlobalHttpPatches', function () {
   });
 
   describe('request-arrival hook', function () {
-    it("stamps seq, startNs, operation ALS, and profiler holder on incoming 'request' events", function () {
+    it("stamps startTime and operation ALS on incoming 'request' events", function () {
       const req: any = { url: '/users/42?foo=bar', method: 'GET', headers: {} };
       invokeEmit(req);
 
-      expect(typeof req.__serviceeventsSeq).toBe('number');
-      expect(req.__serviceeventsSeq).toBeGreaterThan(0);
       expect(typeof req.__serviceeventsStartTime).toBe('number');
-      expect(typeof req.__serviceeventsStartNs).toBe('number');
       // Raw URL path (query stripped) is stamped into the operation ALS.
       expect(getCurrentOperation()).toBe('/users/42');
-      // Profiler holder carries the same seq for pprof sample labels.
-      expect(getHolder().ref).toEqual({ seq: req.__serviceeventsSeq });
     });
 
     it('does not re-stamp a request that already has __serviceeventsStartTime', function () {
       const req: any = { url: '/x', method: 'GET', headers: {}, __serviceeventsStartTime: 999 };
       invokeEmit(req);
       expect(req.__serviceeventsStartTime).toBe(999);
-      expect(req.__serviceeventsSeq).toBeUndefined();
     });
 
     it('handles requests with no query string', function () {
       const req: any = { url: '/health', method: 'GET', headers: {} };
       invokeEmit(req);
       expect(getCurrentOperation()).toBe('/health');
-    });
-  });
-
-  describe('response-end hook (_processFinish)', function () {
-    // The patched end() calls the original end at the tail, which fails without
-    // a real socket. _processFinish's side effect (endRequest) runs *before*
-    // that call, so we tolerate the write failure.
-    it('pushes {seq, startNs, endNs, operation} into the completed-requests ring', function () {
-      const req: any = { url: '/api/users', method: 'POST', headers: {}, route: { path: '/api/users' } };
-      invokeEmit(req);
-      const seq = req.__serviceeventsSeq;
-
-      const res: any = { statusCode: 200, req };
-      patchedResponseEnd.call(res);
-
-      const completed = getCompletedRequests().findBySeq(seq);
-      expect(completed).toBeDefined();
-      expect(completed!.operation).toBe('POST /api/users');
-      expect(completed!.startNs).toBeGreaterThan(0);
-      expect(completed!.endNs).toBeGreaterThanOrEqual(completed!.startNs);
-    });
-
-    it('falls back to raw URL when req.route is missing', function () {
-      const req: any = { url: '/healthz', method: 'GET', headers: {} };
-      invokeEmit(req);
-
-      const res: any = { statusCode: 200, req };
-      try {
-        patchedResponseEnd.call(res);
-      } catch {
-        // ignored
-      }
-      const completed = getCompletedRequests().findBySeq(req.__serviceeventsSeq);
-      // getRoutePattern falls back to req.path || req.url || '/unknown'.
-      expect(completed!.operation).toBe('GET /healthz');
     });
   });
 });

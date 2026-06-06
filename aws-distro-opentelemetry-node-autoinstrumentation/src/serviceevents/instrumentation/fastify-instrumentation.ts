@@ -15,7 +15,6 @@ import { setCurrentOperation, clearCurrentOperation, ServiceEventsMonitorState }
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
-import { endRequest } from '../profiler/request-tracker';
 
 // Global references to collectors
 let _endpointCollector: EndpointMetricCollector | null = null;
@@ -170,22 +169,6 @@ export function installFastifyLifecycleHooks(instance: any): void {
       const durationNs = durationMs * 1_000_000;
       const statusCode = reply.statusCode;
       const route = getRoutePattern(request);
-
-      // Profiler sample→operation correlation. Fastify resolves routes post-hoc
-      // so we push here (not at onRequest). Last-write-wins in the ring if
-      // the universal res.end hook also pushed with a less-specific route.
-      const rawReq = request.raw ?? request;
-      const seq = rawReq.__serviceeventsSeq;
-      if (typeof seq === 'number') {
-        rawReq.__serviceeventsRequestEnded = true;
-        try {
-          const startNs = rawReq.__serviceeventsStartNs ?? Date.now() * 1_000_000 - durationMs * 1_000_000;
-          const endNs = Date.now() * 1_000_000;
-          endRequest(seq, `${request.method} ${route}`, startNs, endNs);
-        } catch {
-          // Best-effort
-        }
-      }
 
       // Endpoint filter
       if (_config && !shouldTrackEndpoint(_config, route, request.method)) {

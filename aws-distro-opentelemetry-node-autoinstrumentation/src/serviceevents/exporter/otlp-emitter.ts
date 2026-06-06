@@ -4,13 +4,12 @@
 /**
  * OTLP emitter for ServiceEvents signals.
  *
- * Emits all 5 spec signals:
+ * Emits the spec signals:
  *   - EndpointSummary       → OTLP LogRecord (eventName=aws.service_events.endpoint_summary)
  *   - FunctionCall          → OTLP LogRecord (eventName=aws.service_events.function_call)
  *                              + OTel Exponential Histogram (name=service.function.duration)
  *   - IncidentSnapshot      → OTLP LogRecord (eventName=aws.service_events.incident_snapshot)
  *   - DeploymentEvent       → OTLP LogRecord (eventName=aws.service_events.deployment_event)
- *   - AggregateProfile      → OTLP LogRecord (eventName=aws.service_events.aggregate_profile)
  *   - EndpointErrorMetrics  → OTel Sum metric (Delta, monotonic, unit=Count)
  *
  * Uses dedicated LoggerProvider + MeterProvider to isolate ServiceEvents telemetry
@@ -53,7 +52,6 @@ const EVENT_NAME_ENDPOINT_SUMMARY = 'aws.service_events.endpoint_summary';
 const EVENT_NAME_FUNCTION_CALL = 'aws.service_events.function_call';
 const EVENT_NAME_INCIDENT_SNAPSHOT = 'aws.service_events.incident_snapshot';
 const EVENT_NAME_DEPLOYMENT_EVENT = 'aws.service_events.deployment_event';
-const EVENT_NAME_AGGREGATE_PROFILE = 'aws.service_events.aggregate_profile';
 
 export interface ServiceEventsOtlpEmitterOptions {
   serviceName?: string;
@@ -79,23 +77,6 @@ export interface ServiceEventsOtlpEmitterOptions {
   loggerProvider?: LoggerProvider;
   meterProvider?: MeterProvider;
   /**
-   * Standalone LoggerProvider for aws.service_events.aggregate_profile records. When
-   * omitted, the emitter constructs its own with the same endpoint/compression
-   * as the main LoggerProvider plus the tuning knobs below. See the Python and
-   * Java SDKs for the cross-SDK pattern rationale.
-   */
-  profileLoggerProvider?: LoggerProvider;
-  /** "none" (default) or "gzip". Controls compression on profile OTLP payloads. */
-  profileExportCompression?: string;
-  /** BatchLogRecordProcessor.maxExportBatchSize for the profile pipeline. Default 1. */
-  profileExportBatchSize?: number;
-  /** BatchLogRecordProcessor.scheduledDelayMillis. Null = use upstream default. */
-  profileExportScheduleDelayMs?: number | null;
-  /** BatchLogRecordProcessor.maxQueueSize. Null = use upstream default. */
-  profileExportMaxQueueSize?: number | null;
-  /** BatchLogRecordProcessor.exportTimeoutMillis. Null = use upstream default. */
-  profileExportTimeoutMs?: number | null;
-  /**
    * CloudWatch Logs log group. Emitted as `x-aws-log-group` header on each
    * OTLP request — required when `logsEndpoint` is a direct-to-CloudWatch
    * OTLP endpoint (`https://logs.{region}.amazonaws.com/v1/logs`). Ignored
@@ -111,9 +92,7 @@ export interface ServiceEventsOtlpEmitterOptions {
 
 export class ServiceEventsOtlpEmitter {
   private logger: Logger | null = null;
-  private profileLogger: Logger | null = null;
   private loggerProvider: LoggerProvider | null = null;
-  private profileLoggerProvider: LoggerProvider | null = null;
   private meterProvider: MeterProvider | null = null;
   private errorCounter: Counter | null = null;
   /**
@@ -135,11 +114,6 @@ export class ServiceEventsOtlpEmitter {
   private readonly outputFile: string;
   private readonly deploymentContext: DeploymentContext;
   private readonly externalProviders: boolean;
-  private readonly profileExportCompression: string;
-  private readonly profileExportBatchSize: number;
-  private readonly profileExportScheduleDelayMs: number | null;
-  private readonly profileExportMaxQueueSize: number | null;
-  private readonly profileExportTimeoutMs: number | null;
   private readonly logGroup: string;
   private readonly logStream: string;
 
@@ -153,21 +127,13 @@ export class ServiceEventsOtlpEmitter {
     this.logsEndpoint = resolveLogsEndpoint(opts.logsEndpoint);
     this.metricsEndpoint = resolveMetricsEndpoint(opts.metricsEndpoint);
     this.deploymentContext = opts.deploymentContext ?? DeploymentContext.fromEnvironment();
-    this.externalProviders = !!(opts.loggerProvider || opts.meterProvider || opts.profileLoggerProvider);
+    this.externalProviders = !!(opts.loggerProvider || opts.meterProvider);
     if (opts.loggerProvider) {
       this.loggerProvider = opts.loggerProvider;
-    }
-    if (opts.profileLoggerProvider) {
-      this.profileLoggerProvider = opts.profileLoggerProvider;
     }
     if (opts.meterProvider) {
       this.meterProvider = opts.meterProvider;
     }
-    this.profileExportCompression = opts.profileExportCompression ?? 'none';
-    this.profileExportBatchSize = opts.profileExportBatchSize ?? 1;
-    this.profileExportScheduleDelayMs = opts.profileExportScheduleDelayMs ?? null;
-    this.profileExportMaxQueueSize = opts.profileExportMaxQueueSize ?? null;
-    this.profileExportTimeoutMs = opts.profileExportTimeoutMs ?? null;
     this.logGroup = opts.logGroup ?? '';
     // Fall back to serviceName when log stream is unset, mirroring Python:
     // every direct-CW request needs both headers, and the service name is the
@@ -253,52 +219,6 @@ export class ServiceEventsOtlpEmitter {
         });
       }
       this.logger = this.loggerProvider.getLogger(INSTRUMENTATION_SCOPE, INSTRUMENTATION_VERSION);
-
-      // Standalone LoggerProvider for AggregateProfile records. Same endpoint as
-      // the general provider; isolates profile traffic from latency-sensitive
-      // signals and applies a small batch cap (1) to stay under CloudWatch's 1 MB
-      // OTLP limit. Transport compression defaults to none (the profile body is
-      // already zstd+base64-compressed at the app layer); the internal
-      // profileExportCompression knob can switch it to gzip. We only build
-      // a dedicated provider when
-      //   (a) no external loggerProvider was injected by the caller, AND
-      //   (b) we're in network export mode (file mode shares the main writer).
-      // Otherwise the profile pipeline shares the main provider — matches the
-      // Python SDK's default behavior when profile_logger_provider is None.
-      if (!this.profileLoggerProvider) {
-        if (useFile || this.externalProviders) {
-          this.profileLoggerProvider = this.loggerProvider;
-        } else {
-          const compression =
-            this.profileExportCompression.toLowerCase() === 'gzip'
-              ? CompressionAlgorithm.GZIP
-              : CompressionAlgorithm.NONE;
-          const profileExporter = wrapExporterSuppressed(this.buildLogOtlpExporter(compression));
-          const bufferConfig: {
-            maxExportBatchSize: number;
-            scheduledDelayMillis?: number;
-            maxQueueSize?: number;
-            exportTimeoutMillis?: number;
-          } = { maxExportBatchSize: this.profileExportBatchSize };
-          if (this.profileExportScheduleDelayMs !== null) {
-            bufferConfig.scheduledDelayMillis = this.profileExportScheduleDelayMs;
-          }
-          if (this.profileExportMaxQueueSize !== null) {
-            bufferConfig.maxQueueSize = this.profileExportMaxQueueSize;
-          }
-          if (this.profileExportTimeoutMs !== null) {
-            bufferConfig.exportTimeoutMillis = this.profileExportTimeoutMs;
-          }
-          this.profileLoggerProvider = new LoggerProvider({
-            resource,
-            processors: [new BatchLogRecordProcessor(profileExporter, bufferConfig)],
-          });
-        }
-      }
-      this.profileLogger =
-        this.profileLoggerProvider === this.loggerProvider
-          ? this.logger
-          : this.profileLoggerProvider.getLogger(INSTRUMENTATION_SCOPE, INSTRUMENTATION_VERSION);
 
       if (!this.meterProvider) {
         const metricExporter = useFile
@@ -476,9 +396,6 @@ export class ServiceEventsOtlpEmitter {
       if (rendered.request_context) {
         body.request_context = rendered.request_context;
       }
-      // profiler_call_path was removed from spec §5; trace correlation between
-      // IncidentSnapshot and AggregateProfile is now via traceId/spanId on the
-      // LogRecord, joined backend-side to AggregateProfile.link_table.
 
       // Trace context: hex strings → (traceId/spanId) on LogRecord built-in fields
       const traceContext = extractTraceContext(snapshot);
@@ -508,38 +425,6 @@ export class ServiceEventsOtlpEmitter {
       this.emitLog(EVENT_NAME_DEPLOYMENT_EVENT, attrs, undefined);
     } catch (err) {
       diag.debug('ServiceEvents: error emitting DeploymentEvent', err);
-    }
-  }
-
-  // ─── AggregateProfile ──────────────────────────────────────────────
-
-  /**
-   * Emit a single AggregateProfile per spec §8.
-   *
-   * @param compressedWrapper Output of OtlpProfileBuilder.serializeCompressed() —
-   *   `{encoding, data, trace_links, operations}`. Surfaced as the LogRecord body.
-   */
-  emitOtlpProfile(compressedWrapper: {
-    encoding: 'zstd';
-    data: string;
-    trace_links: Array<{ trace_id: string; span_id: string }>;
-    operations: string[];
-  }): void {
-    if (!this.ensureInitialized() || !this.profileLogger) return;
-
-    try {
-      const attrs: Record<string, string | number | boolean> = {};
-      this.putVcsAndDeploymentAttrs(attrs);
-
-      this.emitLog(
-        EVENT_NAME_AGGREGATE_PROFILE,
-        attrs,
-        compressedWrapper as unknown as Record<string, unknown>,
-        undefined,
-        this.profileLogger
-      );
-    } catch (err) {
-      diag.debug('ServiceEvents: error emitting AggregateProfile', err);
     }
   }
 
@@ -576,17 +461,6 @@ export class ServiceEventsOtlpEmitter {
     } catch (err) {
       diag.debug('ServiceEvents: error shutting down LoggerProvider', err);
     }
-    // In file-export mode the profile provider shares the main provider, so
-    // the above shutdown already covered it. Only flush/shutdown when the
-    // profile provider is a distinct dedicated instance.
-    try {
-      if (this.profileLoggerProvider && this.profileLoggerProvider !== this.loggerProvider) {
-        await this.profileLoggerProvider.forceFlush();
-        await this.profileLoggerProvider.shutdown();
-      }
-    } catch (err) {
-      diag.debug('ServiceEvents: error shutting down profile LoggerProvider', err);
-    }
     try {
       if (this.meterProvider) {
         await this.meterProvider.forceFlush();
@@ -596,11 +470,9 @@ export class ServiceEventsOtlpEmitter {
       diag.debug('ServiceEvents: error shutting down MeterProvider', err);
     }
     this.logger = null;
-    this.profileLogger = null;
     this.errorCounter = null;
     this.functionDurationHistogram = null;
     this.loggerProvider = null;
-    this.profileLoggerProvider = null;
     this.meterProvider = null;
   }
 
@@ -614,10 +486,9 @@ export class ServiceEventsOtlpEmitter {
     eventName: string,
     attributes: Record<string, string | number | boolean>,
     body?: Record<string, unknown>,
-    traceContext?: { traceId: string; spanId: string },
-    targetLogger?: Logger | null
+    traceContext?: { traceId: string; spanId: string }
   ): void {
-    const logger = targetLogger ?? this.logger;
+    const logger = this.logger;
     if (!logger) return;
     // CloudWatch workaround: duplicate eventName as "event.name" attribute (spec §2)
     attributes['event.name'] = eventName;

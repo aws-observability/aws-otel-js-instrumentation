@@ -84,20 +84,8 @@ describe('ServiceEventsConfig', function () {
       expect(config.packagesInclude).toEqual([]);
       expect(config.samplingMode).toBe('adaptive');
       expect(config.functionDetachThreshold).toBe(5000);
-      // Profiler defaults — opt-in (off by default), matches Python/Java SDK.
-      expect(config.profilerEnabled).toBe(false);
-      expect(config.profilerWindowSeconds).toBe(60);
-      expect(config.profilerSampleIntervalMs).toBe(10);
       // Application Signals bundling flag defaults off.
       expect(config.applicationSignalsEnabled).toBe(false);
-      // AggregateProfile export defaults mirror Python/Java: compression none
-      // (profile body is already zstd+base64-compressed) + batch=1, optional int
-      // knobs default to null so upstream OTel defaults apply.
-      expect(config.profileExportCompression).toBe('none');
-      expect(config.profileExportBatchSize).toBe(1);
-      expect(config.profileExportScheduleDelayMs).toBeNull();
-      expect(config.profileExportMaxQueueSize).toBeNull();
-      expect(config.profileExportTimeoutMs).toBeNull();
       // CloudWatch direct-OTLP log headers default to empty — emitter
       // falls back to serviceName for the stream when the header is unset.
       expect(config.logGroup).toBe('');
@@ -115,22 +103,7 @@ describe('ServiceEventsConfig', function () {
       expect(config.logStream).toBe('');
     });
 
-    it('PROFILE_EXPORT_* env vars are ignored — defaults stand', function () {
-      clearServiceEventsEnvVars();
-      process.env.OTEL_AWS_SERVICE_EVENTS_PROFILE_EXPORT_COMPRESSION = 'gzip';
-      process.env.OTEL_AWS_SERVICE_EVENTS_PROFILE_EXPORT_BATCH_SIZE = '7';
-      process.env.OTEL_AWS_SERVICE_EVENTS_PROFILE_EXPORT_SCHEDULE_DELAY_MS = '500';
-      process.env.OTEL_AWS_SERVICE_EVENTS_PROFILE_EXPORT_MAX_QUEUE_SIZE = '64';
-      process.env.OTEL_AWS_SERVICE_EVENTS_PROFILE_EXPORT_TIMEOUT_MS = '10000';
-      const config = createServiceEventsConfigFromEnv();
-      expect(config.profileExportCompression).toBe('none');
-      expect(config.profileExportBatchSize).toBe(1);
-      expect(config.profileExportScheduleDelayMs).toBeNull();
-      expect(config.profileExportMaxQueueSize).toBeNull();
-      expect(config.profileExportTimeoutMs).toBeNull();
-    });
-
-    it('sampling tiers, hot-endpoint cycles, framework toggles, and profiler window ignore env', function () {
+    it('sampling tiers, hot-endpoint cycles, and framework toggles ignore env', function () {
       clearServiceEventsEnvVars();
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER1_THRESHOLD = '7';
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER2_THRESHOLD = '70';
@@ -139,8 +112,6 @@ describe('ServiceEventsConfig', function () {
       process.env.OTEL_AWS_SERVICE_EVENTS_HOT_ENDPOINT_CYCLES = '20';
       process.env.OTEL_AWS_SERVICE_EVENTS_JS_INSTRUMENT_EXPRESS = 'false';
       process.env.OTEL_AWS_SERVICE_EVENTS_JS_FUNCTION_DETACH_THRESHOLD = '99';
-      process.env.OTEL_AWS_SERVICE_EVENTS_PROFILER_WINDOW_SECONDS = '5';
-      process.env.OTEL_AWS_SERVICE_EVENTS_PROFILER_FULL_PATHS = 'true';
       const config = createServiceEventsConfigFromEnv();
       expect(config.sampleTier1Threshold).toBe(100);
       expect(config.sampleTier2Threshold).toBe(1000);
@@ -149,8 +120,6 @@ describe('ServiceEventsConfig', function () {
       expect(config.hotEndpointCycles).toBe(100);
       expect(config.instrumentExpress).toBe(true);
       expect(config.functionDetachThreshold).toBe(5000);
-      expect(config.profilerWindowSeconds).toBe(60);
-      expect(config.profilerFullPaths).toBe(false);
     });
 
     it('flush-interval and SDK_VERSION env vars are ignored', function () {
@@ -175,29 +144,25 @@ describe('ServiceEventsConfig', function () {
       const config = createServiceEventsConfigFromEnv();
       expect(config.endpointFlushInterval).toBe(30000);
       expect(config.sampleTier1Threshold).toBe(100);
-      expect(config.profileExportCompression).toBe('none');
       expect(config.logGroup).toBe('');
-      expect(config.profilerWindowSeconds).toBe(60);
     });
 
     it('overrides recognized keys', function () {
       clearServiceEventsEnvVars();
       process.env.DEBUG_SE_TEST_CONFIG =
         'FUNCTION_CALL_FLUSH_INTERVAL=2000;ENDPOINT_FLUSH_INTERVAL=2500;' +
-        'INCIDENT_SNAPSHOT_FLUSH_INTERVAL=1500;PROFILER_WINDOW_SECONDS=5;' +
+        'INCIDENT_SNAPSHOT_FLUSH_INTERVAL=1500;' +
         'SAMPLE_TIER1_THRESHOLD=7;SAMPLE_TIER2_THRESHOLD=70;SAMPLE_TIER2_RATE=3;' +
-        'SAMPLE_TIER3_RATE=30;PROFILE_EXPORT_COMPRESSION=gzip;' +
+        'SAMPLE_TIER3_RATE=30;' +
         'LOG_GROUP=/test/group;LOG_STREAM=test-stream';
       const config = createServiceEventsConfigFromEnv();
       expect(config.functionCallFlushInterval).toBe(2000);
       expect(config.endpointFlushInterval).toBe(2500);
       expect(config.incidentSnapshotFlushInterval).toBe(1500);
-      expect(config.profilerWindowSeconds).toBe(5);
       expect(config.sampleTier1Threshold).toBe(7);
       expect(config.sampleTier2Threshold).toBe(70);
       expect(config.sampleTier2Rate).toBe(3);
       expect(config.sampleTier3Rate).toBe(30);
-      expect(config.profileExportCompression).toBe('gzip');
       expect(config.logGroup).toBe('/test/group');
       expect(config.logStream).toBe('test-stream');
     });
@@ -737,12 +702,6 @@ describe('ServiceEventsConfig', function () {
       clearServiceEventsEnvVars();
       process.env.OTEL_AWS_SERVICE_EVENTS_INCIDENT_SNAPSHOT_MAX_PER_MINUTE = '99999999';
       expect(createServiceEventsConfigFromEnv().incidentSnapshotMaxPerMinute).toBe(100_000);
-    });
-
-    it('clamps zero profiler sample interval up to 1ms (native sampler needs > 0)', function () {
-      clearServiceEventsEnvVars();
-      process.env.OTEL_AWS_SERVICE_EVENTS_PROFILER_SAMPLE_INTERVAL_MS = '0';
-      expect(createServiceEventsConfigFromEnv().profilerSampleIntervalMs).toBe(1);
     });
 
     it('clamps duration threshold and max-same-error to their ranges', function () {

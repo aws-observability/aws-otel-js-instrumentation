@@ -132,30 +132,9 @@ export interface ServiceEventsConfig {
   // JS-only: auto-detach per-function instrumentation when call rate exceeds
   // threshold (calls/sec, 0 = disabled). Internal — no env override.
   functionDetachThreshold: number;
-  // Profiler (continuous wall-clock sampling via @datadog/pprof).
-  profilerEnabled: boolean; // OTEL_AWS_SERVICE_EVENTS_PROFILER_ENABLED (opt-in, default false; matches Python/Java SDK)
-  // Internal — no env override; reachable only through the test-config hook (default 60).
-  profilerWindowSeconds: number;
-  profilerSampleIntervalMs: number; // OTEL_AWS_SERVICE_EVENTS_PROFILER_SAMPLE_INTERVAL_MS (default 10 = 100Hz, matches Python/Java)
-  // Internal — no env override (default false). When true, function_table.filename
-  // emits the full source path instead of just the basename. Default false matches
-  // Java/Python, avoids host-path PII, smaller string_table. Storage delta is
-  // bounded by unique file count thanks to dedup.
-  profilerFullPaths: boolean;
   // Local-testing file exporter. When set, replaces OTLP network exporters —
   // LOGS_ENDPOINT and METRICS_ENDPOINT are ignored while this is active.
   outputFile: string; // OTEL_AWS_SERVICE_EVENTS_OUTPUT_FILE (empty = disabled)
-  // AggregateProfile standalone-pipeline export tuning. A dedicated LoggerProvider
-  // with BatchLogRecordProcessor handles aws.service_events.aggregate_profile records —
-  // profile payloads are larger than other signals, so these knobs tune batching,
-  // compression, and retry behavior without affecting the main LoggerProvider (see
-  // Python/Java SDKs for the cross-SDK pattern). Internal — no env override; only
-  // compression is reachable through the test-config hook.
-  profileExportCompression: string; // "none" default | "gzip"
-  profileExportBatchSize: number;
-  profileExportScheduleDelayMs: number | null;
-  profileExportMaxQueueSize: number | null;
-  profileExportTimeoutMs: number | null;
   // CloudWatch Logs log group / stream. Required when logsEndpoint points at
   // a direct-to-CloudWatch OTLP endpoint (`https://logs.{region}.amazonaws.com/v1/logs`)
   // — emitted as `x-aws-log-group` / `x-aws-log-stream` headers on every
@@ -212,22 +191,7 @@ const DEFAULTS: ServiceEventsConfig = {
   sampleTier3Rate: 100,
   hotEndpointCycles: 100,
   functionDetachThreshold: 5000,
-  profilerEnabled: false,
-  profilerWindowSeconds: 60,
-  profilerSampleIntervalMs: 10,
-  profilerFullPaths: false,
   outputFile: '',
-  // AggregateProfile defaults mirror Python/Java: transport compression off
-  // (none) since the profile body is already zstd+base64-compressed at the app
-  // layer, plus a tiny batch (1) to keep each OTLP payload under CloudWatch's
-  // 1 MB OTLP limit. Optional fields default to null — the factory only passes
-  // them to BatchLogRecordProcessor when the user sets them explicitly, so
-  // upstream OTel defaults apply otherwise.
-  profileExportCompression: 'none',
-  profileExportBatchSize: 1,
-  profileExportScheduleDelayMs: null,
-  profileExportMaxQueueSize: null,
-  profileExportTimeoutMs: null,
   applicationSignalsEnabled: false,
   logGroup: '',
   logStream: '',
@@ -440,29 +404,8 @@ export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
     sampleTier3Rate: DEFAULTS.sampleTier3Rate,
     hotEndpointCycles: DEFAULTS.hotEndpointCycles,
     functionDetachThreshold: DEFAULTS.functionDetachThreshold,
-    // Profiler settings
-    profilerEnabled: getBool('OTEL_AWS_SERVICE_EVENTS_PROFILER_ENABLED', DEFAULTS.profilerEnabled),
-    // Internal (no env override); overridable via the test-config hook.
-    profilerWindowSeconds: DEFAULTS.profilerWindowSeconds,
-    // Clamp: 0/negative is invalid for the native pprof sampler (intervalMicros =
-    // value * 1000); cap the upper bound so a typo can't make sampling effectively
-    // never fire. Range 1ms–60s.
-    profilerSampleIntervalMs: getIntClamped(
-      'OTEL_AWS_SERVICE_EVENTS_PROFILER_SAMPLE_INTERVAL_MS',
-      DEFAULTS.profilerSampleIntervalMs,
-      1,
-      60_000
-    ),
-    profilerFullPaths: DEFAULTS.profilerFullPaths,
     // Local-testing file exporter. Literal path; empty = disabled.
     outputFile: getStr('OTEL_AWS_SERVICE_EVENTS_OUTPUT_FILE', DEFAULTS.outputFile),
-    // AggregateProfile standalone-pipeline export tuning — internal (no env override);
-    // only compression is overridable via the test-config hook.
-    profileExportCompression: DEFAULTS.profileExportCompression,
-    profileExportBatchSize: DEFAULTS.profileExportBatchSize,
-    profileExportScheduleDelayMs: DEFAULTS.profileExportScheduleDelayMs,
-    profileExportMaxQueueSize: DEFAULTS.profileExportMaxQueueSize,
-    profileExportTimeoutMs: DEFAULTS.profileExportTimeoutMs,
     applicationSignalsEnabled: getBool('OTEL_AWS_APPLICATION_SIGNALS_ENABLED', DEFAULTS.applicationSignalsEnabled),
     // CloudWatch Logs headers for direct-to-CW OTLP shipping — internal (no env
     // override); overridable via the test-config hook.
@@ -490,8 +433,8 @@ let testConfigHookWarned = false;
  * Internal test-config hook (NOT for production use).
  *
  * Black-box contract/e2e suites run the SDK in a separate process and can only
- * inject config via env. A handful of internal knobs (flush intervals, profiler
- * window, sample tiers, profile-export compression, log group/stream) need to be
+ * inject config via env. A handful of internal knobs (flush intervals, sample
+ * tiers, log group/stream) need to be
  * reachable from those harnesses without restoring per-var public env vars. This
  * hook reads a single delimited string `DEBUG_SE_TEST_CONFIG="KEY=value;KEY=value"`
  * where `KEY` is the former env-var suffix, and overrides only recognized keys on an
@@ -548,12 +491,10 @@ export function applyTestConfigHook(config: ServiceEventsConfig): ServiceEventsC
   setInt('FUNCTION_CALL_FLUSH_INTERVAL', v => (config.functionCallFlushInterval = v));
   setInt('ENDPOINT_FLUSH_INTERVAL', v => (config.endpointFlushInterval = v));
   setInt('INCIDENT_SNAPSHOT_FLUSH_INTERVAL', v => (config.incidentSnapshotFlushInterval = v));
-  setInt('PROFILER_WINDOW_SECONDS', v => (config.profilerWindowSeconds = v));
   setInt('SAMPLE_TIER1_THRESHOLD', v => (config.sampleTier1Threshold = v));
   setInt('SAMPLE_TIER2_THRESHOLD', v => (config.sampleTier2Threshold = v));
   setInt('SAMPLE_TIER2_RATE', v => (config.sampleTier2Rate = v));
   setInt('SAMPLE_TIER3_RATE', v => (config.sampleTier3Rate = v));
-  setStr('PROFILE_EXPORT_COMPRESSION', v => (config.profileExportCompression = v));
   setStr('LOG_GROUP', v => (config.logGroup = v));
   setStr('LOG_STREAM', v => (config.logStream = v));
 

@@ -85,10 +85,8 @@ def _make_http_handler(
         def _parse_and_store(self, request_cls, response_cls, queue):
             body = self._read_body()
             content_type = self.headers.get("Content-Type", "")
-            # ServiceEvents's profile pipeline ships OTLP payloads uncompressed by
-            # default since the profile body is already zstd+base64-compressed at the
-            # app layer. Decode is header-driven, so if the compression is switched to
-            # gzip we still honor the Content-Encoding header and parse the compressed body.
+            # Decode is header-driven: OTLP payloads are usually uncompressed, but if a
+            # producer sets Content-Encoding: gzip we honor it and parse the compressed body.
             content_encoding = self.headers.get("Content-Encoding", "").lower()
             if content_encoding == "gzip" and len(body) > 0:
                 body = gzip.decompress(body)

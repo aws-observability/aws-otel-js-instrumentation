@@ -449,7 +449,7 @@ class ServiceEventsTestInfrastructure(TestCase):
 
         These knobs are internal (no public env var); black-box tests set them through the hook.
         The base wires the fast flush cadence; subclasses extend (don't replace) for extra knobs
-        like PROFILER_WINDOW_SECONDS or the SAMPLE_TIER* tiers.
+        like the SAMPLE_TIER* tiers.
         """
         return {
             "FUNCTION_CALL_FLUSH_INTERVAL": SERVICE_EVENTS_FLUSH_INTERVAL_MS,

@@ -9,6 +9,7 @@ import { AnyValue, SeverityNumber } from '@opentelemetry/api-logs';
 const ROLE_SYSTEM = 'system';
 const ROLE_USER = 'user';
 const ROLE_ASSISTANT = 'assistant';
+const ROLE_TOOL = 'tool';
 const SESSION_ID = 'session.id';
 
 // Types of LLO attribute patterns
@@ -131,6 +132,33 @@ export const LLO_PATTERNS: { [key: string]: PatternConfig } = {
     type: PatternType.DIRECT,
     role: ROLE_USER,
     source: 'prompt',
+  },
+  // OTel GenAI Semantic Convention
+  // Reference: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-events/
+  'gen_ai.user.message': {
+    type: PatternType.DIRECT,
+    role: ROLE_USER,
+    source: 'prompt',
+  },
+  'gen_ai.assistant.message': {
+    type: PatternType.DIRECT,
+    role: ROLE_ASSISTANT,
+    source: 'output',
+  },
+  'gen_ai.system.message': {
+    type: PatternType.DIRECT,
+    role: ROLE_SYSTEM,
+    source: 'prompt',
+  },
+  'gen_ai.tool.message': {
+    type: PatternType.DIRECT,
+    role: ROLE_TOOL,
+    source: 'prompt',
+  },
+  'gen_ai.choice': {
+    type: PatternType.DIRECT,
+    role: ROLE_ASSISTANT,
+    source: 'output',
   },
   'gen_ai.input.messages': {
     type: PatternType.DIRECT,
@@ -269,6 +297,12 @@ export class LLOHandler {
     // Collect from span events
     if (span.events) {
       for (const event of span.events) {
+        // Check if event name itself is an LLO pattern (e.g., "gen_ai.user.message")
+        if (this.isLloAttribute(event.name)) {
+          allLloAttributes[event.name] = event.attributes ? JSON.stringify(event.attributes) : '';
+        }
+
+        // Also check traditional pattern - LLO attributes within event attributes
         if (event.attributes) {
           for (const [key, value] of Object.entries(event.attributes)) {
             if (this.isLloAttribute(key)) {
@@ -298,6 +332,11 @@ export class LLOHandler {
     const updatedEvents: TimedEvent[] = [];
 
     for (const event of span.events) {
+      // Skip entire event if event name is an LLO pattern
+      if (this.isLloAttribute(event.name)) {
+        continue;
+      }
+
       if (!event.attributes) {
         updatedEvents.push(event);
         continue;

@@ -502,53 +502,6 @@ export function applyTestConfigHook(config: ServiceEventsConfig): ServiceEventsC
 }
 
 /**
- * Parse latency_thresholds list into operation -> threshold_ms map.
- *
- * Each entry in latencyThresholds should be in format "METHOD /route:threshold_ms".
- * Example: ["POST /api/checkout:500", "GET /api/health:50"]
- *
- * @returns Map keyed by operation string ("METHOD /route") to threshold in milliseconds.
- */
-export function getLatencyThresholdsDict(config: ServiceEventsConfig): Map<string, number> {
-  const result = new Map<string, number>();
-
-  for (const entry of config.latencyThresholds) {
-    const trimmed = entry.trim();
-    if (!trimmed || !trimmed.includes(':')) {
-      continue;
-    }
-
-    // Split on last colon to handle routes that might contain colons
-    const lastColonIdx = trimmed.lastIndexOf(':');
-    if (lastColonIdx <= 0) {
-      continue;
-    }
-
-    const apiPart = trimmed.substring(0, lastColonIdx).trim();
-    const thresholdPart = trimmed.substring(lastColonIdx + 1).trim();
-
-    // Parse threshold
-    const thresholdMs = parseFloat(thresholdPart);
-    if (Number.isNaN(thresholdMs)) {
-      continue;
-    }
-
-    // Parse "METHOD /route" format
-    const spaceIdx = apiPart.indexOf(' ');
-    if (spaceIdx < 0) {
-      continue;
-    }
-
-    const method = apiPart.substring(0, spaceIdx).trim().toUpperCase();
-    const route = apiPart.substring(spaceIdx + 1).trim();
-
-    result.set(`${method} ${route}`, thresholdMs);
-  }
-
-  return result;
-}
-
-/**
  * Parse latency_thresholds list into pattern -> threshold_ms tuples.
  *
  * Supports glob patterns using minimatch (*, ?, [seq], [!seq]).

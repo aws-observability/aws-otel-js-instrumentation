@@ -183,35 +183,16 @@ export function setSamplingThresholds(opts: {
 }
 
 /**
- * Original shouldSample with ALS lookup (exported for tests).
+ * Sampling decision for a function call. Called from __serviceeventsMonitorEnter on
+ * every invocation, so it is on the hot path.
+ *
+ * Tiered sampling: 100% for the first tier-1 calls, then every Nth in tier 2, then
+ * every Mth in tier 3. In 'adaptive' mode a hot operation forces sampling regardless
+ * of call count; 'always'/'never' short-circuit.
+ *
+ * Exported so unit tests can assert the tier math and mode transitions directly.
  */
-export function shouldSample(totalCalls: number): boolean {
-  if (_samplingMode === 'always') {
-    return true;
-  }
-  if (_samplingMode === 'never') {
-    return false;
-  }
-  if (_samplingMode === 'adaptive') {
-    const op = operationStorage.getStore() ?? null;
-    if (op && isOperationHot(op)) {
-      return true;
-    }
-  }
-  if (totalCalls <= _sampleTier1Threshold) {
-    return true;
-  }
-  if (totalCalls <= _sampleTier2Threshold) {
-    return totalCalls % _sampleTier2Rate === 0;
-  }
-  return totalCalls % _sampleTier3Rate === 0;
-}
-
-/**
- * Fast sampling check. Called from __serviceeventsMonitorEnter on every function call.
- * Uses tiered sampling: 100% for first N calls, then 10%, then 1%.
- */
-function shouldSampleFast(totalCalls: number): boolean {
+export function shouldSampleFast(totalCalls: number): boolean {
   if (_samplingMode === 'always') return true;
   if (_samplingMode === 'never') return false;
   // Adaptive: check if current endpoint is hot

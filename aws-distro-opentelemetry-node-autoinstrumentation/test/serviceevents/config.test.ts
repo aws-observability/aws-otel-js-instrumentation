@@ -4,7 +4,6 @@
 import expect from 'expect';
 import {
   createServiceEventsConfigFromEnv,
-  getLatencyThresholdsDict,
   getLatencyThresholdPatterns,
   shouldTrackEndpoint,
 } from '../../src/serviceevents/config';
@@ -431,59 +430,6 @@ describe('ServiceEventsConfig', function () {
     });
   });
 
-  describe('getLatencyThresholdsDict()', function () {
-    it('should parse valid latency thresholds into a map', function () {
-      clearServiceEventsEnvVars();
-
-      process.env.OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS = 'POST /api/checkout:500,GET /api/health:50';
-
-      const config = createServiceEventsConfigFromEnv();
-      const thresholds = getLatencyThresholdsDict(config);
-
-      expect(thresholds.size).toBe(2);
-      // Values should be the thresholds we set
-      const values = Array.from(thresholds.values()).sort((a, b) => a - b);
-      expect(values).toEqual([50, 500]);
-    });
-
-    it('should return empty map for empty latency thresholds', function () {
-      clearServiceEventsEnvVars();
-
-      const config = createServiceEventsConfigFromEnv();
-      const thresholds = getLatencyThresholdsDict(config);
-
-      expect(thresholds.size).toBe(0);
-    });
-
-    it('should skip malformed entries', function () {
-      clearServiceEventsEnvVars();
-
-      process.env.OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS =
-        'POST /api/checkout:500,invalid-entry,GET /api/health:abc';
-
-      const config = createServiceEventsConfigFromEnv();
-      const thresholds = getLatencyThresholdsDict(config);
-
-      // Only the first valid entry should be parsed
-      expect(thresholds.size).toBe(1);
-      const values = Array.from(thresholds.values());
-      expect(values).toEqual([500]);
-    });
-
-    it('should handle route with colon by splitting on last colon', function () {
-      clearServiceEventsEnvVars();
-
-      process.env.OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS = 'GET /api/v1:resource:200';
-
-      const config = createServiceEventsConfigFromEnv();
-      const thresholds = getLatencyThresholdsDict(config);
-
-      expect(thresholds.size).toBe(1);
-      const values = Array.from(thresholds.values());
-      expect(values).toEqual([200]);
-    });
-  });
-
   describe('getLatencyThresholdPatterns()', function () {
     it('should parse valid entries into pattern-threshold tuples', function () {
       clearServiceEventsEnvVars();
@@ -531,6 +477,29 @@ describe('ServiceEventsConfig', function () {
 
       expect(patterns.length).toBe(1);
       expect(patterns[0]).toEqual(['GET /api/test', 300]);
+    });
+
+    it('should skip entries with a non-numeric threshold', function () {
+      clearServiceEventsEnvVars();
+
+      process.env.OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS = 'POST /api/checkout:500,GET /api/health:abc';
+
+      const config = createServiceEventsConfigFromEnv();
+      const patterns = getLatencyThresholdPatterns(config);
+
+      // Only the entry with a numeric threshold survives.
+      expect(patterns).toEqual([['POST /api/checkout', 500]]);
+    });
+
+    it('should split on the last colon so routes may contain colons', function () {
+      clearServiceEventsEnvVars();
+
+      process.env.OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS = 'GET /api/v1:resource:200';
+
+      const config = createServiceEventsConfigFromEnv();
+      const patterns = getLatencyThresholdPatterns(config);
+
+      expect(patterns).toEqual([['GET /api/v1:resource', 200]]);
     });
   });
 

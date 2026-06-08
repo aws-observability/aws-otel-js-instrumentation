@@ -4,7 +4,6 @@
 export {
   ServiceEventsConfig,
   createServiceEventsConfigFromEnv,
-  getLatencyThresholdsDict,
   getLatencyThresholdPatterns,
   shouldTrackEndpoint,
 } from './config';

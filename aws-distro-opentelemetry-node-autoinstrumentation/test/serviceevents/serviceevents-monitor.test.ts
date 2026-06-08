@@ -19,7 +19,7 @@ import {
   tickHotOperations,
   isOperationHot,
   setDetachThreshold,
-  shouldSample,
+  shouldSampleFast,
   setSamplingThresholds,
   setCurrentOperation as setOp,
 } from '../../src/serviceevents/serviceevents-monitor';
@@ -669,15 +669,15 @@ describe('ServiceEventsMonitor', function () {
     });
   });
 
-  describe('shouldSample() (ALS-based, exported for tests)', function () {
+  describe('shouldSampleFast() (hot-path sampling decision)', function () {
     it("always samples in 'always' mode", function () {
       setSamplingMode('always');
-      expect(shouldSample(1_000_000)).toBe(true);
+      expect(shouldSampleFast(1_000_000)).toBe(true);
     });
 
     it("never samples in 'never' mode", function () {
       setSamplingMode('never');
-      expect(shouldSample(1)).toBe(false);
+      expect(shouldSampleFast(1)).toBe(false);
     });
 
     it('samples hot operations in adaptive mode regardless of call count', function () {
@@ -686,7 +686,7 @@ describe('ServiceEventsMonitor', function () {
       setOp('GET /hot');
       markOperationHot('GET /hot');
       // Well above all tier thresholds, but the hot operation forces sampling.
-      expect(shouldSample(999_999)).toBe(true);
+      expect(shouldSampleFast(999_999)).toBe(true);
     });
 
     it('applies tiered sampling when the operation is not hot in adaptive mode', function () {
@@ -694,23 +694,23 @@ describe('ServiceEventsMonitor', function () {
       setSamplingThresholds({ tier1Threshold: 5, tier2Threshold: 50, tier2Rate: 10, tier3Rate: 100 });
       setOp('GET /cold');
       // tier1: count <= 5 -> always sampled.
-      expect(shouldSample(1)).toBe(true);
+      expect(shouldSampleFast(1)).toBe(true);
       // tier2: 5 < count <= 50 -> sampled every 10th.
-      expect(shouldSample(20)).toBe(true);
-      expect(shouldSample(21)).toBe(false);
+      expect(shouldSampleFast(20)).toBe(true);
+      expect(shouldSampleFast(21)).toBe(false);
       // tier3: count > 50 -> sampled every 100th.
-      expect(shouldSample(100)).toBe(true);
-      expect(shouldSample(101)).toBe(false);
+      expect(shouldSampleFast(100)).toBe(true);
+      expect(shouldSampleFast(101)).toBe(false);
     });
 
     it('applies tiered sampling in auto mode', function () {
       setSamplingMode('auto');
       setSamplingThresholds({ tier1Threshold: 5, tier2Threshold: 50, tier2Rate: 10, tier3Rate: 100 });
-      expect(shouldSample(3)).toBe(true);
-      expect(shouldSample(30)).toBe(true);
-      expect(shouldSample(31)).toBe(false);
-      expect(shouldSample(200)).toBe(true);
-      expect(shouldSample(201)).toBe(false);
+      expect(shouldSampleFast(3)).toBe(true);
+      expect(shouldSampleFast(30)).toBe(true);
+      expect(shouldSampleFast(31)).toBe(false);
+      expect(shouldSampleFast(200)).toBe(true);
+      expect(shouldSampleFast(201)).toBe(false);
     });
   });
 

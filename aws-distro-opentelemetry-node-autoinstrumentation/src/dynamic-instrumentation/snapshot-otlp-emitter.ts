@@ -16,6 +16,7 @@ import { Context, diag, ROOT_CONTEXT, trace, TraceFlags } from '@opentelemetry/a
 import { Logger, SeverityNumber, AnyValue } from '@opentelemetry/api-logs';
 import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { Snapshot, Captures, CapturedValue, CapturedContext, StackFrame, CapturedThrowable } from './model/snapshot';
 
 const INSTRUMENTATION_SCOPE = 'aws.dynamic_instrumentation';
@@ -52,6 +53,7 @@ export class SnapshotOtlpEmitter {
 
       const exporter = new OTLPLogExporter({ url: this.logsEndpoint });
       this.loggerProvider = new LoggerProvider({
+        resource: resourceFromAttributes(resourceAttrs),
         processors: [new BatchLogRecordProcessor(exporter)],
       });
       this.logger = this.loggerProvider.getLogger(INSTRUMENTATION_SCOPE, INSTRUMENTATION_VERSION);

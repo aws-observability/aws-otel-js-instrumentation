@@ -9,6 +9,7 @@ import { BreakpointManager } from './breakpoint-manager';
 import { InstrumentationRegistry } from './registry/instrumentation-registry';
 import { SnapshotOtlpEmitter } from './snapshot-otlp-emitter';
 import { Snapshot, CapturedValue, StackFrame } from './model/snapshot';
+import { InstrumentationConfiguration } from './model/instrumentation-configuration';
 import { DynamicInstrumentationConfig } from './config';
 
 // Evaluated on the paused main thread's call frame to extract active trace context.
@@ -112,8 +113,11 @@ export class SnapshotCollector {
         return;
       }
 
-      // Collect scope data during pause (async — main thread stays paused)
-      const rawData = await this.collectRawData(params, entry.config);
+      // Collect scope data during pause (async — main thread stays paused).
+      // The source-map-resolved script URL is tracked by the breakpoint manager (keyed by
+      // registry key), not carried on the config object.
+      const resolvedScriptUrl = this.breakpointManager.getResolvedScriptUrl(registryKey);
+      const rawData = await this.collectRawData(params, entry.config, resolvedScriptUrl);
 
       // Resume the main thread
       await this.session.resumeAsync();
@@ -140,7 +144,11 @@ export class SnapshotCollector {
    * If CaptureLocals is empty [], capture all from the local scope.
    * If CaptureLocals has values, capture only the named variables.
    */
-  private async collectRawData(params: inspector.Debugger.PausedEventDataType, config: any): Promise<RawCaptureData> {
+  private async collectRawData(
+    params: inspector.Debugger.PausedEventDataType,
+    config: InstrumentationConfiguration,
+    resolvedScriptUrl: string | undefined
+  ): Promise<RawCaptureData> {
     const callFrames = params.callFrames ?? [];
     const topFrame = callFrames[0];
     const fileResolver = this.session.getFileResolver();
@@ -148,8 +156,8 @@ export class SnapshotCollector {
     // Build name mapping for minified code (mangled→original variable names).
     // Only triggers when source map has name entries — zero overhead for non-minified code.
     const sourceMapResolver = this.session.getSourceMapResolver();
-    const nameMapping: Record<string, string> | null = config._resolvedScriptUrl
-      ? sourceMapResolver.buildNameMapping(config._resolvedScriptUrl, config.filePath, config.lineNumber)
+    const nameMapping: Record<string, string> | null = resolvedScriptUrl
+      ? sourceMapResolver.buildNameMapping(resolvedScriptUrl, config.filePath, config.lineNumber)
       : null;
 
     // CaptureLocals semantics:
@@ -241,11 +249,7 @@ export class SnapshotCollector {
    * Serialize collected data into a Snapshot and queue for writing.
    * Runs AFTER the debugger has resumed.
    */
-  private processSnapshot(
-    config: any, // InstrumentationConfiguration
-    rawData: RawCaptureData,
-    duration: number
-  ): void {
+  private processSnapshot(config: InstrumentationConfiguration, rawData: RawCaptureData, duration: number): void {
     try {
       // All captured data goes into lines.N.locals (JS DI is line-level only)
       const captures: any = {
@@ -298,7 +302,7 @@ export class SnapshotCollector {
    */
   private async collectValue(
     value: inspector.Runtime.RemoteObject,
-    config: any,
+    config: InstrumentationConfiguration,
     depth: number = 0
   ): Promise<CapturedValue> {
     const maxDepth: number = config.captureConfig?.maxObjectDepth ?? 3;

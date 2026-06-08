@@ -3,6 +3,7 @@
 
 import expect from 'expect';
 import * as sinon from 'sinon';
+import { diag } from '@opentelemetry/api';
 import { ConfigurationPoller } from '../../src/dynamic-instrumentation/configuration-poller';
 import { DynamicInstrumentationClient } from '../../src/dynamic-instrumentation/client';
 import { DynamicInstrumentationConfig } from '../../src/dynamic-instrumentation/config';
@@ -405,6 +406,25 @@ describe('ConfigurationPoller polling loop', function () {
     // Degraded interval is 300s; advance 380s (incl. jitter headroom) -> one more poll
     await clock.tickAsync(380_000);
     expect(client.fetchConfigurations.callCount).toBe(4);
+  });
+
+  it('logs the degraded-mode warning exactly once across repeated degraded polls', async function () {
+    const warnSpy = sinon.spy(diag, 'warn');
+    client.fetchConfigurations.rejects(new Error('unreachable'));
+
+    poller.start();
+    await clock.tickAsync(0); // attempt 1
+    await clock.tickAsync(13_000); // attempt 2
+    await clock.tickAsync(38_000); // attempt 3 -> enters degraded mode (logs once)
+    // Several more degraded polls — the warning must NOT be logged again.
+    await clock.tickAsync(380_000);
+    await clock.tickAsync(380_000);
+    await clock.tickAsync(380_000);
+
+    const degradedWarnings = warnSpy
+      .getCalls()
+      .filter(c => typeof c.args[0] === 'string' && (c.args[0] as string).includes('degraded polling mode'));
+    expect(degradedWarnings.length).toBe(1);
   });
 
   it('keeps using cached configs and does not crash when a later fetch fails', async function () {

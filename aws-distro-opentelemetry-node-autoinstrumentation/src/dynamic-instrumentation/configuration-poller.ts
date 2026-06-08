@@ -96,6 +96,7 @@ export class ConfigurationPoller {
   ): void {
     let isFirstFetch = true;
     let attempt = 0;
+    let degradedLogged = false;
     let lastSyncTime: number | undefined;
     let lastSuccessTime: number | null = null;
 
@@ -130,14 +131,18 @@ export class ConfigurationPoller {
           diag.info(`DI: [${type}] Initial configuration fetch successful`);
           isFirstFetch = false;
           attempt = 0;
+          degradedLogged = false;
         }
       } catch (error) {
         if (isFirstFetch) {
-          attempt++;
+          // Cap so `attempt` keeps meaning "number of initial backoff attempts"
+          // rather than growing unbounded once we are in degraded mode.
+          if (attempt < MAX_BACKOFF_ATTEMPTS) attempt++;
 
           if (attempt >= MAX_BACKOFF_ATTEMPTS) {
             // Log once when entering degraded mode
-            if (attempt === MAX_BACKOFF_ATTEMPTS) {
+            if (!degradedLogged) {
+              degradedLogged = true;
               diag.warn(
                 `DI: [${type}] Dynamic Instrumentation API endpoint unreachable after ${MAX_BACKOFF_ATTEMPTS} attempts. ` +
                   `Entering degraded polling mode (every ${DEGRADED_POLL_INTERVAL_SECONDS}s). ` +

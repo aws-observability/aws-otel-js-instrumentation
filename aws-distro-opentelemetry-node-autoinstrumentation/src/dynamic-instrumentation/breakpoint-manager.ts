@@ -18,6 +18,9 @@ interface ActiveBreakpoint {
   registryKey: string;
   scriptId: string;
   lineNumber: number;
+  // Source-map-resolved script URL, set only when the breakpoint was placed via a
+  // source map. Used by the snapshot collector to build mangled→original name mappings.
+  resolvedScriptUrl?: string;
 }
 
 /**
@@ -104,8 +107,10 @@ export class BreakpointManager {
     const targetLine: number = resolved.sourceMapResolved ? resolved.resolvedLine! : config.lineNumber - 1;
     const targetColumn: number = resolved.resolvedColumn ?? 0;
 
-    // Store resolved script URL on config for name mapping during snapshot capture
-    (config as any)._resolvedScriptUrl = resolved.sourceMapResolved ? resolved.url : undefined;
+    // Resolved script URL for source-map name mapping during snapshot capture.
+    // Stored on the ActiveBreakpoint (keyed by registry key) rather than mutated onto the
+    // shared config object, which the registry preserves across polling cycles.
+    const resolvedScriptUrl: string | undefined = resolved.sourceMapResolved ? resolved.url : undefined;
 
     // Set the V8 breakpoint (async — callback fires on next tick)
     // Use setBreakpointByUrl for more reliable breakpoint activation with connectToMainThread
@@ -121,6 +126,7 @@ export class BreakpointManager {
       registryKey: key,
       scriptId: resolved.scriptId,
       lineNumber: targetLine,
+      resolvedScriptUrl,
     };
 
     this.breakpointsByKey.set(key, active);
@@ -154,6 +160,15 @@ export class BreakpointManager {
    */
   getRegistryKeyByV8Id(v8BreakpointId: string): string | undefined {
     return this.keyByV8Id.get(v8BreakpointId);
+  }
+
+  /**
+   * Source-map-resolved script URL for an active breakpoint, or undefined if the
+   * breakpoint was not placed via a source map. Used by the snapshot collector to
+   * build mangled→original variable name mappings during capture.
+   */
+  getResolvedScriptUrl(registryKey: string): string | undefined {
+    return this.breakpointsByKey.get(registryKey)?.resolvedScriptUrl;
   }
 
   /**

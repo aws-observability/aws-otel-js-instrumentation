@@ -29,72 +29,82 @@ import { InstrumentationConfiguration } from './model/instrumentation-configurat
 
 const config = workerData as DynamicInstrumentationConfig;
 
-// Set up logging
-const logLevelEnv = process.env.OTEL_LOG_LEVEL;
-if (!logLevelEnv) {
-  // Inherit parent's log level
-}
+// Components are constructed inside initialize() (not at module load) so that a
+// constructor throw is caught and reported to the parent thread via postMessage,
+// rather than crashing the worker before the error handlers below are registered.
+// Only the components needed by shutdown() are held at module scope.
+let session: InspectorSession | undefined;
+let emitter: SnapshotOtlpEmitter | undefined;
+let breakpointManager: BreakpointManager | undefined;
+let statusReporter: StatusReporter | undefined;
+let poller: ConfigurationPoller | undefined;
 
-// Initialize components
-const client = new DynamicInstrumentationClient(config.apiUrl);
-const sourceMapResolver = new SourceMapResolver();
-const fileResolver = new FileResolver();
-fileResolver.setSourceMapResolver(sourceMapResolver);
-const session = new InspectorSession(fileResolver, sourceMapResolver);
-const registry = new InstrumentationRegistry();
-const emitter = new SnapshotOtlpEmitter(config.logsEndpoint, config.serviceName, config.environment);
-const breakpointManager = new BreakpointManager(session, fileResolver, sourceMapResolver);
-const snapshotCollector = new SnapshotCollector(session, breakpointManager, registry, emitter, config);
-const statusReporter = new StatusReporter(client, registry, config.serviceName, config.environment);
+let exiting: boolean = false;
 
-// Wire error reporting from breakpoint manager to status reporter
-breakpointManager.setErrorCallback((type, hash, cause) => {
-  statusReporter.reportError(type, hash, cause);
-});
-
-// Wire installed callback — marks config as installed in registry after V8 confirms
-breakpointManager.setInstalledCallback((registryKey: string) => {
-  registry.markInstalled(registryKey);
-});
-
-// Wire paused events to snapshot collector (handlePaused is async)
-session.onPaused(params => {
-  snapshotCollector.handlePaused(params).catch(err => {
-    diag.error('DI: Unhandled error in handlePaused', err);
-  });
-});
-
-// Configuration poller callbacks
-const poller = new ConfigurationPoller(client, config, {
-  onProbeBreakpointConfigs: async (configs: InstrumentationConfiguration[]) => {
-    try {
-      const diff = registry.computeDiff(configs);
-
-      // Remove old configs and breakpoints
-      for (const key of diff.toRemove) {
-        await breakpointManager.removeBreakpoint(key);
-        registry.unregister(key);
-      }
-
-      // Register and add new configs/breakpoints
-      for (const newConfig of diff.toAdd) {
-        registry.register(newConfig);
-        await breakpointManager.addBreakpoint(newConfig);
-      }
-
-      diag.debug(`DI: Applied config diff: +${diff.toAdd.length} -${diff.toRemove.length} =${diff.unchanged.length}`);
-
-      // Report status — only installed configs will report READY
-      statusReporter.reportNow();
-    } catch (error) {
-      diag.error('DI: Error applying configuration diff', error);
-    }
-  },
-});
-
-// Start all components
+/**
+ * Construct and wire all components, then connect the inspector and start polling.
+ * Any failure (including a component constructor throwing) is reported to the parent.
+ */
 async function initialize(): Promise<void> {
   try {
+    const client = new DynamicInstrumentationClient(config.apiUrl);
+    const sourceMapResolver = new SourceMapResolver();
+    const fileResolver = new FileResolver();
+    fileResolver.setSourceMapResolver(sourceMapResolver);
+    session = new InspectorSession(fileResolver, sourceMapResolver);
+    const registry = new InstrumentationRegistry();
+    emitter = new SnapshotOtlpEmitter(config.logsEndpoint, config.serviceName, config.environment);
+    breakpointManager = new BreakpointManager(session, fileResolver, sourceMapResolver);
+    const snapshotCollector = new SnapshotCollector(session, breakpointManager, registry, emitter, config);
+    statusReporter = new StatusReporter(client, registry, config.serviceName, config.environment);
+
+    // Wire error reporting from breakpoint manager to status reporter
+    breakpointManager.setErrorCallback((type, hash, cause) => {
+      statusReporter!.reportError(type, hash, cause);
+    });
+
+    // Wire installed callback — marks config as installed in registry after V8 confirms
+    breakpointManager.setInstalledCallback((registryKey: string) => {
+      registry.markInstalled(registryKey);
+    });
+
+    // Wire paused events to snapshot collector (handlePaused is async)
+    session.onPaused(params => {
+      snapshotCollector.handlePaused(params).catch(err => {
+        diag.error('DI: Unhandled error in handlePaused', err);
+      });
+    });
+
+    // Configuration poller callbacks
+    poller = new ConfigurationPoller(client, config, {
+      onProbeBreakpointConfigs: async (configs: InstrumentationConfiguration[]) => {
+        try {
+          const diff = registry.computeDiff(configs);
+
+          // Remove old configs and breakpoints
+          for (const key of diff.toRemove) {
+            await breakpointManager!.removeBreakpoint(key);
+            registry.unregister(key);
+          }
+
+          // Register and add new configs/breakpoints
+          for (const newConfig of diff.toAdd) {
+            registry.register(newConfig);
+            await breakpointManager!.addBreakpoint(newConfig);
+          }
+
+          diag.debug(
+            `DI: Applied config diff: +${diff.toAdd.length} -${diff.toRemove.length} =${diff.unchanged.length}`
+          );
+
+          // Report status — only installed configs will report READY
+          statusReporter!.reportNow();
+        } catch (error) {
+          diag.error('DI: Error applying configuration diff', error);
+        }
+      },
+    });
+
     // Await connect() — ensures Debugger.enable completes and scriptParsed events
     // are processed so FileResolver and SourceMapResolver are populated before polling.
     await session.connect();
@@ -115,25 +125,13 @@ async function initialize(): Promise<void> {
   }
 }
 
-void initialize();
-
-// Handle shutdown from main thread
-if (parentPort) {
-  parentPort.on('message', message => {
-    if (message?.type === 'shutdown') {
-      diag.info('DI: Worker thread shutting down');
-      void shutdown();
-    }
-  });
-}
-
 async function shutdown(): Promise<void> {
   try {
-    poller.stop();
-    statusReporter.stop();
-    await breakpointManager.removeAll();
-    session.disconnect();
-    await emitter.shutdown();
+    poller?.stop();
+    statusReporter?.stop();
+    await breakpointManager?.removeAll();
+    session?.disconnect();
+    await emitter?.shutdown();
     diag.info('DI: Worker thread shutdown complete');
   } catch (error) {
     diag.error('DI: Error during worker shutdown', error);
@@ -143,11 +141,12 @@ async function shutdown(): Promise<void> {
   process.exit(0);
 }
 
+// Register error and shutdown handlers BEFORE constructing components, so a failure
+// during initialize() is reported to the parent rather than crashing silently.
+
 // Handle unexpected errors — exit worker to avoid running in corrupted state.
 // The main thread detects worker exit via 'exit' event and logs the failure.
 // Brief delay before exit allows parentPort.postMessage to flush.
-let exiting: boolean = false;
-
 process.on('uncaughtException', error => {
   if (exiting) return;
   exiting = true;
@@ -175,3 +174,15 @@ process.on('unhandledRejection', reason => {
   }
   setTimeout(() => process.exit(1), 100);
 });
+
+// Handle shutdown from main thread
+if (parentPort) {
+  parentPort.on('message', message => {
+    if (message?.type === 'shutdown') {
+      diag.info('DI: Worker thread shutting down');
+      void shutdown();
+    }
+  });
+}
+
+void initialize();

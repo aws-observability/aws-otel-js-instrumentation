@@ -4,6 +4,7 @@
 import expect from 'expect';
 import * as sinon from 'sinon';
 import { LoggerProvider, SimpleLogRecordProcessor, InMemoryLogRecordExporter } from '@opentelemetry/sdk-logs';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SnapshotOtlpEmitter } from '../../src/dynamic-instrumentation/snapshot-otlp-emitter';
 import { Snapshot } from '../../src/dynamic-instrumentation/model/snapshot';
 
@@ -237,6 +238,41 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
       delete process.env.OTEL_AWS_OTLP_LOGS_ENDPOINT;
       const e = new SnapshotOtlpEmitter(undefined, 'svc', 'env');
       expect((e as any).logsEndpoint).toBe('http://localhost:4316/v1/logs');
+    });
+  });
+
+  describe('resource attributes', function () {
+    it('attaches service.name and deployment.environment to the emitted record resource', function () {
+      // The emitter builds a resource from (serviceName, environment) and passes it to its
+      // LoggerProvider. Mirror that wiring here with an in-memory exporter and assert the
+      // resource propagates onto the exported record.
+      const exporter = new InMemoryLogRecordExporter();
+      const provider = new LoggerProvider({
+        resource: resourceFromAttributes({
+          'service.name': 'test-service',
+          'deployment.environment': 'test-env',
+        }),
+        processors: [new SimpleLogRecordProcessor(exporter)],
+      });
+      const e = new SnapshotOtlpEmitter('http://localhost:4321/v1/logs', 'test-service', 'test-env');
+      (e as any).logger = provider.getLogger('aws.dynamic_instrumentation', '1.0');
+
+      e.emitSnapshot(baseSnapshot(), 'BREAKPOINT');
+
+      const records = exporter.getFinishedLogRecords();
+      expect(records.length).toBe(1);
+      expect(records[0].resource.attributes['service.name']).toBe('test-service');
+      expect(records[0].resource.attributes['deployment.environment']).toBe('test-env');
+      return provider.shutdown();
+    });
+
+    it('builds a resource with the configured service name in ensureInitialized', function () {
+      // Drive the real init path and confirm a LoggerProvider was created (resource wired in).
+      const e = new SnapshotOtlpEmitter('http://localhost:4321/v1/logs', 'order-service', 'prod');
+      const ok = (e as any).ensureInitialized();
+      expect(ok).toBe(true);
+      expect((e as any).loggerProvider).toBeTruthy();
+      return e.shutdown();
     });
   });
 

@@ -185,11 +185,14 @@ export class InspectorSession {
       diag.error('DI: CRITICAL - Failed to resume debugger, attempting emergency disconnect', error);
       try {
         this.session?.disconnect();
-        this.session = null;
-        this.connected = false;
       } catch {
         // Last resort failed — nothing more we can do
       }
+      // Mirror disconnect(): reset state and clear resolver caches so BreakpointManager
+      // does not retain stale scriptId references after an emergency disconnect.
+      this.session = null;
+      this.connected = false;
+      this.fileResolver.clear();
     }
   }
 

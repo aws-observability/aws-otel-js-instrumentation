@@ -197,6 +197,18 @@ describe('SEHHistogram', function () {
       expect(recovered).toBeGreaterThan(900);
       expect(recovered).toBeLessThan(1100);
     });
+
+    it('should recover a NEGATIVE value with its sign intact (round-trip)', function () {
+      const h = new SEHHistogram();
+      // getBucket negates the bucket number for negative inputs; recoverValue must
+      // re-apply the sign rather than returning a positive magnitude.
+      const bucket = h.getBucket(-1000);
+      const recovered = h.recoverValue(bucket);
+      expect(recovered).toBeLessThan(0);
+      // Magnitude still within ~10% of 1000.
+      expect(recovered).toBeGreaterThan(-1100);
+      expect(recovered).toBeLessThan(-900);
+    });
   });
 
   describe('getValuesAndCounts()', function () {

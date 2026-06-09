@@ -183,8 +183,15 @@ export class SEHHistogram {
       return 0.0;
     }
 
+    // getBucket negates the bucket number for negative inputs, so a negative bucket
+    // number means the original value was negative. Recover the magnitude from the
+    // absolute bucket number and re-apply the sign; otherwise negative samples would
+    // be recovered as positive magnitudes.
+    const negative = bucketNum < 0;
+    const magnitudeBucket = negative ? -bucketNum : bucketNum;
     // Calculate midpoint value: exp((bucketNum + 0.5) * BUCKET_FACTOR)
-    return Math.exp((bucketNum + 0.5) * BUCKET_FACTOR);
+    const magnitude = Math.exp((magnitudeBucket + 0.5) * BUCKET_FACTOR);
+    return negative ? -magnitude : magnitude;
   }
 
   /**

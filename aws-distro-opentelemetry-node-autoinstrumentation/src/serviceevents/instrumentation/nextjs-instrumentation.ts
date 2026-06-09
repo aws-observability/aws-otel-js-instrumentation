@@ -22,10 +22,11 @@
  */
 
 import { diag } from '@opentelemetry/api';
-import { setCurrentOperation, clearCurrentOperation, ServiceEventsMonitorState } from '../serviceevents-monitor';
+import { setCurrentOperation, ServiceEventsMonitorState } from '../serviceevents-monitor';
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
+import { endInvestigationOnce } from './express-instrumentation';
 
 // Global references to collectors
 let _endpointCollector: EndpointMetricCollector | null = null;
@@ -197,6 +198,11 @@ export function installNextJsHooks(
 
       // Set startTime on raw request + endpoint context
       req.__serviceeventsStartTime = startTime;
+      // Claim this request so the global http.ServerResponse.prototype.end patch
+      // (_processFinish) does NOT also record it — this handleRequest wrapper is the
+      // recorder for Next.js requests. It runs before res.end, so the claim is set
+      // before the global patch runs, preventing double-counting.
+      req.__serviceeventsRequestEnded = true;
       setCurrentOperation(earlyRoute);
 
       let caughtException: Error | null = null;
@@ -243,7 +249,13 @@ export function installNextJsHooks(
             }
           }
         } finally {
-          clearCurrentOperation();
+          // This wrapper's finally runs as origHandleRequest (which calls res.end())
+          // settles — having peeked the ALS call-path for the snapshot above. Own the
+          // teardown here (get-and-clear + active-count decrement). Keyed on req — the
+          // same Node IncomingMessage the global _processFinish patch and the
+          // res.on('close') abort backstop use — so the once-guard dedups across all
+          // three. Idempotent.
+          endInvestigationOnce(req);
         }
       }
     };

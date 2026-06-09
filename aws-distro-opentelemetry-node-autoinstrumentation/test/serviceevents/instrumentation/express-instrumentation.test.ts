@@ -2,9 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as http from 'http';
+import { EventEmitter } from 'events';
 import expect from 'expect';
-import { installGlobalHttpPatches } from '../../../src/serviceevents/instrumentation/express-instrumentation';
-import { getCurrentOperation, resetMonitorState } from '../../../src/serviceevents/serviceevents-monitor';
+import {
+  installGlobalHttpPatches,
+  endInvestigationOnce,
+} from '../../../src/serviceevents/instrumentation/express-instrumentation';
+import {
+  getCurrentOperation,
+  resetMonitorState,
+  ServiceEventsMonitorState,
+} from '../../../src/serviceevents/serviceevents-monitor';
 
 /**
  * Strategy: don't rely on http.Server.prototype.emit for this test, because
@@ -69,8 +77,8 @@ describe('installGlobalHttpPatches', function () {
   // is Function.prototype (Node's Server extends EventEmitter), calling the
   // patched function stops at _origServerEmit.apply(this, ...), which in our
   // fake is EventEmitter's — no listeners, returns false, harmless.
-  function invokeEmit(req: any): void {
-    patchedServerEmit.call(fakeServer(), 'request', req);
+  function invokeEmit(req: any, res?: any): void {
+    patchedServerEmit.call(fakeServer(), 'request', req, res);
   }
 
   it('is idempotent — calling twice does not double-patch', function () {
@@ -99,6 +107,90 @@ describe('installGlobalHttpPatches', function () {
       const req: any = { url: '/health', method: 'GET', headers: {} };
       invokeEmit(req);
       expect(getCurrentOperation()).toBe('/health');
+    });
+  });
+
+  describe('investigation teardown on connection close (abort safety)', function () {
+    it('ends the investigation when the response closes without res.end()', function () {
+      const state = ServiceEventsMonitorState.getInstance();
+      const req: any = { url: '/slow', method: 'GET', headers: {} };
+      const res: any = new EventEmitter();
+
+      // Request arrival begins an investigation (ALS populated).
+      invokeEmit(req, res);
+      expect(state.peekInvestigationData()).not.toBe(null);
+
+      // Client aborts / socket hangs up: res emits 'close' without res.end() ever
+      // running. The close handler must run the investigation teardown so the
+      // active-count decrement is not skipped (otherwise it would leak upward).
+      res.emit('close');
+      expect(state.peekInvestigationData()).toBe(null);
+    });
+
+    it('does not throw when the request arrives without a response object', function () {
+      const req: any = { url: '/x', method: 'GET', headers: {} };
+      expect(() => invokeEmit(req)).not.toThrow();
+    });
+  });
+
+  describe('claimed request: global res.end patch must not tear down the investigation early', function () {
+    // Regression for the Fastify/Koa/Next.js empty-call_path bug. Those frameworks set
+    // req.__serviceeventsRequestEnded in their request-arrival hook to claim
+    // endpoint/incident recording (so the global res.end patch does not double-count).
+    // For Fastify/Next.js the framework finish hook — which reads the ALS investigation
+    // call-path to build the incident snapshot — fires AFTER res.end(). If the global
+    // patch tore the investigation down on the claimed path, that later peek would see an
+    // empty call-path. The claimed branch must therefore leave teardown to the framework
+    // hook (or the res.on('close') backstop).
+    it('preserves the investigation call-path when res.end() fires on a claimed request', function () {
+      const state = ServiceEventsMonitorState.getInstance();
+      const req: any = { url: '/api/orders', method: 'POST', headers: {}, route: { path: '/api/orders' } };
+      const res: any = new EventEmitter();
+      (res as any).statusCode = 500;
+      (res as any).req = req;
+
+      // Request arrival begins an investigation; an instrumented frame records a call-path.
+      invokeEmit(req, res);
+      state.recordCallPathEntry('orders.create', null, 1234);
+      expect(state.peekInvestigationData()?.callPath.length).toBe(1);
+
+      // Framework claims the request (as Fastify/Koa/Next.js do at request arrival).
+      req.__serviceeventsRequestEnded = true;
+
+      // res.end() fires the global _processFinish patch. On the claimed path it must
+      // return WITHOUT clearing the investigation.
+      try {
+        patchedResponseEnd.call(res);
+      } catch {
+        // patched end() calls the (stubbed) original at the tail; tolerate.
+      }
+
+      // The later framework finish hook can still peek a populated call-path.
+      const inv = state.peekInvestigationData();
+      expect(inv).not.toBe(null);
+      expect(inv?.callPath.length).toBe(1);
+      expect(inv?.callPath[0].functionName).toBe('orders.create');
+    });
+
+    it('endInvestigationOnce tears down exactly once across res.end + framework hook + close', function () {
+      const state = ServiceEventsMonitorState.getInstance();
+      const req: any = { url: '/api/orders', method: 'POST', headers: {} };
+      const res: any = new EventEmitter();
+      (res as any).statusCode = 200;
+      (res as any).req = req;
+
+      invokeEmit(req, res);
+      req.__serviceeventsRequestEnded = true;
+      expect(state.peekInvestigationData()).not.toBe(null);
+
+      // The framework finish hook owns teardown after it has recorded.
+      endInvestigationOnce(req);
+      expect(state.peekInvestigationData()).toBe(null);
+
+      // Idempotent: a redundant close after teardown is a harmless no-op (the
+      // once-guard prevents a second get-and-clear / double active-count decrement).
+      expect(() => res.emit('close')).not.toThrow();
+      expect(state.peekInvestigationData()).toBe(null);
     });
   });
 });

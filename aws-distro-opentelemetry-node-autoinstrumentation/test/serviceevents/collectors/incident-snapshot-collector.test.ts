@@ -335,6 +335,368 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       expect(corr.span_id).toBe('b7ad6b7169203331');
     });
 
+    it('parses the Root trace id from the x-amzn-trace-id header', function () {
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        // Node normally lowercases inbound header names, so the lowercase key is the
+        // common case. The full X-Ray header carries Root=...;Parent=...;Sampled=...; we extract Root.
+        makeRequestData({
+          headers: {
+            'x-amzn-trace-id': 'Root=1-5759e988-bd862e3fe1be46a994272793;Parent=53995c3f42cd8ad8;Sampled=1',
+          },
+        })
+      );
+      collector.collect();
+      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe('1-5759e988-bd862e3fe1be46a994272793');
+    });
+
+    it('parses the Root trace id from the canonical-cased X-Amzn-Trace-Id header', function () {
+      // Defensive: we don't assume header names are always lowercased, so the
+      // canonical X-Ray casing must also be honored.
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        makeRequestData({
+          headers: {
+            'X-Amzn-Trace-Id': 'Root=1-5759e988-bd862e3fe1be46a994272793;Parent=53995c3f42cd8ad8;Sampled=1',
+          },
+        })
+      );
+      collector.collect();
+      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe('1-5759e988-bd862e3fe1be46a994272793');
+    });
+
+    it('parses the Root trace id when the x-amzn-trace-id header has no other segments', function () {
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        makeRequestData({ headers: { 'x-amzn-trace-id': 'Root=1-5759e988-bd862e3fe1be46a994272793' } })
+      );
+      collector.collect();
+      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe('1-5759e988-bd862e3fe1be46a994272793');
+    });
+
+    it('falls back to x-datadog-trace-id header for trace_id', function () {
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        makeRequestData({ headers: { 'x-datadog-trace-id': '1234567890' } })
+      );
+      collector.collect();
+      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe('1234567890');
+    });
+
+    it('leaves trace_id and span_id undefined when no headers or span present', function () {
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        makeRequestData({ headers: {} })
+      );
+      collector.collect();
+      const corr = emitter.snapshots[0].telemetry_correlation;
+      expect(corr.trace_id).toBeUndefined();
+      expect(corr.span_id).toBeUndefined();
+    });
+
+    it('does not set span_id when traceparent has fewer than 3 parts', function () {
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        makeRequestData({ headers: { traceparent: '00-0af7651916cd43dd8448eb211c80319c' } })
+      );
+      collector.collect();
+      const corr = emitter.snapshots[0].telemetry_correlation;
+      expect(corr.trace_id).toBe('0af7651916cd43dd8448eb211c80319c');
+      expect(corr.span_id).toBeUndefined();
+    });
+
+    it('correlation_ids is always an empty object', function () {
+      collector.processPotentialIncident('/api/x', 'POST', 500, 50, new Error('boom'), makeRequestData());
+      collector.collect();
+      expect(emitter.snapshots[0].telemetry_correlation.correlation_ids).toEqual({});
+    });
+  });
+
+  describe('trace/span extraction from the active OTel span', function () {
+    const validTraceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+    const validSpanId = '00f067aa0ba902b7';
+
+    afterEach(function () {
+      sinon.restore();
+    });
+
+    it('prefers the active span trace_id and span_id over headers', function () {
+      sinon.stub(trace, 'getActiveSpan').returns({
+        spanContext: () => ({ traceId: validTraceId, spanId: validSpanId, traceFlags: 1 }),
+      } as never);
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        // Headers also present, but the active span wins.
+        makeRequestData({ headers: { traceparent: '00-ffffffffffffffffffffffffffffffff-aaaaaaaaaaaaaaaa-01' } })
+      );
+      collector.collect();
+      const corr = emitter.snapshots[0].telemetry_correlation;
+      expect(corr.trace_id).toBe(validTraceId);
+      expect(corr.span_id).toBe(validSpanId);
+    });
+
+    it('ignores all-zero span context and falls back to headers', function () {
+      sinon.stub(trace, 'getActiveSpan').returns({
+        spanContext: () => ({
+          traceId: '00000000000000000000000000000000',
+          spanId: '0000000000000000',
+          traceFlags: 0,
+        }),
+      } as never);
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        makeRequestData({ headers: { traceparent: `00-${validTraceId}-${validSpanId}-01` } })
+      );
+      collector.collect();
+      const corr = emitter.snapshots[0].telemetry_correlation;
+      expect(corr.trace_id).toBe(validTraceId);
+      expect(corr.span_id).toBe(validSpanId);
+    });
+  });
+
+  describe('trigger and severity branches', function () {
+    it('triggers exception snapshot on 5xx with no Error object', function () {
+      const exemplar = collector.processPotentialIncident('/api/x', 'GET', 503, 10, null, makeRequestData());
+      expect(exemplar).not.toBeNull();
+      expect(exemplar!.trigger_type).toBe('exception');
+      expect(exemplar!.severity).toBe('critical');
+    });
+
+    it('severity is high for 5xx >= 504', function () {
+      const exemplar = collector.processPotentialIncident('/api/x', 'GET', 504, 10, null, makeRequestData());
+      expect(exemplar).not.toBeNull();
+      expect(exemplar!.severity).toBe('high');
+    });
+
+    it('latency trigger has medium severity', function () {
+      const exemplar = collector.processPotentialIncident('/api/slow', 'GET', 200, 6000, null, makeRequestData());
+      expect(exemplar).not.toBeNull();
+      expect(exemplar!.trigger_type).toBe('latency');
+      expect(exemplar!.severity).toBe('medium');
+    });
+  });
+
+  describe('deprecated setters', function () {
+    it('setMaxPerPeriod updates only for positive values', function () {
+      collector.setMaxPerPeriod(5);
+      // Non-positive values are ignored (no throw).
+      collector.setMaxPerPeriod(0);
+      collector.setMaxPerPeriod(-3);
+      // First five distinct errors pass, sixth is rate-limited.
+      for (let i = 0; i < 5; i++) {
+        expect(
+          collector.processPotentialIncident(`/r${i}`, 'GET', 500, 10, new Error(`e${i}`), makeRequestData())
+        ).not.toBeNull();
+      }
+      expect(collector.processPotentialIncident('/r5', 'GET', 500, 10, new Error('e5'), makeRequestData())).toBeNull();
+    });
+
+    it('setMaxSameError updates only for positive values', function () {
+      collector.setMaxSameError(2);
+      collector.setMaxSameError(0);
+      collector.setMaxSameError(-1);
+      const err = new Error('dup');
+      // First two identical errors pass dedup; third is deduplicated.
+      collector.collect(); // clear batch dedup
+      expect(collector.processPotentialIncident('/dup', 'GET', 500, 10, err, makeRequestData())).not.toBeNull();
+      collector.collect();
+      expect(collector.processPotentialIncident('/dup', 'GET', 500, 10, err, makeRequestData())).not.toBeNull();
+      collector.collect();
+      expect(collector.processPotentialIncident('/dup', 'GET', 500, 10, err, makeRequestData())).toBeNull();
+    });
+  });
+
+  describe('rate limiting and deduplication', function () {
+    it('period-deduplicates the same error across collection intervals', function () {
+      // Default maxSameError = 30 in beforeEach collector, so set it low.
+      collector.setMaxSameError(1);
+      const err = new Error('same');
+      expect(collector.processPotentialIncident('/d', 'GET', 500, 10, err, makeRequestData())).not.toBeNull();
+      // collect() clears the per-batch set so the next call reaches period dedup.
+      collector.collect();
+      expect(collector.processPotentialIncident('/d', 'GET', 500, 10, err, makeRequestData())).toBeNull();
+    });
+
+    it('rate-limits once maxPerPeriod distinct errors are exceeded', function () {
+      const rlEmitter = new CaptureEmitter();
+      const rlCollector = new IncidentSnapshotCollector(
+        600_000,
+        5000,
+        2, // maxPerPeriod
+        'test-env',
+        'test-svc',
+        '0.0.1',
+        true,
+        30,
+        rlEmitter,
+        null
+      );
+      expect(
+        rlCollector.processPotentialIncident('/a', 'GET', 500, 10, new Error('a'), makeRequestData())
+      ).not.toBeNull();
+      expect(
+        rlCollector.processPotentialIncident('/b', 'GET', 500, 10, new Error('b'), makeRequestData())
+      ).not.toBeNull();
+      // Third distinct error exceeds the rate limit.
+      expect(rlCollector.processPotentialIncident('/c', 'GET', 500, 10, new Error('c'), makeRequestData())).toBeNull();
+      rlCollector.stop();
+    });
+  });
+
+  describe('exception info from monitor investigation', function () {
+    it('uses monitor-captured exception when no explicit Error passed', function () {
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation();
+      const inv = state.peekInvestigationData();
+      inv!.callPath.push({ functionName: 'app.handler', callerFunctionName: null, durationNs: 1000 });
+      inv!.exception = {
+        name: 'TypeError',
+        message: 'cannot read prop',
+        traceback: 'TypeError: cannot read prop\n  at app.handler',
+        functionName: 'app.handler',
+      };
+      // No explicit exception, but a 5xx status triggers the snapshot.
+      collector.processPotentialIncident('/api/x', 'GET', 500, 10, null, makeRequestData());
+      collector.collect();
+      const info = emitter.snapshots[0].exception_info[0];
+      expect(info.exception_type).toBe('TypeError');
+      expect(info.exception_message).toBe('cannot read prop');
+      expect(info.stack_trace).toContain('TypeError');
+      expect(info.call_path.length).toBeGreaterThan(0);
+    });
+
+    it('synthesizes stack_trace when monitor exception has no traceback', function () {
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation();
+      const inv = state.peekInvestigationData();
+      inv!.exception = {
+        name: 'ValueError',
+        message: 'bad value',
+        traceback: '',
+        functionName: 'app.handler',
+      };
+      collector.processPotentialIncident('/api/x', 'GET', 500, 10, null, makeRequestData());
+      collector.collect();
+      const info = emitter.snapshots[0].exception_info[0];
+      expect(info.stack_trace).toBe('ValueError: bad value');
+    });
+
+    it('emits empty-field ExceptionInfo for latency incident with a call_path', function () {
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation();
+      const inv = state.peekInvestigationData();
+      inv!.callPath.push({ functionName: 'app.slow', callerFunctionName: null, durationNs: 9999 });
+      // Latency trigger (no exception) but call path is present.
+      collector.processPotentialIncident('/api/slow', 'GET', 200, 6000, null, makeRequestData());
+      collector.collect();
+      const info = emitter.snapshots[0].exception_info[0];
+      expect(info.exception_type).toBe('');
+      expect(info.exception_message).toBe('');
+      expect(info.stack_trace).toBe('');
+      expect(info.call_path[0].function_name).toBe('app.slow');
+    });
+
+    it('emits no ExceptionInfo for latency incident with no investigation data', function () {
+      collector.processPotentialIncident('/api/slow', 'GET', 200, 6000, null, makeRequestData());
+      collector.collect();
+      expect(emitter.snapshots[0].exception_info).toEqual([]);
+    });
+  });
+
+  describe('buildCallPath function registry enrichment', function () {
+    afterEach(function () {
+      clearFunctionRegistry();
+    });
+
+    it('annotates is_async and function_at_line from the function registry', function () {
+      // Register a composite function name with async + line metadata.
+      const composite = calculateFunctionName('handler', '/app/routes.js', 42, true);
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation();
+      state.recordCallPathEntry(composite, null, 1000);
+      collector.processPotentialIncident('/api/x', 'POST', 500, 50, new Error('boom'), makeRequestData());
+      collector.collect();
+      const cp = emitter.snapshots[0].exception_info[0].call_path[0];
+      expect(cp.is_async).toBe(true);
+      expect(cp.function_at_line).toBe(42);
+    });
+  });
+
+  describe('custom context and correlation extraction', function () {
+    // The full suite registers a global tracer provider, so trace.getActiveSpan()
+    // may return a live span and short-circuit the header-fallback paths under
+    // test. Stub it to undefined so the header-extraction branches are exercised
+    // deterministically regardless of test ordering.
+    beforeEach(function () {
+      sinon.stub(trace, 'getActiveSpan').returns(undefined);
+    });
+
+    afterEach(function () {
+      sinon.restore();
+    });
+
+    it('extracts user_id into custom_context when present in args', function () {
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        makeRequestData({ args: { user_id: 'u-123' } })
+      );
+      collector.collect();
+      expect(emitter.snapshots[0].request_context.custom_context).toEqual({ user_id: 'u-123' });
+    });
+
+    it('extracts trace_id and span_id from traceparent header', function () {
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        makeRequestData({
+          headers: { traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' },
+        })
+      );
+      collector.collect();
+      const corr = emitter.snapshots[0].telemetry_correlation;
+      expect(corr.trace_id).toBe('0af7651916cd43dd8448eb211c80319c');
+      expect(corr.span_id).toBe('b7ad6b7169203331');
+    });
+
     it('falls back to X-Amzn-Trace-Id header for trace_id', function () {
       collector.processPotentialIncident(
         '/api/x',

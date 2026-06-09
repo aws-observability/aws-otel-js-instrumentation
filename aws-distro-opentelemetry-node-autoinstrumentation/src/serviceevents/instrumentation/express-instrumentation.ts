@@ -146,7 +146,57 @@ export function installExpressHooks(
 /**
  * Shared finish processing — called from patched res.end() for ALL frameworks.
  */
+/**
+ * Per-request investigation teardown: get-and-clear the ALS investigation data
+ * (which also decrements the process-global _investigationActiveCount) and clear
+ * the current operation. Guarded so it runs at most once per request no matter how
+ * many paths reach it (framework finish, the global res.end patch, or a
+ * connection-close/abort handler that never reached res.end()). Without the
+ * once-guard + abort handler, aborted/hung connections would never decrement and
+ * the active count would leak upward, permanently forcing the expensive
+ * investigation branch in the monitor hot path.
+ *
+ * Exported so the Fastify/Koa/Next.js finish hooks can own teardown themselves.
+ * Those hooks read the investigation call-path (peekInvestigationData) when they
+ * build incident snapshots, and for Fastify/Next.js they fire AFTER res.end() (this
+ * module's global patch). If the global patch tore the investigation down, the
+ * framework hook would peek an already-cleared ALS and emit empty call_paths — so
+ * teardown must wait until the recorder is done. See _processFinish's claimed branch.
+ */
+export function endInvestigationOnce(req: any): void {
+  if (!req || req.__serviceeventsInvestigationEnded) {
+    return;
+  }
+  req.__serviceeventsInvestigationEnded = true;
+  try {
+    ServiceEventsMonitorState.getInstance().getInvestigationData();
+  } catch (err) {
+    // Best-effort — never block the response. Trace it so an ALS/state corruption
+    // root cause isn't silently masked.
+    diag.debug('ServiceEvents: investigation teardown failed', err);
+  }
+  clearCurrentOperation();
+}
+
 function _processFinish(req: any, res: any, startTime: number) {
+  // A framework-specific hook (Fastify/Koa/Next.js) records endpoint metrics and
+  // incident snapshots from its own response hook and sets __serviceeventsRequestEnded.
+  // This global res.end patch fires for those frameworks too, so without this guard
+  // every request would be counted twice (inflated request/fault counts, latency
+  // histograms, and duplicate incident snapshots). Whichever path runs first records
+  // the request; the other observes the flag and skips. Express has no such hook, so
+  // for Express this patch is the sole recorder.
+  //
+  // Do NOT tear the investigation down here. For Fastify and Next.js the framework
+  // finish hook fires AFTER res.end() (i.e. after this patch), and it reads the ALS
+  // investigation call-path (peekInvestigationData) to build incident snapshots.
+  // Clearing it here would strip that call-path, yielding empty call_paths in
+  // Fastify/Next.js incident snapshots. The framework hook owns teardown once it has
+  // recorded (via endInvestigationOnce); the res.on('close') backstop still guarantees
+  // the active-count decrement if no finish hook ever runs (client abort, reply hijack).
+  if (req.__serviceeventsRequestEnded) {
+    return;
+  }
   try {
     const durationMs = performance.now() - startTime;
     const durationNs = durationMs * 1_000_000;
@@ -182,9 +232,8 @@ function _processFinish(req: any, res: any, startTime: number) {
       }
     }
   } finally {
-    // End investigation and clear operation context
-    ServiceEventsMonitorState.getInstance().getInvestigationData();
-    clearCurrentOperation();
+    // End investigation and clear operation context (idempotent per request).
+    endInvestigationOnce(req);
   }
 }
 
@@ -222,6 +271,7 @@ export function installGlobalHttpPatches(): void {
     http.Server.prototype.emit = function (this: any, event: string, ...args: any[]) {
       if (event === 'request') {
         const req = args[0];
+        const res = args[1];
         if (req && !req.__serviceeventsStartTime) {
           req.__serviceeventsStartTime = performance.now();
           // Stamp the ALS with the raw URL path on arrival; framework middleware
@@ -232,6 +282,14 @@ export function installGlobalHttpPatches(): void {
           setCurrentOperation(qIdx >= 0 ? url.substring(0, qIdx) : url);
           // Begin investigation tracking so exceptions and call paths are recorded
           ServiceEventsMonitorState.getInstance().beginInvestigation();
+          // Guarantee the matching investigation teardown (active-count decrement)
+          // even when the response never reaches res.end() — e.g. client abort or
+          // socket hangup. Without this, _investigationActiveCount leaks upward and
+          // permanently forces the expensive investigation branch on every call.
+          // endInvestigationOnce is idempotent, so the normal finish path is safe.
+          if (res && typeof res.on === 'function') {
+            res.on('close', () => endInvestigationOnce(req));
+          }
         }
       }
       return _origServerEmit.apply(this, [event, ...args]);

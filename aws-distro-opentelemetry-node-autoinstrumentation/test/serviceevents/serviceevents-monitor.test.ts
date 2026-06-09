@@ -14,6 +14,7 @@ import {
   getCurrentOperation,
   clearCurrentOperation,
   registerMonitorGlobals,
+  unregisterMonitorGlobals,
   resetMonitorState,
   markOperationHot,
   tickHotOperations,
@@ -456,6 +457,39 @@ describe('ServiceEventsMonitor', function () {
       expect((globalThis as any).__serviceeventsMonitorEnter).toBe(__serviceeventsMonitorEnter);
       expect((globalThis as any).__serviceeventsMonitorExit).toBe(__serviceeventsMonitorExit);
       expect((globalThis as any).__serviceeventsMonitorException).toBe(__serviceeventsMonitorException);
+    });
+  });
+
+  describe('unregisterMonitorGlobals()', function () {
+    afterEach(function () {
+      // Restore enabled state for subsequent tests (resetMonitorState also does this).
+      resetMonitorState();
+    });
+
+    it('should delete the monitor functions from globalThis', function () {
+      registerMonitorGlobals();
+      unregisterMonitorGlobals();
+      expect((globalThis as any).__serviceeventsMonitorEnter).toBeUndefined();
+      expect((globalThis as any).__serviceeventsMonitorExit).toBeUndefined();
+      expect((globalThis as any).__serviceeventsMonitorException).toBeUndefined();
+    });
+
+    it('makes __serviceeventsMonitorEnter a no-op so post-shutdown calls stop aggregating', function () {
+      registerMonitorGlobals();
+      // Active: Enter returns a context and records a call.
+      const ctxBefore = __serviceeventsMonitorEnter('svc.fn');
+      expect(ctxBefore).not.toBe(null);
+      __serviceeventsMonitorExit(ctxBefore);
+
+      unregisterMonitorGlobals();
+
+      // After unregister: Enter is a no-op (null), so transformed code that still
+      // holds a captured reference can no longer grow aggregation state.
+      const ctxAfter = __serviceeventsMonitorEnter('svc.fn');
+      expect(ctxAfter).toBe(null);
+      // Exit/Exception tolerate the null context without throwing.
+      expect(() => __serviceeventsMonitorExit(ctxAfter)).not.toThrow();
+      expect(() => __serviceeventsMonitorException(ctxAfter, new Error('x'))).not.toThrow();
     });
   });
 

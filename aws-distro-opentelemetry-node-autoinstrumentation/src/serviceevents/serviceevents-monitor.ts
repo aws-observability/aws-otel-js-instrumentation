@@ -266,6 +266,28 @@ const investigationStorage = new AsyncLocalStorage<InvestigationData | null>();
  */
 let _investigationActiveCount = 0;
 
+/**
+ * Whether the monitor globals are active. AST-transformed user code captures
+ * `globalThis.__serviceeventsMonitorEnter/Exit/Exception` at module load and keeps
+ * calling them for the process lifetime — deleting the globals on shutdown cannot
+ * reach those captured references. Instead the hot-path functions check this flag
+ * and become no-ops once `unregisterMonitorGlobals()` runs, so post-shutdown calls
+ * stop mutating aggregation state (which no collector is draining anymore) and
+ * memory does not grow unbounded.
+ *
+ * Defaults to true so the monitor functions are active whenever they're called
+ * (including direct unit-test invocation); only `unregisterMonitorGlobals()` (called
+ * from instrumentation shutdown) flips it false.
+ *
+ * Concurrency: this is a plain module-level flag read on the hot path and written
+ * once at shutdown. That is safe because Node.js runs JS single-threaded — there is
+ * no torn read/write. A worker thread that loaded this module would get its OWN
+ * module instance (and its own flag), so there is no shared mutable across threads
+ * either. The "worker threads" note on resetMonitorState refers to resetting that
+ * per-thread instance, not to sharing this flag.
+ */
+let _monitorEnabled = true;
+
 // ============================================================================
 // Operation (Per-Request) Functions
 // ============================================================================
@@ -726,6 +748,13 @@ for (let i = 0; i < _POOL_SIZE; i++) {
  * ```
  */
 export function __serviceeventsMonitorEnter(functionName: string): MonitorContext | null {
+  // No-op once the monitor has been shut down. Transformed code holds captured
+  // references to this global, so this guard (not global deletion) is what stops
+  // post-shutdown aggregation growth.
+  if (!_monitorEnabled) {
+    return null;
+  }
+
   // 1. Increment call counter (always, even when detached — for rate detection)
   const callCount = (_callCounts[functionName] = (_callCounts[functionName] || 0) + 1);
 
@@ -802,6 +831,10 @@ export function __serviceeventsMonitorEnter(functionName: string): MonitorContex
  * investigation.exception.functionName for IncidentSnapshot.call_path.
  */
 export function __serviceeventsMonitorException(ctx: MonitorContext | null, err: unknown): void {
+  // No-op after shutdown. A request in-flight when unregisterMonitorGlobals() ran
+  // still holds a non-null ctx; without this guard it would keep mutating
+  // aggregation state that no collector will drain.
+  if (!_monitorEnabled) return;
   if (!ctx) return;
 
   const name = err instanceof Error ? err.constructor.name || err.name || 'Error' : 'Error';
@@ -836,6 +869,10 @@ export function __serviceeventsMonitorException(ctx: MonitorContext | null, err:
  * - Returns context to pool (no GC)
  */
 export function __serviceeventsMonitorExit(ctx: MonitorContext | null): void {
+  // No-op after shutdown. A request in-flight when unregisterMonitorGlobals() ran
+  // still holds a non-null ctx; without this guard it would keep popping the stack
+  // and mutating aggregation state that no collector will drain.
+  if (!_monitorEnabled) return;
   if (!ctx) return; // Detached mode — no-op
   // Pop from global stack (no ALS lookup) on every call since every call pushed.
   _globalStackIdx--;
@@ -906,9 +943,26 @@ export function __serviceeventsMonitorExit(ctx: MonitorContext | null): void {
  * Must be called before any transformed user code runs.
  */
 export function registerMonitorGlobals(): void {
+  _monitorEnabled = true;
   (globalThis as any).__serviceeventsMonitorEnter = __serviceeventsMonitorEnter;
   (globalThis as any).__serviceeventsMonitorExit = __serviceeventsMonitorExit;
   (globalThis as any).__serviceeventsMonitorException = __serviceeventsMonitorException;
+}
+
+/**
+ * Disable the monitor hot path on shutdown. AST-transformed code keeps its captured
+ * references to the global functions, so we flip `_monitorEnabled` (making Enter a
+ * no-op that returns null, which in turn neutralizes Exit/Exception) rather than
+ * relying on deleting the globals. We also delete the globals for cleanliness and so
+ * a fresh require()'d module isn't mistaken for an active monitor. Without this,
+ * post-shutdown calls keep filling aggregation state that no collector drains,
+ * growing memory unbounded and leaking state across tests.
+ */
+export function unregisterMonitorGlobals(): void {
+  _monitorEnabled = false;
+  delete (globalThis as any).__serviceeventsMonitorEnter;
+  delete (globalThis as any).__serviceeventsMonitorExit;
+  delete (globalThis as any).__serviceeventsMonitorException;
 }
 
 // ============================================================================
@@ -920,6 +974,8 @@ export function registerMonitorGlobals(): void {
  */
 export function resetMonitorState(): void {
   _samplingMode = 'auto';
+  // Fresh state is enabled (matches module-load default); only shutdown disables.
+  _monitorEnabled = true;
   // Clear call counters
   for (const key of Object.keys(_callCounts)) {
     delete _callCounts[key];

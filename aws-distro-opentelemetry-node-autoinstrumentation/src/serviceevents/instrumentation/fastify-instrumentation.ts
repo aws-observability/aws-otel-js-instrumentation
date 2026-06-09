@@ -11,10 +11,11 @@
  */
 
 import { diag } from '@opentelemetry/api';
-import { setCurrentOperation, clearCurrentOperation, ServiceEventsMonitorState } from '../serviceevents-monitor';
+import { setCurrentOperation, ServiceEventsMonitorState } from '../serviceevents-monitor';
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
+import { endInvestigationOnce } from './express-instrumentation';
 
 // Global references to collectors
 let _endpointCollector: EndpointMetricCollector | null = null;
@@ -114,12 +115,20 @@ export function installFastifyHooks(
     (wrappedFastify as any)[key] = originalFastify[key];
   });
 
+  // Fastify exposes itself three ways: `module.exports`, `module.exports.default`,
+  // and the named `module.exports.fastify`. The Object.keys copy above carried the
+  // original (unwrapped) `fastify` reference onto the wrapper, so point both the
+  // `default` and `fastify` properties at the wrapper. Without the `fastify` override,
+  // `const { fastify } = require('fastify')` would resolve to the unwrapped factory
+  // and never get instrumented.
+  (wrappedFastify as any).default = wrappedFastify;
+  (wrappedFastify as any).fastify = wrappedFastify;
+
   // Replace in module cache
   try {
     const fastifyPath = resolveFromApp('fastify');
     if (require.cache[fastifyPath]) {
       require.cache[fastifyPath]!.exports = wrappedFastify;
-      require.cache[fastifyPath]!.exports.default = wrappedFastify;
     }
   } catch (err) {
     diag.warn(`Could not patch Fastify module cache: ${err}`);
@@ -143,7 +152,14 @@ export function installFastifyLifecycleHooks(instance: any): void {
   instance.addHook('onRequest', (request: any, reply: any, done: any) => {
     const startTime = performance.now();
     request.__serviceeventsStartTime = startTime;
-    if (request.raw) request.raw.__serviceeventsStartTime = startTime;
+    if (request.raw) {
+      request.raw.__serviceeventsStartTime = startTime;
+      // Claim this request so the global http.ServerResponse.prototype.end patch
+      // (_processFinish) does NOT also record it — Fastify's onResponse hook below
+      // is the recorder for Fastify requests. onRequest fires before res.end, so the
+      // claim is set before the global patch runs, preventing double-counting.
+      request.raw.__serviceeventsRequestEnded = true;
+    }
     const url = request.url || '/';
     const qIdx = url.indexOf('?');
     setCurrentOperation(qIdx >= 0 ? url.substring(0, qIdx) : url);
@@ -206,7 +222,12 @@ export function installFastifyLifecycleHooks(instance: any): void {
         }
       }
     } finally {
-      clearCurrentOperation();
+      // This hook fires AFTER res.end() (the global _processFinish patch), so it owns
+      // investigation teardown: the snapshot above peeked the ALS call-path, and now we
+      // get-and-clear it (decrementing the active count). Keyed on request.raw — the
+      // same Node IncomingMessage the global patch and the res.on('close') abort
+      // backstop use — so the once-guard dedups across all three. Idempotent.
+      endInvestigationOnce(request.raw ?? request);
     }
     done();
   });

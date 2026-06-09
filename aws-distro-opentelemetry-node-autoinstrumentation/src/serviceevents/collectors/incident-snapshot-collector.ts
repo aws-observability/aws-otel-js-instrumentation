@@ -157,7 +157,6 @@ export class IncidentSnapshotCollector extends BaseCollector {
       diag.debug(`Incident snapshot batch-deduplicated (hash: ${errorHash})`);
       return null;
     }
-    this._currentBatchHashes.add(errorHash);
 
     // Check period-level deduplication (limits same error over period_minutes)
     if (!this.checkDeduplication(errorHash)) {
@@ -171,6 +170,13 @@ export class IncidentSnapshotCollector extends BaseCollector {
       diag.debug('Incident snapshot rate limit exceeded, skipping');
       return null;
     }
+
+    // Mark this error hash for the current batch only AFTER all gates pass and a
+    // snapshot is actually produced below. Adding it before the rate-limit/period
+    // checks would poison the batch set: a rate-limited request would suppress
+    // every subsequent (otherwise-allowed) snapshot of the same error for the rest
+    // of the collection interval.
+    this._currentBatchHashes.add(errorHash);
 
     // Collect incident snapshot data
     try {
@@ -365,8 +371,11 @@ export class IncidentSnapshotCollector extends BaseCollector {
     const severity = this.determineSeverity(statusCode, triggerType);
     const instanceId = this.resourceAttributes?.host_id || getInstanceId();
 
-    // Collect exception info with call path
-    const invData = this._monitorState.getInvestigationData();
+    // Collect exception info with call path. Peek (non-mutating) — the per-request
+    // get-and-clear (which also decrements _investigationActiveCount) is owned by the
+    // framework finish path. Clearing here would double-decrement the active count and
+    // strip the ALS data from any concurrent request still being investigated.
+    const invData = this._monitorState.peekInvestigationData();
     const exceptionInfo = this.collectExceptionInfo(exception, invData);
 
     // Detect is_partial: call_path has no timing data
@@ -519,19 +528,33 @@ export class IncidentSnapshotCollector extends BaseCollector {
       // Ignore
     }
 
-    // Fallback to headers
+    // Fallback to headers. Node's HTTP layer normally lowercases inbound header
+    // names, but we don't rely on that being guaranteed for every caller — header
+    // lookups below accept the canonical casing too.
     const headers = requestData.headers ?? {};
     const traceparent = headers.traceparent;
     if (traceparent) {
+      // W3C traceparent: version-traceid-spanid-flags. The spec mandates lowercase
+      // hex; validate the trace-id is a 32-hex, non-all-zero value before using it
+      // (an all-zero id is invalid and is explicitly rejected on the OTel-span path
+      // above). Match lowercase only — an uppercase id would be non-conformant and
+      // would not compare equal to OTel span-context trace ids, which are lowercase.
       const parts = traceparent.split('-');
-      if (parts.length >= 2) {
+      if (parts.length >= 2 && /^[0-9a-f]{32}$/.test(parts[1]) && parts[1] !== '00000000000000000000000000000000') {
         return parts[1];
       }
     }
 
     const xrayTrace = headers['X-Amzn-Trace-Id'] ?? headers['x-amzn-trace-id'];
     if (xrayTrace) {
-      return xrayTrace;
+      // X-Ray header is `Root=1-<8 hex>-<24 hex>;Parent=...;Sampled=...`. Return the
+      // parsed Root trace id, never the raw header string — a malformed header with
+      // no valid Root segment yields an unparseable id that cannot correlate
+      // downstream, so fall through to the other header schemes instead.
+      const rootMatch = /Root=(1-[0-9a-f]{8}-[0-9a-f]{24})\b/.exec(xrayTrace);
+      if (rootMatch) {
+        return rootMatch[1];
+      }
     }
 
     const ddTraceId = headers['x-datadog-trace-id'];

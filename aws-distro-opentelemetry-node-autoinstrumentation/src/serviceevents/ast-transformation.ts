@@ -497,6 +497,29 @@ export function transformSource(code: string, filePath: string): string {
           exprEnd: bodyNode.end,
         });
       } else if (bodyNode?.type === 'BlockStatement') {
+        // Preserve a directive prologue (e.g. "use strict"). Injecting the
+        // instrumentation preamble at `{`+1 would push a leading directive out
+        // of prologue position, silently demoting it to a no-op string
+        // expression and disabling strict mode for the function. Advance
+        // innerStart past any leading directive statements so the preamble is
+        // inserted after them, keeping the prologue intact.
+        let innerStart = bodyNode.start + 1;
+        const stmts = bodyNode.body;
+        if (Array.isArray(stmts)) {
+          for (const stmt of stmts) {
+            // acorn always sets `.directive` (the directive's string value) on
+            // directive-prologue statements, so that property alone identifies a
+            // directive. Relying on it avoids false positives from an arbitrary
+            // leading string-literal expression statement (a no-op like `"hello";`),
+            // which is not a directive and should not advance innerStart.
+            const isDirective = stmt?.type === 'ExpressionStatement' && typeof stmt.directive === 'string';
+            if (isDirective && typeof stmt.end === 'number') {
+              innerStart = stmt.end;
+            } else {
+              break;
+            }
+          }
+        }
         functions.push({
           name,
           line,
@@ -505,7 +528,7 @@ export function transformSource(code: string, filePath: string): string {
           isAsync,
           functionName: composite,
           isExpressionBody: false,
-          innerStart: bodyNode.start + 1,
+          innerStart,
           innerEnd: bodyNode.end - 1,
         });
       }

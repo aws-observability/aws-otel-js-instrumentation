@@ -69,4 +69,39 @@ describe('AST transform output validity (arrow expression bodies)', function () 
     // Unparseable input → returned unchanged (no preamble injected).
     expect(out).toBe(bad);
   });
+
+  describe('directive prologue ("use strict") preservation', function () {
+    it('keeps a function-level "use strict" in directive position after instrumentation', function () {
+      const out = transformSource('function f() {\n  "use strict";\n  return 1;\n}', FILE);
+      // Instrumentation ran...
+      expect(out).toContain('__tEnter');
+      // ...and the injected preamble (var __tCtx;...) was inserted AFTER the directive,
+      // so "use strict" remains the first statement of the function body (directive
+      // prologue intact). If it had been demoted, the preamble would precede it
+      // (e.g. `{var __tCtx;...try{ "use strict";`).
+      expect(out).toContain('"use strict";var __tCtx');
+      expect(out).not.toMatch(/var __tCtx;[^]*?"use strict"/);
+      expect(parses(out)).toBe(true);
+    });
+
+    it('preserves strict-mode runtime semantics (implicit global still throws)', function () {
+      // A strict-mode function that assigns to an undeclared variable must throw
+      // ReferenceError. If instrumentation demoted "use strict" to a no-op, the
+      // assignment would silently create a global and NOT throw.
+      const out = transformSource('function f() {\n  "use strict";\n  undeclared = 1;\n  return undeclared;\n}', FILE);
+      // Evaluate the transformed function in isolation with no-op monitor globals.
+      const factory = new Function('globalThis', `${out}\n;return f;`);
+      // Provide explicit stub monitor globals rather than relying on the preamble's
+      // `|| function(){}` fallback. This keeps the test pinned to the strict-mode
+      // assertion (the ReferenceError must come from the demotion check, not from a
+      // missing-global TypeError) and stays robust if the preamble pattern changes.
+      const g: any = {
+        __serviceeventsMonitorEnter: () => null,
+        __serviceeventsMonitorExit: () => undefined,
+        __serviceeventsMonitorException: () => undefined,
+      };
+      const f = factory(g);
+      expect(() => f()).toThrow(ReferenceError);
+    });
+  });
 });

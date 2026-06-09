@@ -17,6 +17,7 @@ import {
   setSamplingThresholds,
   setDetachThreshold,
   registerMonitorGlobals,
+  unregisterMonitorGlobals,
 } from './serviceevents-monitor';
 import {
   installAstHooks,
@@ -297,6 +298,14 @@ export class ServiceEventsInstrumentation {
         uninstallAstHooks();
       } catch (err) {
         diag.error(`Error uninstalling AST hooks: ${err}`);
+      }
+      // Disable the monitor hot path. Code transformed before shutdown holds captured
+      // references to the global monitor functions, so flip the internal enabled flag
+      // (and drop the globals) to stop post-shutdown aggregation growth.
+      try {
+        unregisterMonitorGlobals();
+      } catch (err) {
+        diag.error(`Error unregistering monitor globals: ${err}`);
       }
       for (const collector of this.collectors) {
         try {

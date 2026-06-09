@@ -75,7 +75,7 @@ describe('ServiceEventsConfig', function () {
       expect(config.instrumentNextJs).toBe(true);
       expect(config.endpointIncludePatterns).toEqual([]);
       expect(config.endpointExcludePatterns).toEqual([]);
-      expect(config.functionInstrumentEnabled).toBe(false);
+      expect(config.functionInstrumentEnabled).toBe(true);
       // No implicit default scope: empty packagesInclude means no functions instrumented.
       // The non-configurable SDK_SELF_EXCLUDE (in ast-transformation.ts) is the only built-in filter.
       expect(config.packagesExclude).toEqual([]);
@@ -221,8 +221,7 @@ describe('ServiceEventsConfig', function () {
       expect(config.incidentSnapshotMaxPerMinute).toBe(10);
       expect(config.incidentSnapshotDurationThresholdMs).toBe(1000);
       expect(config.incidentSnapshotMaxSameError).toBe(5);
-      // Request-body capture is hardcoded off (env var no longer read), even
-      // though it would otherwise be a customer opt-in.
+      // FUNCTION_INSTRUMENT_ENABLED=false above overrides the (now true) default.
       expect(config.functionInstrumentEnabled).toBe(false);
       expect(config.samplingMode).toBe('always');
     });

@@ -171,7 +171,7 @@ const DEFAULTS: ServiceEventsConfig = {
   instrumentNextJs: true,
   endpointIncludePatterns: [],
   endpointExcludePatterns: [],
-  functionInstrumentEnabled: false,
+  functionInstrumentEnabled: true,
   // Empty by default: there is no implicit default scope. Empty packagesInclude
   // means "no functions instrumented unless PACKAGES_INCLUDE is set". The
   // non-configurable SDK_SELF_EXCLUDE (in ast-transformation.ts) is the only

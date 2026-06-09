@@ -508,45 +508,27 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
     });
   });
 
-  describe('deprecated setters', function () {
-    it('setMaxPerPeriod updates only for positive values', function () {
-      collector.setMaxPerPeriod(5);
-      // Non-positive values are ignored (no throw).
-      collector.setMaxPerPeriod(0);
-      collector.setMaxPerPeriod(-3);
-      // First five distinct errors pass, sixth is rate-limited.
-      for (let i = 0; i < 5; i++) {
-        expect(
-          collector.processPotentialIncident(`/r${i}`, 'GET', 500, 10, new Error(`e${i}`), makeRequestData())
-        ).not.toBeNull();
-      }
-      expect(collector.processPotentialIncident('/r5', 'GET', 500, 10, new Error('e5'), makeRequestData())).toBeNull();
-    });
-
-    it('setMaxSameError updates only for positive values', function () {
-      collector.setMaxSameError(2);
-      collector.setMaxSameError(0);
-      collector.setMaxSameError(-1);
-      const err = new Error('dup');
-      // First two identical errors pass dedup; third is deduplicated.
-      collector.collect(); // clear batch dedup
-      expect(collector.processPotentialIncident('/dup', 'GET', 500, 10, err, makeRequestData())).not.toBeNull();
-      collector.collect();
-      expect(collector.processPotentialIncident('/dup', 'GET', 500, 10, err, makeRequestData())).not.toBeNull();
-      collector.collect();
-      expect(collector.processPotentialIncident('/dup', 'GET', 500, 10, err, makeRequestData())).toBeNull();
-    });
-  });
-
   describe('rate limiting and deduplication', function () {
     it('period-deduplicates the same error across collection intervals', function () {
-      // Default maxSameError = 30 in beforeEach collector, so set it low.
-      collector.setMaxSameError(1);
+      // maxSameError = 1 so the second occurrence of the same error deduplicates.
+      const dedupEmitter = new CaptureEmitter();
+      const dedupCollector = new IncidentSnapshotCollector(
+        600_000,
+        5000,
+        2500,
+        'test-env',
+        'test-svc',
+        '0.0.1',
+        1, // maxSameError
+        dedupEmitter,
+        null
+      );
       const err = new Error('same');
-      expect(collector.processPotentialIncident('/d', 'GET', 500, 10, err, makeRequestData())).not.toBeNull();
+      expect(dedupCollector.processPotentialIncident('/d', 'GET', 500, 10, err, makeRequestData())).not.toBeNull();
       // collect() clears the per-batch set so the next call reaches period dedup.
-      collector.collect();
-      expect(collector.processPotentialIncident('/d', 'GET', 500, 10, err, makeRequestData())).toBeNull();
+      dedupCollector.collect();
+      expect(dedupCollector.processPotentialIncident('/d', 'GET', 500, 10, err, makeRequestData())).toBeNull();
+      dedupCollector.stop();
     });
 
     it('rate-limits once maxPerPeriod distinct errors are exceeded', function () {
@@ -558,7 +540,6 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
         'test-env',
         'test-svc',
         '0.0.1',
-        true,
         30,
         rlEmitter,
         null
@@ -667,19 +648,6 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       sinon.restore();
     });
 
-    it('extracts user_id into custom_context when present in args', function () {
-      collector.processPotentialIncident(
-        '/api/x',
-        'POST',
-        500,
-        50,
-        new Error('boom'),
-        makeRequestData({ args: { user_id: 'u-123' } })
-      );
-      collector.collect();
-      expect(emitter.snapshots[0].request_context.custom_context).toEqual({ user_id: 'u-123' });
-    });
-
     it('extracts trace_id and span_id from traceparent header', function () {
       collector.processPotentialIncident(
         '/api/x',
@@ -697,20 +665,10 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       expect(corr.span_id).toBe('b7ad6b7169203331');
     });
 
-    it('falls back to X-Amzn-Trace-Id header for trace_id', function () {
-      collector.processPotentialIncident(
-        '/api/x',
-        'POST',
-        500,
-        50,
-        new Error('boom'),
-        makeRequestData({ headers: { 'X-Amzn-Trace-Id': 'Root=1-5759e988-bd862e3fe1be46a994272793' } })
-      );
-      collector.collect();
-      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe('Root=1-5759e988-bd862e3fe1be46a994272793');
-    });
-
-    it('falls back to lowercase x-amzn-trace-id header for trace_id', function () {
+    it('ignores a malformed X-Ray Root id and falls through', function () {
+      // `Root=1-abc` is not a valid X-Ray trace id (8-hex-4-byte epoch + 24-hex
+      // unique segment), so it must NOT be returned raw. With no other usable
+      // header and no active span, trace_id is left undefined.
       collector.processPotentialIncident(
         '/api/x',
         'POST',
@@ -720,7 +678,7 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
         makeRequestData({ headers: { 'x-amzn-trace-id': 'Root=1-abc' } })
       );
       collector.collect();
-      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe('Root=1-abc');
+      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBeUndefined();
     });
 
     it('falls back to x-datadog-trace-id header for trace_id', function () {

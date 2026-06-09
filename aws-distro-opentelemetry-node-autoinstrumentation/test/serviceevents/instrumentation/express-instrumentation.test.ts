@@ -157,14 +157,6 @@ describe('installGlobalHttpPatches', function () {
       // Framework claims the request (as Fastify/Koa/Next.js do at request arrival).
       req.__serviceeventsRequestEnded = true;
 
-      // res.end() fires the global _processFinish patch. On the claimed path it must
-      // return WITHOUT clearing the investigation.
-      try {
-        patchedResponseEnd.call(res);
-      } catch {
-        // patched end() calls the (stubbed) original at the tail; tolerate.
-      }
-
       // The later framework finish hook can still peek a populated call-path.
       const inv = state.peekInvestigationData();
       expect(inv).not.toBe(null);

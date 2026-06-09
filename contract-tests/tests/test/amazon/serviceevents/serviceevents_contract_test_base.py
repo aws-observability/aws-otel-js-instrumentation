@@ -541,7 +541,7 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
     def test_function_duration_has_operation_attribute(self) -> None:
         """At least one data point should carry the operation attribute."""
         self.send_request("GET", "success")
-        data_points = self.wait_for_function_duration_data_points()
+        data_points = self.wait_for_function_duration_metric()
         has_operation = any("operation" in self.dp_attrs(dp) for dp in data_points)
         self.assertTrue(has_operation, "Expected at least one data point with 'operation' attribute")
 

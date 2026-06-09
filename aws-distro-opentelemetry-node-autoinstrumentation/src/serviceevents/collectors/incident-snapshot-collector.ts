@@ -124,28 +124,6 @@ export class IncidentSnapshotCollector extends BaseCollector {
   }
 
   /**
-   * Update the max incidents per (now fixed 60s) window.
-   * @deprecated No longer dynamically configurable — collectors are configured
-   * once at startup from static env config. Retained as an unused public setter.
-   */
-  setMaxPerPeriod(n: number): void {
-    if (n > 0) {
-      this.maxPerPeriod = n;
-    }
-  }
-
-  /**
-   * Update the max same error dedup limit.
-   * @deprecated No longer dynamically configurable — collectors are configured
-   * once at startup from static env config. Retained as an unused public setter.
-   */
-  setMaxSameError(n: number): void {
-    if (n > 0) {
-      this._maxSameError = n;
-    }
-  }
-
-  /**
    * Process a potential incident snapshot trigger.
    *
    * @returns IncidentExemplar if a snapshot was created, null otherwise.

@@ -37,17 +37,7 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
   beforeEach(function () {
     resetMonitorState();
     emitter = new CaptureEmitter();
-    collector = new IncidentSnapshotCollector(
-      600_000,
-      5000,
-      2500,
-      'test-env',
-      'test-svc',
-      '0.0.1',
-      30,
-      emitter,
-      null
-    );
+    collector = new IncidentSnapshotCollector(600_000, 5000, 2500, 'test-env', 'test-svc', '0.0.1', 30, emitter, null);
   });
 
   afterEach(function () {

@@ -691,6 +691,44 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
             _sum_for_route("/fault", "aws.service_events.request.errors"), 0, "/fault should have errors == 0"
         )
 
+    def test_incident_snapshot_latency_trigger(self) -> None:
+        """/slow busy-waits ~6s (> the 5000ms default threshold) and returns 200 with
+        NO exception, so the only thing that can produce an incident snapshot is the
+        latency trigger. This is the sole end-to-end exercise of trigger_type="latency"
+        (the framework hook → collector duration plumbing); the collector's latency
+        branch is unit-tested, but the wiring through a real request was uncovered.
+        """
+        self.assertEqual(200, self.send_request("GET", "slow").status_code)
+        records = self.wait_for_log_records("aws.service_events.incident_snapshot")
+        rec = next(
+            (r for r in records if self.log_attrs(r).get("url.route") == "/slow"),
+            None,
+        )
+        self.assertIsNotNone(rec, "No IncidentSnapshot for /slow")
+        attrs = self.log_attrs(rec)
+        self.assertEqual(attrs.get("aws.service_events.trigger_type"), "latency")
+        self.assertEqual(attrs.get("http.response.status_code"), 200)
+        # duration_ms must reflect the slow request (> the 5000ms default threshold).
+        self.assertGreater(attrs.get("aws.service_events.duration_ms", 0), 5000)
+
+    def test_incident_snapshot_post_method(self) -> None:
+        """POST /data with {forceError:true} throws from the handler, producing an
+        incident snapshot. Verifies the non-GET method is captured on the snapshot —
+        every other incident test drives GET routes."""
+        self.assertEqual(
+            500,
+            self.send_request("POST", "data", json={"forceError": True}).status_code,
+        )
+        records = self.wait_for_log_records("aws.service_events.incident_snapshot")
+        rec = next(
+            (r for r in records if self.log_attrs(r).get("url.route") == "/data"),
+            None,
+        )
+        self.assertIsNotNone(rec, "No IncidentSnapshot for POST /data")
+        attrs = self.log_attrs(rec)
+        self.assertEqual(attrs.get("http.request.method"), "POST")
+        self.assertEqual(attrs.get("aws.service_events.trigger_type"), "exception")
+
     def test_incident_call_path_entries_have_timing_and_line(self) -> None:
         """Spec §5 call_path entries include `duration_ns` (numeric) and
         `function_at_line` (numeric) when is_partial==false. /exception throws

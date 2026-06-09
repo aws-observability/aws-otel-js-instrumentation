@@ -53,6 +53,38 @@ class ExpressEndpointFilterTest(ServiceEventsTestInfrastructure):
         self.assertNotIn("/success", routes)
 
 
+class ExpressEndpointIncludeTest(ServiceEventsTestInfrastructure):
+    """Inverse of ExpressEndpointFilterTest: when an INCLUDE allowlist is set,
+    ONLY matching endpoints are tracked. Covers ENDPOINT_INCLUDE_PATTERNS, which
+    had no coverage (only the EXCLUDE path was tested)."""
+
+    __test__ = True
+
+    @override
+    @staticmethod
+    def get_application_image_name() -> str:
+        return _APP_IMAGE
+
+    @override
+    def get_application_wait_pattern(self) -> str:
+        return "Ready"
+
+    @override
+    def get_application_extra_environment_variables(self) -> Dict[str, str]:
+        return {"OTEL_AWS_SERVICE_EVENTS_ENDPOINT_INCLUDE_PATTERNS": "GET /success"}
+
+    def test_endpoint_include_allowlist_tracks_only_matching(self) -> None:
+        for _ in range(3):
+            self.send_request("GET", "success")
+        for _ in range(2):
+            self.send_request("GET", "fault")
+        records = self.wait_for_log_records("aws.service_events.endpoint_summary")
+        routes = {self.log_attrs(r).get("url.route") for r in records}
+        # Only the allowlisted route produces an EndpointSummary; /fault is filtered out.
+        self.assertIn("/success", routes)
+        self.assertNotIn("/fault", routes)
+
+
 class ExpressIncidentCallPathTest(ServiceEventsTestInfrastructure):
     __test__ = True
 

@@ -13,34 +13,25 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat: add ServiceEvents deep observability instrumentation — endpoint, function-call,
+  deployment, and incident-snapshot telemetry with profiling support
+  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
+- fix: AWS SDK v3 span creation when using `@smithy/core` >= 3.24.0 (`@smithy/smithy-client` >= 4.13.0)
+  by backporting the upstream aws-sdk instrumentation fix via patch
+  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
 - Fix(lambda-layer): CompactConsoleLogRecordExporter output with CloudWatch OTLP backend schema.
   Field renames: `timestamp` → `timeUnixNano`, `observedTimestamp` → `observedTimeUnixNano`,
   `instrumentationScope` → `scope`, `traceFlags` → `flags`. Attribute values preserve native
   types.
   ([#392](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/392))
-  
-### Breaking Changes
-
-- refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.
+- (**Breaking Change**) refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.
   ([#446](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/446))
-
-### Enhancements
-
-- feat: add ServiceEvents deep observability instrumentation — endpoint, function-call,
-  deployment, and incident-snapshot telemetry with profiling support
-  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
-
 - feat: add Bedrock AgentCore data plane instrumentation
   ([#455](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/455))
-
-### Bug Fixes
-
-- fix: AWS SDK v3 span creation when using `@smithy/core` >= 3.24.0 (`@smithy/smithy-client` >= 4.13.0)
-  by backporting the upstream aws-sdk instrumentation fix via patch
-  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
-
 - suppress /ping endpoint instrumentation for HTTP libraries in AgentCore
   ([#453](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/453))
+- feat(agent-observability): remove LLO handler from OTLP span exporter
+  ([#464](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/464))
 
 ## v0.11.0 - 2026-04-30
 

@@ -192,9 +192,6 @@ export function installFastifyLifecycleHooks(instance: any): void {
       if (_incidentSnapshotCollector && (statusCode >= 400 || durationMs > incidentThreshold)) {
         const requestData: RequestData = {
           headers: request.headers ?? {},
-          args: request.query ?? {},
-          viewArgs: request.params ?? {},
-          cachedBody: request.body ?? null,
         };
         const exemplar = _incidentSnapshotCollector.processPotentialIncident(
           route,

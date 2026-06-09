@@ -47,9 +47,6 @@ const MAX_STACK_TRACE_CHARS = 8192;
 
 export interface RequestData {
   headers?: Record<string, string>;
-  args?: Record<string, string>;
-  viewArgs?: Record<string, string>;
-  cachedBody?: unknown;
   [key: string]: unknown;
 }
 
@@ -78,9 +75,6 @@ export class IncidentSnapshotCollector extends BaseCollector {
   private resourceAttributes: ResourceAttributes | null;
   private otlpEmitter: ServiceEventsOtlpEmitter | null;
 
-  // Request payload capture settings — opt-in per spec §5
-  private captureRequestBody: boolean;
-
   // Rate limiting
   private _snapshotTimestamps: number[] = [];
   private _maxSameError: number;
@@ -102,7 +96,6 @@ export class IncidentSnapshotCollector extends BaseCollector {
     environment?: string,
     serviceName?: string,
     sdkVersion: string = '0.0.0',
-    captureRequestBody: boolean = false,
     maxSameError: number = 1,
     otlpEmitter: ServiceEventsOtlpEmitter | null = null,
     resourceAttributes?: ResourceAttributes | null,
@@ -125,7 +118,6 @@ export class IncidentSnapshotCollector extends BaseCollector {
     this.resourceAttributes = resourceAttributes ?? null;
     this.otlpEmitter = otlpEmitter;
 
-    this.captureRequestBody = captureRequestBody;
     this._maxSameError = maxSameError;
 
     this._monitorState = ServiceEventsMonitorState.getInstance();
@@ -402,21 +394,14 @@ export class IncidentSnapshotCollector extends BaseCollector {
     // Detect is_partial: call_path has no timing data
     const isPartial = this.detectIsPartial(invData);
 
-    // Build request context — opt-in gated payload fields per spec §5.
-    // When the capture flag is OFF, emit only {type, timestamp, status_code}.
+    // Build request context. Request-payload capture (body/query/path/headers) is
+    // not emitted — only the non-PII envelope {type, timestamp, status_code}.
     const requestContext: RequestContext = {
       type: 'http',
       timestamp: Date.now(),
       status_code: statusCode,
       custom_context: {},
     };
-    if (this.captureRequestBody) {
-      requestContext.custom_context = this.extractCustomContext(requestData);
-      requestContext.request_body = requestData.cachedBody ?? null;
-      if (requestData.args) requestContext.query_params = requestData.args;
-      if (requestData.viewArgs) requestContext.path_params = requestData.viewArgs;
-      if (requestData.headers) requestContext.request_headers = requestData.headers;
-    }
 
     // Build telemetry correlation (trace_id + span_id + correlation_ids only)
     const telemetryCorrelation: TelemetryCorrelation = {
@@ -541,15 +526,6 @@ export class IncidentSnapshotCollector extends BaseCollector {
   }
 
   // --- Data sanitization ---
-
-  private extractCustomContext(requestData: RequestData): Record<string, string> {
-    const customContext: Record<string, string> = {};
-    const args = requestData.args ?? {};
-    if (args.user_id) {
-      customContext.user_id = String(args.user_id);
-    }
-    return customContext;
-  }
 
   private extractTraceId(requestData: RequestData): string | null {
     // Try OTel span first

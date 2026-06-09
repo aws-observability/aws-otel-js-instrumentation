@@ -36,21 +36,6 @@ function getRoutePattern(req: any): string {
 }
 
 /**
- * Safely extract request body from Express request.
- * Requires body-parser or express.json() middleware to be installed.
- */
-function getRequestBody(req: any): unknown {
-  try {
-    if (req.body !== undefined && req.body !== null) {
-      return req.body;
-    }
-  } catch {
-    // Ignore
-  }
-  return null;
-}
-
-/**
  * Extract error info from investigation data for error breakdown.
  */
 function extractErrorFromCallPath(exception: Error | null): { errorType: string; functionName: string } | undefined {
@@ -183,9 +168,6 @@ function _processFinish(req: any, res: any, startTime: number) {
     if (_incidentSnapshotCollector && (statusCode >= 400 || durationMs > incidentThreshold)) {
       const requestData: RequestData = {
         headers: req.headers ?? {},
-        args: req.query ?? {},
-        viewArgs: req.params ?? {},
-        cachedBody: getRequestBody(req),
       };
       const exemplar = _incidentSnapshotCollector.processPotentialIncident(
         route,

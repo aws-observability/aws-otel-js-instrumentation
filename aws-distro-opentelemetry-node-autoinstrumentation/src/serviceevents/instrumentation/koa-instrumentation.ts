@@ -180,9 +180,6 @@ export function installKoaMiddleware(app: any): void {
           if (_incidentSnapshotCollector && (statusCode >= 400 || durationMs > incidentThreshold)) {
             const requestData: RequestData = {
               headers: ctx.headers ?? {},
-              args: ctx.query ?? {},
-              viewArgs: ctx.params ?? {},
-              cachedBody: ctx.request?.body ?? null,
             };
             const exemplar = _incidentSnapshotCollector.processPotentialIncident(
               route,

@@ -69,7 +69,6 @@ describe('ServiceEventsConfig', function () {
       expect(config.incidentSnapshotDurationThresholdMs).toBe(5000);
       expect(config.incidentSnapshotMaxSameError).toBe(1);
       expect(config.latencyThresholds).toEqual([]);
-      expect(config.incidentSnapshotCaptureRequestBody).toBe(false);
       expect(config.instrumentExpress).toBe(true);
       expect(config.instrumentFastify).toBe(true);
       expect(config.instrumentKoa).toBe(true);
@@ -224,7 +223,6 @@ describe('ServiceEventsConfig', function () {
       expect(config.incidentSnapshotMaxSameError).toBe(5);
       // Request-body capture is hardcoded off (env var no longer read), even
       // though it would otherwise be a customer opt-in.
-      expect(config.incidentSnapshotCaptureRequestBody).toBe(false);
       expect(config.functionInstrumentEnabled).toBe(false);
       expect(config.samplingMode).toBe('always');
     });

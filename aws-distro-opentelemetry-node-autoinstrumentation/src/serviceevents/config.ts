@@ -99,11 +99,6 @@ export interface ServiceEventsConfig {
   // Format: "METHOD /route:threshold_ms,METHOD /route:threshold_ms,..."
   // Example: "POST /api/checkout:500,GET /api/health:50,GET /api/reports:5000"
   latencyThresholds: string[]; // OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS
-  // Incident Snapshot Request Payload Capture Settings.
-  // Hardcoded off — no longer a customer-facing opt-in (env var removed). The
-  // capture code path stays dormant; the field is kept so the collector gate
-  // and framework body-extraction hooks compile and remain reversible.
-  incidentSnapshotCaptureRequestBody: boolean;
   // Framework Toggles (JS-only). Internal — no env override; all default true.
   instrumentExpress: boolean;
   instrumentFastify: boolean;
@@ -170,7 +165,6 @@ const DEFAULTS: ServiceEventsConfig = {
   incidentSnapshotDurationThresholdMs: 5000,
   incidentSnapshotMaxSameError: 1,
   latencyThresholds: [],
-  incidentSnapshotCaptureRequestBody: false,
   instrumentExpress: true,
   instrumentFastify: true,
   instrumentKoa: true,
@@ -367,9 +361,6 @@ export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
       100_000
     ),
     latencyThresholds: getList('OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS', DEFAULTS.latencyThresholds),
-    // Hardcoded off — request-body capture is not a customer-facing opt-in. The
-    // capture code path stays dormant.
-    incidentSnapshotCaptureRequestBody: false,
     // Framework Toggles — internal (no env override); all default true.
     instrumentExpress: DEFAULTS.instrumentExpress,
     instrumentFastify: DEFAULTS.instrumentFastify,

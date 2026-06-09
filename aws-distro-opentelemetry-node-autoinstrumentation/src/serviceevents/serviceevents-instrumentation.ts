@@ -204,8 +204,6 @@ export class ServiceEventsInstrumentation {
         this.config.environment,
         this.config.serviceName,
         this.config.sdkVersion,
-        // Request-body capture is hardcoded off (no longer a customer opt-in).
-        false,
         this.config.incidentSnapshotMaxSameError,
         this.otlpEmitter,
         this.config.resourceAttributes,

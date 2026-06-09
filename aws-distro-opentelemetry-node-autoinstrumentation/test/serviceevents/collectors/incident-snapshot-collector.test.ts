@@ -26,9 +26,6 @@ class CaptureEmitter extends ServiceEventsOtlpEmitter {
 function makeRequestData(overrides?: Partial<RequestData>): RequestData {
   return {
     headers: { 'content-type': 'application/json' },
-    args: {},
-    viewArgs: {},
-    cachedBody: null,
     ...overrides,
   };
 }
@@ -47,7 +44,6 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       'test-env',
       'test-svc',
       '0.0.1',
-      true,
       30,
       emitter,
       null
@@ -87,28 +83,6 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
     expect(emitter.snapshots[0].trigger_type).toBe('exception');
   });
 
-  it('captures request payload fields when capture flag ON', function () {
-    collector.processPotentialIncident(
-      '/api/x',
-      'POST',
-      500,
-      50,
-      new Error('boom'),
-      makeRequestData({
-        cachedBody: { hello: 'world' },
-        args: { q: 'v' },
-        viewArgs: { id: '1' },
-        headers: { 'content-type': 'application/json' },
-      })
-    );
-    collector.collect();
-    const snap = emitter.snapshots[0];
-    expect(snap.request_context.request_body).toEqual({ hello: 'world' });
-    expect(snap.request_context.query_params).toEqual({ q: 'v' });
-    expect(snap.request_context.path_params).toEqual({ id: '1' });
-    expect(snap.request_context.request_headers).toEqual({ 'content-type': 'application/json' });
-  });
-
   it('truncates an oversized exception message and stack trace', function () {
     const hugeMsg = 'x'.repeat(5000); // > MAX_EXCEPTION_MESSAGE_CHARS (2048)
     const err = new Error(hugeMsg);
@@ -122,36 +96,18 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
     expect(info.stack_trace).toContain('truncated');
   });
 
-  it('omits request payload fields when capture flag OFF', function () {
-    resetMonitorState();
-    const gatedEmitter = new CaptureEmitter();
-    const gatedCollector = new IncidentSnapshotCollector(
-      600_000,
-      5000,
-      2500,
-      'test-env',
-      'test-svc',
-      '0.0.1',
-      false, // captureRequestBody = OFF
-      30,
-      gatedEmitter,
-      null
-    );
-    gatedCollector.processPotentialIncident(
-      '/api/x',
-      'POST',
-      500,
-      50,
-      new Error('boom'),
-      makeRequestData({ cachedBody: { secret: 's' }, args: { q: 'v' } })
-    );
-    gatedCollector.collect();
-    gatedCollector.stop();
-    const snap = gatedEmitter.snapshots[0];
+  it('never emits request payload fields (body/query/path/headers)', function () {
+    // Request-payload capture was removed. The snapshot request_context must carry
+    // only the non-PII envelope — never the request body, query/path params, or
+    // request headers — regardless of what the framework hook passes in.
+    collector.processPotentialIncident('/api/x', 'POST', 500, 50, new Error('boom'), makeRequestData());
+    collector.collect();
+    const snap = emitter.snapshots[0];
     expect(snap.request_context.request_body).toBeUndefined();
     expect(snap.request_context.query_params).toBeUndefined();
     expect(snap.request_context.path_params).toBeUndefined();
     expect(snap.request_context.request_headers).toBeUndefined();
+    expect(snap.request_context.custom_context).toEqual({});
     expect(snap.request_context.type).toBe('http');
     expect(snap.request_context.status_code).toBe(500);
   });
@@ -391,19 +347,6 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       sinon.restore();
     });
 
-    it('extracts user_id into custom_context when present in args', function () {
-      collector.processPotentialIncident(
-        '/api/x',
-        'POST',
-        500,
-        50,
-        new Error('boom'),
-        makeRequestData({ args: { user_id: 'u-123' } })
-      );
-      collector.collect();
-      expect(emitter.snapshots[0].request_context.custom_context).toEqual({ user_id: 'u-123' });
-    });
-
     it('extracts trace_id and span_id from traceparent header', function () {
       collector.processPotentialIncident(
         '/api/x',
@@ -569,7 +512,6 @@ describe('IncidentSnapshotCollector per-endpoint latency thresholds', function (
       'test-env',
       'test-svc',
       '0.0.1',
-      true,
       30,
       emitter,
       null,

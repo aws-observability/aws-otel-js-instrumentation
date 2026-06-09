@@ -228,9 +228,6 @@ export function installNextJsHooks(
             if (_incidentSnapshotCollector && (statusCode >= 400 || durationMs > incidentThreshold)) {
               const requestData: RequestData = {
                 headers: req.headers ?? {},
-                args: parsedUrl?.query ?? {},
-                viewArgs: {},
-                cachedBody: null,
               };
               const exemplar = _incidentSnapshotCollector.processPotentialIncident(
                 route,

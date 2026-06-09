@@ -462,8 +462,8 @@ export class ServiceEventsMonitorState {
    *
    * When the histogram is wired this is the source of truth for the
    * function-call signal: the exit path skips `updateAggregations` and the
-   * `FunctionCallCollector` flushes as a no-op. The histogram therefore
-   * carries only its declared dimensions (function.name + status); total
+   * `FunctionCallCollector` flushes as a no-op. The histogram carries
+   * per-call dimensions (function.name, operation, status); total
    * invocation count, exception class breakdown, and caller_map are not
    * emitted on this path. See the Python `record_function_call_metrics` for
    * parity.
@@ -485,6 +485,10 @@ export class ServiceEventsMonitorState {
     // Copy the write-once base dict and add per-call keys directly.
     const attrs: Record<string, string | number | boolean> = { ...this._metricBaseAttrs };
     attrs['function.name'] = functionName;
+    const operation = operationStorage.getStore() ?? null;
+    if (operation) {
+      attrs['operation'] = operation;
+    }
     if (caller) {
       attrs['aws.service_events.caller'] = caller;
     }
@@ -911,9 +915,7 @@ export function __serviceeventsMonitorExit(ctx: MonitorContext | null): void {
     );
   } else {
     // ALS lookup is gated to the SEH/EMF path: `updateAggregations` keys its
-    // bucket map by operation, but the histogram path doesn't expose
-    // `operation` as an attribute (cardinality bound, see spec §"Per-call
-    // Attributes"), so the lookup is wasted work in the primary path.
+    // bucket map by operation.
     const operation = operationStorage.getStore() ?? null;
     state.updateAggregations(
       ctx.functionName,

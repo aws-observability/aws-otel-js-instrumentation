@@ -535,11 +535,15 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
         has_caller = any("aws.service_events.caller" in self.dp_attrs(dp) for dp in data_points)
         self.assertTrue(has_caller, "Expected at least one data point with 'aws.service_events.caller'")
 
-    # NOTE: operation (e.g., "GET /success") is intentionally NOT a histogram
-    # attribute on `service.function.duration`. Tagging by operation × function ×
-    # status × exception.type would balloon attribute cardinality without bound.
-    # Operation→function correlation lives on the EndpointSummary log signal
-    # and on the legacy `aws.service_events.function_call` LogRecord.
+    # NOTE: operation (e.g., "GET /success") is now a histogram attribute on
+    # `service.function.duration`. It enables per-endpoint latency breakdown.
+
+    def test_function_duration_has_operation_attribute(self) -> None:
+        """At least one data point should carry the operation attribute."""
+        self.send_request("GET", "success")
+        data_points = self.wait_for_function_duration_data_points()
+        has_operation = any("operation" in self.dp_attrs(dp) for dp in data_points)
+        self.assertTrue(has_operation, "Expected at least one data point with 'operation' attribute")
 
     def test_incident_snapshot_on_exception(self) -> None:
         self.send_request("GET", "exception")

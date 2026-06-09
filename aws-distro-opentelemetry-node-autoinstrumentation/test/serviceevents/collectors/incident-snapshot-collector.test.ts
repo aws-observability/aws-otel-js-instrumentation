@@ -210,7 +210,6 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
         'test-env',
         'test-svc',
         '0.0.1',
-        true,
         30,
         rlEmitter,
         null

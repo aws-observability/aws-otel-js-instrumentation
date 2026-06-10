@@ -8,6 +8,7 @@ import { SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
 import { AttributeMap, MetricAttributeGenerator } from './metric-attribute-generator';
 import { AwsSpanProcessingUtil, ForceFlushFunction } from './aws-span-processing-util';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
+import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 
 /**
  * This processor will generate metrics based on span data. It depends on a
@@ -46,6 +47,7 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
   private generator: MetricAttributeGenerator;
   private resource: Resource;
   private forceFlushFunction: ForceFlushFunction;
+  private sampler: AwsXRayRemoteSampler | undefined;
 
   /** Use {@link AwsSpanMetricsProcessorBuilder} to construct this processor. */
   static create(
@@ -54,7 +56,8 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
     latencyHistogram: Histogram,
     generator: MetricAttributeGenerator,
     resource: Resource,
-    forceFlushFunction: ForceFlushFunction
+    forceFlushFunction: ForceFlushFunction,
+    sampler?: AwsXRayRemoteSampler
   ): AwsSpanMetricsProcessor {
     return new AwsSpanMetricsProcessor(
       errorHistogram,
@@ -62,7 +65,8 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
       latencyHistogram,
       generator,
       resource,
-      forceFlushFunction
+      forceFlushFunction,
+      sampler
     );
   }
 
@@ -72,7 +76,8 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
     latencyHistogram: Histogram,
     generator: MetricAttributeGenerator,
     resource: Resource,
-    forceFlushFunction: ForceFlushFunction
+    forceFlushFunction: ForceFlushFunction,
+    sampler?: AwsXRayRemoteSampler
   ) {
     this.errorHistogram = errorHistogram;
     this.faultHistogram = faultHistogram;
@@ -80,6 +85,7 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
     this.generator = generator;
     this.resource = resource;
     this.forceFlushFunction = forceFlushFunction;
+    this.sampler = sampler;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -94,6 +100,10 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
 
     for (const attribute in attributeMap) {
       this.recordMetrics(span, attributeMap[attribute]);
+    }
+
+    if (this.sampler) {
+      this.sampler.adaptSampling(span);
     }
   }
 

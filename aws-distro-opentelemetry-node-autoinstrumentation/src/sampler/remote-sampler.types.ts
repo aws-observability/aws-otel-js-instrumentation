@@ -53,6 +53,13 @@ export interface ISamplingRule {
   // Segment attributes to be matched when the sampling decision is being made.
   Attributes?: { [key: string]: string };
 
+  // Static boost eligibility from GetSamplingRules (not the dynamic target response)
+  SamplingRateBoost?: {
+    MaxRate: number;
+    CooldownWindowMinutes: number;
+    DisableDefaultAnomalyDetection?: boolean;
+  } | null;
+
   Version: number;
 }
 
@@ -98,6 +105,11 @@ export interface SamplingStatisticsDocument {
 }
 
 // https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_RequestBody
+export interface SamplingBoost {
+  BoostRate: number;
+  BoostRateTTL: number;
+}
+
 export interface SamplingTargetDocument {
   // The percentage of matching requests to instrument, after the reservoir is exhausted.
   FixedRate: number;
@@ -109,6 +121,8 @@ export interface SamplingTargetDocument {
   ReservoirQuotaTTL?: number | null;
   // The name of the sampling rule
   RuleName: string;
+  // Boost configuration returned by X-Ray when anomalies are detected
+  SamplingBoost?: SamplingBoost | null;
 }
 
 // https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_RequestBody
@@ -118,9 +132,20 @@ export interface UnprocessedStatistic {
   RuleName: string;
 }
 
+export interface SamplingBoostStatisticsDocument {
+  ClientID: string;
+  RuleName: string;
+  ServiceName: string;
+  Timestamp: number;
+  TotalCount: number;
+  AnomalyCount: number;
+  SampledAnomalyCount: number;
+}
+
 // https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_RequestBody
 export interface GetSamplingTargetsBody {
   SamplingStatisticsDocuments: SamplingStatisticsDocument[];
+  SamplingBoostStatisticsDocuments?: SamplingBoostStatisticsDocument[];
 }
 
 // https://docs.aws.amazon.com/xray/latest/api/API_GetSamplingTargets.html#API_GetSamplingTargets_ResponseSyntax

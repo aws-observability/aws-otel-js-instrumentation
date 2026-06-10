@@ -32,11 +32,21 @@ import { CLOUD_PLATFORM_MAPPING, attributeMatch, wildcardMatch } from './utils';
 // Max date time in JavaScript
 const MAX_DATE_TIME_MILLIS: number = new Date(8_640_000_000_000_000).getTime();
 
+export interface BoostStatistics {
+  TotalCount: number;
+  AnomalyCount: number;
+  SampledAnomalyCount: number;
+}
+
 export class SamplingRuleApplier {
   public samplingRule: SamplingRule;
   private reservoirSampler: RateLimitingSampler;
   private fixedRateSampler: TraceIdRatioBasedSampler;
+  private boostedFixedRateSampler: TraceIdRatioBasedSampler;
+  private boostEndTimeMillis: number;
   private statistics: Statistics;
+  private boostStats: BoostStatistics = { TotalCount: 0, AnomalyCount: 0, SampledAnomalyCount: 0 };
+  private seenTraceIds: Set<string> = new Set();
   private borrowingEnabled: boolean;
   private reservoirExpiryTimeInMillis: number;
 
@@ -44,6 +54,9 @@ export class SamplingRuleApplier {
     this.samplingRule = new SamplingRule(samplingRule);
 
     this.fixedRateSampler = new TraceIdRatioBasedSampler(this.samplingRule.FixedRate);
+    this.boostedFixedRateSampler = this.fixedRateSampler;
+    this.boostEndTimeMillis = 0;
+
     if (samplingRule.ReservoirSize > 0) {
       this.reservoirSampler = new RateLimitingSampler(1);
     } else {
@@ -70,7 +83,23 @@ export class SamplingRuleApplier {
       if (typeof target.FixedRate === 'number') {
         this.fixedRateSampler = new TraceIdRatioBasedSampler(target.FixedRate);
       }
+
+      if (target.SamplingBoost && typeof target.SamplingBoost.BoostRate === 'number') {
+        this.boostedFixedRateSampler = new TraceIdRatioBasedSampler(target.SamplingBoost.BoostRate);
+        this.boostEndTimeMillis = target.SamplingBoost.BoostRateTTL * 1000;
+      }
     }
+  }
+
+  public hasBoost(): boolean {
+    return this.samplingRule.SamplingRateBoost != null;
+  }
+
+  public isDefaultAnomalyDetectionDisabled(): boolean {
+    return (
+      this.samplingRule.SamplingRateBoost != null &&
+      !!this.samplingRule.SamplingRateBoost.DisableDefaultAnomalyDetection
+    );
   }
 
   public withTarget(target: SamplingTargetDocument): SamplingRuleApplier {
@@ -151,7 +180,11 @@ export class SamplingRuleApplier {
     }
 
     if (result.decision === SamplingDecision.NOT_RECORD) {
-      result = this.fixedRateSampler.shouldSample(context, traceId);
+      if (nowInMillis < this.boostEndTimeMillis) {
+        result = this.boostedFixedRateSampler.shouldSample(context, traceId);
+      } else {
+        result = this.fixedRateSampler.shouldSample(context, traceId);
+      }
     }
 
     this.statistics.SampleCount += result.decision !== SamplingDecision.NOT_RECORD ? 1 : 0;
@@ -165,6 +198,31 @@ export class SamplingRuleApplier {
     const statisticsCopy: ISamplingStatistics = { ...this.statistics };
     this.statistics.resetStatistics();
     return statisticsCopy;
+  }
+
+  public countTrace(traceId: string): void {
+    if (this.seenTraceIds.has(traceId)) {
+      return;
+    }
+    if (this.seenTraceIds.size >= 10_000) {
+      return;
+    }
+    this.seenTraceIds.add(traceId);
+    this.boostStats.TotalCount++;
+  }
+
+  public countAnomalyTrace(isSampled: boolean): void {
+    this.boostStats.AnomalyCount++;
+    if (isSampled) {
+      this.boostStats.SampledAnomalyCount++;
+    }
+  }
+
+  public snapshotBoostStatistics(): BoostStatistics {
+    const snapshot = { ...this.boostStats };
+    this.boostStats = { TotalCount: 0, AnomalyCount: 0, SampledAnomalyCount: 0 };
+    this.seenTraceIds.clear();
+    return snapshot;
   }
 
   private getArn(resource: Resource, attributes: Attributes): AttributeValue | undefined {

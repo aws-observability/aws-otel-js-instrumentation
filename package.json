@@ -48,6 +48,7 @@
   },
   "license": "Apache-2.0",
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/mocha": "7.0.2",
     "@typescript-eslint/eslint-plugin": "5.8.1",
     "@typescript-eslint/parser": "5.8.1",
@@ -85,5 +86,9 @@
   "workspaces": [
     "aws-distro-opentelemetry-node-autoinstrumentation/",
     "exporters/aws-distro-opentelemetry-exporter-xray-udp/"
-  ]
+  ],
+  "dependencies": {
+    "@isaacs/ttlcache": "^2.1.4",
+    "js-yaml": "^4.1.1"
+  }
 }

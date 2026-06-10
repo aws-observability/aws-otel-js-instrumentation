@@ -68,6 +68,7 @@ import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-
 import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
 import { OTLPAwsSpanExporter } from './exporter/otlp/aws/traces/otlp-aws-span-exporter';
 import { OTLPUdpSpanExporter } from './otlp-udp-exporter';
+import { parseAdaptiveSamplingConfig, AWS_XRAY_ADAPTIVE_SAMPLING_CONFIG_ENV } from './sampler/adaptive-sampling-config';
 import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 // This file is generated via `npm run compile`
 import { LIB_VERSION } from './version';
@@ -183,7 +184,6 @@ export class AwsOpentelemetryConfigurator {
       // Only keep env detector here
       defaultDetectors.push(envDetector);
     } else {
-      // envDetector needs to be last so it can override any conflicting resource attributes.
       defaultDetectors = [processDetector, hostDetector, awsEc2Detector, awsEcsDetector, awsEksDetector, envDetector];
     }
 
@@ -191,8 +191,29 @@ export class AwsOpentelemetryConfigurator {
       detectors: defaultDetectors,
     };
 
-    autoResource = this.customizeResource(autoResource.merge(detectResources(internalConfig)));
+    const detectedResource = detectResources(internalConfig);
+    autoResource = this.customizeResource(autoResource.merge(detectedResource));
     this.resource = autoResource;
+
+    // Ensure async resource detection doesn't block trace export indefinitely.
+    // BatchSpanProcessor waits for resource.waitForAsyncAttributes() before exporting.
+    // If a detector (e.g., EKS on plain EC2) hangs, exports are blocked forever.
+    // This resolves each pending attribute promise with a timeout so exports proceed.
+    if (autoResource.asyncAttributesPending) {
+      const rawAttrs = (autoResource as unknown as { _rawAttributes: [string, unknown][] })._rawAttributes;
+      if (rawAttrs) {
+        const RESOURCE_TIMEOUT_MS = 5000;
+        const timeout = new Promise<undefined>(resolve =>
+          setTimeout(() => resolve(undefined), RESOURCE_TIMEOUT_MS).unref()
+        );
+        for (let i = 0; i < rawAttrs.length; i++) {
+          const [key, val] = rawAttrs[i];
+          if (val && typeof (val as Promise<unknown>).then === 'function') {
+            rawAttrs[i] = [key, Promise.race([val as Promise<unknown>, timeout])];
+          }
+        }
+      }
+    }
 
     this.instrumentations = instrumentations;
     this.propagator = getPropagator();
@@ -210,7 +231,7 @@ export class AwsOpentelemetryConfigurator {
     const awsSpanProcessorProvider: AwsSpanProcessorProvider = new AwsSpanProcessorProvider(this.resource);
     this.spanProcessors = awsSpanProcessorProvider.getSpanProcessors();
     this.logRecordProcessors = AwsLoggerProcessorProvider.getlogRecordProcessors();
-    AwsOpentelemetryConfigurator.customizeSpanProcessors(this.spanProcessors, this.resource);
+    AwsOpentelemetryConfigurator.customizeSpanProcessors(this.spanProcessors, this.resource, this.sampler);
 
     const isEmfEnabled = checkEmfExporterEnabled();
     this.customizeMetricReader(isEmfEnabled);
@@ -313,7 +334,7 @@ export class AwsOpentelemetryConfigurator {
     spanProcessors.push(new AwsBatchUnsampledSpanProcessor(spanExporter));
   }
 
-  static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
+  static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource, sampler?: Sampler): void {
     const baggageKeys: Set<string> = parseOtelBaggageKeysEnvVar();
 
     if (isAgentObservabilityEnabled()) {
@@ -369,11 +390,39 @@ export class AwsOpentelemetryConfigurator {
         resource: resource,
         readers: [periodicExportingMetricReader],
       });
+
+      // Extract the XRay sampler to wire adaptive sampling
+      let xraySampler: AwsXRayRemoteSampler | undefined;
+      if (sampler instanceof AlwaysRecordSampler) {
+        const wrapped = sampler.getWrappedSampler();
+        if (wrapped instanceof AwsXRayRemoteSampler) {
+          xraySampler = wrapped;
+        }
+      } else if (sampler instanceof AwsXRayRemoteSampler) {
+        xraySampler = sampler;
+      }
+
+      // Wire span batcher into the sampler for anomaly capture
+      // Anomaly-captured spans are unsampled — must use AwsBatchUnsampledSpanProcessor
+      if (xraySampler) {
+        const anomalyExporter = AwsMetricAttributesSpanExporterBuilder.create(
+          AwsSpanProcessorProvider.configureOtlp(),
+          resource
+        ).build();
+        const anomalyUnsampledProcessor = new AwsBatchUnsampledSpanProcessor(anomalyExporter);
+        spanProcessors.push(anomalyUnsampledProcessor);
+        xraySampler.setSpanBatcher(span => {
+          anomalyUnsampledProcessor.onEnd(span);
+        });
+        diag.info('Adaptive sampling anomaly capture enabled');
+      }
+
       spanProcessors.push(
         AwsSpanMetricsProcessorBuilder.create(
           meterProvider,
           resource,
-          meterProvider.forceFlush.bind(meterProvider)
+          meterProvider.forceFlush.bind(meterProvider),
+          xraySampler
         ).build()
       );
     }
@@ -431,7 +480,20 @@ export function customBuildSamplerFromEnv(resource: Resource, useXraySampler: bo
     diag.info('AWS XRay Sampler enabled');
     diag.debug(`XRay Sampler Endpoint: ${endpoint}`);
     diag.debug(`XRay Sampler Polling Interval: ${pollingInterval}`);
-    return new AwsXRayRemoteSampler({ resource: resource, endpoint: endpoint, pollingInterval: pollingInterval });
+
+    const sampler = new AwsXRayRemoteSampler({
+      resource: resource,
+      endpoint: endpoint,
+      pollingInterval: pollingInterval,
+    });
+
+    const adaptiveConfig = parseAdaptiveSamplingConfig(process.env[AWS_XRAY_ADAPTIVE_SAMPLING_CONFIG_ENV]);
+    if (adaptiveConfig) {
+      sampler.setAdaptiveSamplingConfig(adaptiveConfig);
+      diag.info('AWS XRay Adaptive Sampling configured');
+    }
+
+    return sampler;
   }
 
   return buildSamplerFromEnv();
@@ -782,10 +844,12 @@ export class AwsSpanProcessorProvider {
       const configuredExporter: SpanExporter = AwsSpanProcessorProvider.customizeSpanExporter(exporter, this.resource);
       if (exporter instanceof ConsoleSpanExporter) {
         return new SimpleSpanProcessor(configuredExporter);
-      } else {
+      } else if (isLambdaEnvironment()) {
         return new BatchSpanProcessor(configuredExporter, {
           maxExportBatchSize: getSpanExportBatchSize(),
         });
+      } else {
+        return new BatchSpanProcessor(configuredExporter);
       }
     });
   }

@@ -166,6 +166,17 @@ const sdk: opentelemetry.NodeSDK = new opentelemetry.NodeSDK(configuration);
 try {
   sdk.start();
 
+  // Force-resolve async resource attributes on the TracerProvider to unblock span export.
+  // SimpleSpanProcessor._doExport() awaits resource.waitForAsyncAttributes() which hangs
+  // if the provider's resource has unresolved async attributes from detectors like EKS/EC2.
+  // The configurator's timeout ensures promises resolve within 5s, but spans arrive before
+  // that — so we must clear the flag synchronously to prevent the initial export hang.
+  const tp = trace.getTracerProvider();
+  const delegate = (tp as unknown as { _delegate?: { _resource?: { _asyncAttributesPending?: boolean } } })?._delegate;
+  if (delegate?._resource?._asyncAttributesPending) {
+    (delegate._resource as { _asyncAttributesPending: boolean })._asyncAttributesPending = false;
+  }
+
   diag.info('Setting TraceProvider for instrumentations at the end of initialization');
   for (const instrumentation of instrumentations) {
     instrumentation.setTracerProvider(trace.getTracerProvider());

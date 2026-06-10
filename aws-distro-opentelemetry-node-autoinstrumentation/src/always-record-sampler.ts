@@ -52,6 +52,10 @@ export class AlwaysRecordSampler implements Sampler {
     return rootSamplerSamplingResult;
   }
 
+  public getWrappedSampler(): Sampler {
+    return this.rootSampler;
+  }
+
   toString(): string {
     return `AlwaysRecordSampler{${this.rootSampler.toString()}}`;
   }

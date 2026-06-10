@@ -533,9 +533,7 @@ export function getLatencyThresholdPatterns(config: ServiceEventsConfig): Array<
     // the entry so the route falls back to the global default instead.
     const thresholdMs = parseFloat(thresholdPart);
     if (!Number.isFinite(thresholdMs) || thresholdMs <= 0) {
-      diag.warn(
-        `ServiceEvents: ignoring latency threshold "${trimmed}" — threshold must be a positive number of ms`
-      );
+      diag.warn(`ServiceEvents: ignoring latency threshold "${trimmed}" — threshold must be a positive number of ms`);
       continue;
     }
 

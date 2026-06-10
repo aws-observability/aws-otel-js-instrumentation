@@ -505,8 +505,7 @@ describe('ServiceEventsConfig', function () {
       // incidents. Such entries are dropped so the route uses the global default.
       clearServiceEventsEnvVars();
 
-      process.env.OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS =
-        'GET /zero:0,GET /neg:-50,GET /ok:250';
+      process.env.OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS = 'GET /zero:0,GET /neg:-50,GET /ok:250';
 
       const config = createServiceEventsConfigFromEnv();
       const patterns = getLatencyThresholdPatterns(config);

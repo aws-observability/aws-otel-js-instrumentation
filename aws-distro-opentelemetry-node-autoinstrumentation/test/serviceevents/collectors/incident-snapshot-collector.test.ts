@@ -272,9 +272,7 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
 
         // The target error's FIRST real emission must succeed. Under the bug its dedup
         // slot was already consumed at t=5, so this was wrongly dropped as a duplicate.
-        expect(
-          rlCollector.processPotentialIncident('/t', 'GET', 500, 10, target, makeRequestData())
-        ).not.toBeNull();
+        expect(rlCollector.processPotentialIncident('/t', 'GET', 500, 10, target, makeRequestData())).not.toBeNull();
         rlCollector.stop();
       } finally {
         clock.restore();

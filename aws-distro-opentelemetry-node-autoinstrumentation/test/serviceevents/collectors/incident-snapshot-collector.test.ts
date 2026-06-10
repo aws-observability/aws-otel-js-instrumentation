@@ -224,6 +224,62 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       expect(rlCollector.processPotentialIncident('/c', 'GET', 500, 10, new Error('c'), makeRequestData())).toBeNull();
       rlCollector.stop();
     });
+
+    it('a rate-limited request does NOT poison the dedup map for the same error', function () {
+      // Regression: dedup state must only be recorded when a snapshot actually emits.
+      // Previously the dedup map was mutated before the rate-limit check, so a
+      // rate-limited error still consumed a dedup slot — and the next legitimate
+      // occurrence of that same error was wrongly dropped as a duplicate.
+      //
+      // The rate-limit and dedup windows are both 60s, so the events are spaced in
+      // time to open a window where the rate slot has freed but a (buggy) dedup
+      // poison would still be alive: the filler's rate slot is taken at t=0 (expires
+      // at t=60), the target is rate-limited at t=5 (a poison entry would live until
+      // t=65), and the target is retried at t=62 — rate has room, and a poison entry
+      // would still be present to wrongly drop it.
+      const clock = sinon.useFakeTimers({ now: 1_000_000 });
+      try {
+        const rlEmitter = new CaptureEmitter();
+        // maxPerPeriod=1 (rate window holds 1), maxSameError=1 (one same-error/period).
+        const rlCollector = new IncidentSnapshotCollector(
+          600_000,
+          5000,
+          1, // maxPerPeriod
+          'test-env',
+          'test-svc',
+          '0.0.1',
+          1, // maxSameError
+          rlEmitter,
+          null
+        );
+
+        // t=0: a different error fills the single rate-limit slot and emits.
+        expect(
+          rlCollector.processPotentialIncident('/other', 'GET', 500, 10, new Error('other'), makeRequestData())
+        ).not.toBeNull();
+
+        // t=5s: the target error arrives while the rate window is full → rate-limited
+        // (returns null). This must NOT record a dedup occurrence for it.
+        clock.tick(5_000);
+        const target = new Error('target');
+        expect(rlCollector.processPotentialIncident('/t', 'GET', 500, 10, target, makeRequestData())).toBeNull();
+
+        // t=62s: the filler's rate slot (t=0) has expired so rate has room again, but
+        // a buggy dedup poison from t=5 would still be alive (expires t=65). Clear the
+        // per-batch set first (collect() runs each flush interval).
+        clock.tick(57_000);
+        rlCollector.collect();
+
+        // The target error's FIRST real emission must succeed. Under the bug its dedup
+        // slot was already consumed at t=5, so this was wrongly dropped as a duplicate.
+        expect(
+          rlCollector.processPotentialIncident('/t', 'GET', 500, 10, target, makeRequestData())
+        ).not.toBeNull();
+        rlCollector.stop();
+      } finally {
+        clock.restore();
+      }
+    });
   });
 
   describe('exception info from monitor investigation', function () {

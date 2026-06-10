@@ -158,25 +158,31 @@ export class IncidentSnapshotCollector extends BaseCollector {
       return null;
     }
 
-    // Check period-level deduplication (limits same error over period_minutes)
-    if (!this.checkDeduplication(errorHash)) {
+    // Both the period dedup cap and the rate limit are checked WITHOUT mutating
+    // their state first, so a request rejected by either gate consumes neither a
+    // dedup slot nor a rate-limit slot. Committing on rejection would poison the
+    // other limiter — e.g. a rate-limited error would still record a dedup
+    // occurrence and cause the next legitimate occurrence of that same error to be
+    // dropped as a duplicate.
+
+    // Check period-level deduplication (limits same error over the period).
+    if (!this.isWithinDedupLimit(errorHash)) {
       diag.debug(`Incident snapshot period-deduplicated (hash: ${errorHash})`);
       return null;
     }
 
-    // Check rate limit AFTER dedup — only non-deduplicated requests consume slots.
-    // Running rate limit before dedup causes phantom slot consumption.
-    if (!this.checkRateLimit()) {
+    // Check rate limit (pure — does not consume a slot yet).
+    if (!this.hasRateLimitRoom()) {
       diag.debug('Incident snapshot rate limit exceeded, skipping');
       return null;
     }
 
-    // Mark this error hash for the current batch only AFTER all gates pass and a
-    // snapshot is actually produced below. Adding it before the rate-limit/period
-    // checks would poison the batch set: a rate-limited request would suppress
-    // every subsequent (otherwise-allowed) snapshot of the same error for the rest
-    // of the collection interval.
+    // All gates passed — a snapshot WILL be produced. Now commit to every limiter:
+    // batch set, period dedup map, and rate-limit window. Doing this only here (not
+    // before the checks) is what keeps rejected requests from poisoning the limiters.
     this._currentBatchHashes.add(errorHash);
+    this.recordErrorHash(errorHash);
+    this.recordEmission();
 
     // Collect incident snapshot data
     try {
@@ -294,20 +300,21 @@ export class IncidentSnapshotCollector extends BaseCollector {
 
   // --- Rate limiting ---
 
-  private checkRateLimit(): boolean {
+  /**
+   * True if the rate-limit window has room for another snapshot. Pure check — does
+   * NOT consume a slot. Call `recordEmission()` only once the snapshot actually emits
+   * (i.e. after every gate has passed) so deduplicated requests never consume slots.
+   */
+  private hasRateLimitRoom(): boolean {
     const currentTime = Date.now() / 1000; // seconds
     const cutoffTime = currentTime - this.periodSeconds;
-
-    // Remove old timestamps
     this._snapshotTimestamps = this._snapshotTimestamps.filter(ts => ts >= cutoffTime);
+    return this._snapshotTimestamps.length < this.maxPerPeriod;
+  }
 
-    // Check limit
-    if (this._snapshotTimestamps.length >= this.maxPerPeriod) {
-      return false;
-    }
-
-    this._snapshotTimestamps.push(currentTime);
-    return true;
+  /** Consume a rate-limit slot. Call only when a snapshot is actually emitted. */
+  private recordEmission(): void {
+    this._snapshotTimestamps.push(Date.now() / 1000);
   }
 
   // --- Deduplication ---
@@ -325,11 +332,18 @@ export class IncidentSnapshotCollector extends BaseCollector {
     return crypto.createHash('md5').update(hashInput, 'utf-8').digest('hex');
   }
 
-  private checkDeduplication(errorHash: string): boolean {
+  /**
+   * True if emitting this error now would NOT exceed the per-period same-error cap.
+   * Pure check — does NOT record the occurrence. Prunes expired timestamps (idempotent
+   * cleanup), but never mutates the count for `errorHash`. Call `recordErrorHash()` only
+   * once the snapshot actually emits, so a rate-limited error never poisons the dedup
+   * map and drop the next legitimate occurrence of the same error.
+   */
+  private isWithinDedupLimit(errorHash: string): boolean {
     const currentTime = Date.now() / 1000;
     const cutoffTime = currentTime - this.periodSeconds;
 
-    // Clean up old hashes
+    // Clean up expired hashes (does not affect the add-then-emit decision below).
     for (const [key, timestamps] of this._errorHashes) {
       const filtered = timestamps.filter(ts => ts >= cutoffTime);
       if (filtered.length === 0) {
@@ -339,21 +353,20 @@ export class IncidentSnapshotCollector extends BaseCollector {
       }
     }
 
-    // Add timestamp FIRST (atomic add-then-check pattern)
-    // This prevents race conditions where concurrent requests both pass the check
+    // Would-be count if we recorded now = current live count + 1.
+    const liveCount = this._errorHashes.get(errorHash)?.length ?? 0;
+    return liveCount + 1 <= this._maxSameError;
+  }
+
+  /** Record this error occurrence against the per-period dedup cap. Call only on emit. */
+  private recordErrorHash(errorHash: string): void {
+    const currentTime = Date.now() / 1000;
     const existing = this._errorHashes.get(errorHash);
     if (existing) {
       existing.push(currentTime);
     } else {
       this._errorHashes.set(errorHash, [currentTime]);
     }
-
-    // Now check if we've exceeded the limit (use > because we already added)
-    if (this._errorHashes.get(errorHash)!.length > this._maxSameError) {
-      return false; // Deduplicate
-    }
-
-    return true;
   }
 
   // --- Snapshot collection ---

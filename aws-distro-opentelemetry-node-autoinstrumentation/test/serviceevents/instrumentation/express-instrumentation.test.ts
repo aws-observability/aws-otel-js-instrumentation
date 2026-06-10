@@ -35,13 +35,18 @@ describe('installGlobalHttpPatches', function () {
   // not `@opentelemetry/instrumentation-http`'s socket-dependent wrappers,
   // which other tests in this suite may have already installed.
   let patchedServerEmit: any;
+  let patchedResponseEnd: any;
+  // Marker set by the stubbed original end() so tests can assert it actually ran
+  // (i.e. that the patch did not throw before delegating to the real end()).
+  let origEndRan = false;
 
   before(function () {
     // Install a clean stub so our patch captures it as its "original".
     (http.Server.prototype as any).emit = function () {
       return true;
     };
-    (http.ServerResponse.prototype as any).end = function () {
+    (http.ServerResponse.prototype as any).end = function (this: any) {
+      origEndRan = true;
       return this;
     };
     // Reset the idempotency guards so install runs fresh against the stubs.
@@ -50,6 +55,7 @@ describe('installGlobalHttpPatches', function () {
 
     installGlobalHttpPatches();
     patchedServerEmit = http.Server.prototype.emit;
+    patchedResponseEnd = http.ServerResponse.prototype.end;
   });
 
   after(function () {
@@ -130,6 +136,26 @@ describe('installGlobalHttpPatches', function () {
     it('does not throw when the request arrives without a response object', function () {
       const req: any = { url: '/x', method: 'GET', headers: {} };
       expect(() => invokeEmit(req)).not.toThrow();
+    });
+  });
+
+  describe('res.end patch fails open (telemetry never hangs the response)', function () {
+    it('still calls the original end() when _processFinish throws', function () {
+      // Drive the patched ServerResponse#end with a `res` whose statusCode getter
+      // throws — that makes _processFinish throw partway through recording. The
+      // patch must swallow it and still delegate to the original end(), so the
+      // customer's response completes instead of hanging.
+      const req: any = { url: '/boom', method: 'GET', headers: {}, __serviceeventsStartTime: 1 };
+      const res: any = { req };
+      Object.defineProperty(res, 'statusCode', {
+        get() {
+          throw new Error('exploding statusCode');
+        },
+      });
+
+      origEndRan = false;
+      expect(() => patchedResponseEnd.call(res)).not.toThrow();
+      expect(origEndRan).toBe(true);
     });
   });
 

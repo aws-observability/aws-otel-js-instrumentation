@@ -257,7 +257,15 @@ export function installGlobalHttpPatches(): void {
       const req = this.req;
       const startTime = req?.__serviceeventsStartTime;
       if (startTime) {
-        _processFinish(req, this, startTime);
+        // Telemetry must fail open: _processFinish runs BEFORE _origEnd, so an
+        // unexpected throw from any recording call (recordRequest, getRoutePattern,
+        // processPotentialIncident, …) would propagate out of res.end and the real
+        // end() would never run — hanging the customer's response. Swallow + trace.
+        try {
+          _processFinish(req, this, startTime);
+        } catch (err) {
+          diag.debug('ServiceEvents: _processFinish failed; continuing response', err);
+        }
       }
       return _origEnd.apply(this, args);
     };

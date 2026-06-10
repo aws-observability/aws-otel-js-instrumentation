@@ -22,17 +22,28 @@ let _incidentSnapshotCollector: IncidentSnapshotCollector | null = null;
 let _config: ServiceEventsConfig | null = null;
 
 /**
+ * Sentinel route for requests that matched no Express route (404s, static-file
+ * middleware, etc.). Express only populates req.route once a route layer matches,
+ * so an unmatched request has only its raw URL — and recording that raw path
+ * (e.g. /users/12345, /assets/<hash>.js) would create an unbounded number of unique
+ * endpoint keys and explode metric cardinality. Collapse all unmatched traffic to a
+ * single bucket instead (matches the Python SDK's `<unmatched>` sentinel).
+ */
+const UNMATCHED_ROUTE = '<unmatched>';
+
+/**
  * Get the route pattern from an Express request.
  *
- * Tries req.route.path (parameterized), then req.baseUrl + req.route.path,
- * then falls back to req.path.
+ * Uses req.route.path (the parameterized pattern, e.g. /users/:id), prefixed with
+ * req.baseUrl for mounted routers. When no route matched, returns the UNMATCHED_ROUTE
+ * sentinel rather than the raw URL path to keep endpoint cardinality bounded.
  */
 function getRoutePattern(req: any): string {
   if (req.route?.path) {
     const base = req.baseUrl || '';
     return base + req.route.path;
   }
-  return req.path || req.url || '/unknown';
+  return UNMATCHED_ROUTE;
 }
 
 /**

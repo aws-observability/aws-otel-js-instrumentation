@@ -202,6 +202,59 @@ describe('installGlobalHttpPatches', function () {
     });
   });
 
+  describe('unmatched routes collapse to a sentinel (cardinality bound)', function () {
+    it('records "<unmatched>" instead of the raw URL when req.route is absent', function () {
+      // A request that matched no Express route (404, static middleware) has no
+      // req.route. Recording its raw path (/users/12345, /assets/<hash>.js) would
+      // explode endpoint cardinality, so it must collapse to the sentinel.
+      const recordedRoutes: string[] = [];
+      const spyCollector = new EndpointMetricCollector(600_000, 'env', 'svc', '0.0.1');
+      (spyCollector as any).recordRequest = (route: string) => {
+        recordedRoutes.push(route);
+      };
+      installExpressHooks(spyCollector, undefined, 'svc', null);
+
+      // No `route` property → unmatched. A distinct raw URL each call would otherwise
+      // create a distinct endpoint key.
+      const req: any = { url: '/users/12345', method: 'GET', headers: {}, path: '/users/12345', __serviceeventsStartTime: 1 };
+      const res: any = { statusCode: 404, req };
+      try {
+        patchedResponseEnd.call(res);
+      } catch {
+        // tolerate stubbed original end()
+      }
+
+      expect(recordedRoutes).toEqual(['<unmatched>']);
+      installExpressHooks(undefined, undefined, undefined, null);
+    });
+
+    it('still records the parameterized pattern when req.route is present', function () {
+      const recordedRoutes: string[] = [];
+      const spyCollector = new EndpointMetricCollector(600_000, 'env', 'svc', '0.0.1');
+      (spyCollector as any).recordRequest = (route: string) => {
+        recordedRoutes.push(route);
+      };
+      installExpressHooks(spyCollector, undefined, 'svc', null);
+
+      const req: any = {
+        url: '/users/12345',
+        method: 'GET',
+        headers: {},
+        route: { path: '/users/:id' },
+        __serviceeventsStartTime: 1,
+      };
+      const res: any = { statusCode: 200, req };
+      try {
+        patchedResponseEnd.call(res);
+      } catch {
+        // tolerate
+      }
+
+      expect(recordedRoutes).toEqual(['/users/:id']);
+      installExpressHooks(undefined, undefined, undefined, null);
+    });
+  });
+
   describe('claimed request: global res.end patch must not tear down the investigation early', function () {
     // Regression for the Fastify/Koa/Next.js empty-call_path bug. Those frameworks set
     // req.__serviceeventsRequestEnded in their request-arrival hook to claim

@@ -22,28 +22,49 @@ let _incidentSnapshotCollector: IncidentSnapshotCollector | null = null;
 let _config: ServiceEventsConfig | null = null;
 
 /**
- * Sentinel route for requests that matched no Express route (404s, static-file
- * middleware, etc.). Express only populates req.route once a route layer matches,
- * so an unmatched request has only its raw URL — and recording that raw path
- * (e.g. /users/12345, /assets/<hash>.js) would create an unbounded number of unique
- * endpoint keys and explode metric cardinality. Collapse all unmatched traffic to a
- * single bucket instead (matches the Python SDK's `<unmatched>` sentinel).
+ * Sentinel route for genuine Express requests that matched no route layer (404s,
+ * static-file middleware, errors before routing). Express only populates req.route
+ * once a route matches, so an unmatched request has only its raw URL — recording that
+ * raw path (/users/12345, /assets/<hash>.js) would create unbounded unique endpoint
+ * keys and explode metric cardinality. Collapse unmatched Express traffic into one
+ * bucket instead (matches the Python SDK's `<unmatched>` sentinel for Django).
  */
 const UNMATCHED_ROUTE = '<unmatched>';
 
 /**
- * Get the route pattern from an Express request.
+ * True when `req` is a request decorated by Express. Express adds `app` and
+ * `originalUrl` to every request it handles (regardless of whether a route matched),
+ * whereas the raw Node IncomingMessage that other frameworks (Fastify/Koa/Next.js)
+ * surface to the global http.end patch has neither. Used to decide whether an absent
+ * `req.route` means "Express matched nothing" vs. "this isn't an Express request".
+ */
+function isExpressRequest(req: any): boolean {
+  return req != null && (req.app !== undefined || typeof req.originalUrl === 'string');
+}
+
+/**
+ * Get the route pattern from a request.
  *
- * Uses req.route.path (the parameterized pattern, e.g. /users/:id), prefixed with
- * req.baseUrl for mounted routers. When no route matched, returns the UNMATCHED_ROUTE
- * sentinel rather than the raw URL path to keep endpoint cardinality bounded.
+ * Uses req.route.path (the parameterized Express pattern, e.g. /users/:id), prefixed
+ * with req.baseUrl for mounted routers. When there is no matched route, the fallback
+ * depends on who owns the request:
+ *  - genuine Express request → UNMATCHED_ROUTE sentinel (bounds 404/static cardinality);
+ *  - any other request flowing through the global http.end patch (Fastify/Koa/Next.js
+ *    raw Node req) → raw URL path. We must NOT apply Express's "unmatched" logic to a
+ *    foreign framework's request — its real route is resolved by its own hook, and
+ *    collapsing it here would erase the route entirely. (Matches the cross-SDK model:
+ *    the route is derived by the component that owns the request; Java's servlet path
+ *    likewise falls back to the request URI, not a sentinel.)
  */
 function getRoutePattern(req: any): string {
   if (req.route?.path) {
     const base = req.baseUrl || '';
     return base + req.route.path;
   }
-  return UNMATCHED_ROUTE;
+  if (isExpressRequest(req)) {
+    return UNMATCHED_ROUTE;
+  }
+  return req.path || req.url || '/unknown';
 }
 
 /**

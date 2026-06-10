@@ -203,10 +203,11 @@ describe('installGlobalHttpPatches', function () {
   });
 
   describe('unmatched routes collapse to a sentinel (cardinality bound)', function () {
-    it('records "<unmatched>" instead of the raw URL when req.route is absent', function () {
-      // A request that matched no Express route (404, static middleware) has no
-      // req.route. Recording its raw path (/users/12345, /assets/<hash>.js) would
-      // explode endpoint cardinality, so it must collapse to the sentinel.
+    it('records "<unmatched>" for an unmatched EXPRESS request (req.route absent)', function () {
+      // A genuine Express request that matched no route (404, static middleware) has no
+      // req.route. Recording its raw path (/users/12345, /assets/<hash>.js) would explode
+      // endpoint cardinality, so an Express request collapses to the sentinel. Express
+      // decorates every request with `app`/`originalUrl`, which is how we know it's Express.
       const recordedRoutes: string[] = [];
       const spyCollector = new EndpointMetricCollector(600_000, 'env', 'svc', '0.0.1');
       (spyCollector as any).recordRequest = (route: string) => {
@@ -214,9 +215,15 @@ describe('installGlobalHttpPatches', function () {
       };
       installExpressHooks(spyCollector, undefined, 'svc', null);
 
-      // No `route` property → unmatched. A distinct raw URL each call would otherwise
-      // create a distinct endpoint key.
-      const req: any = { url: '/users/12345', method: 'GET', headers: {}, path: '/users/12345', __serviceeventsStartTime: 1 };
+      const req: any = {
+        url: '/users/12345',
+        method: 'GET',
+        headers: {},
+        path: '/users/12345',
+        originalUrl: '/users/12345', // Express marker
+        app: {}, // Express marker
+        __serviceeventsStartTime: 1,
+      };
       const res: any = { statusCode: 404, req };
       try {
         patchedResponseEnd.call(res);
@@ -225,6 +232,32 @@ describe('installGlobalHttpPatches', function () {
       }
 
       expect(recordedRoutes).toEqual(['<unmatched>']);
+      installExpressHooks(undefined, undefined, undefined, null);
+    });
+
+    it('keeps the raw path for a NON-Express request (foreign framework via global patch)', function () {
+      // The global http.end patch also fires for Fastify/Koa/Next.js, surfacing a raw
+      // Node req with no Express markers and no req.route. We must NOT collapse those to
+      // <unmatched> — their real route is recorded by their own framework hook; the
+      // global patch falls back to the raw path (cross-SDK: route owned by the component
+      // that handles the request, like Java's servlet requestUri fallback).
+      const recordedRoutes: string[] = [];
+      const spyCollector = new EndpointMetricCollector(600_000, 'env', 'svc', '0.0.1');
+      (spyCollector as any).recordRequest = (route: string) => {
+        recordedRoutes.push(route);
+      };
+      installExpressHooks(spyCollector, undefined, 'svc', null);
+
+      // Raw Node IncomingMessage shape — no `app`, no `originalUrl`, no `route`.
+      const req: any = { url: '/success', method: 'GET', headers: {}, __serviceeventsStartTime: 1 };
+      const res: any = { statusCode: 200, req };
+      try {
+        patchedResponseEnd.call(res);
+      } catch {
+        // tolerate
+      }
+
+      expect(recordedRoutes).toEqual(['/success']);
       installExpressHooks(undefined, undefined, undefined, null);
     });
 

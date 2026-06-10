@@ -6,6 +6,7 @@ import { EventEmitter } from 'events';
 import expect from 'expect';
 import {
   installGlobalHttpPatches,
+  installExpressHooks,
   endInvestigationOnce,
 } from '../../../src/serviceevents/instrumentation/express-instrumentation';
 import {
@@ -13,6 +14,7 @@ import {
   resetMonitorState,
   ServiceEventsMonitorState,
 } from '../../../src/serviceevents/serviceevents-monitor';
+import { EndpointMetricCollector } from '../../../src/serviceevents/collectors/endpoint-collector';
 
 /**
  * Strategy: don't rely on http.Server.prototype.emit for this test, because
@@ -156,6 +158,47 @@ describe('installGlobalHttpPatches', function () {
       origEndRan = false;
       expect(() => patchedResponseEnd.call(res)).not.toThrow();
       expect(origEndRan).toBe(true);
+    });
+  });
+
+  describe('res.end patch records a request at most once (no double-count)', function () {
+    it('records the request once even if res.end() fires twice', function () {
+      // Express has no framework hook — this global patch is the sole recorder. res.end()
+      // can fire more than once (chained error handlers, stream pipe edge cases, manual
+      // double-end). The patch must record the request exactly once.
+      let recordCount = 0;
+      const spyCollector = new EndpointMetricCollector(600_000, 'env', 'svc', '0.0.1');
+      (spyCollector as any).recordRequest = () => {
+        recordCount++;
+      };
+      // installExpressHooks wires the module-level _endpointCollector before it tries to
+      // require('express'); it returns false here (no express) but the collector is set.
+      installExpressHooks(spyCollector, undefined, 'svc', null);
+
+      // __serviceeventsStartTime must be set or the patched end() skips _processFinish.
+      const req: any = {
+        url: '/api/users',
+        method: 'GET',
+        headers: {},
+        route: { path: '/api/users' },
+        __serviceeventsStartTime: 1,
+      };
+      const res: any = { statusCode: 200, req };
+
+      try {
+        patchedResponseEnd.call(res);
+      } catch {
+        // patched end() calls the stubbed original at the tail; tolerate.
+      }
+      try {
+        patchedResponseEnd.call(res); // second end() must be a no-op for recording
+      } catch {
+        // ignore
+      }
+
+      expect(recordCount).toBe(1);
+      // Reset module collector so other tests aren't affected.
+      installExpressHooks(undefined, undefined, undefined, null);
     });
   });
 

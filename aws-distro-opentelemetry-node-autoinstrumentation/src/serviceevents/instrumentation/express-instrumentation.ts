@@ -197,6 +197,13 @@ function _processFinish(req: any, res: any, startTime: number) {
   if (req.__serviceeventsRequestEnded) {
     return;
   }
+  // Claim the request immediately. For Express this global patch is the sole recorder,
+  // and res.end() can fire more than once (chained middleware error handlers, stream
+  // pipe edge cases, manual double-end). Marking it recorded up-front makes any later
+  // res.end() short-circuit at the guard above instead of double-counting the request /
+  // emitting a duplicate incident. (Framework hooks set this same flag in their
+  // request-arrival hook; here the sole-recorder claims it at finish.)
+  req.__serviceeventsRequestEnded = true;
   try {
     const durationMs = performance.now() - startTime;
     const durationNs = durationMs * 1_000_000;

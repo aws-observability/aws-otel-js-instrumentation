@@ -576,4 +576,20 @@ describe('IncidentSnapshotCollector per-endpoint latency thresholds', function (
     expect(collector.processPotentialIncident('/api/x', 'GET', 200, 300, null, makeRequestData())).toBeNull();
     expect(collector.processPotentialIncident('/api/x', 'GET', 200, 6000, null, makeRequestData())).not.toBeNull();
   });
+
+  // resolveLatencyThresholdMs is public so the framework instrumentation gates can
+  // resolve the SAME per-endpoint threshold the collector uses. Previously the gates
+  // hard-coded the global default, so any sub-global per-endpoint threshold was dead
+  // (a slow request over its endpoint limit but under the global never reached the
+  // collector). These assert the resolver the gates now call.
+  it('resolveLatencyThresholdMs returns the per-endpoint threshold for the gate', function () {
+    const collector = makeCollector([
+      ['POST /api/checkout', 200],
+      ['GET /api/*', 1000],
+    ]);
+    expect(collector.resolveLatencyThresholdMs('POST', '/api/checkout')).toBe(200);
+    expect(collector.resolveLatencyThresholdMs('post', '/api/checkout')).toBe(200); // method case-insensitive
+    expect(collector.resolveLatencyThresholdMs('GET', '/api/reports')).toBe(1000); // glob
+    expect(collector.resolveLatencyThresholdMs('GET', '/other')).toBe(5000); // global default fallback
+  });
 });

@@ -230,7 +230,12 @@ export function installNextJsHooks(
               _endpointCollector.recordRequest(route, method, statusCode, durationNs, errorInfo);
             }
 
-            const incidentThreshold = _config?.incidentSnapshotDurationThresholdMs ?? 5000;
+            // Resolve the per-endpoint latency threshold from the collector (see
+            // express-instrumentation) so a sub-global LATENCY_THRESHOLDS value still trips.
+            const incidentThreshold =
+              _incidentSnapshotCollector?.resolveLatencyThresholdMs(method, route) ??
+              _config?.incidentSnapshotDurationThresholdMs ??
+              5000;
             if (_incidentSnapshotCollector && (statusCode >= 400 || durationMs > incidentThreshold)) {
               const requestData: RequestData = {
                 headers: req.headers ?? {},

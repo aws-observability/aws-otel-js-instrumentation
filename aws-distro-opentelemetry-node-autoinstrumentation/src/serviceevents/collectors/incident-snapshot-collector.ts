@@ -247,8 +247,14 @@ export class IncidentSnapshotCollector extends BaseCollector {
    * and falls back to the global durationThresholdMs when none match. Mirrors the
    * Java LatencyThresholdResolver (key = METHOD + ' ' + route; first glob match;
    * else global default).
+   *
+   * Public so the framework instrumentation gates (which decide whether to bother
+   * building RequestData and calling processPotentialIncident) resolve the SAME
+   * per-endpoint threshold the collector uses. Gating on the global default instead
+   * made any per-endpoint threshold below the global silently dead — a slow request
+   * over its per-endpoint limit but under the global never reached the collector.
    */
-  private resolveLatencyThresholdMs(method: string, route: string): number {
+  resolveLatencyThresholdMs(method: string, route: string): number {
     if (this.latencyThresholdPatterns.length === 0) {
       return this.durationThresholdMs;
     }

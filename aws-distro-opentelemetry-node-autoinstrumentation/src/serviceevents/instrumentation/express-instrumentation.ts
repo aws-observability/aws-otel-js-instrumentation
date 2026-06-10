@@ -214,7 +214,13 @@ function _processFinish(req: any, res: any, startTime: number) {
       _endpointCollector.recordRequest(route, req.method, statusCode, durationNs, errorInfo);
     }
 
-    const incidentThreshold = _config?.incidentSnapshotDurationThresholdMs ?? 5000;
+    // Resolve the per-endpoint latency threshold from the collector so a route with
+    // a sub-global LATENCY_THRESHOLDS value still trips the gate (the global default
+    // would otherwise silently drop it before processPotentialIncident is reached).
+    const incidentThreshold =
+      _incidentSnapshotCollector?.resolveLatencyThresholdMs(req.method, route) ??
+      _config?.incidentSnapshotDurationThresholdMs ??
+      5000;
     if (_incidentSnapshotCollector && (statusCode >= 400 || durationMs > incidentThreshold)) {
       const requestData: RequestData = {
         headers: req.headers ?? {},

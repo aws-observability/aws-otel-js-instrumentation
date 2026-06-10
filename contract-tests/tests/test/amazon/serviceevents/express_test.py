@@ -85,6 +85,45 @@ class ExpressEndpointIncludeTest(ServiceEventsTestInfrastructure):
         self.assertNotIn("/fault", routes)
 
 
+class ExpressPerEndpointLatencyThresholdTest(ServiceEventsTestInfrastructure):
+    """A per-endpoint LATENCY_THRESHOLDS value below the global default must actually
+    trigger latency incidents. Regression for the dead per-endpoint threshold: the
+    framework gate used to pre-filter on the global default (5000ms), so a route with
+    a sub-global per-endpoint threshold never reached the collector. /success responds
+    in a few ms — over the 1ms per-endpoint threshold but far under the 5000ms global —
+    so it must now produce a latency-trigger incident snapshot."""
+
+    __test__ = True
+
+    @override
+    @staticmethod
+    def get_application_image_name() -> str:
+        return _APP_IMAGE
+
+    @override
+    def get_application_wait_pattern(self) -> str:
+        return "Ready"
+
+    @override
+    def get_application_extra_environment_variables(self) -> Dict[str, str]:
+        return {"OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS": "GET /success:1"}
+
+    def test_sub_global_per_endpoint_threshold_triggers_latency(self) -> None:
+        # /success is a 200 with no exception, so the ONLY way it produces an incident
+        # is the per-endpoint latency threshold (1ms) being honored by the gate.
+        for _ in range(3):
+            self.assertEqual(200, self.send_request("GET", "success").status_code)
+        records = self.wait_for_log_records("aws.service_events.incident_snapshot")
+        rec = next(
+            (r for r in records if self.log_attrs(r).get("url.route") == "/success"),
+            None,
+        )
+        self.assertIsNotNone(rec, "No latency IncidentSnapshot for /success under a 1ms per-endpoint threshold")
+        attrs = self.log_attrs(rec)
+        self.assertEqual(attrs.get("aws.service_events.trigger_type"), "latency")
+        self.assertEqual(attrs.get("http.response.status_code"), 200)
+
+
 class ExpressIncidentCallPathTest(ServiceEventsTestInfrastructure):
     __test__ = True
 

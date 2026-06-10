@@ -183,8 +183,13 @@ export function installKoaMiddleware(app: any): void {
             _endpointCollector.recordRequest(route, ctx.method, statusCode, durationNs, errorInfo);
           }
 
-          // Lazy incident snapshot — only allocate for errors or slow requests
-          const incidentThreshold = _config?.incidentSnapshotDurationThresholdMs ?? 5000;
+          // Lazy incident snapshot — only allocate for errors or slow requests.
+          // Resolve the per-endpoint latency threshold from the collector (see
+          // express-instrumentation) so a sub-global LATENCY_THRESHOLDS value still trips.
+          const incidentThreshold =
+            _incidentSnapshotCollector?.resolveLatencyThresholdMs(ctx.method, route) ??
+            _config?.incidentSnapshotDurationThresholdMs ??
+            5000;
           if (_incidentSnapshotCollector && (statusCode >= 400 || durationMs > incidentThreshold)) {
             const requestData: RequestData = {
               headers: ctx.headers ?? {},

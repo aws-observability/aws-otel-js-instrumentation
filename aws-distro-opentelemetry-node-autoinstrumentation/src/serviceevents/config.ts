@@ -527,9 +527,15 @@ export function getLatencyThresholdPatterns(config: ServiceEventsConfig): Array<
     const apiPart = trimmed.substring(0, lastColonIdx).trim();
     const thresholdPart = trimmed.substring(lastColonIdx + 1).trim();
 
-    // Parse threshold
+    // Parse threshold. Reject non-finite and non-positive values: a 0 or negative
+    // per-endpoint threshold would make EVERY request to the matching route exceed it
+    // and fire a latency incident (the gate compares durationMs > thresholdMs). Skip
+    // the entry so the route falls back to the global default instead.
     const thresholdMs = parseFloat(thresholdPart);
-    if (Number.isNaN(thresholdMs)) {
+    if (!Number.isFinite(thresholdMs) || thresholdMs <= 0) {
+      diag.warn(
+        `ServiceEvents: ignoring latency threshold "${trimmed}" — threshold must be a positive number of ms`
+      );
       continue;
     }
 

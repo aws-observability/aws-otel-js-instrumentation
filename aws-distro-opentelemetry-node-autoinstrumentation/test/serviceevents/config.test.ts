@@ -498,6 +498,22 @@ describe('ServiceEventsConfig', function () {
 
       expect(patterns).toEqual([['GET /api/v1:resource', 200]]);
     });
+
+    it('should reject non-positive thresholds (0 / negative would fire on every request)', function () {
+      // A 0 or negative per-endpoint threshold would make durationMs > thresholdMs
+      // true for every request to the route — flagging healthy traffic as latency
+      // incidents. Such entries are dropped so the route uses the global default.
+      clearServiceEventsEnvVars();
+
+      process.env.OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS =
+        'GET /zero:0,GET /neg:-50,GET /ok:250';
+
+      const config = createServiceEventsConfigFromEnv();
+      const patterns = getLatencyThresholdPatterns(config);
+
+      // Only the positive threshold survives.
+      expect(patterns).toEqual([['GET /ok', 250]]);
+    });
   });
 
   describe('shouldTrackEndpoint()', function () {

@@ -17,7 +17,11 @@ concurrency:
 
 jobs:
   claude-review:
-    if: ${{ !github.event.pull_request.draft && !contains(github.event.pull_request.title, '[skip-claude]') }}
+    if: >-
+      !github.event.pull_request.draft &&
+      !contains(github.event.pull_request.title, '[skip-claude]') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+               github.event.pull_request.author_association)
     timeout-minutes: 30
     runs-on: ubuntu-latest
     permissions:
@@ -27,10 +31,35 @@ jobs:
       id-token: write
 
     steps:
-      - name: Checkout repository
+      # Check out the PR head so Claude can read the proposed changes via Read/Grep/Glob.
+      # Trusted instruction files (CLAUDE.md, AGENTS.md, .github/copilot-instructions.md)
+      # are restored from the base branch in the next step to prevent a malicious PR from
+      # injecting instructions that override the workflow's prompt.
+      - name: Checkout PR head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 #v4.3.1
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 50
+          persist-credentials: false
+
+      - name: Restore trusted instruction files from base branch
+        env:
+          BASE_REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          FETCH_TOKEN: ${{ github.token }}
+        run: |
+          AUTH_HEADER="$(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')"
+          git config --local "http.https://github.com/.extraheader" "AUTHORIZATION: basic $AUTH_HEADER"
+          trap 'git config --local --unset "http.https://github.com/.extraheader" 2>/dev/null || true' EXIT
+          git fetch --depth=1 "https://github.com/$BASE_REPO" "$BASE_SHA"
+          for f in CLAUDE.md AGENTS.md .github/copilot-instructions.md; do
+            if git cat-file -e "FETCH_HEAD:$f" 2>/dev/null; then
+              git checkout FETCH_HEAD -- "$f"
+            else
+              rm -f -- "$f"
+            fi
+          done
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #5.0.0
@@ -47,7 +76,7 @@ jobs:
           use_sticky_comment: "true"
           track_progress: "true"
           claude_args: |
-            --model us.anthropic.claude-opus-4-6-v1 --allowedTools "Read,Glob,Grep,Bash(gh pr diff ${{ github.event.pull_request.number }}),Bash(gh pr diff ${{ github.event.pull_request.number }} *),Bash(gh pr view ${{ github.event.pull_request.number }}),Bash(gh pr view ${{ github.event.pull_request.number }} *),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files*),Bash(gh api repos/${{ github.repository }}/contents/*),Bash(git diff *),Bash(git log *),Bash(git show *)"
+            --model us.anthropic.claude-opus-4-6-v1 --allowedTools "Read,Glob,Grep,Bash(gh pr diff ${{ github.event.pull_request.number }}),Bash(gh pr diff ${{ github.event.pull_request.number }} *),Bash(gh pr view ${{ github.event.pull_request.number }}),Bash(gh pr view ${{ github.event.pull_request.number }} *),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files*),Bash(git diff *),Bash(git log *),Bash(git show *)"
           prompt: |
             You are reviewing PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.
 

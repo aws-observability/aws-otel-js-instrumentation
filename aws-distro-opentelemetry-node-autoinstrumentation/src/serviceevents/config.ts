@@ -54,23 +54,26 @@ function getEnvironmentFromResourceAttributes(): string | undefined {
     return undefined;
   }
 
+  // Scan ALL pairs first — deployment.environment.name (newer OTel convention) wins
+  // regardless of ordering. Returning on the first matching key would let the legacy
+  // deployment.environment value win when it is listed before .name.
+  let legacy: string | undefined;
   for (const pair of envResources.split(',')) {
     if (pair.includes('=')) {
       const [key, ...rest] = pair.split('=');
       const value = rest.join('=');
       const trimmedKey = key.trim();
-      // Prefer deployment.environment.name (newer OTel convention)
       if (trimmedKey === 'deployment.environment.name') {
         return value.trim();
       }
-      // Fallback to deployment.environment (older convention)
-      if (trimmedKey === 'deployment.environment') {
-        return value.trim();
+      if (trimmedKey === 'deployment.environment' && legacy === undefined) {
+        legacy = value.trim();
       }
     }
   }
 
-  return undefined;
+  // No .name present — fall back to the legacy key if it was seen.
+  return legacy;
 }
 
 /**

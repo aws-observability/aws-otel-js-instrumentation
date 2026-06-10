@@ -625,6 +625,20 @@ describe('ServiceEventsConfig', function () {
       expect(config.environment).toBe('from-new-convention');
     });
 
+    it('should prefer deployment.environment.name even when listed AFTER deployment.environment', function () {
+      // Regression: the resolver must scan all pairs and prefer .name regardless of
+      // ordering. Returning on the first matching key let the legacy value win when
+      // it appeared first.
+      clearServiceEventsEnvVars();
+
+      process.env.OTEL_RESOURCE_ATTRIBUTES =
+        'deployment.environment=from-old-convention,deployment.environment.name=from-new-convention';
+
+      const config = createServiceEventsConfigFromEnv();
+
+      expect(config.environment).toBe('from-new-convention');
+    });
+
     it('should fall back to ENVIRONMENT env var when not in resource attributes', function () {
       clearServiceEventsEnvVars();
 

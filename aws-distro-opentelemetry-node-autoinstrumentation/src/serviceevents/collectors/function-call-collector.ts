@@ -73,20 +73,34 @@ export class FunctionCallCollector extends BaseCollector {
     const totalCountDeltas = this.monitorState.getCallCountDeltas();
 
     // Enrich sampled aggregation buckets with total call counts.
+    //
+    // `totalDelta` is the function's TOTAL invocation count across ALL operations
+    // (from the inline _callCounts), while each sampled bucket already holds the
+    // per-operation count it observed. The unsampled remainder
+    // (totalDelta - sum of all bucket counts) is attributed to the largest bucket so
+    // the function's grand total matches totalDelta WITHOUT inflating any single
+    // operation. Overwriting the largest bucket with totalDelta (the old behavior)
+    // mis-attributed every other operation's calls onto one operation and double-
+    // counted the rest into the grand total.
     for (const [funcName, totalDelta] of Object.entries(totalCountDeltas)) {
       if (totalDelta <= 0) continue;
       const endpointMap = aggregations.get(funcName);
       if (endpointMap) {
         let largestBucket = null;
         let largestCount = -1;
+        let sumBucketCounts = 0;
         for (const bucket of endpointMap.values()) {
+          sumBucketCounts += bucket.count;
           if (bucket.count > largestCount) {
             largestCount = bucket.count;
             largestBucket = bucket;
           }
         }
-        if (largestBucket) {
-          largestBucket.count = totalDelta;
+        // Only the unsampled shortfall is added; if sampled buckets already account
+        // for >= totalDelta (rare, e.g. timing races) the shortfall is clamped to 0.
+        const shortfall = totalDelta - sumBucketCounts;
+        if (largestBucket && shortfall > 0) {
+          largestBucket.count += shortfall;
         }
       } else {
         const newMap = new Map();

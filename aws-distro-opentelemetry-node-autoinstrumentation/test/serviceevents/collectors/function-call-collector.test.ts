@@ -6,6 +6,7 @@ import {
   __serviceeventsMonitorEnter,
   __serviceeventsMonitorExit,
   setSamplingMode,
+  setCurrentOperation,
   resetMonitorState,
   ServiceEventsMonitorState,
 } from '../../../src/serviceevents/serviceevents-monitor';
@@ -123,6 +124,36 @@ describe('FunctionCallCollector (OTLP)', function () {
     expect(event!.caller).toBe('app.bar');
     expect(event!.exceptions.TypeError).toBe(2);
     expect(event!.exceptions.ValueError).toBe(1);
+  });
+
+  it('does not mis-attribute per-operation counts when a function runs under multiple operations', function () {
+    // Regression: a function called under two operations (GET /a x3, GET /b x2) must
+    // report 3 for /a and 2 for /b (grand total 5). The total-count enrichment used
+    // to OVERWRITE the largest bucket with the function's cross-operation total,
+    // stamping 5 onto /a and inflating the grand total to 7.
+    setSamplingMode('always');
+    collector = new FunctionCallCollector(600_000, 'env', 'svc', '0.0.1', emitter);
+
+    // 3 calls under GET /a, then 2 under GET /b. Enter/Exit also bumps the inline
+    // _callCounts so getCallCountDeltas() returns totalDelta=5 for the function.
+    setCurrentOperation('GET /a');
+    for (let i = 0; i < 3; i++) {
+      __serviceeventsMonitorExit(__serviceeventsMonitorEnter('app.multi'));
+    }
+    setCurrentOperation('GET /b');
+    for (let i = 0; i < 2; i++) {
+      __serviceeventsMonitorExit(__serviceeventsMonitorEnter('app.multi'));
+    }
+
+    collector.collect();
+
+    const events = emitter.functionCalls.filter(e => e.function_name === 'app.multi');
+    const byOp = new Map(events.map(e => [e.operation, e.duration?.count ?? 0]));
+    expect(byOp.get('GET /a')).toBe(3);
+    expect(byOp.get('GET /b')).toBe(2);
+    // Grand total across operations equals the function's true invocation count.
+    const grandTotal = events.reduce((sum, e) => sum + (e.duration?.count ?? 0), 0);
+    expect(grandTotal).toBe(5);
   });
 
   it('skips aggregation buckets that have no sampled calls', function () {

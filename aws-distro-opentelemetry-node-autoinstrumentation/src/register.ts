@@ -53,6 +53,46 @@ This file may also be used to apply patches to upstream instrumentation - usuall
 long-term changes to upstream.
 */
 
+export type ServiceEventsBootstrapDecision =
+  | { action: 'skip'; reason: 'lambda' | 'bundledOff' | 'explicitOff' }
+  | { action: 'skipForceEnabledWithoutEndpoints' }
+  | { action: 'init' };
+
+/**
+ * Decide whether `register.ts` should initialize ServiceEvents for the given env snapshot.
+ *
+ * Rules:
+ * - Lambda (`AWS_LAMBDA_FUNCTION_NAME` present) always disables ServiceEvents.
+ * - Explicit `OTEL_AWS_SERVICE_EVENTS_ENABLED` overrides; unset follows `OTEL_AWS_APPLICATION_SIGNALS_ENABLED`.
+ * - When force-enabled (explicit true + App Signals off), both
+ *   `OTEL_AWS_OTLP_LOGS_ENDPOINT` and `OTEL_AWS_OTLP_METRICS_ENDPOINT`
+ *   must be set; otherwise skip with an error.
+ *
+ * Exported for unit testing.
+ */
+export function resolveServiceEventsBootstrap(env: NodeJS.ProcessEnv): ServiceEventsBootstrapDecision {
+  if (env.AWS_LAMBDA_FUNCTION_NAME) {
+    return { action: 'skip', reason: 'lambda' };
+  }
+  const raw = env.OTEL_AWS_SERVICE_EVENTS_ENABLED?.trim().toLowerCase();
+  const appSignalsEnabled = env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED?.trim().toLowerCase() === 'true';
+  if (raw === 'false') {
+    return { action: 'skip', reason: 'explicitOff' };
+  }
+  const explicitOn = raw === 'true';
+  if (!explicitOn && !appSignalsEnabled) {
+    return { action: 'skip', reason: 'bundledOff' };
+  }
+  if (explicitOn && !appSignalsEnabled) {
+    const logsSet = !!env.OTEL_AWS_OTLP_LOGS_ENDPOINT?.trim();
+    const metricsSet = !!env.OTEL_AWS_OTLP_METRICS_ENDPOINT?.trim();
+    if (!(logsSet && metricsSet)) {
+      return { action: 'skipForceEnabledWithoutEndpoints' };
+    }
+  }
+  return { action: 'init' };
+}
+
 export function setAwsDefaultEnvironmentVariables() {
   if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
@@ -178,6 +218,35 @@ try {
   diag.debug(`Environment variable OTEL_PROPAGATORS is set to '${process.env.OTEL_PROPAGATORS}'`);
   diag.debug(`Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to '${process.env.OTEL_EXPORTER_OTLP_PROTOCOL}'`);
   diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
+
+  // Initialize ServiceEvents deep observability instrumentation (main thread only).
+  // When the DI manager spawns a Worker, Node re-runs `--require register` inside
+  // the worker's isolated V8 context, which would otherwise create a second
+  // ServiceEventsInstrumentation + emitter. Python uses threading.Thread (shared
+  // module namespace) so this isn't needed there. Keep behaviour aligned.
+  try {
+    const { isMainThread: serviceeventsIsMainThread } = require('worker_threads');
+    const decision = resolveServiceEventsBootstrap(process.env);
+    if (serviceeventsIsMainThread && decision.action === 'skipForceEnabledWithoutEndpoints') {
+      diag.error(
+        'ServiceEvents force-enabled (OTEL_AWS_SERVICE_EVENTS_ENABLED=true) without Application Signals, ' +
+          'but OTEL_AWS_OTLP_LOGS_ENDPOINT / OTEL_AWS_OTLP_METRICS_ENDPOINT are unset ' +
+          'or empty. Both are required in this mode. Skipping ServiceEvents initialization.'
+      );
+    } else if (serviceeventsIsMainThread && decision.action === 'init') {
+      const { createServiceEventsConfigFromEnv, getServiceEventsInstrumentation } = require('./serviceevents');
+      // config.enabled mirrors OTEL_AWS_SERVICE_EVENTS_ENABLED directly; the outer
+      // bundling gate above has already decided ServiceEvents should run, so flip
+      // the inner flag on regardless of whether the env var was set.
+      const serviceeventsConfig = { ...createServiceEventsConfigFromEnv(), enabled: true };
+      const serviceevents = getServiceEventsInstrumentation(serviceeventsConfig);
+      if (serviceevents) {
+        serviceevents.initialize();
+      }
+    }
+  } catch (serviceeventsError) {
+    diag.error('Failed to initialize ServiceEvents instrumentation', serviceeventsError);
+  }
 } catch (error) {
   diag.error(
     'Error initializing AWS Distro of OpenTelemetry SDK. Your application is not instrumented and will not produce telemetry',
@@ -186,10 +255,34 @@ try {
 }
 
 process.on('SIGTERM', () => {
-  sdk
-    .shutdown()
-    .then(() => diag.debug('AWS Distro of OpenTelemetry SDK terminated'))
-    .catch(error => diag.error('Error terminating AWS Distro of OpenTelemetry SDK', error));
+  // Shutdown ServiceEvents (main thread only — matches init-side guard).
+  // shutdown() is async (it force-flushes buffered telemetry); await it before
+  // tearing down the core SDK so the final window of ServiceEvents data is not
+  // dropped on container stop. Failures are swallowed inside shutdown().
+  let serviceeventsShutdown: Promise<void> = Promise.resolve();
+  try {
+    const { isMainThread: isMainServiceEvents } = require('worker_threads');
+    if (isMainServiceEvents) {
+      const { getServiceEventsInstrumentation } = require('./serviceevents');
+      const serviceevents = getServiceEventsInstrumentation();
+      if (serviceevents) {
+        serviceeventsShutdown = serviceevents.shutdown();
+      }
+    }
+  } catch {
+    // Ignore - ServiceEvents may not have been initialized
+  }
+
+  void serviceeventsShutdown
+    .catch(() => {
+      // shutdown() already swallows errors; this is defensive only.
+    })
+    .then(() =>
+      sdk
+        .shutdown()
+        .then(() => diag.debug('AWS Distro of OpenTelemetry SDK terminated'))
+        .catch(error => diag.error('Error terminating AWS Distro of OpenTelemetry SDK', error))
+    );
 });
 
 // END The OpenTelemetry Authors code

@@ -13,6 +13,12 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat: add ServiceEvents deep observability instrumentation — endpoint, function-call,
+  deployment, and incident-snapshot telemetry with profiling support
+  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
+- fix: AWS SDK v3 span creation when using `@smithy/core` >= 3.24.0 (`@smithy/smithy-client` >= 4.13.0)
+  by backporting the upstream aws-sdk instrumentation fix via patch
+  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
 - Fix(lambda-layer): CompactConsoleLogRecordExporter output with CloudWatch OTLP backend schema.
   Field renames: `timestamp` → `timeUnixNano`, `observedTimestamp` → `observedTimeUnixNano`,
   `instrumentationScope` → `scope`, `traceFlags` → `flags`. Attribute values preserve native

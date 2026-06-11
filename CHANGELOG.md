@@ -18,27 +18,16 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   `instrumentationScope` → `scope`, `traceFlags` → `flags`. Attribute values preserve native
   types.
   ([#392](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/392))
-  
-### Breaking Changes
-
-- refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.
+- (**Breaking Change**) refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.
   ([#446](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/446))
-
-### Enhancements
-
-- feat: add Dynamic Instrumentation — opt-in, on-demand runtime snapshot capture. The SDK polls
-  instrumentation configurations from the AWS control plane (via the CloudWatch Agent proxy), sets
-  V8 Inspector breakpoints at runtime in an isolated worker thread, and emits captured snapshots as
-  OTLP logs. Disabled by default (`OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED=false`) and not active in
-  AWS Lambda.
-  ([#466](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/466))
 - feat: add Bedrock AgentCore data plane instrumentation
   ([#455](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/455))
-
-### Bug Fixes
-
 - suppress /ping endpoint instrumentation for HTTP libraries in AgentCore
   ([#453](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/453))
+- feat(agent-observability): remove LLO handler from OTLP span exporter
+  ([#464](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/464))
+- feat: add Dynamic Instrumentation — opt-in, on-demand runtime snapshot capture.
+  ([#466](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/466))
 
 ## v0.11.0 - 2026-04-30
 

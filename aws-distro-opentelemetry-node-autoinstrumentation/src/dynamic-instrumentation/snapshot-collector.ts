@@ -350,13 +350,16 @@ export class SnapshotCollector {
         return { type: 'Array', notCapturedReason: 'depth' };
       }
       const props = await this.session.getPropertiesAsync(value.objectId);
+      // Read the array's `length` up front: V8 may return indexed properties before
+      // `length`, so we must not rely on encountering it during element collection
+      // (the element loop breaks at maxCollWidth and could skip `length` entirely).
+      // Using the `length` property also reports the true logical length for sparse
+      // arrays, where the number of present indexed properties is less than `length`.
+      const lengthProp = props.find(p => p.name === 'length');
+      const arrayLen: number = lengthProp?.value ? Number(lengthProp.value.value) || 0 : 0;
       const elements: CapturedValue[] = [];
-      let arrayLen: number = 0;
       for (const p of props) {
-        if (p.name === 'length' && p.value) {
-          arrayLen = Number(p.value.value) || 0;
-          continue;
-        }
+        if (p.name === 'length') continue;
         if (/^\d+$/.test(p.name) && p.value) {
           if (elements.length >= maxCollWidth) break;
           elements.push(await this.collectValue(p.value, config, objectDepth, collectionDepth + 1));

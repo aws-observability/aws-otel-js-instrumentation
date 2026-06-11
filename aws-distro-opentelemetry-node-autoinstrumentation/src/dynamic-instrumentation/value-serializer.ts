@@ -13,25 +13,27 @@ const SERIALIZATION_TIMEOUT_MS = 200;
  * Handles: primitives, arrays, objects, Maps, Sets, Dates, Errors, Buffers,
  * RegExps, null, undefined. Circular references detected and reported.
  *
+ * Two independent depth counters mirror the Java SDK semantics:
+ * - objectDepth (vs maxObjectDepth) governs plain objects and class instances
+ * - collectionDepth (vs maxCollectionDepth) governs Arrays, Maps, and Sets
+ * Recursing into a collection increments only collectionDepth; recursing into
+ * object fields increments only objectDepth. Primitives are captured at any depth.
+ *
  * Uses a deadline-based timeout to prevent runaway serialization.
  */
 export function serializeValue(
   value: unknown,
   limits: CaptureConfiguration = CAPTURE_DEFAULTS as CaptureConfiguration,
   deadline?: number,
-  currentDepth: number = 0,
-  visited: Set<object> = new Set()
+  objectDepth: number = 0,
+  visited: Set<object> = new Set(),
+  collectionDepth: number = 0
 ): CapturedValue {
   const effectiveDeadline = deadline ?? Date.now() + SERIALIZATION_TIMEOUT_MS;
 
   // Timeout check
   if (Date.now() > effectiveDeadline) {
     return { type: typeOf(value), notCapturedReason: 'timeout' };
-  }
-
-  // Depth check
-  if (currentDepth > limits.maxObjectDepth) {
-    return { type: typeOf(value), notCapturedReason: 'depth' };
   }
 
   // null
@@ -84,7 +86,10 @@ export function serializeValue(
 
     // Error
     if (value instanceof Error) {
-      return serializeError(value, limits, effectiveDeadline, currentDepth, visited);
+      if (objectDepth >= limits.maxObjectDepth) {
+        return { type: typeOf(value), notCapturedReason: 'depth' };
+      }
+      return serializeError(value, limits, effectiveDeadline, objectDepth, collectionDepth, visited);
     }
 
     // Buffer
@@ -100,17 +105,26 @@ export function serializeValue(
 
     // Array / TypedArray
     if (Array.isArray(value)) {
-      return serializeArray(value, limits, effectiveDeadline, currentDepth, visited);
+      if (collectionDepth >= limits.maxCollectionDepth) {
+        return { type: 'Array', notCapturedReason: 'depth' };
+      }
+      return serializeArray(value, limits, effectiveDeadline, objectDepth, collectionDepth, visited);
     }
 
     // Map
     if (value instanceof Map) {
-      return serializeMap(value, limits, effectiveDeadline, currentDepth, visited);
+      if (collectionDepth >= limits.maxCollectionDepth) {
+        return { type: 'Map', notCapturedReason: 'depth' };
+      }
+      return serializeMap(value, limits, effectiveDeadline, objectDepth, collectionDepth, visited);
     }
 
     // Set
     if (value instanceof Set) {
-      return serializeSet(value, limits, effectiveDeadline, currentDepth, visited);
+      if (collectionDepth >= limits.maxCollectionDepth) {
+        return { type: 'Set', notCapturedReason: 'depth' };
+      }
+      return serializeSet(value, limits, effectiveDeadline, objectDepth, collectionDepth, visited);
     }
 
     // WeakMap / WeakSet — can't enumerate
@@ -124,7 +138,10 @@ export function serializeValue(
     }
 
     // Plain objects (and class instances)
-    return serializeObject(obj, limits, effectiveDeadline, currentDepth, visited);
+    if (objectDepth >= limits.maxObjectDepth) {
+      return { type: typeOf(value), notCapturedReason: 'depth' };
+    }
+    return serializeObject(obj, limits, effectiveDeadline, objectDepth, collectionDepth, visited);
   } finally {
     visited.delete(obj);
   }
@@ -146,12 +163,13 @@ function serializeError(
   error: Error,
   limits: CaptureConfiguration,
   deadline: number,
-  depth: number,
+  objectDepth: number,
+  collectionDepth: number,
   visited: Set<object>
 ): CapturedValue {
   const fields: Record<string, CapturedValue> = {};
-  fields.message = serializeValue(error.message, limits, deadline, depth + 1, visited);
-  fields.name = serializeValue(error.name, limits, deadline, depth + 1, visited);
+  fields.message = serializeValue(error.message, limits, deadline, objectDepth + 1, visited, collectionDepth);
+  fields.name = serializeValue(error.name, limits, deadline, objectDepth + 1, visited, collectionDepth);
   if (error.stack) {
     fields.stack = serializeString(error.stack, limits.maxStackTraceSize);
   }
@@ -162,7 +180,8 @@ function serializeArray(
   arr: unknown[],
   limits: CaptureConfiguration,
   deadline: number,
-  depth: number,
+  objectDepth: number,
+  collectionDepth: number,
   visited: Set<object>
 ): CapturedValue {
   const elements: CapturedValue[] = [];
@@ -173,7 +192,7 @@ function serializeArray(
       elements.push({ type: 'unknown', notCapturedReason: 'timeout' });
       break;
     }
-    elements.push(serializeValue(arr[i], limits, deadline, depth + 1, visited));
+    elements.push(serializeValue(arr[i], limits, deadline, objectDepth, visited, collectionDepth + 1));
   }
 
   return {
@@ -188,7 +207,8 @@ function serializeMap(
   map: Map<unknown, unknown>,
   limits: CaptureConfiguration,
   deadline: number,
-  depth: number,
+  objectDepth: number,
+  collectionDepth: number,
   visited: Set<object>
 ): CapturedValue {
   const entries: Array<[CapturedValue, CapturedValue]> = [];
@@ -199,8 +219,8 @@ function serializeMap(
     if (count >= maxWidth) break;
     if (Date.now() > deadline) break;
     entries.push([
-      serializeValue(k, limits, deadline, depth + 1, visited),
-      serializeValue(v, limits, deadline, depth + 1, visited),
+      serializeValue(k, limits, deadline, objectDepth, visited, collectionDepth + 1),
+      serializeValue(v, limits, deadline, objectDepth, visited, collectionDepth + 1),
     ]);
     count++;
   }
@@ -217,7 +237,8 @@ function serializeSet(
   set: Set<unknown>,
   limits: CaptureConfiguration,
   deadline: number,
-  depth: number,
+  objectDepth: number,
+  collectionDepth: number,
   visited: Set<object>
 ): CapturedValue {
   const elements: CapturedValue[] = [];
@@ -227,7 +248,7 @@ function serializeSet(
   for (const item of set) {
     if (count >= maxWidth) break;
     if (Date.now() > deadline) break;
-    elements.push(serializeValue(item, limits, deadline, depth + 1, visited));
+    elements.push(serializeValue(item, limits, deadline, objectDepth, visited, collectionDepth + 1));
     count++;
   }
 
@@ -243,7 +264,8 @@ function serializeObject(
   obj: object,
   limits: CaptureConfiguration,
   deadline: number,
-  depth: number,
+  objectDepth: number,
+  collectionDepth: number,
   visited: Set<object>
 ): CapturedValue {
   const fields: Record<string, CapturedValue> = {};
@@ -266,7 +288,7 @@ function serializeObject(
 
     try {
       const val = (obj as Record<string, unknown>)[key];
-      fields[key] = serializeValue(val, limits, deadline, depth + 1, visited);
+      fields[key] = serializeValue(val, limits, deadline, objectDepth + 1, visited, collectionDepth);
     } catch {
       fields[key] = { type: 'unknown', notCapturedReason: 'fieldCount' };
     }

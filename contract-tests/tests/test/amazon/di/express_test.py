@@ -119,6 +119,20 @@ class DIExpressLineLevelTest(DITestInfrastructure):
         captures = body.get("captures", {})
         self.assertIn("lines", captures, f"Expected captures.lines, got: {list(captures.keys())}")
 
+    def test_line_level_snapshot_captures_local_values(self) -> None:
+        """The /line-level route calls calculateSum(5, 7); the breakpoint sits on
+        'const result = a + b' with CaptureLocals: ['a', 'b', 'result'], so the
+        arguments a and b must be captured with their actual values."""
+        self.send_request("GET", "line-level")
+        snapshots = self.wait_for_snapshots(min_count=1)
+        snap = self.snapshots_for_method(snapshots, "calculateSum")[0]
+
+        locals_captured = self._line_locals(snap)
+        self.assertIn("a", locals_captured, f"Expected local 'a' captured, got: {list(locals_captured.keys())}")
+        self.assertIn("b", locals_captured, f"Expected local 'b' captured, got: {list(locals_captured.keys())}")
+        self.assertEqual("5", locals_captured["a"].get("value"))
+        self.assertEqual("7", locals_captured["b"].get("value"))
+
     def test_different_breakpoints_generate_different_snapshots(self) -> None:
         self.send_request("GET", "success")
         self.send_request("GET", "line-level")
@@ -249,25 +263,79 @@ class DIExpressCaptureLimitsTest(DITestInfrastructure):
         return _APP_IMAGE
 
     def test_collection_elements_capped_at_enforced_maximum(self) -> None:
+        """The /limits-collection route passes a 50-element array; the config requests
+        MaxCollectionWidth=9999 which is clamped to 20, so exactly 20 elements are
+        captured and the value is marked truncated."""
         self.send_request("GET", "limits-collection")
         snapshots = self.wait_for_snapshots(min_count=1)
         snap = self.snapshots_for_method(snapshots, "processLargeCollection")[0]
 
-        body = self.log_body(snap)
-        captures = body.get("captures", {})
-        lines = captures.get("lines", {})
-        self.assertGreater(len(lines), 0, "Expected at least one line capture")
-        line_capture = list(lines.values())[0]
-        locals_captured = line_capture.get("locals", {})
+        locals_captured = self._line_locals(snap)
+        self.assertIn(
+            "largeList", locals_captured,
+            f"Expected 'largeList' local to be captured, got: {list(locals_captured.keys())}",
+        )
+        large_list_val = locals_captured["largeList"]
 
-        large_list_val = locals_captured.get("largeList", {})
-        self.assertIsNotNone(large_list_val, "Expected 'largeList' local to be captured")
-
-        elements = large_list_val.get("elements", [])
+        elements = large_list_val.get("elements")
         self.assertIsNotNone(elements, "Captured collection should have 'elements'")
-        self.assertLessEqual(
+        self.assertEqual(
             len(elements),
             self.ENFORCED_MAX_COLLECTION_WIDTH,
             f"Collection should be capped at enforced max {self.ENFORCED_MAX_COLLECTION_WIDTH} elements, "
             f"but had {len(elements)}.",
+        )
+        self.assertTrue(large_list_val.get("truncated"), "Capped collection should be marked truncated")
+        self.assertEqual(50, large_list_val.get("size"), "Captured size should be the original element count")
+        self.assertEqual("1", elements[0].get("value"), "First element should be captured with its value")
+
+    def test_string_truncated_at_enforced_maximum(self) -> None:
+        """The /limits-string route passes a 500-char string; the config requests
+        MaxStringLength=9999 which is clamped to 255, so the captured value is
+        exactly 255 chars and marked truncated."""
+        self.send_request("GET", "limits-string")
+        snapshots = self.wait_for_snapshots(min_count=1)
+        snap = self.snapshots_for_method(snapshots, "processLongString")[0]
+
+        locals_captured = self._line_locals(snap)
+        self.assertIn(
+            "longString", locals_captured,
+            f"Expected 'longString' local to be captured, got: {list(locals_captured.keys())}",
+        )
+        long_string_val = locals_captured["longString"]
+
+        captured = long_string_val.get("value")
+        self.assertIsNotNone(captured, "Captured string should have 'value'")
+        self.assertEqual(
+            len(captured),
+            self.ENFORCED_MAX_STRING_LENGTH,
+            f"String should be truncated to enforced max {self.ENFORCED_MAX_STRING_LENGTH} chars, "
+            f"but had {len(captured)}.",
+        )
+        self.assertTrue(long_string_val.get("truncated"), "Truncated string should be marked truncated")
+        self.assertEqual(500, long_string_val.get("size"), "Captured size should be the original string length")
+
+    def test_collection_depth_capped_at_configured_maximum(self) -> None:
+        """The /limits-collection-depth route passes [[[['deep']]]]; the config sets
+        MaxCollectionDepth=1, so the root array is captured but its nested array
+        element is cut with not_captured_reason=depth."""
+        self.send_request("GET", "limits-collection-depth")
+        snapshots = self.wait_for_snapshots(min_count=1)
+        snap = self.snapshots_for_method(snapshots, "processNestedCollection")[0]
+
+        locals_captured = self._line_locals(snap)
+        self.assertIn(
+            "nested", locals_captured,
+            f"Expected 'nested' local to be captured, got: {list(locals_captured.keys())}",
+        )
+        nested_val = locals_captured["nested"]
+
+        self.assertEqual("Array", nested_val.get("type"))
+        elements = nested_val.get("elements")
+        self.assertIsNotNone(elements, "Root array should be captured with 'elements'")
+        self.assertEqual(1, len(elements))
+        self.assertEqual(
+            "depth",
+            elements[0].get("not_captured_reason"),
+            f"Nested array beyond MaxCollectionDepth=1 should be cut with reason 'depth', got: {elements[0]}",
         )

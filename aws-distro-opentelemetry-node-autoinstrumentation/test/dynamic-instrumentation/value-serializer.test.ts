@@ -134,8 +134,8 @@ describe('serializeValue', function () {
     it('should enforce depth limit', function () {
       const deep = { a: { b: { c: { d: 'too deep' } } } };
       const result = serializeValue(deep, withLimits({ maxObjectDepth: 2 }));
-      // depth 0=root, 1=a, 2=b, 3=c exceeds maxObjectDepth=2
-      expect(result.fields!.a.fields!.b.fields!.c.notCapturedReason).toBe('depth');
+      // objectDepth 0=root, 1=a; b at objectDepth 2 hits maxObjectDepth=2 (>= check, Java parity)
+      expect(result.fields!.a.fields!.b.notCapturedReason).toBe('depth');
     });
 
     it('should serialize empty object', function () {
@@ -224,6 +224,59 @@ describe('serializeValue', function () {
     it('should handle WeakSet', function () {
       const result = serializeValue(new WeakSet());
       expect(result.notCapturedReason).toBe('collectionSize');
+    });
+  });
+
+  describe('collection depth limits', function () {
+    it('should enforce maxCollectionDepth on nested arrays', function () {
+      const nested = [[[['deep']]]];
+      const result = serializeValue(nested, withLimits({ maxCollectionDepth: 1, maxObjectDepth: 3 }));
+      // collectionDepth 0=root array (serialized); inner arrays at collectionDepth 1 hit the limit
+      expect(result.type).toBe('Array');
+      expect(result.elements).toHaveLength(1);
+      expect(result.elements![0].notCapturedReason).toBe('depth');
+      expect(result.elements![0].type).toBe('Array');
+    });
+
+    it('should serialize nested arrays within maxCollectionDepth', function () {
+      const nested = [[1, 2], [3]];
+      const result = serializeValue(nested, withLimits({ maxCollectionDepth: 2 }));
+      expect(result.elements![0].elements![0].value).toBe('1');
+      expect(result.elements![1].elements![0].value).toBe('3');
+    });
+
+    it('should enforce maxCollectionDepth on nested Maps', function () {
+      const inner = new Map([['k', 'v']]);
+      const outer = new Map([['inner', inner]]);
+      const result = serializeValue(outer, withLimits({ maxCollectionDepth: 1 }));
+      expect(result.type).toBe('Map');
+      expect(result.entries![0][1].notCapturedReason).toBe('depth');
+    });
+
+    it('should enforce maxCollectionDepth on nested Sets', function () {
+      const outer = new Set([new Set([1, 2])]);
+      const result = serializeValue(outer, withLimits({ maxCollectionDepth: 1 }));
+      expect(result.type).toBe('Set');
+      expect(result.elements![0].notCapturedReason).toBe('depth');
+    });
+
+    it('should keep collection depth independent from object depth', function () {
+      // Object nesting does not consume collection depth and vice versa:
+      // root object (objectDepth 0) -> items array (collectionDepth 0)
+      // -> element object (objectDepth 1) -> inner array (collectionDepth 1) -> 42
+      const value = { items: [{ inner: [42] }] };
+      const result = serializeValue(value, withLimits({ maxObjectDepth: 2, maxCollectionDepth: 2 }));
+      const items = result.fields!.items;
+      expect(items.type).toBe('Array');
+      const element = items.elements![0];
+      expect(element.fields!.inner.elements![0].value).toBe('42');
+    });
+
+    it('should capture primitives inside collections at the collection depth boundary', function () {
+      // The array itself is within the limit; its primitive elements are always captured
+      const result = serializeValue([1, 'two'], withLimits({ maxCollectionDepth: 1 }));
+      expect(result.elements![0].value).toBe('1');
+      expect(result.elements![1].value).toBe('two');
     });
   });
 

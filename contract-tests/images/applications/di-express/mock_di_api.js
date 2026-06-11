@@ -34,9 +34,11 @@ const BREAKPOINT_CONFIGS = [
     LocationHash: 'aabb000000000001',
     CaptureConfiguration: {
       CodeCapture: {
-        CaptureReturn: true,
         CaptureStackTrace: true,
-        CaptureArguments: ['value'],
+        // Function args live in V8's local scope, so they are captured via CaptureLocals.
+        // (CaptureArguments/CaptureReturn are method-level concepts and not honored by
+        // line-level JS DI.)
+        CaptureLocals: ['value'],
         CaptureLimits: { MaxStringLength: 255 },
       },
     },
@@ -81,8 +83,7 @@ const BREAKPOINT_CONFIGS = [
     LocationHash: 'aabb000000000004',
     CaptureConfiguration: {
       CodeCapture: {
-        CaptureReturn: true,
-        CaptureArguments: ['x'],
+        CaptureLocals: ['x'],
         CaptureStackTrace: true,
         CaptureLimits: { MaxStringLength: 255, MaxHits: 3 },
       },
@@ -105,8 +106,7 @@ const BREAKPOINT_CONFIGS = [
     LocationHash: 'aabb000000000005',
     CaptureConfiguration: {
       CodeCapture: {
-        CaptureReturn: true,
-        CaptureArguments: ['data'],
+        CaptureLocals: ['data'],
         CaptureStackTrace: true,
         CaptureLimits: { MaxStringLength: 255 },
       },
@@ -129,8 +129,7 @@ const BREAKPOINT_CONFIGS = [
     LocationHash: 'aabb000000000007',
     CaptureConfiguration: {
       CodeCapture: {
-        CaptureReturn: true,
-        CaptureArguments: ['longString'],
+        CaptureLocals: ['longString'],
         CaptureStackTrace: false,
         CaptureLimits: { MaxStringLength: 9999 },
       },
@@ -153,10 +152,32 @@ const BREAKPOINT_CONFIGS = [
     LocationHash: 'aabb000000000008',
     CaptureConfiguration: {
       CodeCapture: {
-        CaptureReturn: true,
-        CaptureArguments: ['largeList'],
+        CaptureLocals: ['largeList'],
         CaptureStackTrace: false,
         CaptureLimits: { MaxCollectionWidth: 9999 },
+      },
+    },
+  },
+  // Collection depth limit validation (MaxCollectionDepth=1 -> nested arrays cut at depth 1)
+  {
+    InstrumentationType: 'BREAKPOINT',
+    SignalType: 'SNAPSHOT',
+    Location: {
+      CodeLocation: {
+        Language: 'JavaScript',
+        CodeUnit: '',
+        ClassName: '',
+        MethodName: 'processNestedCollection',
+        FilePath: 'app.js',
+        LineNumber: 92, // return nested.length;
+      },
+    },
+    LocationHash: 'aabb000000000009',
+    CaptureConfiguration: {
+      CodeCapture: {
+        CaptureLocals: ['nested'],
+        CaptureStackTrace: false,
+        CaptureLimits: { MaxCollectionDepth: 1, MaxObjectDepth: 3 },
       },
     },
   },
@@ -181,8 +202,7 @@ const PROBE_CONFIGS = [
     LocationHash: 'aabb000000000002',
     CaptureConfiguration: {
       CodeCapture: {
-        CaptureReturn: true,
-        CaptureArguments: ['items'],
+        CaptureLocals: ['items'],
         CaptureStackTrace: true,
         CaptureLimits: { MaxStringLength: 255 },
       },
@@ -206,8 +226,7 @@ const PROBE_CONFIGS = [
     LocationHash: 'aabb000000000006',
     CaptureConfiguration: {
       CodeCapture: {
-        CaptureReturn: true,
-        CaptureArguments: ['data'],
+        CaptureLocals: ['data'],
         CaptureStackTrace: true,
         CaptureLimits: { MaxStringLength: 255 },
       },

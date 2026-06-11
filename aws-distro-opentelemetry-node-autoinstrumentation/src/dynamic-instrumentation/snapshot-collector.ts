@@ -30,7 +30,9 @@ import { DynamicInstrumentationConfig } from './config';
 //       return JSON.stringify({ traceId: x.traceId || '', spanId: x.spanId || '' });
 //     } catch (e) { return '{}'; }
 //   })()
-const TRACE_CONTEXT_EXPRESSION =
+// Exported so tests can assert the symbol version stays in sync with the installed
+// @opentelemetry/api major version.
+export const TRACE_CONTEXT_EXPRESSION =
   "(function(){try{var o=globalThis[Symbol.for('opentelemetry.js.api.1')];if(!o||!o.context)return'{}';var c=o.context.active();if(!c)return'{}';var s=c.getValue(Symbol.for('OpenTelemetry Context Key SPAN'));if(!s)return'{}';var x=s.spanContext();return JSON.stringify({traceId:x.traceId||'',spanId:x.spanId||''})}catch(e){return'{}'}})()";
 
 // A valid trace context response is exactly 74 chars (fixed-length JSON with 32+16 hex chars).
@@ -298,14 +300,22 @@ export class SnapshotCollector {
 
   /**
    * Collect a V8 RemoteObject into a CapturedValue tree during pause.
-   * Recursively fetches properties for objects/arrays up to the configured depth.
+   * Recursively fetches properties for objects/arrays up to the configured depths.
+   *
+   * Two independent depth counters mirror the Java SDK semantics:
+   * - objectDepth (vs maxObjectDepth) governs plain objects and class instances
+   * - collectionDepth (vs maxCollectionDepth) governs Arrays, Maps, and Sets
+   * Recursing into a collection increments only collectionDepth; recursing into
+   * object fields increments only objectDepth.
    */
   private async collectValue(
     value: inspector.Runtime.RemoteObject,
     config: InstrumentationConfiguration,
-    depth: number = 0
+    objectDepth: number = 0,
+    collectionDepth: number = 0
   ): Promise<CapturedValue> {
-    const maxDepth: number = config.captureConfig?.maxObjectDepth ?? 3;
+    const maxObjDepth: number = config.captureConfig?.maxObjectDepth ?? 3;
+    const maxCollDepth: number = config.captureConfig?.maxCollectionDepth ?? 3;
     const maxFields: number = config.captureConfig?.maxFieldsPerObject ?? 20;
     const maxCollWidth: number = config.captureConfig?.maxCollectionWidth ?? 20;
     const maxStrLen: number = config.captureConfig?.maxStringLength ?? 255;
@@ -330,17 +340,15 @@ export class SnapshotCollector {
     if (value.type === 'function')
       return { type: 'function', value: value.description?.split('\n')[0] ?? '(function)' };
 
-    // Objects — check depth limit
-    if (depth >= maxDepth) {
-      return { type: value.className ?? 'object', notCapturedReason: 'depth' };
-    }
-
     if (!value.objectId) {
       return { type: value.className ?? 'object', value: value.description ?? '{}' };
     }
 
     // Array
     if (value.subtype === 'array') {
+      if (collectionDepth >= maxCollDepth) {
+        return { type: 'Array', notCapturedReason: 'depth' };
+      }
       const props = await this.session.getPropertiesAsync(value.objectId);
       const elements: CapturedValue[] = [];
       let arrayLen: number = 0;
@@ -351,7 +359,7 @@ export class SnapshotCollector {
         }
         if (/^\d+$/.test(p.name) && p.value) {
           if (elements.length >= maxCollWidth) break;
-          elements.push(await this.collectValue(p.value, config, depth + 1));
+          elements.push(await this.collectValue(p.value, config, objectDepth, collectionDepth + 1));
         }
       }
       return {
@@ -364,6 +372,9 @@ export class SnapshotCollector {
 
     // Map
     if (value.className === 'Map') {
+      if (collectionDepth >= maxCollDepth) {
+        return { type: 'Map', notCapturedReason: 'depth' };
+      }
       const props = await this.session.getPropertiesAsync(value.objectId, false);
       const entriesProp = props.find(p => p.name === '[[Entries]]');
       if (entriesProp?.value?.objectId) {
@@ -380,8 +391,8 @@ export class SnapshotCollector {
           const valProp = kvProps.find(p => p.name === 'value');
           if (keyProp?.value && valProp?.value) {
             captured.push([
-              await this.collectValue(keyProp.value, config, depth + 1),
-              await this.collectValue(valProp.value, config, depth + 1),
+              await this.collectValue(keyProp.value, config, objectDepth, collectionDepth + 1),
+              await this.collectValue(valProp.value, config, objectDepth, collectionDepth + 1),
             ]);
           }
         }
@@ -392,6 +403,9 @@ export class SnapshotCollector {
 
     // Set
     if (value.className === 'Set') {
+      if (collectionDepth >= maxCollDepth) {
+        return { type: 'Set', notCapturedReason: 'depth' };
+      }
       const props = await this.session.getPropertiesAsync(value.objectId, false);
       const entriesProp = props.find(p => p.name === '[[Entries]]');
       if (entriesProp?.value?.objectId) {
@@ -406,7 +420,7 @@ export class SnapshotCollector {
           const valProps = await this.session.getPropertiesAsync(e.value.objectId);
           const valProp = valProps.find(p => p.name === 'value');
           if (valProp?.value) {
-            elements.push(await this.collectValue(valProp.value, config, depth + 1));
+            elements.push(await this.collectValue(valProp.value, config, objectDepth, collectionDepth + 1));
           }
         }
         return { type: 'Set', elements, size: setSize, truncated: setSize > maxCollWidth };
@@ -422,7 +436,11 @@ export class SnapshotCollector {
       return { type: value.className ?? 'Error', value: value.description ?? '' };
     }
 
-    // Plain object (or class instance)
+    // Plain object (or class instance) — check object depth limit
+    if (objectDepth >= maxObjDepth) {
+      return { type: value.className ?? 'object', notCapturedReason: 'depth' };
+    }
+
     const props = await this.session.getPropertiesAsync(value.objectId);
     const fields: Record<string, CapturedValue> = {};
     let fieldCount: number = 0;
@@ -432,7 +450,7 @@ export class SnapshotCollector {
       totalFields++;
       if (fieldCount >= maxFields) continue;
       if (p.value) {
-        fields[p.name] = await this.collectValue(p.value, config, depth + 1);
+        fields[p.name] = await this.collectValue(p.value, config, objectDepth + 1, collectionDepth);
         fieldCount++;
       }
     }

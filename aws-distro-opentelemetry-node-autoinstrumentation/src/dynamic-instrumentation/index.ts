@@ -23,6 +23,7 @@ export class DynamicInstrumentationManager {
   private worker: Worker | null = null;
   private config: DynamicInstrumentationConfig | null = null;
   private initialized: boolean = false;
+  private shutdownTimer: NodeJS.Timeout | null = null;
 
   private constructor() {}
 
@@ -82,13 +83,16 @@ export class DynamicInstrumentationManager {
     if (this.worker) {
       try {
         this.worker.postMessage({ type: 'shutdown' });
-        // Give worker 5 seconds to shut down gracefully
-        setTimeout(() => {
+        // Give worker 5 seconds to shut down gracefully.
+        // The 'exit' handler clears this timer when the worker exits before the deadline.
+        this.shutdownTimer = setTimeout(() => {
+          this.shutdownTimer = null;
           if (this.worker) {
             void this.worker.terminate();
             this.worker = null;
           }
-        }, 5000).unref();
+        }, 5000);
+        this.shutdownTimer.unref();
       } catch (error) {
         diag.debug('DI: Error sending shutdown to worker', error);
         try {
@@ -143,6 +147,10 @@ export class DynamicInstrumentationManager {
     this.worker.on('exit', code => {
       if (code !== 0) {
         diag.warn(`DI: Worker thread exited with code ${code}`);
+      }
+      if (this.shutdownTimer) {
+        clearTimeout(this.shutdownTimer);
+        this.shutdownTimer = null;
       }
       this.worker = null;
     });

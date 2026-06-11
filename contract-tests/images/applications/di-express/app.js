@@ -85,6 +85,14 @@ function processLargeCollection(largeList) {
   return largeList.length;
 }
 
+/**
+ * BREAKPOINT target for collection depth limit validation.
+ * Config requests MaxCollectionDepth=1: the root array is captured, nested arrays are cut.
+ */
+function processNestedCollection(nested) {
+  return nested.length;
+}
+
 // =========================================================================
 // Routes
 // =========================================================================
@@ -129,6 +137,13 @@ app.get('/limits-collection', (req, res) => {
   // 50-element array — exceeds MAX_MAX_COLLECTION_WIDTH (20)
   const largeList = Array.from({ length: 50 }, (_, i) => i + 1);
   const result = processLargeCollection(largeList);
+  res.json({ status: 'ok', size: result });
+});
+
+app.get('/limits-collection-depth', (req, res) => {
+  // 4-level nested array — config MaxCollectionDepth=1 cuts capture below the root array
+  const nested = [[[['deep']]]];
+  const result = processNestedCollection(nested);
   res.json({ status: 'ok', size: result });
 });
 

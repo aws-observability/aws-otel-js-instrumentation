@@ -25,7 +25,9 @@ For the complete list of supported frameworks, please refer to the [OpenTelemetr
 
 ## Dynamic Instrumentation
 
-Dynamic Instrumentation lets you capture runtime "snapshots" (local variables, arguments, call stack, and trace context) from a running application on demand — without redeploying or restarting it. The SDK periodically polls instrumentation configurations from the AWS control plane (proxied through the CloudWatch Agent), applies them at runtime using the V8 Inspector in an isolated worker thread, and emits captured snapshots as OTLP logs.
+Dynamic Instrumentation lets you capture runtime "snapshots" (local variables and trace context, plus the call stack when `CaptureStackTrace` is enabled in the configuration) from a running application on demand — without redeploying or restarting it. The SDK periodically polls instrumentation configurations from the AWS control plane (proxied through the CloudWatch Agent), applies them at runtime using the V8 Inspector in an isolated worker thread, and emits captured snapshots as OTLP logs.
+
+JS Dynamic Instrumentation is line-level: snapshots are captured at a specific line, and variables are selected via `CaptureLocals`. Function arguments are part of V8's local scope, so to capture an argument, list its name in `CaptureLocals` (only the innermost function's parameters and locals are visible at the breakpoint line). Stack trace capture is off by default; enable it per-configuration with `CaptureStackTrace: true`.
 
 This feature is **disabled by default** and is **not active in AWS Lambda**. It is opt-in via environment variables:
 

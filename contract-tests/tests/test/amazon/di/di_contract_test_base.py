@@ -236,6 +236,19 @@ class DITestInfrastructure(TestCase):
     def get_attr(self, record: ResourceScopeLog, key: str) -> Any:
         return self.log_attrs(record).get(key)
 
+    def _line_locals(self, record: ResourceScopeLog) -> Dict[str, Any]:
+        """Return the locals dict of the first (only) line capture in a snapshot body.
+
+        JS DI is line-level only, so every snapshot body has captures.lines with a
+        single line entry. Fails the test if the structure is missing.
+        """
+        body = self.log_body(record)
+        self.assertIsInstance(body, dict, "Snapshot body should be a dict")
+        captures = body.get("captures", {})
+        lines = captures.get("lines", {})
+        self.assertGreater(len(lines), 0, f"Expected at least one line capture, got captures: {list(captures.keys())}")
+        return list(lines.values())[0].get("locals", {})
+
     # -------------------------------------------------------------------------
     # Filtering helpers
     # -------------------------------------------------------------------------

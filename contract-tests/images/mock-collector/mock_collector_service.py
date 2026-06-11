@@ -25,11 +25,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 
 class MockCollectorService(MockCollectorServiceServicer):
-    """Implements clear, get_traces, get_metrics, and get_logs for the mock collector.
-
-    Relies on trace, metrics, and logs collector services to collect the telemetry.
-    The logs collector is optional so existing trace/metrics-only setups keep working.
-    """
+    """Implements clear, get_traces, get_metrics, and (via attribute) get_logs for the mock collector."""
 
     def __init__(
         self,
@@ -60,7 +56,7 @@ class MockCollectorService(MockCollectorServiceServicer):
     @override
     def get_metrics(self, request: GetMetricsRequest, context: ServicerContext) -> GetMetricsResponse:
         metric_requests: List[ExportMetricsServiceRequest] = self.metrics_collector.get_requests()
-        metrics: List[bytes] = list(map(ExportTraceServiceRequest.SerializeToString, metric_requests))
+        metrics: List[bytes] = list(map(ExportMetricsServiceRequest.SerializeToString, metric_requests))
         response: GetMetricsResponse = GetMetricsResponse(metrics=metrics)
         return response
 

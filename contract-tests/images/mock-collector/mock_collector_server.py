@@ -7,6 +7,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler
+
 from socketserver import ThreadingTCPServer
 
 from grpc import server
@@ -19,20 +20,24 @@ from mock_collector_trace_service import MockCollectorTraceService
 from google.protobuf.json_format import Parse as proto_json_parse
 from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest, ExportLogsServiceResponse
 from opentelemetry.proto.collector.logs.v1.logs_service_pb2_grpc import add_LogsServiceServicer_to_server
+from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import (
+    ExportMetricsServiceRequest,
+    ExportMetricsServiceResponse,
+)
 from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2_grpc import add_MetricsServiceServicer_to_server
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2_grpc import add_TraceServiceServicer_to_server
 
-# Port for OTLP/gRPC (used by Application Signals traces/metrics)
+# Port for OTLP/gRPC (used by Application Signals)
 _GRPC_PORT = 4315
-# Port for OTLP/HTTP (used by the Dynamic Instrumentation snapshot emitter)
+# Port for OTLP/HTTP (used by DI snapshot emitter + ServiceEvents)
 _HTTP_PORT = 4318
 
 
 def _read_chunked(rfile):
-    """Read an HTTP chunked transfer-encoded body from *rfile* and return the
-    reassembled bytes. Handles the ``Transfer-Encoding: chunked`` framing that
-    Node.js ``http.request`` sends by default when no explicit ``Content-Length``
-    header is set."""
+    """Read an HTTP chunked transfer-encoded body from *rfile* and return
+    the reassembled bytes.  Handles the ``Transfer-Encoding: chunked``
+    framing that Node.js ``http.request`` sends by default when no
+    explicit ``Content-Length`` header is set."""
     body = io.BytesIO()
     while True:
         line = rfile.readline()
@@ -47,23 +52,28 @@ def _read_chunked(rfile):
     return body.getvalue()
 
 
-def _make_http_handler(logs_collector: MockCollectorLogsService):
-    """Create an HTTP request handler that routes OTLP/HTTP log exports into the
-    same queue used by the gRPC LogsService.
+def _make_http_handler(
+    logs_collector: MockCollectorLogsService,
+    metrics_collector: MockCollectorMetricsService,
+):
+    """Create an HTTP request handler that routes OTLP HTTP logs and metrics
+    into the same queues used by the gRPC services.
 
     Uses HTTP/1.1 with keep-alive and supports both Content-Length and
-    Transfer-Encoding: chunked request bodies (Node.js defaults to chunked when
-    Content-Length is not explicitly set). Supports both JSON (the default for
-    @opentelemetry/exporter-logs-otlp-http) and protobuf content types."""
+    Transfer-Encoding: chunked request bodies (Node.js defaults to
+    chunked when Content-Length is not explicitly set).
+
+    Supports both JSON (default for @opentelemetry/exporter-*-otlp-http)
+    and protobuf content types."""
 
     class OtlpHttpHandler(BaseHTTPRequestHandler):
-        # HTTP/1.1 is required so Node.js clients can reuse connections and the
-        # BatchLogRecordProcessor's export promises resolve properly.
+        # HTTP/1.1 is required so Node.js clients can reuse connections
+        # and the BatchLogRecordProcessor's export promises resolve properly.
         protocol_version = "HTTP/1.1"
 
         def _read_body(self):
-            """Read the full request body, supporting both Content-Length and
-            Transfer-Encoding: chunked."""
+            """Read the full request body, supporting both Content-Length
+            and Transfer-Encoding: chunked."""
             te = self.headers.get("Transfer-Encoding", "")
             if "chunked" in te.lower():
                 return _read_chunked(self.rfile)
@@ -75,9 +85,8 @@ def _make_http_handler(logs_collector: MockCollectorLogsService):
         def _parse_and_store(self, request_cls, response_cls, queue):
             body = self._read_body()
             content_type = self.headers.get("Content-Type", "")
-            # OTLP/HTTP permits gzip-compressed bodies via Content-Encoding.
-            # Decode is header-driven so we honor it regardless of how the
-            # exporter is configured.
+            # Decode is header-driven: OTLP payloads are usually uncompressed, but if a
+            # producer sets Content-Encoding: gzip we honor it and parse the compressed body.
             content_encoding = self.headers.get("Content-Encoding", "").lower()
             if content_encoding == "gzip" and len(body) > 0:
                 body = gzip.decompress(body)
@@ -100,25 +109,31 @@ def _make_http_handler(logs_collector: MockCollectorLogsService):
                 self.send_header("Content-Length", str(len(resp_bytes)))
                 self.end_headers()
                 self.wfile.write(resp_bytes)
-            except Exception as e:  # pylint: disable=broad-exception-caught
+            except Exception as e:
                 print(f"HTTP {self.path} ERROR: {e}", flush=True, file=sys.stderr)
                 self.send_response(400)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
 
-        def do_POST(self):  # pylint: disable=invalid-name
+        def do_POST(self):
             if self.path == "/v1/logs":
                 self._parse_and_store(
                     ExportLogsServiceRequest,
                     ExportLogsServiceResponse,
-                    logs_collector._export_requests,  # pylint: disable=protected-access
+                    logs_collector._export_requests,
+                )
+            elif self.path == "/v1/metrics":
+                self._parse_and_store(
+                    ExportMetricsServiceRequest,
+                    ExportMetricsServiceResponse,
+                    metrics_collector._export_requests,
                 )
             else:
                 self.send_response(404)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
 
-        def log_message(self, format, *args):  # pylint: disable=redefined-builtin
+        def log_message(self, format, *args):
             # Suppress per-request logs to keep output clean
             pass
 
@@ -127,7 +142,6 @@ def _make_http_handler(logs_collector: MockCollectorLogsService):
 
 class _ThreadingHTTPServer(ThreadingTCPServer):
     """A threading HTTP server that allows address reuse."""
-
     allow_reuse_address = True
     daemon_threads = True
 
@@ -149,13 +163,16 @@ def main() -> None:
     mock_collector_server.start()
     atexit.register(mock_collector_server.stop, None)
 
-    # Start an OTLP/HTTP receiver on a separate port for clients using
-    # @opentelemetry/exporter-logs-otlp-http (the Dynamic Instrumentation snapshot
-    # emitter). Routes /v1/logs into the same queue used by the gRPC LogsService.
-    http_server = _ThreadingHTTPServer(("0.0.0.0", _HTTP_PORT), _make_http_handler(logs_collector))
+    # Start OTLP/HTTP receiver on a separate port for clients using
+    # @opentelemetry/exporter-{logs,metrics}-otlp-http (DI snapshot emitter +
+    # ServiceEvents). Routes /v1/logs and /v1/metrics into the same queues used
+    # by their gRPC counterparts.
+    http_server = _ThreadingHTTPServer(
+        ("0.0.0.0", _HTTP_PORT),
+        _make_http_handler(logs_collector, metrics_collector),
+    )
     http_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
     http_thread.start()
-    atexit.register(http_server.shutdown)
 
     print("Ready")
     mock_collector_server.wait_for_termination(None)

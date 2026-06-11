@@ -5,6 +5,10 @@
 import * as assert from 'assert';
 import { spawnSync, SpawnSyncReturns } from 'child_process';
 import expect from 'expect';
+import type { resolveServiceEventsBootstrap as ResolveServiceEventsBootstrapFn } from '../src/register';
+// Populated lazily inside describe('resolveServiceEventsBootstrap()') — see before() hook.
+// Do NOT import from '../src/register' statically: register.ts calls sdk.start() on load.
+let resolveServiceEventsBootstrap: typeof ResolveServiceEventsBootstrapFn;
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import * as sinon from 'sinon';
 import { trace } from '@opentelemetry/api';
@@ -409,6 +413,73 @@ describe('Register', function () {
       expect(process.env.OTEL_TRACES_SAMPLER).toEqual('traceidratio');
       expect(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS).toEqual('a,b,c,d');
       expect(process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED).toEqual('true');
+    });
+  });
+
+  describe('resolveServiceEventsBootstrap()', () => {
+    before(() => {
+      const stub = sinon.stub(opentelemetry.NodeSDK.prototype, 'start');
+      resolveServiceEventsBootstrap = require('../src/register').resolveServiceEventsBootstrap;
+      stub.restore();
+    });
+
+    it('skips on Lambda regardless of other flags', () => {
+      expect(
+        resolveServiceEventsBootstrap({
+          AWS_LAMBDA_FUNCTION_NAME: 'my-fn',
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'true',
+          OTEL_AWS_APPLICATION_SIGNALS_ENABLED: 'true',
+        })
+      ).toEqual({ action: 'skip', reason: 'lambda' });
+    });
+
+    it('initializes when App Signals enabled and ServiceEvents unset (bundled)', () => {
+      expect(resolveServiceEventsBootstrap({ OTEL_AWS_APPLICATION_SIGNALS_ENABLED: 'true' })).toEqual({
+        action: 'init',
+      });
+    });
+
+    it('skips when App Signals disabled and ServiceEvents unset', () => {
+      expect(resolveServiceEventsBootstrap({})).toEqual({ action: 'skip', reason: 'bundledOff' });
+    });
+
+    it('skips when ServiceEvents explicitly false even with App Signals on', () => {
+      expect(
+        resolveServiceEventsBootstrap({
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'false',
+          OTEL_AWS_APPLICATION_SIGNALS_ENABLED: 'true',
+        })
+      ).toEqual({ action: 'skip', reason: 'explicitOff' });
+    });
+
+    it('force-enabled without App Signals requires both endpoints', () => {
+      expect(
+        resolveServiceEventsBootstrap({
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'true',
+          OTEL_AWS_OTLP_LOGS_ENDPOINT: 'http://custom:9999/v1/logs',
+          OTEL_AWS_OTLP_METRICS_ENDPOINT: 'http://custom:9999/v1/metrics',
+        })
+      ).toEqual({ action: 'init' });
+
+      expect(
+        resolveServiceEventsBootstrap({
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'true',
+          OTEL_AWS_OTLP_LOGS_ENDPOINT: 'http://custom:9999/v1/logs',
+        })
+      ).toEqual({ action: 'skipForceEnabledWithoutEndpoints' });
+
+      expect(resolveServiceEventsBootstrap({ OTEL_AWS_SERVICE_EVENTS_ENABLED: 'true' })).toEqual({
+        action: 'skipForceEnabledWithoutEndpoints',
+      });
+    });
+
+    it('force-enabled with App Signals: endpoints optional (backfill downstream)', () => {
+      expect(
+        resolveServiceEventsBootstrap({
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'true',
+          OTEL_AWS_APPLICATION_SIGNALS_ENABLED: 'true',
+        })
+      ).toEqual({ action: 'init' });
     });
   });
 

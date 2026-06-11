@@ -56,10 +56,7 @@ class ResourceScopeMetric:
 
 
 class ResourceScopeLog:
-    """Data class used to correlate resources, scope and telemetry signals.
-
-    Correlate resource, scope and log record
-    """
+    """Correlate resource, scope and log record."""
 
     def __init__(self, resource_logs: ResourceLogs, scope_logs: ScopeLogs, log_record: OtlpLogRecord):
         self.resource_logs: ResourceLogs = resource_logs
@@ -139,22 +136,16 @@ class MockCollectorClient:
         return metrics
 
     def get_logs_now(self) -> List[ResourceScopeLog]:
-        """Non-blocking snapshot of all LogRecords currently stored in the mock collector.
-
-        Returns:
-            List of `ResourceScopeLog` which is a flat list containing all log records and their related
-            scope and resources. Unlike `get_traces`/`get_metrics`, this does not wait for content — callers
-            poll it themselves so they can apply their own readiness condition (e.g. a specific event name).
-        """
+        """Non-blocking snapshot of all LogRecords currently stored in the mock collector."""
         response: GetLogsResponse = self.client.get_logs(GetLogsRequest())
         serialized: RepeatedScalarFieldContainer[bytes] = response.logs
         exported: List[ExportLogsServiceRequest] = list(map(ExportLogsServiceRequest.FromString, serialized))
         result: List[ResourceScopeLog] = []
         for export in exported:
-            for resource_logs in export.resource_logs:
-                for scope_logs in resource_logs.scope_logs:
-                    for log_record in scope_logs.log_records:
-                        result.append(ResourceScopeLog(resource_logs, scope_logs, log_record))
+            for rlog in export.resource_logs:
+                for slog in rlog.scope_logs:
+                    for rec in slog.log_records:
+                        result.append(ResourceScopeLog(rlog, slog, rec))
         return result
 
 

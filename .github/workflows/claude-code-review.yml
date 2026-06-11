@@ -65,7 +65,7 @@ jobs:
           use_sticky_comment: "true"
           track_progress: "true"
           claude_args: |
-            --model us.anthropic.claude-opus-4-6-v1 --add-dir pr-head --allowedTools "Read,Glob,Grep,Bash(gh pr diff ${{ github.event.pull_request.number }}),Bash(gh pr diff ${{ github.event.pull_request.number }} *),Bash(gh pr view ${{ github.event.pull_request.number }}),Bash(gh pr view ${{ github.event.pull_request.number }} *),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files*),Bash(git diff *),Bash(git log *),Bash(git show *)"
+            --model us.anthropic.claude-opus-4-7 --add-dir pr-head --allowedTools "Read,Glob,Grep,Bash(gh pr diff ${{ github.event.pull_request.number }}),Bash(gh pr diff ${{ github.event.pull_request.number }} *),Bash(gh pr view ${{ github.event.pull_request.number }}),Bash(gh pr view ${{ github.event.pull_request.number }} *),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits*),Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files*)"
           prompt: |
             You are reviewing PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.
 

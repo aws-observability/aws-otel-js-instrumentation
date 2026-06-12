@@ -42,7 +42,6 @@ describe('SnapshotOtlpEmitter trace context', function () {
         location: {
           codeUnit: '',
           className: '',
-          methodName: 'testFunc',
           lineNumber: 42,
           filePath: '/app/test.js',
           language: 'javascript',

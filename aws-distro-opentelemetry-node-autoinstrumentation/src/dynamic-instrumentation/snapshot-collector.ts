@@ -241,7 +241,6 @@ export class SnapshotCollector {
       stack,
       traceId,
       spanId,
-      functionName: topFrame?.functionName ?? '',
       url: topFrame?.url || fileResolver.getScriptUrl(topFrame?.location?.scriptId ?? ''),
       lineNumber: (topFrame?.location?.lineNumber ?? 0) + 1,
     };
@@ -271,7 +270,6 @@ export class SnapshotCollector {
           location: {
             codeUnit: config.codeUnit ?? '',
             className: config.className ?? '',
-            methodName: config.methodName ?? rawData.functionName,
             lineNumber: config.lineNumber,
             filePath: config.filePath ?? rawData.url,
             language: 'javascript',
@@ -521,7 +519,6 @@ interface RawCaptureData {
   stack: StackFrame[];
   traceId: string;
   spanId: string;
-  functionName: string;
   url: string;
   lineNumber: number;
 }

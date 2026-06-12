@@ -44,7 +44,6 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
         location: {
           codeUnit: 'orders',
           className: 'OrderService',
-          methodName: 'process',
           lineNumber: 42,
           filePath: '/app/orders.js',
           language: 'javascript',
@@ -74,7 +73,7 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
     expect(rec.attributes['aws.di.duration_ms']).toBe(5);
     expect(rec.attributes['aws.di.code_unit']).toBe('orders');
     expect(rec.attributes['aws.di.class_name']).toBe('OrderService');
-    expect(rec.attributes['aws.di.method_name']).toBe('process');
+    expect(rec.attributes['aws.di.method_name']).toBeUndefined();
     expect(rec.attributes['aws.di.file_path']).toBe('/app/orders.js');
     expect(rec.attributes['aws.di.line_number']).toBe(42);
     expect(rec.attributes['aws.di.instrumentation_type']).toBe('BREAKPOINT');

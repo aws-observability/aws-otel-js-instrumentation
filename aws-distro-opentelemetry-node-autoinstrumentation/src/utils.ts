@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { diag } from '@opentelemetry/api';
+import { INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME } from './instrumentation/instrumentation-langchain/instrumentation';
+import { INSTRUMENTATION_SHORT_NAME as OPENAI_AGENTS_SHORT_NAME } from './instrumentation/instrumentation-openai-agents/instrumentation';
+import { INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME } from './instrumentation/instrumentation-vercel-ai/instrumentation';
 
 const AGENT_OBSERVABILITY_ENABLED = 'AGENT_OBSERVABILITY_ENABLED';
+const AWS_AGENTIC_INSTRUMENTATION_OPT_IN = 'AWS_AGENTIC_INSTRUMENTATION_OPT_IN';
 export const OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS';
 
 // Bypass `readonly` restriction of a Type.
@@ -35,6 +39,11 @@ export const isAgentObservabilityEnabled = () => {
   }
 
   return agentObservabilityEnabled.toLowerCase() === 'true';
+};
+
+export const isAgenticInstrumentationOptIn = (): boolean => {
+  const v = process.env[AWS_AGENTIC_INSTRUMENTATION_OPT_IN];
+  return v !== undefined && v.toLowerCase() === 'true';
 };
 
 /**
@@ -87,6 +96,36 @@ export const isInstrumentationDisabled = (shortName: string): boolean => {
   }
 
   return false;
+};
+
+const CONFLICTING_INSTRUMENTATIONS: Record<string, string[]> = {
+  [LANGCHAIN_SHORT_NAME]: [
+    '@traceloop/instrumentation-langchain',
+    '@arizeai/openinference-instrumentation-langchain',
+    '@arizeai/openinference-instrumentation-langchain-v0',
+    '@microsoft/agents-a365-observability-extensions-langchain',
+    '@langfuse/langchain',
+  ],
+  [OPENAI_AGENTS_SHORT_NAME]: [
+    '@respan/instrumentation-openai-agents',
+    '@microsoft/agents-a365-observability-extensions-openai',
+  ],
+  [VERCEL_AI_SHORT_NAME]: ['@monocle.sh/instrumentation-vercel-ai', '@respan/instrumentation-vercel'],
+};
+
+export const detectConflictingInstrumentation = (shortName: string): string | undefined => {
+  const conflicts = CONFLICTING_INSTRUMENTATIONS[shortName];
+  if (!conflicts) return undefined;
+
+  for (const pkg of conflicts) {
+    try {
+      require.resolve(pkg);
+      return pkg;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
 };
 
 export const checkDigits = (str: string): boolean => {

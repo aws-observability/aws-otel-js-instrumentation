@@ -14,7 +14,11 @@ import {
   SpanStatusCode,
   defaultTextMapSetter,
 } from '@opentelemetry/api';
-import { Instrumentation } from '@opentelemetry/instrumentation';
+import {
+  Instrumentation,
+  InstrumentationNodeModuleDefinition,
+  InstrumentationNodeModuleFile,
+} from '@opentelemetry/instrumentation';
 import {
   AwsInstrumentation,
   AwsSdkInstrumentationConfig,
@@ -25,14 +29,13 @@ import { AWSXRAY_TRACE_ID_HEADER } from '@opentelemetry/propagator-aws-xray';
 import { APIGatewayProxyEventHeaders, Context } from 'aws-lambda';
 import { AWS_ATTRIBUTE_KEYS } from '../aws-attribute-keys';
 import { RequestMetadata } from '../third-party/otel/aws/services/ServiceExtension';
+import { AwsSpanProcessingUtil } from '../aws-span-processing-util';
 import {
   BedrockAgentRuntimeServiceExtension,
   BedrockAgentServiceExtension,
-  BedrockRuntimeServiceExtension,
   BedrockServiceExtension,
 } from './aws/services/bedrock';
-import { SecretsManagerServiceExtension } from './aws/services/secretsmanager';
-import { StepFunctionsServiceExtension } from './aws/services/step-functions';
+import { BedrockAgentCoreServiceExtension } from './aws/services/bedrock-agentcore';
 import type { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import type { Command as AwsV3Command } from '@aws-sdk/types';
 import { LoggerProvider } from '@opentelemetry/api-logs';
@@ -71,14 +74,12 @@ export function applyInstrumentationPatches(instrumentations: Instrumentation[])
       const services: Map<string, ServiceExtension> | undefined = (instrumentations[index] as any).servicesExtensions
         ?.services;
       if (services) {
-        services.set('SecretsManager', new SecretsManagerServiceExtension());
-        services.set('SFN', new StepFunctionsServiceExtension());
         services.set('Bedrock', new BedrockServiceExtension());
         services.set('BedrockAgent', new BedrockAgentServiceExtension());
         services.set('BedrockAgentRuntime', new BedrockAgentRuntimeServiceExtension());
-        services.set('BedrockRuntime', new BedrockRuntimeServiceExtension());
+        services.set('BedrockAgentCore', new BedrockAgentCoreServiceExtension());
         patchSqsServiceExtension(services.get('SQS'));
-        patchSnsServiceExtension(services.get('SNS'));
+        patchBedrockRuntimeServiceExtension(services.get('BedrockRuntime'));
         patchLambdaServiceExtension(services.get('Lambda'));
         patchKinesisServiceExtension(services.get('Kinesis'));
         patchDynamoDbServiceExtension(services.get('DynamoDB'));
@@ -162,33 +163,90 @@ function patchSqsServiceExtension(sqsServiceExtension: any): void {
 }
 
 /*
- * This patch extends the existing upstream extension for SNS. Extensions allow for custom logic for adding
- * service-specific information to spans, such as attributes. Specifically, we are adding logic to add
- * `aws.sns.topic.arn` attribute, to be used to generate RemoteTarget and achieve parity with the Java/Python instrumentation.
+ * This patch extends the existing upstream extension for BedrockRuntime to add support for the
+ * ai21.jamba model family, which is not covered by upstream.
  *
- *
- * @param snsServiceExtension SNS Service Extension obtained the service extension list from the AWS SDK OTel Instrumentation
+ * @param bedrockRuntimeServiceExtension BedrockRuntime Service Extension from the AWS SDK OTel Instrumentation
  */
-function patchSnsServiceExtension(snsServiceExtension: any): void {
-  if (snsServiceExtension) {
-    const requestPreSpanHook = snsServiceExtension.requestPreSpanHook;
-    snsServiceExtension._requestPreSpanHook = requestPreSpanHook;
+function patchBedrockRuntimeServiceExtension(bedrockRuntimeServiceExtension: any): void {
+  if (bedrockRuntimeServiceExtension) {
+    const requestPreSpanHook = bedrockRuntimeServiceExtension.requestPreSpanHook;
+    bedrockRuntimeServiceExtension._requestPreSpanHook = requestPreSpanHook;
 
-    const patchedRequestPreSpanHook = (
+    const patchedRequestPreSpanHook = function (
       request: NormalizedRequest,
-      _config: AwsSdkInstrumentationConfig
-    ): RequestMetadata => {
-      const requestMetadata: RequestMetadata = snsServiceExtension._requestPreSpanHook(request, _config);
-      if (requestMetadata.spanAttributes) {
-        const topicArn = request.commandInput?.TopicArn;
-        if (topicArn) {
-          requestMetadata.spanAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN] = topicArn;
+      config: AwsSdkInstrumentationConfig,
+      diagLogger: any
+    ): RequestMetadata {
+      const requestMetadata: RequestMetadata = bedrockRuntimeServiceExtension._requestPreSpanHook.call(
+        bedrockRuntimeServiceExtension,
+        request,
+        config,
+        diagLogger
+      );
+      const modelId = request.commandInput?.modelId;
+      if (modelId?.includes('ai21.jamba') && request.commandInput?.body) {
+        try {
+          const requestBody = JSON.parse(request.commandInput.body);
+          if (!requestMetadata.spanAttributes) {
+            requestMetadata.spanAttributes = {};
+          }
+          if (requestBody.max_tokens !== undefined) {
+            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MAX_TOKENS] = requestBody.max_tokens;
+          }
+          if (requestBody.temperature !== undefined) {
+            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TEMPERATURE] = requestBody.temperature;
+          }
+          if (requestBody.top_p !== undefined) {
+            requestMetadata.spanAttributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_TOP_P] = requestBody.top_p;
+          }
+        } catch {
+          // Malformed JSON body — skip attribute extraction
         }
       }
       return requestMetadata;
     };
+    bedrockRuntimeServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
 
-    snsServiceExtension.requestPreSpanHook = patchedRequestPreSpanHook;
+    if (typeof bedrockRuntimeServiceExtension.responseHook === 'function') {
+      const responseHook = bedrockRuntimeServiceExtension.responseHook;
+
+      const patchedResponseHook = function (
+        response: NormalizedResponse,
+        span: Span,
+        tracer: Tracer,
+        config: AwsSdkInstrumentationConfig,
+        ...args: any[]
+      ): any {
+        const result = responseHook.call(bedrockRuntimeServiceExtension, response, span, tracer, config, ...args);
+
+        const currentModelId = response.request.commandInput?.modelId;
+        if (currentModelId?.includes('ai21.jamba') && response.data?.body) {
+          if (!(response.data.body instanceof Uint8Array)) {
+            return result;
+          }
+          try {
+            const decodedResponseBody = new TextDecoder().decode(response.data.body);
+            const responseBody = JSON.parse(decodedResponseBody);
+            if (responseBody.usage?.prompt_tokens !== undefined) {
+              span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_INPUT_TOKENS, responseBody.usage.prompt_tokens);
+            }
+            if (responseBody.usage?.completion_tokens !== undefined) {
+              span.setAttribute(AwsSpanProcessingUtil.GEN_AI_USAGE_OUTPUT_TOKENS, responseBody.usage.completion_tokens);
+            }
+            if (responseBody.choices?.[0]?.finish_reason !== undefined) {
+              span.setAttribute(AwsSpanProcessingUtil.GEN_AI_RESPONSE_FINISH_REASONS, [
+                responseBody.choices[0].finish_reason,
+              ]);
+            }
+          } catch {
+            // Malformed response body — skip attribute extraction
+          }
+        }
+        return result;
+      };
+      bedrockRuntimeServiceExtension.responseHook = patchedResponseHook;
+    }
   }
 }
 
@@ -425,14 +483,29 @@ type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
 export const SKIP_CREDENTIAL_CAPTURE_KEY = Symbol('skip-credential-capture');
 function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
   if (instrumentation) {
-    (instrumentation as AwsInstrumentation)['_getV3SmithyClientSendPatch'] = function (
+    const awsInstrumentation = instrumentation as AwsInstrumentation;
+
+    // TODO: Remove this @smithy/core>=3.24.0 backport once open-telemetry/opentelemetry-js-contrib#3530
+    // ships in a released @opentelemetry/instrumentation-aws-sdk (>0.73.0) and we upgrade to it.
+    //
+    // Backports open-telemetry/opentelemetry-js-contrib#3530 (unreleased as of instrumentation-aws-sdk@0.73.0)
+    // and layers ADOT's X-Ray + credential-capture middleware on top. @smithy/core@3.24.0+ (via
+    // @smithy/smithy-client@4.13.0+) moved `Client` into the `@smithy/core` client bundle and made
+    // `constructStack` a closed-over local, so upstream's `@smithy/middleware-stack` constructStack patch
+    // no longer fires and no spans are produced. The fix: hook the `@smithy/core` client bundle (see
+    // patchSmithyCoreClientBundle below) and call `patchV3MiddlewareStack` directly inside the send patch.
+    awsInstrumentation['_getV3SmithyClientSendPatch'] = function (
+      this: AwsInstrumentation,
       original: (...args: unknown[]) => Promise<any>
     ) {
+      const self = this as any;
       return function send(this: any, command: V3PluginCommand, ...args: unknown[]): Promise<any> {
-        // Only add middleware once per client instance to reduce overhead
-        // AWS SDK clients may call 'send' multiple times, but we only need to patch once
-        // Even with override=true, adding middleware still causes overhead as it replaces existing stack entries
+        // Add middleware once per client instance; 'send' may be called multiple times.
         if (!this.__adotMiddlewarePatched) {
+          if (this.middlewareStack) {
+            // 1st arg is moduleVersion, only surfaced to a user preRequestHook; not needed here.
+            self.patchV3MiddlewareStack(undefined, this.middlewareStack);
+          }
           this.middlewareStack?.add(
             (next: any, context: any) => async (middlewareArgs: any) => {
               propagation.inject(otelContext.active(), middlewareArgs.request.headers, defaultTextMapSetter);
@@ -508,5 +581,53 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
         return original.apply(this, [command, ...args]);
       };
     };
+
+    patchSmithyCoreClientBundle(awsInstrumentation);
+  }
+}
+
+/*
+ * Hooks `@smithy/core`'s client bundle so `Client.prototype.send` is patched for @smithy/core>=3.24.0,
+ * where the `Client` class moved out of `@smithy/smithy-client` (the only location upstream's init() hooks).
+ *
+ * init() runs in the AwsInstrumentation constructor, before applyInstrumentationPatches, so we can't add
+ * to its module list normally. We append a module definition and register through the instrumentation's
+ * existing require-in-the-middle singleton (the same path enable() uses) rather than a standalone Hook —
+ * a second require interceptor breaks other module-mockers in the suite (e.g. proxyquire). register.ts
+ * patches before any AWS SDK client loads, so the hook is in place before `@smithy/core` is required.
+ */
+function patchSmithyCoreClientBundle(awsInstrumentation: AwsInstrumentation): void {
+  try {
+    const instr = awsInstrumentation as any;
+
+    const clientBundleFile = new InstrumentationNodeModuleFile(
+      '@smithy/core/dist-cjs/submodules/client/index.js',
+      ['>=3.24.0'],
+      instr['patchV3SmithyClient'].bind(instr),
+      instr['unpatchV3SmithyClient'].bind(instr)
+    );
+    const smithyCoreModule = new InstrumentationNodeModuleDefinition(
+      '@smithy/core',
+      ['>=3.24.0'],
+      undefined,
+      undefined,
+      [clientBundleFile]
+    );
+
+    if (Array.isArray(instr._modules)) {
+      instr._modules.push(smithyCoreModule);
+    }
+
+    const singleton = instr._requireInTheMiddleSingleton;
+    if (singleton && typeof singleton.register === 'function') {
+      const onRequire = (exports: any, name: string, baseDir?: string) =>
+        instr._onRequire(smithyCoreModule, exports, name, baseDir);
+      const hook = singleton.register('@smithy/core', onRequire);
+      if (Array.isArray(instr._hooks) && hook) {
+        instr._hooks.push(hook);
+      }
+    }
+  } catch (e) {
+    diag.debug('Failed to register @smithy/core client bundle patch for AWS SDK instrumentation', e);
   }
 }

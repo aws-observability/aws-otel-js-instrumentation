@@ -67,7 +67,6 @@ const _BEDROCK_DATASOURCE_ID: string = 'DataSourceId';
 const _BEDROCK_GUARDRAIL_ID: string = 'GuardrailId';
 const _BEDROCK_GUARDRAIL_ARN: string = 'arn:aws:bedrock:us-east-1:123456789012:guardrail/abc123';
 const _BEDROCK_KNOWLEDGEBASE_ID: string = 'KnowledgeBaseId';
-const _GEN_AI_SYSTEM: string = 'aws.bedrock';
 const _GEN_AI_REQUEST_MODEL: string = 'genAiReuqestModelId';
 const _STREAM_ARN: string = 'arn:aws:kinesis:us-west-2:123456789012:stream/testStream';
 const _TABLE_ARN: string = 'arn:aws:dynamodb:us-west-2:123456789012:table/testTable';
@@ -105,8 +104,6 @@ describe('InstrumentationPatchTest', () => {
     expect(services.has('DynamoDB')).toBeTruthy();
     expect(services.has('S3')).toBeTruthy();
     expect(services.has('Kinesis')).toBeTruthy();
-    // SecretsManager and SFN are now in upstream (starting from instrumentation-aws-sdk 0.51.0+)
-    // These checks verify they exist but we still apply our patches for enhanced functionality
     expect(services.has('SecretsManager')).toBeTruthy();
     expect(services.has('SFN')).toBeTruthy();
     expect(services.get('SNS')._requestPreSpanHook).toBeFalsy();
@@ -117,8 +114,6 @@ describe('InstrumentationPatchTest', () => {
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
     expect(services.get('Kinesis')._requestPreSpanHook).toBeFalsy();
     expect(services.get('Kinesis').requestPreSpanHook).toBeTruthy();
-    // BedrockRuntime is now in upstream (starting from instrumentation-aws-sdk 0.65.0+)
-    // with GenAI metrics instrumentation. Our patches still provide enhanced functionality.
     expect(services.get('BedrockRuntime')).toBeTruthy();
     // Bedrock, BedrockAgent, BedrockAgentRuntime are added via our patches
     expect(services.has('Bedrock')).toBeFalsy();
@@ -133,28 +128,31 @@ describe('InstrumentationPatchTest', () => {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     const services: Map<string, any> = (awsSdkInstrumentation as AwsInstrumentation).servicesExtensions?.services;
-    // Not from patching
-    expect(services.has('SQS')).toBeTruthy();
-    expect(services.has('SNS')).toBeTruthy();
-    expect(services.has('DynamoDB')).toBeTruthy();
-    expect(services.has('Lambda')).toBeTruthy();
+    // Services supported by upstream
     expect(services.has('S3')).toBeTruthy();
-    expect(services.has('Kinesis')).toBeTruthy();
-    // From patching
+    expect(services.has('SNS')).toBeTruthy();
     expect(services.has('SecretsManager')).toBeTruthy();
     expect(services.has('SFN')).toBeTruthy();
-    expect(services.get('SNS')._requestPreSpanHook).toBeTruthy();
-    expect(services.get('SNS').requestPreSpanHook).toBeTruthy();
-    expect(services.get('Lambda')._requestPreSpanHook).toBeTruthy();
-    expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
+
+    // Services in upstream that we patch
+    expect(services.has('SQS')).toBeTruthy();
     expect(services.get('SQS')._requestPreSpanHook).toBeTruthy();
     expect(services.get('SQS').requestPreSpanHook).toBeTruthy();
+    expect(services.has('DynamoDB')).toBeTruthy();
+    expect(services.has('Lambda')).toBeTruthy();
+    expect(services.get('Lambda')._requestPreSpanHook).toBeTruthy();
+    expect(services.get('Lambda').requestPreSpanHook).toBeTruthy();
+    expect(services.has('Kinesis')).toBeTruthy();
     expect(services.get('Kinesis')._requestPreSpanHook).toBeTruthy();
     expect(services.get('Kinesis').requestPreSpanHook).toBeTruthy();
+    expect(services.has('BedrockRuntime')).toBeTruthy();
+    expect(services.get('BedrockRuntime')._requestPreSpanHook).toBeTruthy();
+
+    // Services not in upstream at all
     expect(services.has('Bedrock')).toBeTruthy();
     expect(services.has('BedrockAgent')).toBeTruthy();
     expect(services.get('BedrockAgentRuntime')).toBeTruthy();
-    expect(services.get('BedrockRuntime')).toBeTruthy();
+
     // Sanity check
     expect(services.has('InvalidService')).toBeFalsy();
   });
@@ -173,16 +171,6 @@ describe('InstrumentationPatchTest', () => {
     expect(sqsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SQS_QUEUE_NAME]).toBeUndefined();
   });
 
-  it('SNS without patching', () => {
-    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
-    expect(() => doExtractSNSAttributes(services)).not.toThrow();
-
-    // SNS topic ARN is now extracted by upstream instrumentation-aws-sdk (0.51.0+)
-    const snsAttributes = doExtractSNSAttributes(services);
-    expect(snsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]).toBeDefined();
-  });
-
   it('Lambda without patching', () => {
     const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
@@ -194,18 +182,19 @@ describe('InstrumentationPatchTest', () => {
     expect(lambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toBeUndefined();
   });
 
-  it('SFN without patching', () => {
-    // SFN service extension is now in upstream instrumentation-aws-sdk (0.51.0+)
-    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
-    expect(() => doExtractSFNAttributes(services)).not.toThrow();
+  it('SFN upstream attributes', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const requestSFNAttributes: Attributes = doExtractSFNAttributes(services);
+    expect(requestSFNAttributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN]).toEqual(_STATE_MACHINE_ARN);
+    expect(requestSFNAttributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN]).toEqual(_ACTIVITY_ARN);
   });
 
-  it('SecretsManager without patching', () => {
-    // SecretsManager service extension is now in upstream instrumentation-aws-sdk (0.51.0+)
-    const unpatchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(UNPATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(unpatchedAwsSdkInstrumentation);
-    expect(() => doExtractSecretsManagerAttributes(services)).not.toThrow();
+  it('SecretsManager upstream attributes', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const requestSecretsManagerAttributes: Attributes = doExtractSecretsManagerAttributes(services);
+    expect(requestSecretsManagerAttributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(_SECRETS_ARN);
   });
 
   it('Bedrock without patching', () => {
@@ -222,10 +211,9 @@ describe('InstrumentationPatchTest', () => {
     expect(kinesisAttributes).not.toHaveProperty(AWS_ATTRIBUTE_KEYS.AWS_KINESIS_STREAM_ARN);
   });
 
-  it('SNS with patching', () => {
+  it('SNS upstream attributes', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-
     const snsAttributes = doExtractSNSAttributes(services);
     expect(snsAttributes[AWS_ATTRIBUTE_KEYS.AWS_SNS_TOPIC_ARN]).toBe(_TOPIC_ARN);
   });
@@ -254,26 +242,6 @@ describe('InstrumentationPatchTest', () => {
     expect(requestLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_NAME]).toEqual(_FUNCTION_NAME);
     const responseLambdaAttributes: Attributes = doResponseHookLambda(services);
     expect(responseLambdaAttributes[AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN]).toEqual(_FUNCTION_ARN);
-  });
-
-  it('SFN with patching', () => {
-    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const requestSFNAttributes: Attributes = doExtractSFNAttributes(services);
-    expect(requestSFNAttributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN]).toEqual(_STATE_MACHINE_ARN);
-    expect(requestSFNAttributes[AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN]).toEqual(_ACTIVITY_ARN);
-  });
-
-  it('SecretsManager with patching', () => {
-    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
-    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const requestSecretsManagerAttributes: Attributes = doExtractSecretsManagerAttributes(services);
-
-    expect(requestSecretsManagerAttributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(_SECRETS_ARN);
-
-    const responseHookSecretsManagerAttributes = doResponseHookSecretsManager(services);
-
-    expect(responseHookSecretsManagerAttributes[AWS_ATTRIBUTE_KEYS.AWS_SECRETSMANAGER_SECRET_ARN]).toBe(_SECRETS_ARN);
   });
 
   it('Kinesis with patching', () => {
@@ -369,17 +337,162 @@ describe('InstrumentationPatchTest', () => {
     expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(0);
   });
 
-  it('Bedrock Runtime with patching', () => {
+  it('Bedrock Runtime upstream attributes - InvokeModel', () => {
     const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
     const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
-    const bedrockAttributes: Attributes = doExtractBedrockAttributes(services, 'BedrockRuntime');
+    const serviceExtension: any = services.get('BedrockRuntime');
+    expect(serviceExtension).toBeTruthy();
 
-    expect(Object.entries(bedrockAttributes).length).toBe(2);
-    expect(bedrockAttributes['gen_ai.system']).toEqual(_GEN_AI_SYSTEM);
-    expect(bedrockAttributes['gen_ai.request.model']).toEqual(_GEN_AI_REQUEST_MODEL);
+    const requestMetadata = serviceExtension.requestPreSpanHook(
+      {
+        serviceName: 'BedrockRuntime',
+        commandName: 'InvokeModel',
+        commandInput: {
+          modelId: 'anthropic.claude-v2:1',
+          body: JSON.stringify({
+            max_tokens: 1000,
+            temperature: 0.7,
+            top_p: 0.9,
+            stop_sequences: ['Human:'],
+          }),
+        },
+      },
+      {},
+      diag
+    );
+    expect(requestMetadata.spanAttributes['gen_ai.system']).toEqual('aws.bedrock');
+    expect(requestMetadata.spanAttributes['gen_ai.request.model']).toEqual('anthropic.claude-v2:1');
+    expect(requestMetadata.spanAttributes['gen_ai.request.max_tokens']).toEqual(1000);
+    expect(requestMetadata.spanAttributes['gen_ai.request.temperature']).toEqual(0.7);
+    expect(requestMetadata.spanAttributes['gen_ai.request.top_p']).toEqual(0.9);
+    expect(requestMetadata.spanAttributes['gen_ai.request.stop_sequences']).toEqual(['Human:']);
+  });
 
-    const bedrockAttributesAfterResponse: Attributes = doResponseHookBedrock(services, 'BedrockRuntime');
-    expect(Object.entries(bedrockAttributesAfterResponse).length).toBe(0);
+  it('Bedrock Runtime upstream attributes - Converse', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const serviceExtension: any = services.get('BedrockRuntime');
+    expect(serviceExtension).toBeTruthy();
+
+    // Test Converse API (model-agnostic, sets operation name)
+    const requestMetadata = serviceExtension.requestPreSpanHook(
+      {
+        serviceName: 'BedrockRuntime',
+        commandName: 'Converse',
+        commandInput: {
+          modelId: 'anthropic.claude-v2:1',
+          inferenceConfig: {
+            maxTokens: 500,
+            temperature: 0.8,
+            topP: 0.95,
+            stopSequences: ['END'],
+          },
+        },
+      },
+      {},
+      diag
+    );
+    expect(requestMetadata.spanAttributes['gen_ai.system']).toEqual('aws.bedrock');
+    expect(requestMetadata.spanAttributes['gen_ai.operation.name']).toEqual('chat');
+    expect(requestMetadata.spanAttributes['gen_ai.request.model']).toEqual('anthropic.claude-v2:1');
+    expect(requestMetadata.spanAttributes['gen_ai.request.max_tokens']).toEqual(500);
+    expect(requestMetadata.spanAttributes['gen_ai.request.temperature']).toEqual(0.8);
+    expect(requestMetadata.spanAttributes['gen_ai.request.top_p']).toEqual(0.95);
+    expect(requestMetadata.spanAttributes['gen_ai.request.stop_sequences']).toEqual(['END']);
+    expect(requestMetadata.spanName).toEqual('chat anthropic.claude-v2:1');
+  });
+
+  it('Bedrock Runtime ai21.jamba patch - InvokeModel', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const serviceExtension: any = services.get('BedrockRuntime');
+    expect(serviceExtension).toBeTruthy();
+    expect(serviceExtension._requestPreSpanHook).toBeTruthy();
+
+    const requestMetadata = serviceExtension.requestPreSpanHook(
+      {
+        serviceName: 'BedrockRuntime',
+        commandName: 'InvokeModel',
+        commandInput: {
+          modelId: 'ai21.jamba-1-5-large-v1:0',
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: 'test' }],
+            max_tokens: 512,
+            temperature: 0.6,
+            top_p: 0.8,
+          }),
+        },
+      },
+      {},
+      diag
+    );
+    expect(requestMetadata.spanAttributes['gen_ai.system']).toEqual('aws.bedrock');
+    expect(requestMetadata.spanAttributes['gen_ai.request.model']).toEqual('ai21.jamba-1-5-large-v1:0');
+    expect(requestMetadata.spanAttributes['gen_ai.request.max_tokens']).toEqual(512);
+    expect(requestMetadata.spanAttributes['gen_ai.request.temperature']).toEqual(0.6);
+    expect(requestMetadata.spanAttributes['gen_ai.request.top_p']).toEqual(0.8);
+  });
+
+  it('Bedrock Runtime ai21.jamba patch - responseHook', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const serviceExtension: any = services.get('BedrockRuntime');
+
+    const mockResponseBody = {
+      usage: { prompt_tokens: 21, completion_tokens: 24 },
+      choices: [{ finish_reason: 'stop' }],
+    };
+    const response: Partial<NormalizedResponse> = {
+      data: {
+        body: new TextEncoder().encode(JSON.stringify(mockResponseBody)),
+      },
+      request: {
+        commandInput: { modelId: 'ai21.jamba-1-5-large-v1:0' },
+        commandName: 'InvokeModel',
+        serviceName: 'BedrockRuntime',
+      },
+    };
+
+    const spanAttributes: Attributes = {};
+    const mockSpan: any = {
+      setAttribute: (key: string, value: any) => {
+        spanAttributes[key] = value;
+      },
+      isRecording: () => true,
+    };
+
+    serviceExtension.responseHook(response, mockSpan, {}, {});
+
+    expect(spanAttributes['gen_ai.usage.input_tokens']).toEqual(21);
+    expect(spanAttributes['gen_ai.usage.output_tokens']).toEqual(24);
+    expect(spanAttributes['gen_ai.response.finish_reasons']).toEqual(['stop']);
+  });
+
+  it('Bedrock Runtime patch preserves responseHook return value for streaming', () => {
+    const patchedAwsSdkInstrumentation: AwsInstrumentation = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS);
+    const services: Map<string, any> = extractServicesFromAwsSdkInstrumentation(patchedAwsSdkInstrumentation);
+    const serviceExtension: any = services.get('BedrockRuntime');
+
+    const mockStream = (async function* () {
+      yield { messageStop: { stopReason: 'end_turn' } };
+      yield { metadata: { usage: { inputTokens: 10, outputTokens: 5 } } };
+    })();
+    const response: Partial<NormalizedResponse> = {
+      data: { stream: mockStream },
+      request: {
+        commandInput: { modelId: 'anthropic.claude-v2:1' },
+        commandName: 'ConverseStream',
+        serviceName: 'BedrockRuntime',
+      },
+    };
+
+    const mockSpan: any = {
+      setAttribute: () => mockSpan,
+      isRecording: () => true,
+    };
+
+    const result = serviceExtension.responseHook(response, mockSpan, {}, {});
+    expect(result).toBeDefined();
   });
 
   it('Lambda with custom eventContextExtractor patching', () => {
@@ -526,22 +639,6 @@ describe('InstrumentationPatchTest', () => {
     }
     const requestMetadata: RequestMetadata = serviceExtension.requestPreSpanHook(requestInput, {}, diag);
     return requestMetadata.spanAttributes || {};
-  }
-
-  function doResponseHookSecretsManager(services: Map<string, ServiceExtension>): Attributes {
-    const results: Partial<NormalizedResponse> = {
-      data: {
-        ARN: _SECRETS_ARN,
-      },
-
-      request: {
-        commandInput: {},
-        commandName: 'dummy_operation',
-        serviceName: 'SecretsManager',
-      },
-    };
-
-    return doResponseHook(services, 'SecretsManager', results as NormalizedResponse);
   }
 
   function doResponseHookLambda(services: Map<string, ServiceExtension>): Attributes {
@@ -924,6 +1021,7 @@ describe('InstrumentationPatchTest', () => {
         getLogger: () => {
           return {
             emit: () => {},
+            enabled: () => true,
           };
         },
       };
@@ -941,6 +1039,7 @@ describe('InstrumentationPatchTest', () => {
         getLogger: () => {
           return {
             emit: () => {},
+            enabled: () => true,
           };
         },
       };
@@ -958,6 +1057,7 @@ describe('InstrumentationPatchTest', () => {
         getLogger: () => {
           return {
             emit: () => {},
+            enabled: () => true,
           };
         },
       };

@@ -68,6 +68,7 @@ const NORMALIZED_STEPFUNCTIONS_SERVICE_NAME = 'AWS::StepFunctions';
 const NORMALIZED_LAMBDA_SERVICE_NAME = 'AWS::Lambda';
 const NORMALIZED_BEDROCK_SERVICE_NAME: string = 'AWS::Bedrock';
 const NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME: string = 'AWS::BedrockRuntime';
+const NORMALIZED_BEDROCK_AGENTCORE_SERVICE_NAME: string = 'AWS::BedrockAgentCore';
 
 const DB_CONNECTION_RESOURCE_TYPE: string = 'DB::Connection';
 // As per https://opentelemetry.io/docs/specs/semconv/resource/#service, if service name is not specified, SDK defaults
@@ -386,6 +387,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         BedrockAgent: NORMALIZED_BEDROCK_SERVICE_NAME,
         BedrockAgentRuntime: NORMALIZED_BEDROCK_SERVICE_NAME,
         BedrockRuntime: NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME,
+        BedrockAgentCore: NORMALIZED_BEDROCK_AGENTCORE_SERVICE_NAME,
         SecretsManager: NORMALIZED_SECRETSMANAGER_SERVICE_NAME,
         SFN: NORMALIZED_STEPFUNCTIONS_SERVICE_NAME,
         Lambda: NORMALIZED_LAMBDA_SERVICE_NAME,
@@ -547,6 +549,12 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
           span.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]
         );
+      } else if (AwsMetricAttributeGenerator.isBedrockAgentCoreSpan(span)) {
+        const [agentcoreType, agentcoreIdentifier, agentcoreCfnId] =
+          AwsMetricAttributeGenerator.getBedrockAgentCoreResourceTypeAndIdentifier(span);
+        remoteResourceType = agentcoreType;
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(agentcoreIdentifier);
+        cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(agentcoreCfnId);
       }
     } else if (AwsSpanProcessingUtil.isDBSpan(span)) {
       remoteResourceType = DB_CONNECTION_RESOURCE_TYPE;
@@ -596,6 +604,13 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
       AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN,
       AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ENDPOINT_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_CODE_INTERPRETER_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_WORKLOAD_IDENTITY_ARN,
     ];
     let remoteResourceAccountId: string | undefined = undefined;
     let remoteResourceRegion: string | undefined = undefined;
@@ -832,5 +847,217 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
 
   private static logUnknownAttribute(attributeKey: string, span: ReadableSpan): void {
     diag.verbose(`No valid ${attributeKey} value found for ${SpanKind[span.kind]} span ${span.spanContext().spanId}`);
+  }
+
+  /**
+   * Check if the span represents a Bedrock AgentCore operation by checking if the rpc.service
+   * maps to the normalized AgentCore service name.
+   */
+  private static isBedrockAgentCoreSpan(span: ReadableSpan): boolean {
+    const rpcService = span.attributes[SEMATTRS_RPC_SERVICE];
+    if (typeof rpcService !== 'string') {
+      return false;
+    }
+    const awsSdkServiceMapping: { [key: string]: string } = {
+      BedrockAgentCore: NORMALIZED_BEDROCK_AGENTCORE_SERVICE_NAME,
+    };
+    return awsSdkServiceMapping[rpcService] === NORMALIZED_BEDROCK_AGENTCORE_SERVICE_NAME;
+  }
+
+  /**
+   * Get BedrockAgentCore resource type, identifier, and CFN primary identifier based on span attributes.
+   * Returns [resourceType, resourceIdentifier, cfnPrimaryIdentifier].
+   */
+  private static getBedrockAgentCoreResourceTypeAndIdentifier(
+    span: ReadableSpan
+  ): [string | undefined, string | undefined, string | undefined] {
+    const attrs = span.attributes;
+    if (!attrs) {
+      return [undefined, undefined, undefined];
+    }
+
+    const handlers = [
+      AwsMetricAttributeGenerator.handleBrowserAttrs,
+      AwsMetricAttributeGenerator.handleGatewayAttrs,
+      AwsMetricAttributeGenerator.handleRuntimeAttrs,
+      AwsMetricAttributeGenerator.handleCodeInterpreterAttrs,
+      AwsMetricAttributeGenerator.handleIdentityAttrs,
+      AwsMetricAttributeGenerator.handleMemoryAttrs,
+    ];
+
+    for (const handler of handlers) {
+      const [resourceType, resourceIdentifier, cfnPrimaryIdentifier] = handler(attrs);
+      if (resourceType) {
+        return [
+          `${NORMALIZED_BEDROCK_AGENTCORE_SERVICE_NAME}::${resourceType}`,
+          resourceIdentifier,
+          cfnPrimaryIdentifier,
+        ];
+      }
+    }
+
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore Browser resources.
+   */
+  private static handleBrowserAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
+    const browserId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID];
+    const browserArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN];
+
+    if (browserId || browserArn) {
+      let cfnIdentifier: string | undefined;
+      if (typeof browserId === 'string') {
+        cfnIdentifier = browserId;
+      } else if (typeof browserArn === 'string') {
+        cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(browserArn);
+      }
+
+      const resourceType = cfnIdentifier === 'aws.browser.v1' ? 'Browser' : 'BrowserCustom';
+      return [resourceType, cfnIdentifier, cfnIdentifier];
+    }
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore Gateway resources.
+   */
+  private static handleGatewayAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
+    const gatewayId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID];
+    const gatewayArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN];
+    const gatewayTargetId = attrs[AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID];
+
+    if (gatewayTargetId) {
+      let cfnIdentifier: string | undefined;
+      if (typeof gatewayId === 'string') {
+        cfnIdentifier = gatewayId;
+      } else if (typeof gatewayArn === 'string') {
+        cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(gatewayArn);
+      } else {
+        cfnIdentifier = typeof gatewayTargetId === 'string' ? gatewayTargetId : undefined;
+      }
+      return ['GatewayTarget', cfnIdentifier, cfnIdentifier];
+    }
+
+    if (gatewayArn || gatewayId) {
+      let cfnIdentifier: string | undefined;
+      if (typeof gatewayId === 'string') {
+        cfnIdentifier = gatewayId;
+      } else if (typeof gatewayArn === 'string') {
+        cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(gatewayArn);
+      }
+      return ['Gateway', cfnIdentifier, cfnIdentifier];
+    }
+
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore Runtime resources.
+   */
+  private static handleRuntimeAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
+    const runtimeId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_RUNTIME_ID];
+    const runtimeArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN];
+    const runtimeEndpointArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ENDPOINT_ARN];
+
+    if (runtimeEndpointArn) {
+      const cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(runtimeEndpointArn);
+      return [
+        'RuntimeEndpoint',
+        cfnIdentifier,
+        typeof runtimeEndpointArn === 'string' ? runtimeEndpointArn : undefined,
+      ];
+    }
+
+    if (runtimeArn || runtimeId) {
+      let cfnIdentifier: string | undefined;
+      if (typeof runtimeId === 'string') {
+        cfnIdentifier = runtimeId;
+      } else if (typeof runtimeArn === 'string') {
+        cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(runtimeArn);
+      }
+      return ['Runtime', cfnIdentifier, cfnIdentifier];
+    }
+
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore CodeInterpreter resources.
+   */
+  private static handleCodeInterpreterAttrs(
+    attrs: Attributes
+  ): [string | undefined, string | undefined, string | undefined] {
+    const codeInterpreterId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID];
+    const codeInterpreterArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_CODE_INTERPRETER_ARN];
+
+    if (codeInterpreterId || codeInterpreterArn) {
+      let cfnIdentifier: string | undefined;
+      if (typeof codeInterpreterId === 'string') {
+        cfnIdentifier = codeInterpreterId;
+      } else if (typeof codeInterpreterArn === 'string') {
+        cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(codeInterpreterArn);
+      }
+
+      const resourceType = cfnIdentifier === 'aws.codeinterpreter.v1' ? 'CodeInterpreter' : 'CodeInterpreterCustom';
+      return [resourceType, cfnIdentifier, cfnIdentifier];
+    }
+
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore Identity resources.
+   */
+  private static handleIdentityAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
+    const credentialsProvider = attrs[AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER];
+    const rpcMethod = attrs[SEMATTRS_RPC_METHOD];
+
+    if (credentialsProvider && rpcMethod) {
+      const rpcMethodStr = typeof rpcMethod === 'string' ? rpcMethod.toLowerCase() : '';
+      let resourceType: string | undefined;
+
+      if (rpcMethodStr.includes('apikey')) {
+        resourceType = 'APIKeyCredentialProvider';
+      } else if (rpcMethodStr.includes('oauth2')) {
+        resourceType = 'OAuth2CredentialProvider';
+      }
+
+      if (resourceType) {
+        const credentialsProviderStr = typeof credentialsProvider === 'string' ? credentialsProvider : '';
+        const cfnIdentifier =
+          RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(credentialsProviderStr) ||
+          credentialsProviderStr;
+        return [resourceType, cfnIdentifier, cfnIdentifier];
+      }
+    }
+
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore Memory resources.
+   */
+  private static handleMemoryAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
+    const memoryId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID];
+    const memoryArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN];
+
+    if (memoryId || memoryArn) {
+      let cfnIdentifier: string | undefined;
+      let cfnPrimaryIdentifier: string | undefined;
+
+      if (typeof memoryId === 'string') {
+        cfnIdentifier = memoryId;
+      }
+      if (typeof memoryArn === 'string') {
+        cfnIdentifier = cfnIdentifier || RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(memoryArn);
+        cfnPrimaryIdentifier = memoryArn;
+      }
+
+      return ['Memory', cfnIdentifier, cfnPrimaryIdentifier || cfnIdentifier];
+    }
+
+    return [undefined, undefined, undefined];
   }
 }

@@ -33,7 +33,7 @@ import {
   INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
 } from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
-import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, isInstrumentationDisabled } from './utils';
+import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled } from './utils';
 
 const logLevelEnv = getStringFromEnv('OTEL_LOG_LEVEL');
 const logLevel = logLevelEnv ? diagLogLevelFromString(logLevelEnv) : undefined;
@@ -52,6 +52,46 @@ Also sets default OTEL_PROPAGATORS to ensure good compatibility with X-Ray and A
 This file may also be used to apply patches to upstream instrumentation - usually these are stopgap measures until we can contribute
 long-term changes to upstream.
 */
+
+export type ServiceEventsBootstrapDecision =
+  | { action: 'skip'; reason: 'lambda' | 'bundledOff' | 'explicitOff' }
+  | { action: 'skipForceEnabledWithoutEndpoints' }
+  | { action: 'init' };
+
+/**
+ * Decide whether `register.ts` should initialize ServiceEvents for the given env snapshot.
+ *
+ * Rules:
+ * - Lambda (`AWS_LAMBDA_FUNCTION_NAME` present) always disables ServiceEvents.
+ * - Explicit `OTEL_AWS_SERVICE_EVENTS_ENABLED` overrides; unset follows `OTEL_AWS_APPLICATION_SIGNALS_ENABLED`.
+ * - When force-enabled (explicit true + App Signals off), both
+ *   `OTEL_AWS_OTLP_LOGS_ENDPOINT` and `OTEL_AWS_OTLP_METRICS_ENDPOINT`
+ *   must be set; otherwise skip with an error.
+ *
+ * Exported for unit testing.
+ */
+export function resolveServiceEventsBootstrap(env: NodeJS.ProcessEnv): ServiceEventsBootstrapDecision {
+  if (env.AWS_LAMBDA_FUNCTION_NAME) {
+    return { action: 'skip', reason: 'lambda' };
+  }
+  const raw = env.OTEL_AWS_SERVICE_EVENTS_ENABLED?.trim().toLowerCase();
+  const appSignalsEnabled = env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED?.trim().toLowerCase() === 'true';
+  if (raw === 'false') {
+    return { action: 'skip', reason: 'explicitOff' };
+  }
+  const explicitOn = raw === 'true';
+  if (!explicitOn && !appSignalsEnabled) {
+    return { action: 'skip', reason: 'bundledOff' };
+  }
+  if (explicitOn && !appSignalsEnabled) {
+    const logsSet = !!env.OTEL_AWS_OTLP_LOGS_ENDPOINT?.trim();
+    const metricsSet = !!env.OTEL_AWS_OTLP_METRICS_ENDPOINT?.trim();
+    if (!(logsSet && metricsSet)) {
+      return { action: 'skipForceEnabledWithoutEndpoints' };
+    }
+  }
+  return { action: 'init' };
+}
 
 export function setAwsDefaultEnvironmentVariables() {
   if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
@@ -73,7 +113,7 @@ export function setAwsDefaultEnvironmentVariables() {
     if (!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
       // Assume users only need aws-sdk, aws-lambda, and our custom GenAI instrumentations,
       // as well as instrumentations that are manually set-up outside of OpenTelemetry.
-      process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = `aws-lambda,aws-sdk,http,${LANGCHAIN_SHORT_NAME},${OPENAI_AGENTS_SHORT_NAME},${VERCEL_AI_SHORT_NAME}`;
+      process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS = `aws-lambda,aws-sdk,http,undici,${LANGCHAIN_SHORT_NAME},${OPENAI_AGENTS_SHORT_NAME},${VERCEL_AI_SHORT_NAME}`;
     }
 
     // Set exporter defaults
@@ -122,6 +162,56 @@ export function setAwsDefaultEnvironmentVariables() {
 }
 setAwsDefaultEnvironmentVariables();
 
+export const isHttpPingRequest = (request: { url?: string }) => request.url === '/ping';
+export const isUndiciPingRequest = (request: { path: string }) => request.path === '/ping';
+
+/**
+ * Initialize Dynamic Instrumentation (DI), the on-demand snapshot capture feature.
+ *
+ * DI is opt-in via OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED (default off) and is not
+ * supported in Lambda (no CloudWatch Agent proxy). It runs only on the main thread:
+ * the DI manager spawns a Worker, and Node re-runs `--require register` inside the
+ * worker's isolated context, so the isMainThread guard prevents recursive spawning.
+ *
+ * Wrapped in try/catch so a DI initialization failure can never break SDK startup —
+ * the SAFETY tenet: DI must never take down the user's application. Exported for testing.
+ */
+export function initializeDynamicInstrumentation(env: NodeJS.ProcessEnv): void {
+  try {
+    const { isMainThread } = require('worker_threads');
+    const diEnabled = (env.OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED ?? 'false').trim().toLowerCase() === 'true';
+    const isLambda = !!env.AWS_LAMBDA_FUNCTION_NAME;
+    if (isMainThread && diEnabled && !isLambda) {
+      const { DynamicInstrumentationManager } = require('./dynamic-instrumentation');
+      const diManager = DynamicInstrumentationManager.getInstance();
+
+      // Defer startup to ensure OTel SDK is fully initialized (service name, environment resolved)
+      setTimeout(() => {
+        diManager.initialize();
+      }, 100);
+    }
+  } catch (diError) {
+    diag.error('Failed to initialize Dynamic Instrumentation', diError);
+  }
+}
+
+/**
+ * Shutdown Dynamic Instrumentation (main thread only). Guarded so it never blocks SDK
+ * shutdown. Exported for testing.
+ */
+export function shutdownDynamicInstrumentation(): void {
+  try {
+    const { isMainThread } = require('worker_threads');
+    if (isMainThread) {
+      const { DynamicInstrumentationManager } = require('./dynamic-instrumentation');
+      const diManager = DynamicInstrumentationManager.getInstance();
+      diManager.shutdown();
+    }
+  } catch {
+    // Ignore - DI may not have been initialized
+  }
+}
+
 export const instrumentationConfigs: InstrumentationConfigMap = {
   '@opentelemetry/instrumentation-aws-lambda': {
     eventContextExtractor: customExtractor,
@@ -132,19 +222,21 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
   '@opentelemetry/instrumentation-mongoose': {
     suppressInternalInstrumentation: true,
   },
+  ...(isAgentObservabilityEnabled() && {
+    '@opentelemetry/instrumentation-http': {
+      ignoreIncomingRequestHook: isHttpPingRequest,
+    },
+    '@opentelemetry/instrumentation-undici': {
+      ignoreRequestHook: isUndiciPingRequest,
+    },
+  }),
 };
 export const instrumentations: Instrumentation[] = getNodeAutoInstrumentations(instrumentationConfigs);
 
 const captureMessageContent = process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT !== 'false';
-if (!isInstrumentationDisabled(LANGCHAIN_SHORT_NAME)) {
-  instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
-}
-if (!isInstrumentationDisabled(OPENAI_AGENTS_SHORT_NAME)) {
-  instrumentations.push(new OpenAIAgentsInstrumentation({ captureMessageContent }));
-}
-if (!isInstrumentationDisabled(VERCEL_AI_SHORT_NAME)) {
-  instrumentations.push(new VercelAIInstrumentation({ captureMessageContent }));
-}
+instrumentations.push(new LangChainInstrumentation({ captureMessageContent }));
+instrumentations.push(new OpenAIAgentsInstrumentation({ captureMessageContent }));
+instrumentations.push(new VercelAIInstrumentation({ captureMessageContent }));
 
 // Apply instrumentation patches
 applyInstrumentationPatches(instrumentations);
@@ -173,6 +265,37 @@ try {
   diag.debug(`Environment variable OTEL_PROPAGATORS is set to '${process.env.OTEL_PROPAGATORS}'`);
   diag.debug(`Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to '${process.env.OTEL_EXPORTER_OTLP_PROTOCOL}'`);
   diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
+
+  initializeDynamicInstrumentation(process.env);
+
+  // Initialize ServiceEvents deep observability instrumentation (main thread only).
+  // When the DI manager spawns a Worker, Node re-runs `--require register` inside
+  // the worker's isolated V8 context, which would otherwise create a second
+  // ServiceEventsInstrumentation + emitter. Python uses threading.Thread (shared
+  // module namespace) so this isn't needed there. Keep behaviour aligned.
+  try {
+    const { isMainThread: serviceeventsIsMainThread } = require('worker_threads');
+    const decision = resolveServiceEventsBootstrap(process.env);
+    if (serviceeventsIsMainThread && decision.action === 'skipForceEnabledWithoutEndpoints') {
+      diag.error(
+        'ServiceEvents force-enabled (OTEL_AWS_SERVICE_EVENTS_ENABLED=true) without Application Signals, ' +
+          'but OTEL_AWS_OTLP_LOGS_ENDPOINT / OTEL_AWS_OTLP_METRICS_ENDPOINT are unset ' +
+          'or empty. Both are required in this mode. Skipping ServiceEvents initialization.'
+      );
+    } else if (serviceeventsIsMainThread && decision.action === 'init') {
+      const { createServiceEventsConfigFromEnv, getServiceEventsInstrumentation } = require('./serviceevents');
+      // config.enabled mirrors OTEL_AWS_SERVICE_EVENTS_ENABLED directly; the outer
+      // bundling gate above has already decided ServiceEvents should run, so flip
+      // the inner flag on regardless of whether the env var was set.
+      const serviceeventsConfig = { ...createServiceEventsConfigFromEnv(), enabled: true };
+      const serviceevents = getServiceEventsInstrumentation(serviceeventsConfig);
+      if (serviceevents) {
+        serviceevents.initialize();
+      }
+    }
+  } catch (serviceeventsError) {
+    diag.error('Failed to initialize ServiceEvents instrumentation', serviceeventsError);
+  }
 } catch (error) {
   diag.error(
     'Error initializing AWS Distro of OpenTelemetry SDK. Your application is not instrumented and will not produce telemetry',
@@ -181,10 +304,39 @@ try {
 }
 
 process.on('SIGTERM', () => {
-  sdk
-    .shutdown()
-    .then(() => diag.debug('AWS Distro of OpenTelemetry SDK terminated'))
-    .catch(error => diag.error('Error terminating AWS Distro of OpenTelemetry SDK', error));
+  // Shut down Dynamic Instrumentation first. It is synchronous (it posts a shutdown
+  // message to the worker and returns immediately), so it does not block the
+  // ServiceEvents flush or the SDK teardown below.
+  shutdownDynamicInstrumentation();
+
+  // Shutdown ServiceEvents (main thread only — matches init-side guard).
+  // shutdown() is async (it force-flushes buffered telemetry); await it before
+  // tearing down the core SDK so the final window of ServiceEvents data is not
+  // dropped on container stop. Failures are swallowed inside shutdown().
+  let serviceeventsShutdown: Promise<void> = Promise.resolve();
+  try {
+    const { isMainThread: isMainServiceEvents } = require('worker_threads');
+    if (isMainServiceEvents) {
+      const { getServiceEventsInstrumentation } = require('./serviceevents');
+      const serviceevents = getServiceEventsInstrumentation();
+      if (serviceevents) {
+        serviceeventsShutdown = serviceevents.shutdown();
+      }
+    }
+  } catch {
+    // Ignore - ServiceEvents may not have been initialized
+  }
+
+  void serviceeventsShutdown
+    .catch(() => {
+      // shutdown() already swallows errors; this is defensive only.
+    })
+    .then(() =>
+      sdk
+        .shutdown()
+        .then(() => diag.debug('AWS Distro of OpenTelemetry SDK terminated'))
+        .catch(error => diag.error('Error terminating AWS Distro of OpenTelemetry SDK', error))
+    );
 });
 
 // END The OpenTelemetry Authors code

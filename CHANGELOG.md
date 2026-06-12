@@ -13,6 +13,38 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat: add ServiceEvents deep observability instrumentation — endpoint, function-call,
+  deployment, and incident-snapshot telemetry with profiling support
+  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
+- fix: AWS SDK v3 span creation when using `@smithy/core` >= 3.24.0 (`@smithy/smithy-client` >= 4.13.0)
+  by backporting the upstream aws-sdk instrumentation fix via patch
+  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
+- Fix(lambda-layer): CompactConsoleLogRecordExporter output with CloudWatch OTLP backend schema.
+  Field renames: `timestamp` → `timeUnixNano`, `observedTimestamp` → `observedTimeUnixNano`,
+  `instrumentationScope` → `scope`, `traceFlags` → `flags`. Attribute values preserve native
+  types.
+  ([#392](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/392))
+- (**Breaking Change**) refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.
+  ([#446](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/446))
+- feat: add Bedrock AgentCore data plane instrumentation
+  ([#455](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/455))
+- suppress /ping endpoint instrumentation for HTTP libraries in AgentCore
+  ([#453](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/453))
+- feat(agent-observability): remove LLO handler from OTLP span exporter
+  ([#464](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/464))
+- feat: add Dynamic Instrumentation — opt-in, on-demand runtime snapshot capture.
+  ([#466](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/466))
+
+## v0.11.0 - 2026-04-30
+
+- Support environment-configured endpoint visibility for HTTP operation names
+  ([#388](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/388))
+- enhancement(agent-observability): add undici to default enabled instrumentations
+  ([#421](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/421))
+- feat: auto-detect and mutually exclude native vs third-party agentic instrumentors
+  ([#417](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/417))
+- fix(agent-observability): fall back to OTEL_EXPORTER_OTLP_ENDPOINT for unsampled spans
+  ([#420](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/420))
 - feat(agent-observability): add GenAiNestedClientSpanProcessor to deduplicate nested CLIENT spans
   ([#413](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/413))
 - feat: add BaggageSpanProcessor by default with OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS support

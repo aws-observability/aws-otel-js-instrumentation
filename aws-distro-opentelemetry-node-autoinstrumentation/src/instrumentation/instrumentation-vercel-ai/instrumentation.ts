@@ -8,6 +8,11 @@ import { InstrumentationBase, InstrumentationNodeModuleDefinition } from '@opent
 import { LIB_VERSION } from '../../version';
 import { VercelAIInstrumentationConfig } from './types';
 import { VercelAISpanProcessor } from './span-processor';
+import {
+  isAgenticInstrumentationOptIn,
+  isInstrumentationDisabled,
+  detectConflictingInstrumentation,
+} from '../../utils';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-vercel-ai';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_vercel_ai';
@@ -40,6 +45,25 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
 
   override setConfig(config: VercelAIInstrumentationConfig = {}) {
     super.setConfig({ ...config, captureMessageContent: !!config.captureMessageContent });
+  }
+
+  override enable() {
+    if (isInstrumentationDisabled(INSTRUMENTATION_SHORT_NAME)) {
+      this._diag.debug(`${INSTRUMENTATION_NAME} is disabled`);
+      return;
+    }
+
+    if (!isAgenticInstrumentationOptIn()) {
+      const conflict = detectConflictingInstrumentation(INSTRUMENTATION_SHORT_NAME);
+      if (conflict) {
+        this._diag.info(
+          `Skipping ${INSTRUMENTATION_NAME}: third-party '${conflict}' detected. ` +
+            'Set AWS_AGENTIC_INSTRUMENTATION_OPT_IN=true to override.'
+        );
+        return;
+      }
+    }
+    super.enable();
   }
 
   override setTracerProvider(provider: any): void {

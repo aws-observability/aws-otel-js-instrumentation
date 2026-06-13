@@ -186,24 +186,34 @@ export class SnapshotCollector {
 
     // Only collect locals if captureLocals is not null (null = do not capture)
     if (captureLocals !== null && topFrame) {
-      // Only read the local scope (first scope in chain with type 'local')
-      // This contains function params + local variables, but NOT module-level vars
+      // Read the function's 'local' scope (params + top-level locals) plus any
+      // enclosing 'block' scopes (let/const declared inside if/for/while bodies,
+      // which would otherwise be invisible). V8 orders the scope chain
+      // innermost-first, so iterating in order and keeping the first occurrence of
+      // a name yields correct shadowing (inner block shadows outer). We stop at the
+      // function boundary — 'closure', 'script', 'global', 'module', etc. hold
+      // variables outside the current function and are not captured.
       for (const scope of topFrame.scopeChain ?? []) {
-        if (scope.type !== 'local') continue;
+        if (scope.type !== 'local' && scope.type !== 'block') continue;
         if (!scope.object?.objectId) continue;
 
         const properties = await this.session.getPropertiesAsync(scope.object.objectId);
         for (const prop of properties) {
           if (prop.name === 'this') continue;
           if (!prop.value) continue;
+          // Inner scopes are visited first; do not let an outer scope overwrite a
+          // shadowing inner binding of the same name.
+          if (prop.name in rawLocals) continue;
 
-          // Filter by CaptureLocals list (empty = capture all from local scope)
+          // Filter by CaptureLocals list (empty = capture all in-scope variables)
           if (captureLocals.length === 0 || captureLocals.includes(prop.name)) {
             rawLocals[prop.name] = await this.collectValue(prop.value, config);
           }
         }
 
-        break; // Only read the first local scope
+        // Stop once we pass the function's own 'local' scope — everything beyond
+        // it in the chain belongs to enclosing functions/modules.
+        if (scope.type === 'local') break;
       }
     }
 

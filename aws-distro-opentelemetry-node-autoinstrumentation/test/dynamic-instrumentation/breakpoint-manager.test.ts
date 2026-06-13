@@ -11,12 +11,13 @@ import { InstrumentationType, ErrorCause } from '../../src/dynamic-instrumentati
 import { CAPTURE_DEFAULTS } from '../../src/dynamic-instrumentation/model/capture-configuration';
 
 /**
- * Tests BreakpointManager.addBreakpoint breakpoint-slide detection: V8 may bind a
- * breakpoint to a different line than requested when the target line is not
- * executable. The manager must report LINE_NOT_EXECUTABLE and not keep the
- * breakpoint in that case.
+ * Tests BreakpointManager.addBreakpoint handling of V8 breakpoint resolution.
+ * V8 may bind a breakpoint to the nearest executable location, sliding it forward
+ * from a function-declaration / blank / comment line — this is normal and the
+ * breakpoint is kept. Only a complete failure to bind (no resolved location)
+ * reports LINE_NOT_EXECUTABLE.
  */
-describe('BreakpointManager slide detection', function () {
+describe('BreakpointManager breakpoint resolution', function () {
   let mockSession: sinon.SinonStubbedInstance<InspectorSession>;
   let mockFileResolver: sinon.SinonStubbedInstance<FileResolver>;
   let manager: BreakpointManager;
@@ -93,17 +94,18 @@ describe('BreakpointManager slide detection', function () {
     expect(errors).toEqual([]);
   });
 
-  it('reports LINE_NOT_EXECUTABLE and removes the breakpoint when V8 slides to another line', async function () {
-    // Requested targetLine=41, but V8 slid the breakpoint forward to line 43 (0-based).
+  it('keeps the breakpoint when V8 slides it forward to the nearest executable line', async function () {
+    // Requested targetLine=41 (user line 42, a function-declaration line). V8 binds to
+    // line 43 (0-based) — the first executable statement. This forward slide is normal;
+    // the breakpoint must be kept and not reported as an error.
     mockSession.setBreakpointAsync.resolves({ breakpointId: 'bp-3', resolvedLine: 43 });
 
     const ok = await manager.addBreakpoint(makeConfig(42));
 
-    expect(ok).toBe(false);
-    expect(errors).toEqual([{ locationHash: 'hash-1', cause: ErrorCause.LINE_NOT_EXECUTABLE }]);
-    // The slid breakpoint must be removed, and not tracked.
-    expect(mockSession.removeBreakpointAsync.calledOnceWith('bp-3')).toBe(true);
-    expect(manager.getRegistryKeyByV8Id('bp-3')).toBeUndefined();
+    expect(ok).toBe(true);
+    expect(errors).toEqual([]);
+    expect(mockSession.removeBreakpointAsync.called).toBe(false);
+    expect(manager.getRegistryKeyByV8Id('bp-3')).toBeDefined();
   });
 
   it('reports LINE_NOT_EXECUTABLE when V8 binds no location (resolvedLine null)', async function () {

@@ -23,7 +23,7 @@ from amazon.di.di_contract_test_base import DITestInfrastructure
 _APP_IMAGE = "aws-application-signals-tests-di-express-app"
 
 # Breakpoint line numbers from mock_di_api.js (app.js source lines)
-_PROCESS_DATA_LINE = 32  # const result = value * 2;
+_PROCESS_DATA_LINE = 32  # function processData(value) { — V8 slides the breakpoint to the first body statement
 _CALCULATE_SUM_LINE = 52  # const result = a + b;
 _LIMITED_FUNCTION_LINE = 60  # return x * 10;
 _SHARED_FUNCTION_LINE = 67  # const processed = ...

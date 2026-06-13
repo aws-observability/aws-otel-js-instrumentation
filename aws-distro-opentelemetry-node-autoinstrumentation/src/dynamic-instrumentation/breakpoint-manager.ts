@@ -122,21 +122,27 @@ export class BreakpointManager {
     }
     const v8Id = result.breakpointId;
 
-    // V8 binds a breakpoint to the nearest executable location. If the target line
-    // has no executable code, V8 either binds nothing (resolvedLine null) or slides
-    // the breakpoint forward to a different line. In both cases the requested line is
-    // not executable, so the config cannot capture where the user asked — report
-    // LINE_NOT_EXECUTABLE and remove the breakpoint rather than capture at the wrong
-    // line. A column-only adjustment on the same line is normal and not a slide.
-    if (result.resolvedLine === null || result.resolvedLine !== targetLine) {
-      const resolvedDisplay = result.resolvedLine === null ? 'none' : String(result.resolvedLine + 1);
+    // V8 binds a breakpoint to the nearest executable location, which is frequently a
+    // different line than requested — e.g. a breakpoint on a function-declaration line
+    // binds to the first statement in the body, and a breakpoint on a blank/comment line
+    // binds to the next statement. This forward slide is normal and the breakpoint still
+    // fires; the snapshot is reported under the requested line. We only reject when V8
+    // returned no binding location at all (resolvedLine null), which means the breakpoint
+    // could not be placed.
+    if (result.resolvedLine === null) {
       diag.warn(
-        `DI: Breakpoint at ${config.filePath}:${targetLine + 1} is not on an executable line ` +
-          `(V8 resolved to line ${resolvedDisplay}). Reporting LINE_NOT_EXECUTABLE.`
+        `DI: V8 could not bind a breakpoint at ${config.filePath}:${targetLine + 1} ` +
+          '(no executable location). Reporting LINE_NOT_EXECUTABLE.'
       );
       await this.session.removeBreakpointAsync(v8Id);
       this.reportError(config, ErrorCause.LINE_NOT_EXECUTABLE);
       return false;
+    }
+    if (result.resolvedLine !== targetLine) {
+      diag.debug(
+        `DI: V8 bound breakpoint at ${config.filePath}:${targetLine + 1} to line ${result.resolvedLine + 1} ` +
+          '(nearest executable location); capturing there.'
+      );
     }
 
     const active: ActiveBreakpoint = {

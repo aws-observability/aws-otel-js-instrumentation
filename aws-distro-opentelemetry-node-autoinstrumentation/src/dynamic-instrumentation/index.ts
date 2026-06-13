@@ -5,7 +5,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Worker } from 'worker_threads';
 import { diag } from '@opentelemetry/api';
+import { Resource } from '@opentelemetry/resources';
 import { createDynamicInstrumentationConfig, DynamicInstrumentationConfig } from './config';
+
+// Max time to wait for async resource detectors (EC2/ECS/EKS, etc.) to resolve
+// before reading resource attributes for attribute-filter evaluation.
+const RESOURCE_ATTRIBUTES_TIMEOUT_MS = 2000;
 
 /**
  * Main thread entry point for Dynamic Instrumentation.
@@ -36,8 +41,11 @@ export class DynamicInstrumentationManager {
 
   /**
    * Initialize the DI feature. Called from register.ts after a deferred timeout.
+   *
+   * @param resource the configured OTel SDK Resource, used to evaluate
+   *   AttributeFilters against the application's real resource attributes.
    */
-  initialize(): void {
+  async initialize(resource?: Resource): Promise<void> {
     if (this.initialized) {
       diag.debug('DI: Already initialized');
       return;
@@ -62,6 +70,8 @@ export class DynamicInstrumentationManager {
           'DI: Service name not configured. Set OTEL_SERVICE_NAME or service.name in OTEL_RESOURCE_ATTRIBUTES.'
         );
       }
+
+      this.config.resourceAttributes = await resolveResourceAttributes(resource);
 
       this.spawnWorker();
       this.initialized = true;
@@ -154,6 +164,43 @@ export class DynamicInstrumentationManager {
       }
       this.worker = null;
     });
+  }
+}
+
+/**
+ * Resolve the SDK Resource into a flat string-keyed map for attribute-filter
+ * evaluation in the worker.
+ *
+ * Best-effort awaits async resource detectors (EC2/ECS/EKS, etc.) up to a
+ * timeout so detector-contributed attributes are present. Non-string attribute
+ * values are stringified, since filter comparison is exact string equality.
+ * Never throws — returns an empty map on any failure, so DI initialization (and
+ * the user's application) is never blocked by resource detection.
+ */
+export async function resolveResourceAttributes(resource?: Resource): Promise<Record<string, string>> {
+  if (!resource) return {};
+
+  try {
+    if (resource.asyncAttributesPending && resource.waitForAsyncAttributes) {
+      await Promise.race([
+        resource.waitForAsyncAttributes(),
+        new Promise<void>(resolve => {
+          const timer = setTimeout(resolve, RESOURCE_ATTRIBUTES_TIMEOUT_MS);
+          // Don't keep the event loop alive solely for this timeout.
+          if (timer.unref) timer.unref();
+        }),
+      ]);
+    }
+
+    const result: Record<string, string> = {};
+    for (const [key, value] of Object.entries(resource.attributes)) {
+      if (value === null || value === undefined) continue;
+      result[key] = typeof value === 'string' ? value : String(value);
+    }
+    return result;
+  } catch (error) {
+    diag.warn('DI: Failed to resolve resource attributes for filtering', error);
+    return {};
   }
 }
 

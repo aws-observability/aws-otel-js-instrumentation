@@ -114,10 +114,28 @@ export class BreakpointManager {
 
     // Set the V8 breakpoint (async — callback fires on next tick)
     // Use setBreakpointByUrl for more reliable breakpoint activation with connectToMainThread
-    const v8Id = await this.session.setBreakpointAsync(resolved.scriptId, targetLine, targetColumn, resolved.url);
-    if (!v8Id) {
+    const result = await this.session.setBreakpointAsync(resolved.scriptId, targetLine, targetColumn, resolved.url);
+    if (!result) {
       diag.warn(`DI: Failed to set V8 breakpoint at ${config.filePath}:${targetLine + 1}`);
       this.reportError(config, ErrorCause.RUNTIME_ERROR);
+      return false;
+    }
+    const v8Id = result.breakpointId;
+
+    // V8 binds a breakpoint to the nearest executable location. If the target line
+    // has no executable code, V8 either binds nothing (resolvedLine null) or slides
+    // the breakpoint forward to a different line. In both cases the requested line is
+    // not executable, so the config cannot capture where the user asked — report
+    // LINE_NOT_EXECUTABLE and remove the breakpoint rather than capture at the wrong
+    // line. A column-only adjustment on the same line is normal and not a slide.
+    if (result.resolvedLine === null || result.resolvedLine !== targetLine) {
+      const resolvedDisplay = result.resolvedLine === null ? 'none' : String(result.resolvedLine + 1);
+      diag.warn(
+        `DI: Breakpoint at ${config.filePath}:${targetLine + 1} is not on an executable line ` +
+          `(V8 resolved to line ${resolvedDisplay}). Reporting LINE_NOT_EXECUTABLE.`
+      );
+      await this.session.removeBreakpointAsync(v8Id);
+      this.reportError(config, ErrorCause.LINE_NOT_EXECUTABLE);
       return false;
     }
 

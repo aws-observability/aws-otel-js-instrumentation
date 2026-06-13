@@ -7,6 +7,18 @@ import { FileResolver } from './file-resolver';
 import { SourceMapResolver } from './source-map-resolver';
 
 /**
+ * Result of setting a V8 breakpoint.
+ *
+ * `resolvedLine` is the 0-based line V8 actually bound the breakpoint to, or
+ * null if V8 returned no binding location. It may differ from the requested
+ * line when V8 slides the breakpoint forward to the next executable statement.
+ */
+export interface SetBreakpointResult {
+  breakpointId: string;
+  resolvedLine: number | null;
+}
+
+/**
  * V8 Inspector session manager.
  *
  * Manages the inspector.Session connected to the main thread (from a worker thread)
@@ -130,31 +142,42 @@ export class InspectorSession {
 
   /**
    * Set a breakpoint at a specific location (async — for use outside of pause).
-   * Returns the V8 breakpointId, or null if failed.
+   *
+   * Returns the V8 breakpointId together with the location V8 actually bound the
+   * breakpoint to (`resolvedLine`, 0-based), or null if the call failed. V8 may
+   * slide a breakpoint forward to the next executable line when the requested
+   * line has no code; `resolvedLine` lets the caller detect that. `resolvedLine`
+   * is null when V8 returned no binding location (breakpoint did not bind).
    */
   async setBreakpointAsync(
     scriptId: string,
     lineNumber: number,
     columnNumber: number = 0,
     scriptUrl?: string
-  ): Promise<string | null> {
+  ): Promise<SetBreakpointResult | null> {
     try {
       // Use setBreakpointByUrl when URL is available — more reliable for connectToMainThread
       // sessions where setBreakpoint by scriptId may not fire for all line types
       if (scriptUrl) {
-        const result = await this.postAsync<any>('Debugger.setBreakpointByUrl', {
-          url: scriptUrl,
-          lineNumber,
-          columnNumber,
-        });
-        return result?.breakpointId ?? null;
+        const result = await this.postAsync<inspector.Debugger.SetBreakpointByUrlReturnType>(
+          'Debugger.setBreakpointByUrl',
+          {
+            url: scriptUrl,
+            lineNumber,
+            columnNumber,
+          }
+        );
+        if (!result?.breakpointId) return null;
+        const resolvedLine = result.locations?.length ? result.locations[0].lineNumber : null;
+        return { breakpointId: result.breakpointId, resolvedLine };
       }
 
       // Fallback to setBreakpoint by scriptId
       const result = await this.postAsync<inspector.Debugger.SetBreakpointReturnType>('Debugger.setBreakpoint', {
         location: { scriptId, lineNumber, columnNumber },
       });
-      return result?.breakpointId ?? null;
+      if (!result?.breakpointId) return null;
+      return { breakpointId: result.breakpointId, resolvedLine: result.actualLocation?.lineNumber ?? null };
     } catch (error) {
       diag.warn(`DI: Failed to set breakpoint at ${scriptId}:${lineNumber}: ${error}`);
       return null;

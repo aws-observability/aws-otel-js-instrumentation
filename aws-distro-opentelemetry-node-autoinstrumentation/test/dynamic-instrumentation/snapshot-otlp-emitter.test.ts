@@ -41,8 +41,6 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
       locationHash: 'hash-1',
       instrumentation: {
         location: {
-          codeUnit: 'orders',
-          className: 'OrderService',
           lineNumber: 42,
           filePath: '/app/orders.js',
           language: 'javascript',
@@ -69,10 +67,11 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
     expect(rec.attributes['aws.di.snapshot_id']).toBe('snap-1');
     expect(rec.attributes['aws.di.location_hash']).toBe('hash-1');
     expect(rec.attributes['aws.di.instrumentation_level']).toBe('line');
-    // duration is intentionally not emitted (JS DI is line-level; no method duration exists)
+    // duration, code_unit, class_name, and method_name are intentionally not emitted —
+    // JS DI targets file path + line only and has no method duration to report
     expect(rec.attributes['aws.di.duration_ms']).toBeUndefined();
-    expect(rec.attributes['aws.di.code_unit']).toBe('orders');
-    expect(rec.attributes['aws.di.class_name']).toBe('OrderService');
+    expect(rec.attributes['aws.di.code_unit']).toBeUndefined();
+    expect(rec.attributes['aws.di.class_name']).toBeUndefined();
     expect(rec.attributes['aws.di.method_name']).toBeUndefined();
     expect(rec.attributes['aws.di.file_path']).toBe('/app/orders.js');
     expect(rec.attributes['aws.di.line_number']).toBe(42);

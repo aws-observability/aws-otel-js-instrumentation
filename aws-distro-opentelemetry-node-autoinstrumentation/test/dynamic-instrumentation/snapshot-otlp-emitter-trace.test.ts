@@ -39,8 +39,6 @@ describe('SnapshotOtlpEmitter trace context', function () {
       locationHash: 'hash-abc',
       instrumentation: {
         location: {
-          codeUnit: '',
-          className: '',
           lineNumber: 42,
           filePath: '/app/test.js',
           language: 'javascript',

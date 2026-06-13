@@ -270,8 +270,6 @@ export class SnapshotCollector {
         locationHash: config.locationHash,
         instrumentation: {
           location: {
-            codeUnit: config.codeUnit ?? '',
-            className: config.className ?? '',
             lineNumber: config.lineNumber,
             filePath: config.filePath ?? rawData.url,
             language: 'javascript',

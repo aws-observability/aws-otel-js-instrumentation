@@ -25,8 +25,6 @@ export interface SnapshotInstrumentation {
 }
 
 export interface SnapshotLocation {
-  codeUnit: string;
-  className: string;
   lineNumber: number;
   filePath: string;
   language: string;

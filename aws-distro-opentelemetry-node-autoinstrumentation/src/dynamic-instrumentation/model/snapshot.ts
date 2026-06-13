@@ -10,7 +10,6 @@
 export interface Snapshot {
   id: string;
   timestamp: number;
-  duration: number;
   service: string;
   environment: string;
   locationHash: string;

@@ -124,9 +124,12 @@ export class SnapshotCollector {
       // Resume the main thread
       await this.session.resumeAsync();
 
+      // Capture overhead (≈ how long the main thread sat paused) — internal safety
+      // signal only; not part of the snapshot (JS DI has no method duration to report).
+      diag.debug(`DI: capture overhead ${Date.now() - startTime}ms for ${registryKey}`);
+
       // Process after resume — serialize and write
-      const duration = Date.now() - startTime;
-      this.processSnapshot(entry.config, rawData, duration);
+      this.processSnapshot(entry.config, rawData);
     } catch (error) {
       diag.debug('DI: Error handling paused event', error);
       try {
@@ -250,7 +253,7 @@ export class SnapshotCollector {
    * Serialize collected data into a Snapshot and queue for writing.
    * Runs AFTER the debugger has resumed.
    */
-  private processSnapshot(config: InstrumentationConfiguration, rawData: RawCaptureData, duration: number): void {
+  private processSnapshot(config: InstrumentationConfiguration, rawData: RawCaptureData): void {
     try {
       // All captured data goes into lines.N.locals (JS DI is line-level only)
       const captures: any = {
@@ -262,7 +265,6 @@ export class SnapshotCollector {
       const snapshot: Snapshot = {
         id: crypto.randomUUID(),
         timestamp: Date.now(),
-        duration,
         service: this.config.serviceName,
         environment: this.config.environment,
         locationHash: config.locationHash,

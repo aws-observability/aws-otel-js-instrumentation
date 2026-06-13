@@ -36,7 +36,6 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
     return {
       id: 'snap-1',
       timestamp: 1_700_000_000_123,
-      duration: 5,
       service: 'test-service',
       environment: 'test-env',
       locationHash: 'hash-1',
@@ -70,7 +69,8 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
     expect(rec.attributes['aws.di.snapshot_id']).toBe('snap-1');
     expect(rec.attributes['aws.di.location_hash']).toBe('hash-1');
     expect(rec.attributes['aws.di.instrumentation_level']).toBe('line');
-    expect(rec.attributes['aws.di.duration_ms']).toBe(5);
+    // duration is intentionally not emitted (JS DI is line-level; no method duration exists)
+    expect(rec.attributes['aws.di.duration_ms']).toBeUndefined();
     expect(rec.attributes['aws.di.code_unit']).toBe('orders');
     expect(rec.attributes['aws.di.class_name']).toBe('OrderService');
     expect(rec.attributes['aws.di.method_name']).toBeUndefined();
@@ -88,13 +88,9 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
     expect(rec.attributes['aws.di.line_number']).toBeUndefined();
   });
 
-  it('omits duration when not provided', function () {
-    const snap = baseSnapshot();
-    (snap as any).duration = undefined;
-    emitter.emitSnapshot(snap);
+  it('omits instrumentation_type when not passed', function () {
+    emitter.emitSnapshot(baseSnapshot());
     const rec = onlyRecord();
-    expect(rec.attributes['aws.di.duration_ms']).toBeUndefined();
-    // instrumentation_type omitted when not passed
     expect(rec.attributes['aws.di.instrumentation_type']).toBeUndefined();
   });
 

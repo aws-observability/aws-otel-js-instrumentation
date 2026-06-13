@@ -34,7 +34,6 @@ describe('SnapshotOtlpEmitter trace context', function () {
     return {
       id: 'snap-123',
       timestamp: Date.now(),
-      duration: 2,
       service: 'test-service',
       environment: 'test-env',
       locationHash: 'hash-abc',

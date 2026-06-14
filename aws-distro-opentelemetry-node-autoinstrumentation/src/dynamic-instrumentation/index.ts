@@ -182,8 +182,15 @@ export async function resolveResourceAttributes(resource?: Resource): Promise<Re
 
   try {
     if (resource.asyncAttributesPending && resource.waitForAsyncAttributes) {
+      // Attach the catch BEFORE racing: if a detector rejects after the timeout has
+      // already won the race, the surrounding try/catch can no longer observe it and
+      // it would surface as an unhandledRejection. The no-op catch keeps a late
+      // detector failure from ever escaping (SAFETY: DI must not affect the app).
+      const waitForAttributes = resource.waitForAsyncAttributes().catch(error => {
+        diag.debug('DI: resource detector rejected after attribute resolution', error);
+      });
       await Promise.race([
-        resource.waitForAsyncAttributes(),
+        waitForAttributes,
         new Promise<void>(resolve => {
           const timer = setTimeout(resolve, RESOURCE_ATTRIBUTES_TIMEOUT_MS);
           // Don't keep the event loop alive solely for this timeout.

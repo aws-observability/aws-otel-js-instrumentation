@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import expect from 'expect';
+import * as sinon from 'sinon';
 import { Resource } from '@opentelemetry/resources';
 import { resolveResourceAttributes } from '../../src/dynamic-instrumentation';
 
@@ -91,5 +92,75 @@ describe('resolveResourceAttributes', function () {
       },
     } as unknown as Resource;
     expect(await resolveResourceAttributes(bad)).toEqual({});
+  });
+
+  it('proceeds with current attributes when async detectors exceed the timeout', async function () {
+    const clock = sinon.useFakeTimers();
+    try {
+      // waitForAsyncAttributes never settles within the timeout window.
+      const resource = fakeResource({
+        attributes: { 'service.name': 'partial' },
+        asyncPending: true,
+        waitForAsyncAttributes: () => new Promise<void>(() => undefined),
+      });
+
+      const promise = resolveResourceAttributes(resource);
+      // Advance past the 2s timeout so the race resolves via the timer.
+      await clock.tickAsync(2000);
+
+      expect(await promise).toEqual({ 'service.name': 'partial' });
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('swallows a detector rejection and still returns current attributes', async function () {
+    // The detector rejects rather than resolving. The internal .catch on the wait
+    // promise must consume the rejection so it neither throws out of the resolver nor
+    // escapes as an unhandledRejection; the resolver returns whatever attributes exist.
+    const resource = fakeResource({
+      attributes: { 'service.name': 'partial' },
+      asyncPending: true,
+      waitForAsyncAttributes: () => Promise.reject(new Error('detector failed')),
+    });
+
+    const result = await resolveResourceAttributes(resource);
+    expect(result).toEqual({ 'service.name': 'partial' });
+  });
+
+  it('proceeds at the timeout even if the detector rejects later, without leaking', async function () {
+    // A detector that rejects only AFTER the timeout has won the race. Asserts the
+    // resolver returns at the timeout AND that a late rejection is swallowed by the
+    // internal .catch (a tracked unhandledRejection listener would otherwise fire).
+    const clock = sinon.useFakeTimers();
+    const rejections: unknown[] = [];
+    const onUnhandled = (err: unknown): void => {
+      rejections.push(err);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const resource = fakeResource({
+        attributes: { 'service.name': 'partial' },
+        asyncPending: true,
+        waitForAsyncAttributes: () =>
+          new Promise<void>((_resolve, reject) => {
+            const t = setTimeout(() => reject(new Error('detector failed late')), 5000);
+            if (t.unref) t.unref();
+          }),
+      });
+
+      const promise = resolveResourceAttributes(resource);
+      await clock.tickAsync(2000); // timeout wins the race
+      expect(await promise).toEqual({ 'service.name': 'partial' });
+
+      await clock.tickAsync(5000); // fire the late rejection
+      await Promise.resolve();
+      await Promise.resolve();
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled);
+      clock.restore();
+    }
+
+    expect(rejections).toEqual([]);
   });
 });

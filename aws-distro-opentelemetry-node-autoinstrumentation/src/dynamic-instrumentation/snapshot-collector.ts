@@ -202,8 +202,10 @@ export class SnapshotCollector {
           if (prop.name === 'this') continue;
           if (!prop.value) continue;
           // Inner scopes are visited first; do not let an outer scope overwrite a
-          // shadowing inner binding of the same name.
-          if (prop.name in rawLocals) continue;
+          // shadowing inner binding of the same name. Use hasOwnProperty (not `in`),
+          // which would treat Object.prototype members like `constructor`/`toString`
+          // as already-present and silently drop user variables with those names.
+          if (Object.prototype.hasOwnProperty.call(rawLocals, prop.name)) continue;
 
           // Filter by CaptureLocals list (empty = capture all in-scope variables)
           if (captureLocals.length === 0 || captureLocals.includes(prop.name)) {

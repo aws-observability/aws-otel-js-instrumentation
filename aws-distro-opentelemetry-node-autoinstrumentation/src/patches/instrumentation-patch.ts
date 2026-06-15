@@ -480,8 +480,10 @@ export const SKIP_CREDENTIAL_CAPTURE_KEY = Symbol('skip-credential-capture');
 function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
   if (instrumentation) {
     (instrumentation as AwsInstrumentation)['_getV3SmithyClientSendPatch'] = function (
+      moduleVersion: string | undefined,
       original: (...args: unknown[]) => Promise<any>
     ) {
+      const self = this;
       return function send(this: any, command: V3PluginCommand, ...args: unknown[]): Promise<any> {
         // Only add middleware once per client instance to reduce overhead
         // AWS SDK clients may call 'send' multiple times, but we only need to patch once
@@ -559,6 +561,7 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
         }
 
         command[V3_CLIENT_CONFIG_KEY] = this.config;
+        self['patchV3MiddlewareStack'](moduleVersion, this.middlewareStack);
         return original.apply(this, [command, ...args]);
       };
     };

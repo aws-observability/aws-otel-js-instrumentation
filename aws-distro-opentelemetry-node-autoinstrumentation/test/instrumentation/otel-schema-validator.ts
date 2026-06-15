@@ -3,7 +3,8 @@
 
 import * as Ajv from 'ajv';
 
-const OTEL_SCHEMA_BASE = 'https://opentelemetry.io/docs/specs/semconv';
+const OTEL_SEMCONV_VERSION = 'v1.41.0';
+const OTEL_SCHEMA_BASE = `https://raw.githubusercontent.com/open-telemetry/semantic-conventions/${OTEL_SEMCONV_VERSION}/docs`;
 const schemaCache: Record<string, object> = {};
 
 async function fetchSchema(url: string): Promise<object> {

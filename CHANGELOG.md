@@ -32,6 +32,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   ([#453](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/453))
 - feat(agent-observability): remove LLO handler from OTLP span exporter
   ([#464](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/464))
+- feat: add Dynamic Instrumentation — opt-in, on-demand runtime snapshot capture.
+  ([#466](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/466))
 
 ## v0.11.0 - 2026-04-30
 

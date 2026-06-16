@@ -31,7 +31,6 @@ export interface InstrumentationConfiguration {
   captureConfig: CaptureConfiguration;
   locationHash: string;
   instrumentationType: InstrumentationType;
-  instrumentationName: string;
   expiresAt: number | null; // epoch milliseconds
   maxHits: number;
   attributeFilters: Array<Record<string, string>>;
@@ -117,7 +116,6 @@ export function isPermanent(config: InstrumentationConfiguration): boolean {
  *   "LocationHash": "abc123",
  *   "CaptureConfiguration": { "CodeCapture": {...} },
  *   "ExpiresAt": "2026-01-23T10:36:51Z",
- *   "InstrumentationName": "my-probe",
  *   "AttributeFilters": [{"key": "value"}],
  *   "ARN": "arn:...",
  *   "CreatedAt": "2026-01-23T10:00:00Z"
@@ -176,15 +174,6 @@ export function parseInstrumentationConfiguration(
         diag.warn(`DI: Invalid InstrumentationType '${typeStr}'. Defaulting to BREAKPOINT.`);
         instrumentationType = InstrumentationType.BREAKPOINT;
       }
-    }
-
-    // Parse instrumentation name
-    const instrumentationName = (apiConfig.InstrumentationName as string) ?? '';
-
-    // PROBE requires InstrumentationName
-    if (instrumentationType === InstrumentationType.PROBE && !instrumentationName) {
-      diag.warn(`DI: PROBE instrumentation for ${filePath}:${methodName} missing InstrumentationName. Skipping.`);
-      return null;
     }
 
     // Parse line number
@@ -262,7 +251,6 @@ export function parseInstrumentationConfiguration(
       captureConfig,
       locationHash,
       instrumentationType,
-      instrumentationName,
       expiresAt,
       maxHits,
       attributeFilters,

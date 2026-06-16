@@ -17,7 +17,6 @@ function makeTestConfig(overrides: Partial<InstrumentationConfiguration> = {}): 
     captureConfig: CAPTURE_DEFAULTS as any,
     locationHash: 'hash123',
     instrumentationType: InstrumentationType.BREAKPOINT,
-    instrumentationName: 'test',
     expiresAt: null,
     maxHits: 100,
     attributeFilters: [],

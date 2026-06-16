@@ -10,7 +10,6 @@
 export interface Snapshot {
   id: string;
   timestamp: number;
-  duration: number;
   service: string;
   environment: string;
   locationHash: string;
@@ -26,9 +25,6 @@ export interface SnapshotInstrumentation {
 }
 
 export interface SnapshotLocation {
-  codeUnit: string;
-  className: string;
-  methodName: string;
   lineNumber: number;
   filePath: string;
   language: string;

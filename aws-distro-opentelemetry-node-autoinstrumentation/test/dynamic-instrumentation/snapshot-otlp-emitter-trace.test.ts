@@ -34,15 +34,11 @@ describe('SnapshotOtlpEmitter trace context', function () {
     return {
       id: 'snap-123',
       timestamp: Date.now(),
-      duration: 2,
       service: 'test-service',
       environment: 'test-env',
       locationHash: 'hash-abc',
       instrumentation: {
         location: {
-          codeUnit: '',
-          className: '',
-          methodName: 'testFunc',
           lineNumber: 42,
           filePath: '/app/test.js',
           language: 'javascript',

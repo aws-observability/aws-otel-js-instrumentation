@@ -36,15 +36,11 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
     return {
       id: 'snap-1',
       timestamp: 1_700_000_000_123,
-      duration: 5,
       service: 'test-service',
       environment: 'test-env',
       locationHash: 'hash-1',
       instrumentation: {
         location: {
-          codeUnit: 'orders',
-          className: 'OrderService',
-          methodName: 'process',
           lineNumber: 42,
           filePath: '/app/orders.js',
           language: 'javascript',
@@ -71,10 +67,12 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
     expect(rec.attributes['aws.di.snapshot_id']).toBe('snap-1');
     expect(rec.attributes['aws.di.location_hash']).toBe('hash-1');
     expect(rec.attributes['aws.di.instrumentation_level']).toBe('line');
-    expect(rec.attributes['aws.di.duration_ms']).toBe(5);
-    expect(rec.attributes['aws.di.code_unit']).toBe('orders');
-    expect(rec.attributes['aws.di.class_name']).toBe('OrderService');
-    expect(rec.attributes['aws.di.method_name']).toBe('process');
+    // duration, code_unit, class_name, and method_name are intentionally not emitted —
+    // JS DI targets file path + line only and has no method duration to report
+    expect(rec.attributes['aws.di.duration_ms']).toBeUndefined();
+    expect(rec.attributes['aws.di.code_unit']).toBeUndefined();
+    expect(rec.attributes['aws.di.class_name']).toBeUndefined();
+    expect(rec.attributes['aws.di.method_name']).toBeUndefined();
     expect(rec.attributes['aws.di.file_path']).toBe('/app/orders.js');
     expect(rec.attributes['aws.di.line_number']).toBe(42);
     expect(rec.attributes['aws.di.instrumentation_type']).toBe('BREAKPOINT');
@@ -89,13 +87,9 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
     expect(rec.attributes['aws.di.line_number']).toBeUndefined();
   });
 
-  it('omits duration when not provided', function () {
-    const snap = baseSnapshot();
-    (snap as any).duration = undefined;
-    emitter.emitSnapshot(snap);
+  it('omits instrumentation_type when not passed', function () {
+    emitter.emitSnapshot(baseSnapshot());
     const rec = onlyRecord();
-    expect(rec.attributes['aws.di.duration_ms']).toBeUndefined();
-    // instrumentation_type omitted when not passed
     expect(rec.attributes['aws.di.instrumentation_type']).toBeUndefined();
   });
 

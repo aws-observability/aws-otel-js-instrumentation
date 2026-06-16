@@ -114,11 +114,35 @@ export class BreakpointManager {
 
     // Set the V8 breakpoint (async — callback fires on next tick)
     // Use setBreakpointByUrl for more reliable breakpoint activation with connectToMainThread
-    const v8Id = await this.session.setBreakpointAsync(resolved.scriptId, targetLine, targetColumn, resolved.url);
-    if (!v8Id) {
+    const result = await this.session.setBreakpointAsync(resolved.scriptId, targetLine, targetColumn, resolved.url);
+    if (!result) {
       diag.warn(`DI: Failed to set V8 breakpoint at ${config.filePath}:${targetLine + 1}`);
       this.reportError(config, ErrorCause.RUNTIME_ERROR);
       return false;
+    }
+    const v8Id = result.breakpointId;
+
+    // V8 binds a breakpoint to the nearest executable location, which is frequently a
+    // different line than requested — e.g. a breakpoint on a function-declaration line
+    // binds to the first statement in the body, and a breakpoint on a blank/comment line
+    // binds to the next statement. This forward slide is normal and the breakpoint still
+    // fires; the snapshot is reported under the requested line. We only reject when V8
+    // returned no binding location at all (resolvedLine null), which means the breakpoint
+    // could not be placed.
+    if (result.resolvedLine === null) {
+      diag.warn(
+        `DI: V8 could not bind a breakpoint at ${config.filePath}:${targetLine + 1} ` +
+          '(no executable location). Reporting LINE_NOT_EXECUTABLE.'
+      );
+      await this.session.removeBreakpointAsync(v8Id);
+      this.reportError(config, ErrorCause.LINE_NOT_EXECUTABLE);
+      return false;
+    }
+    if (result.resolvedLine !== targetLine) {
+      diag.debug(
+        `DI: V8 bound breakpoint at ${config.filePath}:${targetLine + 1} to line ${result.resolvedLine + 1} ` +
+          '(nearest executable location); capturing there.'
+      );
     }
 
     const active: ActiveBreakpoint = {

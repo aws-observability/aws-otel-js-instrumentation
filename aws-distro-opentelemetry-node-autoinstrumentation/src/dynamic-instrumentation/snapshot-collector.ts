@@ -124,9 +124,12 @@ export class SnapshotCollector {
       // Resume the main thread
       await this.session.resumeAsync();
 
+      // Capture overhead (≈ how long the main thread sat paused) — internal safety
+      // signal only; not part of the snapshot (JS DI has no method duration to report).
+      diag.debug(`DI: capture overhead ${Date.now() - startTime}ms for ${registryKey}`);
+
       // Process after resume — serialize and write
-      const duration = Date.now() - startTime;
-      this.processSnapshot(entry.config, rawData, duration);
+      this.processSnapshot(entry.config, rawData);
     } catch (error) {
       diag.debug('DI: Error handling paused event', error);
       try {
@@ -183,24 +186,36 @@ export class SnapshotCollector {
 
     // Only collect locals if captureLocals is not null (null = do not capture)
     if (captureLocals !== null && topFrame) {
-      // Only read the local scope (first scope in chain with type 'local')
-      // This contains function params + local variables, but NOT module-level vars
+      // Read the function's 'local' scope (params + top-level locals) plus any
+      // enclosing 'block' scopes (let/const declared inside if/for/while bodies,
+      // which would otherwise be invisible). V8 orders the scope chain
+      // innermost-first, so iterating in order and keeping the first occurrence of
+      // a name yields correct shadowing (inner block shadows outer). We stop at the
+      // function boundary — 'closure', 'script', 'global', 'module', etc. hold
+      // variables outside the current function and are not captured.
       for (const scope of topFrame.scopeChain ?? []) {
-        if (scope.type !== 'local') continue;
+        if (scope.type !== 'local' && scope.type !== 'block') continue;
         if (!scope.object?.objectId) continue;
 
         const properties = await this.session.getPropertiesAsync(scope.object.objectId);
         for (const prop of properties) {
           if (prop.name === 'this') continue;
           if (!prop.value) continue;
+          // Inner scopes are visited first; do not let an outer scope overwrite a
+          // shadowing inner binding of the same name. Use hasOwnProperty (not `in`),
+          // which would treat Object.prototype members like `constructor`/`toString`
+          // as already-present and silently drop user variables with those names.
+          if (Object.prototype.hasOwnProperty.call(rawLocals, prop.name)) continue;
 
-          // Filter by CaptureLocals list (empty = capture all from local scope)
+          // Filter by CaptureLocals list (empty = capture all in-scope variables)
           if (captureLocals.length === 0 || captureLocals.includes(prop.name)) {
             rawLocals[prop.name] = await this.collectValue(prop.value, config);
           }
         }
 
-        break; // Only read the first local scope
+        // Stop once we pass the function's own 'local' scope — everything beyond
+        // it in the chain belongs to enclosing functions/modules.
+        if (scope.type === 'local') break;
       }
     }
 
@@ -241,7 +256,6 @@ export class SnapshotCollector {
       stack,
       traceId,
       spanId,
-      functionName: topFrame?.functionName ?? '',
       url: topFrame?.url || fileResolver.getScriptUrl(topFrame?.location?.scriptId ?? ''),
       lineNumber: (topFrame?.location?.lineNumber ?? 0) + 1,
     };
@@ -251,7 +265,7 @@ export class SnapshotCollector {
    * Serialize collected data into a Snapshot and queue for writing.
    * Runs AFTER the debugger has resumed.
    */
-  private processSnapshot(config: InstrumentationConfiguration, rawData: RawCaptureData, duration: number): void {
+  private processSnapshot(config: InstrumentationConfiguration, rawData: RawCaptureData): void {
     try {
       // All captured data goes into lines.N.locals (JS DI is line-level only)
       const captures: any = {
@@ -263,15 +277,11 @@ export class SnapshotCollector {
       const snapshot: Snapshot = {
         id: crypto.randomUUID(),
         timestamp: Date.now(),
-        duration,
         service: this.config.serviceName,
         environment: this.config.environment,
         locationHash: config.locationHash,
         instrumentation: {
           location: {
-            codeUnit: config.codeUnit ?? '',
-            className: config.className ?? '',
-            methodName: config.methodName ?? rawData.functionName,
             lineNumber: config.lineNumber,
             filePath: config.filePath ?? rawData.url,
             language: 'javascript',
@@ -521,7 +531,6 @@ interface RawCaptureData {
   stack: StackFrame[];
   traceId: string;
   spanId: string;
-  functionName: string;
   url: string;
   lineNumber: number;
 }

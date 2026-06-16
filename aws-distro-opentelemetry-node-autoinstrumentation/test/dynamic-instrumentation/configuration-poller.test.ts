@@ -12,6 +12,10 @@ import { InstrumentationConfiguration } from '../../src/dynamic-instrumentation/
 
 /**
  * Build a minimal DynamicInstrumentationConfig for testing attribute filters.
+ *
+ * resourceAttributes mirrors what the main thread would resolve from the SDK
+ * Resource: service.name, deployment.environment(.name), and detector-contributed
+ * attributes such as instance.id / cloud.region.
  */
 function makeConfig(overrides: Partial<DynamicInstrumentationConfig> = {}): DynamicInstrumentationConfig {
   return {
@@ -23,6 +27,13 @@ function makeConfig(overrides: Partial<DynamicInstrumentationConfig> = {}): Dyna
     logsEndpoint: 'http://localhost:4316/v1/logs',
     serviceName: 'order-service',
     environment: 'production',
+    resourceAttributes: {
+      'service.name': 'order-service',
+      'deployment.environment.name': 'production',
+      'deployment.environment': 'production',
+      'instance.id': 'i-abc123',
+      'cloud.region': 'us-west-2',
+    },
     ...overrides,
   };
 }
@@ -75,24 +86,8 @@ function createPoller(config?: DynamicInstrumentationConfig): ConfigurationPolle
 }
 
 describe('ConfigurationPoller attribute filter matching', function () {
-  let savedEnv: Record<string, string | undefined>;
-
-  beforeEach(function () {
-    savedEnv = { ...process.env };
-    // Set up resource attributes for testing
-    process.env.OTEL_RESOURCE_ATTRIBUTES = 'instance.id=i-abc123,cloud.region=us-west-2';
-  });
-
-  afterEach(function () {
-    // Restore environment
-    for (const key of Object.keys(process.env)) {
-      if (!(key in savedEnv)) delete process.env[key];
-    }
-    for (const [key, value] of Object.entries(savedEnv)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  });
+  // Resource attributes are supplied via config.resourceAttributes (resolved from
+  // the SDK Resource on the main thread), not from OTEL_RESOURCE_ATTRIBUTES.
 
   // --- No filters ---
 
@@ -178,7 +173,7 @@ describe('ConfigurationPoller attribute filter matching', function () {
   // --- Complex scenario ---
 
   it('should include config when first multi-key filter matches via resource attributes', function () {
-    // First filter: instance.id=i-abc123 AND cloud.region=us-west-2 — both from OTEL_RESOURCE_ATTRIBUTES
+    // First filter: instance.id=i-abc123 AND cloud.region=us-west-2 — both from resourceAttributes
     // Second filter: service.name=payment-service — does NOT match
     // Result: config IS included (OR — first filter matched)
     const poller = createPoller();
@@ -221,16 +216,31 @@ describe('ConfigurationPoller attribute filter matching', function () {
     expect(result).toBe(true);
   });
 
-  it('should match attributes from OTEL_RESOURCE_ATTRIBUTES env var', function () {
+  it('should match detector-contributed attributes from the resource', function () {
     const poller = createPoller();
     const result = (poller as any).matchesAttributeFilters([{ 'instance.id': 'i-abc123' }]);
     expect(result).toBe(true);
   });
 
-  it('should not match attributes not in OTEL_RESOURCE_ATTRIBUTES', function () {
+  it('should not match attributes absent from the resource (fails closed)', function () {
     const poller = createPoller();
     const result = (poller as any).matchesAttributeFilters([{ 'custom.attr': 'value' }]);
     expect(result).toBe(false);
+  });
+
+  it('should fail open (allow config) when filter evaluation throws', function () {
+    // A filter whose value is a non-string causes Object.entries iteration to be fine,
+    // but force an error by passing a filter object whose entries throw on access.
+    const poller = createPoller();
+    const throwingFilter: Record<string, string> = {};
+    Object.defineProperty(throwingFilter, 'service.name', {
+      enumerable: true,
+      get() {
+        throw new Error('boom');
+      },
+    });
+    const result = (poller as any).matchesAttributeFilters([throwingFilter]);
+    expect(result).toBe(true);
   });
 
   // --- Integration test through parseProbeBreakpointConfigs ---

@@ -37,6 +37,8 @@ describe('DynamicInstrumentationConfig', function () {
     expect(config.probePollIntervalSeconds).toBe(600);
     expect(config.breakpointPollIntervalSeconds).toBe(60);
     expect(config.outputDirectory).toBe('aws-di-snapshots');
+    // Resource attributes are populated later by the main thread from the SDK Resource.
+    expect(config.resourceAttributes).toEqual({});
   });
 
   it('should respect OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED=true', function () {

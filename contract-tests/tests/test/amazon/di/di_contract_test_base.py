@@ -253,8 +253,10 @@ class DITestInfrastructure(TestCase):
     # Filtering helpers
     # -------------------------------------------------------------------------
 
-    def snapshots_for_method(self, snapshots: List[ResourceScopeLog], method_name: str) -> List[ResourceScopeLog]:
-        return [s for s in snapshots if self.get_attr(s, "aws.di.method_name") == method_name]
+    def snapshots_for_line(self, snapshots: List[ResourceScopeLog], line_number: int) -> List[ResourceScopeLog]:
+        """Filter snapshots by aws.di.line_number. JS DI snapshots identify their
+        breakpoint by file path + line number (method_name is not emitted)."""
+        return [s for s in snapshots if self.get_attr(s, "aws.di.line_number") == line_number]
 
     def snapshots_for_location_hash(self, snapshots: List[ResourceScopeLog], location_hash: str) -> List[ResourceScopeLog]:
         return [s for s in snapshots if self.get_attr(s, "aws.di.location_hash") == location_hash]

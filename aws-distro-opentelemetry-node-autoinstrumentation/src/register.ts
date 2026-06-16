@@ -18,6 +18,7 @@ import { logs } from '@opentelemetry/api-logs';
 import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
 import { getStringFromEnv, diagLogLevelFromString } from '@opentelemetry/core';
 import { Instrumentation } from '@opentelemetry/instrumentation';
+import { Resource } from '@opentelemetry/resources';
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import { AwsOpentelemetryConfigurator } from './aws-opentelemetry-configurator';
 import {
@@ -176,7 +177,7 @@ export const isUndiciPingRequest = (request: { path: string }) => request.path =
  * Wrapped in try/catch so a DI initialization failure can never break SDK startup —
  * the SAFETY tenet: DI must never take down the user's application. Exported for testing.
  */
-export function initializeDynamicInstrumentation(env: NodeJS.ProcessEnv): void {
+export function initializeDynamicInstrumentation(env: NodeJS.ProcessEnv, resource?: Resource): void {
   try {
     const { isMainThread } = require('worker_threads');
     const diEnabled = (env.OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED ?? 'false').trim().toLowerCase() === 'true';
@@ -187,7 +188,7 @@ export function initializeDynamicInstrumentation(env: NodeJS.ProcessEnv): void {
 
       // Defer startup to ensure OTel SDK is fully initialized (service name, environment resolved)
       setTimeout(() => {
-        diManager.initialize();
+        diManager.initialize(resource);
       }, 100);
     }
   } catch (diError) {
@@ -266,7 +267,10 @@ try {
   diag.debug(`Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to '${process.env.OTEL_EXPORTER_OTLP_PROTOCOL}'`);
   diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
 
-  initializeDynamicInstrumentation(process.env);
+  // Pass the configured SDK Resource so DI can evaluate AttributeFilters against
+  // the application's real resource attributes (service.name, deployment.environment,
+  // and detector-contributed attributes such as cloud.region, host.name, etc.).
+  initializeDynamicInstrumentation(process.env, configuration.resource);
 
   // Initialize ServiceEvents deep observability instrumentation (main thread only).
   // When the DI manager spawns a Worker, Node re-runs `--require register` inside

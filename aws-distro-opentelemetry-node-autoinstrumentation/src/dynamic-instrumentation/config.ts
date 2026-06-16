@@ -20,6 +20,13 @@ export interface DynamicInstrumentationConfig {
   logsEndpoint: string;
   serviceName: string;
   environment: string;
+  /**
+   * Resource attributes (string-valued) from the OTel SDK Resource, used to
+   * evaluate AttributeFilters on instrumentation configurations. Populated by
+   * the main thread from the configured Resource and passed to the worker; may
+   * be empty if the resource was unavailable at startup.
+   */
+  resourceAttributes: Record<string, string>;
 }
 
 const DEFAULTS = {
@@ -134,5 +141,6 @@ export function createDynamicInstrumentationConfig(): DynamicInstrumentationConf
     logsEndpoint: getEnvStr('OTEL_AWS_OTLP_LOGS_ENDPOINT', 'http://localhost:4316/v1/logs'),
     serviceName: resolveServiceName(),
     environment: resolveEnvironment(),
+    resourceAttributes: {},
   };
 }

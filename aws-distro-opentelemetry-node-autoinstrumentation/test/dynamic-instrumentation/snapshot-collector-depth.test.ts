@@ -38,6 +38,7 @@ describe('SnapshotCollector depth limits', function () {
       probePollIntervalSeconds: 60,
       breakpointPollIntervalSeconds: 60,
       outputDirectory: '/tmp/test',
+      resourceAttributes: {},
     };
 
     collector = new SnapshotCollector(

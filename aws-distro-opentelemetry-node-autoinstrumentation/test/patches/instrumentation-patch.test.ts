@@ -751,7 +751,7 @@ describe('InstrumentationPatchTest', () => {
           region: () => Promise.resolve('us-west-2'),
         };
         const send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
-          ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
+          ['_getV3SmithyClientSendPatch'](undefined, (...args: unknown[]) => Promise.resolve())
           .bind({ middlewareStack: mockedMiddlewareStack, config: mockConfig });
 
         middlewareArgsHeader = {
@@ -850,7 +850,7 @@ describe('InstrumentationPatchTest', () => {
 
         const middlewareStack: any[] = [];
         const recursiveSdkSend = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
-          ['_getV3SmithyClientSendPatch'](() => Promise.resolve())
+          ['_getV3SmithyClientSendPatch'](undefined, () => Promise.resolve())
           .bind({
             middlewareStack: { add: (middleware: any, config: any) => middlewareStack.push([middleware, config]) },
             config: {

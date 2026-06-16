@@ -14,11 +14,7 @@ import {
   SpanStatusCode,
   defaultTextMapSetter,
 } from '@opentelemetry/api';
-import {
-  Instrumentation,
-  InstrumentationNodeModuleDefinition,
-  InstrumentationNodeModuleFile,
-} from '@opentelemetry/instrumentation';
+import { Instrumentation } from '@opentelemetry/instrumentation';
 import {
   AwsInstrumentation,
   AwsSdkInstrumentationConfig,
@@ -483,29 +479,16 @@ type V3PluginCommand = AwsV3Command<any, any, any, any, any> & {
 export const SKIP_CREDENTIAL_CAPTURE_KEY = Symbol('skip-credential-capture');
 function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
   if (instrumentation) {
-    const awsInstrumentation = instrumentation as AwsInstrumentation;
-
-    // TODO: Remove this @smithy/core>=3.24.0 backport once open-telemetry/opentelemetry-js-contrib#3530
-    // ships in a released @opentelemetry/instrumentation-aws-sdk (>0.73.0) and we upgrade to it.
-    //
-    // Backports open-telemetry/opentelemetry-js-contrib#3530 (unreleased as of instrumentation-aws-sdk@0.73.0)
-    // and layers ADOT's X-Ray + credential-capture middleware on top. @smithy/core@3.24.0+ (via
-    // @smithy/smithy-client@4.13.0+) moved `Client` into the `@smithy/core` client bundle and made
-    // `constructStack` a closed-over local, so upstream's `@smithy/middleware-stack` constructStack patch
-    // no longer fires and no spans are produced. The fix: hook the `@smithy/core` client bundle (see
-    // patchSmithyCoreClientBundle below) and call `patchV3MiddlewareStack` directly inside the send patch.
-    awsInstrumentation['_getV3SmithyClientSendPatch'] = function (
-      this: AwsInstrumentation,
+    (instrumentation as AwsInstrumentation)['_getV3SmithyClientSendPatch'] = function (
+      moduleVersion: string | undefined,
       original: (...args: unknown[]) => Promise<any>
     ) {
-      const self = this as any;
+      const self = this;
       return function send(this: any, command: V3PluginCommand, ...args: unknown[]): Promise<any> {
-        // Add middleware once per client instance; 'send' may be called multiple times.
+        // Only add middleware once per client instance to reduce overhead
+        // AWS SDK clients may call 'send' multiple times, but we only need to patch once
+        // Even with override=true, adding middleware still causes overhead as it replaces existing stack entries
         if (!this.__adotMiddlewarePatched) {
-          if (this.middlewareStack) {
-            // 1st arg is moduleVersion, only surfaced to a user preRequestHook; not needed here.
-            self.patchV3MiddlewareStack(undefined, this.middlewareStack);
-          }
           this.middlewareStack?.add(
             (next: any, context: any) => async (middlewareArgs: any) => {
               propagation.inject(otelContext.active(), middlewareArgs.request.headers, defaultTextMapSetter);
@@ -578,56 +561,9 @@ function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
         }
 
         command[V3_CLIENT_CONFIG_KEY] = this.config;
+        self['patchV3MiddlewareStack'](moduleVersion, this.middlewareStack);
         return original.apply(this, [command, ...args]);
       };
     };
-
-    patchSmithyCoreClientBundle(awsInstrumentation);
-  }
-}
-
-/*
- * Hooks `@smithy/core`'s client bundle so `Client.prototype.send` is patched for @smithy/core>=3.24.0,
- * where the `Client` class moved out of `@smithy/smithy-client` (the only location upstream's init() hooks).
- *
- * init() runs in the AwsInstrumentation constructor, before applyInstrumentationPatches, so we can't add
- * to its module list normally. We append a module definition and register through the instrumentation's
- * existing require-in-the-middle singleton (the same path enable() uses) rather than a standalone Hook —
- * a second require interceptor breaks other module-mockers in the suite (e.g. proxyquire). register.ts
- * patches before any AWS SDK client loads, so the hook is in place before `@smithy/core` is required.
- */
-function patchSmithyCoreClientBundle(awsInstrumentation: AwsInstrumentation): void {
-  try {
-    const instr = awsInstrumentation as any;
-
-    const clientBundleFile = new InstrumentationNodeModuleFile(
-      '@smithy/core/dist-cjs/submodules/client/index.js',
-      ['>=3.24.0'],
-      instr['patchV3SmithyClient'].bind(instr),
-      instr['unpatchV3SmithyClient'].bind(instr)
-    );
-    const smithyCoreModule = new InstrumentationNodeModuleDefinition(
-      '@smithy/core',
-      ['>=3.24.0'],
-      undefined,
-      undefined,
-      [clientBundleFile]
-    );
-
-    if (Array.isArray(instr._modules)) {
-      instr._modules.push(smithyCoreModule);
-    }
-
-    const singleton = instr._requireInTheMiddleSingleton;
-    if (singleton && typeof singleton.register === 'function') {
-      const onRequire = (exports: any, name: string, baseDir?: string) =>
-        instr._onRequire(smithyCoreModule, exports, name, baseDir);
-      const hook = singleton.register('@smithy/core', onRequire);
-      if (Array.isArray(instr._hooks) && hook) {
-        instr._hooks.push(hook);
-      }
-    }
-  } catch (e) {
-    diag.debug('Failed to register @smithy/core client bundle patch for AWS SDK instrumentation', e);
   }
 }

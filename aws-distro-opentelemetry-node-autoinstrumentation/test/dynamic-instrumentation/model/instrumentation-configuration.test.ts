@@ -14,7 +14,6 @@ function makeConfig(overrides: Record<string, unknown> = {}): Record<string, unk
   return {
     InstrumentationType: 'BREAKPOINT',
     SignalType: 'SNAPSHOT',
-    InstrumentationName: 'test',
     Location: {
       CodeLocation: {
         Language: 'javascript',
@@ -46,7 +45,6 @@ describe('parseInstrumentationConfiguration', function () {
     const config = parseInstrumentationConfiguration(
       makeConfig({
         InstrumentationType: 'PROBE',
-        InstrumentationName: 'my-probe',
         Location: {
           CodeLocation: { Language: 'javascript', MethodName: 'myFunc', FilePath: 'app.js', LineNumber: 5 },
         },
@@ -56,13 +54,6 @@ describe('parseInstrumentationConfiguration', function () {
     expect(config!.instrumentationType).toBe(InstrumentationType.PROBE);
     expect(config!.lineNumber).toBe(0); // PROBE forces lineNumber to 0
     expect(config!.maxHits).toBe(Number.MAX_SAFE_INTEGER); // PROBE = unlimited
-  });
-
-  it('should reject PROBE without InstrumentationName', function () {
-    const config = parseInstrumentationConfiguration(
-      makeConfig({ InstrumentationType: 'PROBE', InstrumentationName: undefined })
-    );
-    expect(config).toBeNull();
   });
 
   it('should reject config without FilePath', function () {
@@ -143,7 +134,6 @@ describe('parseInstrumentationConfiguration', function () {
     const config = parseInstrumentationConfiguration(
       makeConfig({
         InstrumentationType: 'PROBE',
-        InstrumentationName: 'test-probe',
         ExpiresAt: '2026-01-01T00:00:00Z',
       })
     );
@@ -180,7 +170,6 @@ describe('isLineLevel', function () {
     const config = parseInstrumentationConfiguration(
       makeConfig({
         InstrumentationType: 'PROBE',
-        InstrumentationName: 'probe',
         Location: { CodeLocation: { Language: 'javascript', MethodName: 'fn', FilePath: 'a.js', LineNumber: 0 } },
       })
     )!;
@@ -193,7 +182,6 @@ describe('isPermanent', function () {
     const config = parseInstrumentationConfiguration(
       makeConfig({
         InstrumentationType: 'PROBE',
-        InstrumentationName: 'probe',
       })
     )!;
     expect(isPermanent(config)).toBe(true);

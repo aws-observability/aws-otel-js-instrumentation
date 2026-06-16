@@ -725,7 +725,10 @@ describe('IncidentSnapshot', function () {
     expect(callPath[0].is_async).toBe(true);
   });
 
-  it('should strip duration_ns from call_path when is_partial', function () {
+  it('should strip only zero-duration call_path entries when is_partial, keeping real timings', function () {
+    // A partial snapshot mixes frames that have genuine timing (sampled, or below the truncation
+    // cap) with zero-duration frames (unsampled, or the <call_path_truncated> sentinel). Only the
+    // misleading zeros should be dropped; the real timings must survive. Mirrors the Python distro.
     const snapshot = new IncidentSnapshot({
       snapshot_id: 'snap_1',
       timestamp: 1706745600000,
@@ -744,7 +747,10 @@ describe('IncidentSnapshot', function () {
           exception_type: 'Error',
           exception_message: 'test',
           stack_trace: 'Error: test',
-          call_path: [{ function_name: 'f1', caller_function_name: '', duration_ns: 0, error: false }],
+          call_path: [
+            { function_name: 'f1', caller_function_name: '', duration_ns: 1500, error: false, function_at_line: 42 },
+            { function_name: '<call_path_truncated>', caller_function_name: '', duration_ns: 0, error: false },
+          ],
         },
       ],
       request_context: {
@@ -758,7 +764,11 @@ describe('IncidentSnapshot', function () {
 
     const dict = snapshot.toDict();
     const callPath = (dict.exception_info as any[])[0].call_path;
-    expect(callPath[0].duration_ns).toBeUndefined();
+    // Real frame keeps its timing and static metadata.
+    expect(callPath[0].duration_ns).toBe(1500);
+    expect(callPath[0].function_at_line).toBe(42);
+    // Zero-duration sentinel has its misleading duration dropped.
+    expect(callPath[1].duration_ns).toBeUndefined();
   });
 
   it('toDict() should return all fields', function () {

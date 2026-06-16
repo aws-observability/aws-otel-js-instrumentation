@@ -11,7 +11,6 @@ import {
   trace,
   Span,
   Tracer,
-  SpanStatusCode,
   defaultTextMapSetter,
 } from '@opentelemetry/api';
 import { Instrumentation } from '@opentelemetry/instrumentation';
@@ -378,8 +377,11 @@ export type ExtendedAwsLambdaInstrumentation = AwsLambdaInstrumentation & {
 };
 
 // Patch AWS Lambda Instrumentation
-// 1. Override the upstream private _endSpan method to remove the unnecessary metric force-flush error message
-//    https://github.com/open-telemetry/opentelemetry-js-contrib/blob/main/plugins/node/opentelemetry-instrumentation-aws-lambda/src/instrumentation.ts#L358-L398
+// 1. Override the upstream private _endInvocationSpanAndFlush method to also force flush logs before the handler
+//    completes. Upstream only force flushes traces and metrics, so without this the OTLP log batch is stranded in
+//    the BatchLogRecordProcessor when the Lambda execution environment freezes, and is only exported on a later
+//    invocation's thaw.
+//    https://github.com/open-telemetry/opentelemetry-js-contrib/blob/main/packages/instrumentation-aws-lambda/src/instrumentation.ts
 // 2. Support setting logger provider and force flushing logs
 function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
   if (instrumentation) {
@@ -413,30 +415,19 @@ function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
       return undefined;
     };
 
-    (instrumentation as ExtendedAwsLambdaInstrumentation)['_endSpan'] = function (
-      span: Span,
+    (instrumentation as ExtendedAwsLambdaInstrumentation)['_endInvocationSpanAndFlush'] = function (
+      invocationSpan: Span,
       err: string | Error | null | undefined,
-      callback: () => void
+      callback: () => void,
+      additionalSpans?: Span[]
     ) {
-      if (err) {
-        span.recordException(err);
+      if (additionalSpans) {
+        for (const s of additionalSpans) {
+          this['_endSpan'](s, err);
+        }
       }
 
-      let errMessage;
-      if (typeof err === 'string') {
-        errMessage = err;
-      } else if (err) {
-        errMessage = err.message;
-      }
-      if (errMessage) {
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: errMessage,
-        });
-      }
-
-      span.end();
-
+      this['_endSpan'](invocationSpan, err);
       const flushers = [];
       if (this['_traceForceFlusher']) {
         flushers.push(this['_traceForceFlusher']());

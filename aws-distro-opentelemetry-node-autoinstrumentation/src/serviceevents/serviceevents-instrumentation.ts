@@ -14,6 +14,7 @@ import { ServiceEventsConfig, getLatencyThresholdPatterns } from './config';
 import {
   ServiceEventsMonitorState,
   setSamplingMode,
+  getSamplingMode,
   setSamplingThresholds,
   setDetachThreshold,
   registerMonitorGlobals,
@@ -93,13 +94,21 @@ export class ServiceEventsInstrumentation {
 
       ServiceEventsMonitorState.getInstance();
 
-      setSamplingMode(this.config.samplingMode);
+      // An unrecognized mode — e.g. the removed "adaptive" left in a stale env var — must not
+      // abort the whole ServiceEvents init. Log and leave the module default ('always') in place,
+      // mirroring the Python distro and the Java bridge (which retain the default on invalid input).
+      try {
+        setSamplingMode(this.config.samplingMode);
+      } catch (err) {
+        diag.warn(
+          `ServiceEvents: invalid sampling mode '${this.config.samplingMode}'; using '${getSamplingMode()}': ${err}`
+        );
+      }
       setSamplingThresholds({
         tier1Threshold: this.config.sampleTier1Threshold,
         tier2Threshold: this.config.sampleTier2Threshold,
         tier2Rate: this.config.sampleTier2Rate,
         tier3Rate: this.config.sampleTier3Rate,
-        hotEndpointCycles: this.config.hotEndpointCycles,
       });
 
       if (this.config.functionDetachThreshold > 0) {

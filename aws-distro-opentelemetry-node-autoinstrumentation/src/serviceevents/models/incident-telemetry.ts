@@ -173,15 +173,23 @@ export class IncidentSnapshot implements IncidentSnapshotData {
           caller_function_name: cp.caller_function_name,
           error: cp.error,
         };
-        // Omit duration_ns when is_partial (no timing data)
-        if (!this.is_partial) {
+        // On a partial snapshot, drop ONLY the misleading zero durations (unsampled or
+        // truncation-sentinel frames read as "instantaneous"); keep the genuine per-frame
+        // timings that WERE captured. Mirrors the Python distro's strip-only-zeros rule
+        // (incident_telemetry.py to_dict) — without this, a single zero-duration frame (e.g. the
+        // <call_path_truncated> sentinel) would flip is_partial and discard the real timings of
+        // every other frame, even in fully-sampled "always" mode.
+        const hasTiming = !this.is_partial || cp.duration_ns !== 0;
+        if (hasTiming) {
           entry.duration_ns = cp.duration_ns;
         }
         // Only include is_async when true
         if (cp.is_async) {
           entry.is_async = true;
         }
-        if (cp.function_at_line !== undefined && !this.is_partial) {
+        // function_at_line is static metadata, but a frame with no real timing (its duration was
+        // dropped above) shouldn't carry a half-populated entry — keep the two together.
+        if (cp.function_at_line !== undefined && hasTiming) {
           entry.function_at_line = cp.function_at_line;
         }
         return entry;

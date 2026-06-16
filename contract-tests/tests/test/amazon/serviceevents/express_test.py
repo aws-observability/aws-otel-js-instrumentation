@@ -201,8 +201,8 @@ class ExpressVcsMetadataTest(ServiceEventsTestInfrastructure):
         self.assertEqual(attrs.get("aws.service_events.deployment.id"), self._EXPECTED_DEPLOYMENT)
 
 
-class ExpressAdaptiveSamplingTest(ServiceEventsTestInfrastructure):
-    """Verify adaptive sampling actually drops function-call records.
+class ExpressAutoSamplingTest(ServiceEventsTestInfrastructure):
+    """Verify `auto` (tiered) sampling actually drops function-call records.
 
     With TIER1_THRESHOLD=1 and TIER2_THRESHOLD=3, every function past its
     first invocation is subject to tier2 (1-in-TIER2_RATE) or tier3 sampling.
@@ -212,9 +212,6 @@ class ExpressAdaptiveSamplingTest(ServiceEventsTestInfrastructure):
     """
 
     __test__ = True
-
-    _ALWAYS_SERVICE = "express-sampling-always"
-    _ADAPTIVE_SERVICE = "express-sampling-adaptive"
 
     @override
     @staticmethod
@@ -228,13 +225,13 @@ class ExpressAdaptiveSamplingTest(ServiceEventsTestInfrastructure):
     @override
     def get_application_extra_environment_variables(self) -> Dict[str, str]:
         return {
-            "OTEL_AWS_SERVICE_EVENTS_SAMPLING_MODE": "adaptive",
+            "OTEL_AWS_SERVICE_EVENTS_SAMPLING_MODE": "auto",
             "OTEL_AWS_SERVICE_EVENTS_FUNCTION_INSTRUMENT_ENABLED": "true",
         }
 
     @override
     def get_test_config_hook_overrides(self) -> Dict[str, str]:
-        # The SAMPLE_TIER* tiers are internal now (no public env var); drive the adaptive
+        # The SAMPLE_TIER* tiers are internal now (no public env var); drive the auto-mode
         # sampling cadence through the test-config hook on top of the base flush overrides.
         overrides = super().get_test_config_hook_overrides()
         overrides.update(
@@ -247,8 +244,8 @@ class ExpressAdaptiveSamplingTest(ServiceEventsTestInfrastructure):
         )
         return overrides
 
-    def test_adaptive_sampling_records_fewer_timing_samples_than_calls(self) -> None:
-        """Adaptive mode: after a function's first TIER1 call, timing-sampled
+    def test_auto_sampling_records_fewer_timing_samples_than_calls(self) -> None:
+        """Auto mode: after a function's first TIER1 call, timing-sampled
         fraction drops (TIER2_RATE then TIER3_RATE).
 
         FunctionCall telemetry now flows through `service.function.duration`,
@@ -277,7 +274,7 @@ class ExpressAdaptiveSamplingTest(ServiceEventsTestInfrastructure):
         self.assertTrue(
             sampling_observed,
             "Expected at least one service.function.duration data point with 0 < count < 20 "
-            "(evidence of adaptive sampling drop).",
+            "(evidence of auto-mode sampling drop).",
         )
 
 

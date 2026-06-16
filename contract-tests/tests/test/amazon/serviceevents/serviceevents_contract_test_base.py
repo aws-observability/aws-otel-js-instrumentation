@@ -738,8 +738,8 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
         self.assertGreater(len(records), 0)
         body = self.log_body(records[0])
         # The test should only run when we have a non-partial snapshot with
-        # AST-captured timing. If is_partial is true (adaptive sampling was
-        # active during the call), skip — timing assertions wouldn't apply.
+        # AST-captured timing. If is_partial is true (a call along the path was
+        # unsampled, so its duration is 0), skip — timing assertions wouldn't apply.
         if self.log_attrs(records[0]).get("aws.service_events.is_partial"):
             self.skipTest("incident captured partial — timing fields not guaranteed")
         exc_info = body.get("exception_info") or []

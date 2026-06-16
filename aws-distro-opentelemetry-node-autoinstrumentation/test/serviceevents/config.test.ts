@@ -80,7 +80,7 @@ describe('ServiceEventsConfig', function () {
       // The non-configurable SDK_SELF_EXCLUDE (in ast-transformation.ts) is the only built-in filter.
       expect(config.packagesExclude).toEqual([]);
       expect(config.packagesInclude).toEqual([]);
-      expect(config.samplingMode).toBe('adaptive');
+      expect(config.samplingMode).toBe('always');
       expect(config.functionDetachThreshold).toBe(5000);
       // Application Signals bundling flag defaults off.
       expect(config.applicationSignalsEnabled).toBe(false);
@@ -101,13 +101,12 @@ describe('ServiceEventsConfig', function () {
       expect(config.logStream).toBe('');
     });
 
-    it('sampling tiers, hot-endpoint cycles, and framework toggles ignore env', function () {
+    it('sampling tiers and framework toggles ignore env', function () {
       clearServiceEventsEnvVars();
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER1_THRESHOLD = '7';
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER2_THRESHOLD = '70';
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER2_RATE = '3';
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER3_RATE = '30';
-      process.env.OTEL_AWS_SERVICE_EVENTS_HOT_ENDPOINT_CYCLES = '20';
       process.env.OTEL_AWS_SERVICE_EVENTS_JS_INSTRUMENT_EXPRESS = 'false';
       process.env.OTEL_AWS_SERVICE_EVENTS_JS_FUNCTION_DETACH_THRESHOLD = '99';
       const config = createServiceEventsConfigFromEnv();
@@ -115,7 +114,6 @@ describe('ServiceEventsConfig', function () {
       expect(config.sampleTier2Threshold).toBe(1000);
       expect(config.sampleTier2Rate).toBe(10);
       expect(config.sampleTier3Rate).toBe(100);
-      expect(config.hotEndpointCycles).toBe(100);
       expect(config.instrumentExpress).toBe(true);
       expect(config.functionDetachThreshold).toBe(5000);
     });

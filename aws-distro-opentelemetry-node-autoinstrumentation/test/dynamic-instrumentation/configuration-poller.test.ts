@@ -34,7 +34,6 @@ function makeApiConfigItem(attributeFilters: Array<Record<string, string>> | und
   return {
     InstrumentationType: 'BREAKPOINT',
     SignalType: 'SNAPSHOT',
-    InstrumentationName: 'test-bp',
     Location: {
       CodeLocation: {
         Language: 'javascript',
@@ -249,13 +248,11 @@ describe('ConfigurationPoller attribute filter matching', function () {
         {
           ...makeApiConfigItem([{ 'service.name': 'payment-service' }]),
           LocationHash: 'hash456',
-          InstrumentationName: 'test-bp-2',
         },
         // Config 3: OR-across — second filter matches
         {
           ...makeApiConfigItem([{ 'service.name': 'payment-service' }, { 'instance.id': 'i-abc123' }]),
           LocationHash: 'hash789',
-          InstrumentationName: 'test-bp-3',
         },
       ],
       NextToken: null,

@@ -479,16 +479,41 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
     def test_endpoint_summary_success(self) -> None:
         for _ in range(3):
             self.assertEqual(200, self.send_request("GET", "success").status_code)
-        records = self.wait_for_log_records("aws.service_events.endpoint_summary")
-        rec = next(
-            (r for r in records if self.log_attrs(r).get("url.route") == "/success"),
-            None,
-        )
-        self.assertIsNotNone(rec, "No EndpointSummary for /success")
+        # EndpointSummary flushes on a fixed interval (ENDPOINT_FLUSH_INTERVAL), and the
+        # collector resets its per-route aggregation each flush. When the 3 requests straddle
+        # a flush boundary, the SDK correctly emits multiple /success summaries whose counts
+        # sum to 3 (e.g. count=1 then count=2) — no single window necessarily has count>=3.
+        # Sum request.count across all /success summary windows and poll until it reaches 3.
+        success_recs = self._wait_for_request_count_total("/success", expected_total=3)
+        rec = success_recs[0]
         self.assert_endpoint_summary(rec, method="GET", route="/success")
-        attrs = self.log_attrs(rec)
-        self.assertGreaterEqual(attrs.get("aws.service_events.request.count", 0), 3)
-        self.assertEqual(attrs.get("aws.service_events.request.faults", 0), 0)
+        total_faults = sum(self.log_attrs(r).get("aws.service_events.request.faults", 0) for r in success_recs)
+        self.assertEqual(total_faults, 0)
+
+    def _wait_for_request_count_total(
+        self, route: str, expected_total: int, timeout: Optional[float] = None
+    ) -> List[ResourceScopeLog]:
+        """Poll EndpointSummary records for `route` until the summed request.count reaches
+        `expected_total`, returning all matching records. Accounts for per-flush-window
+        aggregation: counts split across windows are summed rather than read from one window."""
+        deadline = time.time() + (timeout if timeout is not None else SERVICE_EVENTS_WAIT_TIMEOUT)
+        matched: List[ResourceScopeLog] = []
+        total = 0
+        while time.time() < deadline:
+            matched = [
+                r
+                for r in self._get_log_records_matching("aws.service_events.endpoint_summary")
+                if self.log_attrs(r).get("url.route") == route
+            ]
+            total = sum(self.log_attrs(r).get("aws.service_events.request.count", 0) for r in matched)
+            if total >= expected_total:
+                return matched
+            time.sleep(SERVICE_EVENTS_POLL_INTERVAL)
+        self.fail(
+            f"Timed out waiting for summed request.count>={expected_total} on EndpointSummary "
+            f"for route '{route}'. Found {len(matched)} record(s) summing to {total}."
+        )
+        return matched
 
     def test_endpoint_summary_fault(self) -> None:
         for _ in range(2):
@@ -742,8 +767,8 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
         self.assertGreater(len(records), 0)
         body = self.log_body(records[0])
         # The test should only run when we have a non-partial snapshot with
-        # AST-captured timing. If is_partial is true (adaptive sampling was
-        # active during the call), skip — timing assertions wouldn't apply.
+        # AST-captured timing. If is_partial is true (a call along the path was
+        # unsampled, so its duration is 0), skip — timing assertions wouldn't apply.
         if self.log_attrs(records[0]).get("aws.service_events.is_partial"):
             self.skipTest("incident captured partial — timing fields not guaranteed")
         exc_info = body.get("exception_info") or []

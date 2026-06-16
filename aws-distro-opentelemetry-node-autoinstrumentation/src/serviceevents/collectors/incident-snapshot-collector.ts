@@ -16,12 +16,7 @@ import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { diag, trace } from '@opentelemetry/api';
 import { BaseCollector } from './base-collector';
-import {
-  ServiceEventsMonitorState,
-  InvestigationData,
-  markOperationHot,
-  tickHotOperations,
-} from '../serviceevents-monitor';
+import { ServiceEventsMonitorState, InvestigationData } from '../serviceevents-monitor';
 import {
   IncidentSnapshot,
   ExceptionInfo,
@@ -143,12 +138,6 @@ export class IncidentSnapshotCollector extends BaseCollector {
       return null;
     }
 
-    // Mark operation hot for adaptive sampling BEFORE dedup checks.
-    // This ensures the hot state is refreshed on every error occurrence,
-    // not just when a snapshot passes dedup. Without this, the hot state
-    // expires while dedup blocks snapshots, causing partial snapshots.
-    markOperationHot(`${method} ${route}`);
-
     // Generate error hash for deduplication
     const errorHash = this.generateErrorHash(route, exception);
 
@@ -214,9 +203,6 @@ export class IncidentSnapshotCollector extends BaseCollector {
   }
 
   collect(): void {
-    // Tick hot endpoints each collection cycle
-    tickHotOperations();
-
     // Clear batch dedup set — allows same error type to produce one snapshot next interval
     this._currentBatchHashes.clear();
 

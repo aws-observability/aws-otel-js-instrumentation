@@ -118,15 +118,14 @@ export interface ServiceEventsConfig {
   packagesExclude: string[]; // OTEL_AWS_SERVICE_EVENTS_PACKAGES_EXCLUDE
   // Function-instrumentation allowlist. Empty = no functions instrumented (the only opt-in).
   packagesInclude: string[]; // OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE
-  // Sampling Mode: "auto" (tiered), "adaptive" (hot endpoint aware), "always" (100%), "never" (0%)
+  // Sampling Mode: "auto" (tiered), "always" (100%), "never" (0%)
   samplingMode: string; // OTEL_AWS_SERVICE_EVENTS_SAMPLING_MODE
-  // Sampling Thresholds (for auto/adaptive modes). Internal — no env override; the
+  // Sampling Thresholds (for auto mode). Internal — no env override; the
   // tier thresholds/rates are reachable only through the test-config hook.
   sampleTier1Threshold: number;
   sampleTier2Threshold: number;
   sampleTier2Rate: number;
   sampleTier3Rate: number;
-  hotEndpointCycles: number;
   // JS-only: auto-detach per-function instrumentation when call rate exceeds
   // threshold (calls/sec, 0 = disabled). Internal — no env override.
   functionDetachThreshold: number;
@@ -181,12 +180,11 @@ const DEFAULTS: ServiceEventsConfig = {
   // built-in filter.
   packagesExclude: [],
   packagesInclude: [],
-  samplingMode: 'adaptive',
+  samplingMode: 'always',
   sampleTier1Threshold: 100,
   sampleTier2Threshold: 1000,
   sampleTier2Rate: 10,
   sampleTier3Rate: 100,
-  hotEndpointCycles: 100,
   functionDetachThreshold: 5000,
   outputFile: '',
   applicationSignalsEnabled: false,
@@ -396,7 +394,6 @@ export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
     sampleTier2Threshold: DEFAULTS.sampleTier2Threshold,
     sampleTier2Rate: DEFAULTS.sampleTier2Rate,
     sampleTier3Rate: DEFAULTS.sampleTier3Rate,
-    hotEndpointCycles: DEFAULTS.hotEndpointCycles,
     functionDetachThreshold: DEFAULTS.functionDetachThreshold,
     // Local-testing file exporter. Literal path; empty = disabled.
     outputFile: getStr('OTEL_AWS_SERVICE_EVENTS_OUTPUT_FILE', DEFAULTS.outputFile),

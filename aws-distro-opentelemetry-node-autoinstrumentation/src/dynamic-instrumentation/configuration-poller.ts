@@ -191,6 +191,11 @@ export class ConfigurationPoller {
         if (config) {
           if (this.matchesAttributeFilters(config.attributeFilters)) {
             configs.push(config);
+          } else {
+            // Configuration does not target this process — skip silently (no status
+            // reported), matching the Java and Python SDKs. AttributeFilters are a
+            // fleet-targeting mechanism, so a non-match is expected, not an error.
+            diag.debug(`DI: Skipping config ${config.locationHash} — attribute filters do not match this resource`);
           }
         }
       } catch (error) {
@@ -200,41 +205,38 @@ export class ConfigurationPoller {
     return configs;
   }
 
+  /**
+   * Evaluate AttributeFilters against this process's resource attributes.
+   *
+   * Semantics: OR across filter objects, AND within a single filter object,
+   * exact string equality. An empty/absent filter list always matches. A filter
+   * key that is not present in the resource fails closed (does not match), so a
+   * config only applies where its filters match — matching Java/Python.
+   *
+   * Fails OPEN: if evaluation throws unexpectedly, allow the config rather than
+   * silently dropping it (also matching Java/Python).
+   */
   private matchesAttributeFilters(filters: Array<Record<string, string>>): boolean {
     if (!filters || filters.length === 0) return true;
 
-    // OR across filter objects — any one matching filter is sufficient
-    for (const filter of filters) {
-      let allMatch = true;
-      // AND within a single filter object — all key-value pairs must match
-      for (const [key, expectedValue] of Object.entries(filter)) {
-        const actualValue = this.getResourceAttribute(key);
-        if (actualValue !== expectedValue) {
-          allMatch = false;
-          break;
+    try {
+      // OR across filter objects — any one matching filter is sufficient
+      for (const filter of filters) {
+        let allMatch = true;
+        // AND within a single filter object — all key-value pairs must match
+        for (const [key, expectedValue] of Object.entries(filter)) {
+          if (this.config.resourceAttributes[key] !== expectedValue) {
+            allMatch = false;
+            break;
+          }
         }
+        if (allMatch) return true;
       }
-      if (allMatch) return true;
+      return false;
+    } catch (error) {
+      diag.warn('DI: Error evaluating attribute filters, allowing config', error);
+      return true;
     }
-    return false;
-  }
-
-  private getResourceAttribute(key: string): string | undefined {
-    // Check common attributes
-    if (key === 'service.name') return this.config.serviceName;
-    if (key === 'deployment.environment.name' || key === 'deployment.environment') {
-      return this.config.environment;
-    }
-
-    // Check OTEL_RESOURCE_ATTRIBUTES
-    const envResources = process.env.OTEL_RESOURCE_ATTRIBUTES ?? '';
-    for (const pair of envResources.split(',')) {
-      if (pair.includes('=')) {
-        const [k, ...rest] = pair.split('=');
-        if (k.trim() === key) return rest.join('=').trim();
-      }
-    }
-    return undefined;
   }
 
   private checkStaleness(type: string, lastSuccessTime: number | null): void {

@@ -85,12 +85,6 @@ export class SnapshotOtlpEmitter {
         'aws.di.instrumentation_level': isLineLevel ? 'line' : 'method',
       };
 
-      if (snapshot.duration !== undefined && snapshot.duration !== null) {
-        attributes['aws.di.duration_ms'] = snapshot.duration;
-      }
-      if (location?.codeUnit) attributes['aws.di.code_unit'] = location.codeUnit;
-      if (location?.className) attributes['aws.di.class_name'] = location.className;
-      if (location?.methodName) attributes['aws.di.method_name'] = location.methodName;
       if (location?.filePath) attributes['aws.di.file_path'] = location.filePath;
       if (isLineLevel && location?.lineNumber) {
         attributes['aws.di.line_number'] = location.lineNumber;

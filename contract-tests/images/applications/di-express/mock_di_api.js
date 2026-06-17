@@ -28,7 +28,7 @@ const BREAKPOINT_CONFIGS = [
         ClassName: '',
         MethodName: 'processData',
         FilePath: 'app.js',
-        LineNumber: 32, // const result = value * 2;
+        LineNumber: 32, // function processData(value) { — V8 slides to the first body statement (line 33)
       },
     },
     LocationHash: 'aabb000000000001',

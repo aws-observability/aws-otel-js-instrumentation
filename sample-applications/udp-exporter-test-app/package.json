@@ -12,11 +12,11 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/id-generator-aws-xray": "^1.2.2",
+    "@opentelemetry/id-generator-aws-xray": "^2.1.0",
     "@opentelemetry/propagator-aws-xray": "^1.25.1",
-    "@opentelemetry/sdk-node": "^0.210.0",
-    "@opentelemetry/sdk-trace-base": "^2.4.0",
-    "@opentelemetry/sdk-trace-node": "^2.4.0",
+    "@opentelemetry/sdk-node": "^0.219.0",
+    "@opentelemetry/sdk-trace-base": "^2.8.0",
+    "@opentelemetry/sdk-trace-node": "^2.8.0",
     "@types/express": "^4.17.21",
     "express": "^4.19.2"
   },

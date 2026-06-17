@@ -202,12 +202,12 @@ describe('installGlobalHttpPatches', function () {
     });
   });
 
-  describe('unmatched routes collapse to a sentinel (cardinality bound)', function () {
-    it('records "<unmatched>" for an unmatched EXPRESS request (req.route absent)', function () {
+  describe('unmatched routes collapse to the first path segment (cardinality bound)', function () {
+    it('records the first path segment for an unmatched EXPRESS request (req.route absent)', function () {
       // A genuine Express request that matched no route (404, static middleware) has no
       // req.route. Recording its raw path (/users/12345, /assets/<hash>.js) would explode
-      // endpoint cardinality, so an Express request collapses to the sentinel. Express
-      // decorates every request with `app`/`originalUrl`, which is how we know it's Express.
+      // endpoint cardinality, so an unmatched request collapses to its first path segment
+      // (/users/12345 -> /users), matching Application Signals' unmatched-route handling.
       const recordedRoutes: string[] = [];
       const spyCollector = new EndpointMetricCollector(600_000, 'env', 'svc', '0.0.1');
       (spyCollector as any).recordRequest = (route: string) => {
@@ -231,16 +231,13 @@ describe('installGlobalHttpPatches', function () {
         // tolerate stubbed original end()
       }
 
-      expect(recordedRoutes).toEqual(['<unmatched>']);
+      expect(recordedRoutes).toEqual(['/users']);
       installExpressHooks(undefined, undefined, undefined, null);
     });
 
-    it('keeps the raw path for a NON-Express request (foreign framework via global patch)', function () {
-      // The global http.end patch also fires for Fastify/Koa/Next.js, surfacing a raw
-      // Node req with no Express markers and no req.route. We must NOT collapse those to
-      // <unmatched> — their real route is recorded by their own framework hook; the
-      // global patch falls back to the raw path (cross-SDK: route owned by the component
-      // that handles the request, like Java's servlet requestUri fallback).
+    it('collapses scanner traffic with a deep path to its first segment', function () {
+      // Scanner/bot traffic to nonexistent deep URLs (/wp-admin/setup-config.php) must not
+      // each become a distinct endpoint key — they collapse to the shared first segment.
       const recordedRoutes: string[] = [];
       const spyCollector = new EndpointMetricCollector(600_000, 'env', 'svc', '0.0.1');
       (spyCollector as any).recordRequest = (route: string) => {
@@ -249,15 +246,20 @@ describe('installGlobalHttpPatches', function () {
       installExpressHooks(spyCollector, undefined, 'svc', null);
 
       // Raw Node IncomingMessage shape — no `app`, no `originalUrl`, no `route`.
-      const req: any = { url: '/success', method: 'GET', headers: {}, __serviceeventsStartTime: 1 };
-      const res: any = { statusCode: 200, req };
+      const req: any = {
+        url: '/wp-admin/setup-config.php',
+        method: 'GET',
+        headers: {},
+        __serviceeventsStartTime: 1,
+      };
+      const res: any = { statusCode: 404, req };
       try {
         patchedResponseEnd.call(res);
       } catch {
         // tolerate
       }
 
-      expect(recordedRoutes).toEqual(['/success']);
+      expect(recordedRoutes).toEqual(['/wp-admin']);
       installExpressHooks(undefined, undefined, undefined, null);
     });
 
@@ -338,6 +340,89 @@ describe('installGlobalHttpPatches', function () {
       // once-guard prevents a second get-and-clear / double active-count decrement).
       expect(() => res.emit('close')).not.toThrow();
       expect(state.peekInvestigationData()).toBe(null);
+    });
+  });
+
+  describe('error breakdown on a 5xx: extractErrorFromCallPath recovery vs. Java-parity omission', function () {
+    // Capture the errorInfo argument the hook passes to recordRequest by spying on a
+    // real collector — the same end-to-end path production uses (global res.end patch →
+    // _processFinish → extractErrorFromCallPath(req.__serviceeventsException ?? null)).
+    function recordWithSpy(req: any, res: any): Array<{ errorType: string; functionName: string } | undefined> {
+      const captured: Array<{ errorType: string; functionName: string } | undefined> = [];
+      const spyCollector = new EndpointMetricCollector(600_000, 'env', 'svc', '0.0.1');
+      (spyCollector as any).recordRequest = (
+        _route: string,
+        _method: string,
+        _statusCode: number,
+        _durationNs: number,
+        errorInfo?: { errorType: string; functionName: string }
+      ) => {
+        captured.push(errorInfo);
+      };
+      installExpressHooks(spyCollector, undefined, 'svc', null);
+      try {
+        patchedResponseEnd.call(res);
+      } catch {
+        // tolerate the stubbed original end()
+      } finally {
+        installExpressHooks(undefined, undefined, undefined, null);
+      }
+      return captured;
+    }
+
+    it('recovers the monitor-captured exception type on a 5xx when the hook received no exception', function () {
+      // FastAPI-global-handler equivalent: a framework error handler converted the error to a
+      // 500 BEFORE the request reached our hook, so req.__serviceeventsException is unset — but
+      // the monitor captured the real exception during the instrumented call. The breakdown must
+      // carry the recovered type (and origin function), not a synthetic "UnknownError".
+      const state = ServiceEventsMonitorState.getInstance();
+      // Do NOT pre-set __serviceeventsStartTime — the arrival hook only begins the
+      // investigation for a request it hasn't seen (no existing start time).
+      const req: any = {
+        url: '/api/orders',
+        method: 'POST',
+        headers: {},
+        route: { path: '/api/orders' },
+      };
+      const res: any = { statusCode: 500, req };
+
+      // Request arrival begins the investigation; the monitor records the thrown exception.
+      invokeEmit(req, res);
+      const inv = state.peekInvestigationData();
+      expect(inv).not.toBe(null);
+      inv!.exception = {
+        name: 'KeyError',
+        message: 'missing id',
+        traceback: '',
+        functionName: 'orders.lookup',
+      };
+      // Note: req.__serviceeventsException is deliberately NOT set.
+
+      const captured = recordWithSpy(req, res);
+
+      expect(captured.length).toBe(1);
+      expect(captured[0]).toEqual({ errorType: 'KeyError', functionName: 'orders.lookup' });
+    });
+
+    it('omits the breakdown on a 5xx with neither a passed-in nor a captured exception (Java parity)', function () {
+      // A handler that returns a 500 status without ever throwing, and with no instrumented frame
+      // having captured an exception. There is no real error type, so the extractor returns
+      // undefined and the hook passes errorInfo=undefined — matching Java's `errorType != null`
+      // gate. No synthetic "UnknownError" breakdown is produced.
+      const req: any = {
+        url: '/api/orders',
+        method: 'POST',
+        headers: {},
+        route: { path: '/api/orders' },
+      };
+      const res: any = { statusCode: 500, req };
+
+      invokeEmit(req, res); // begins an investigation, but no exception is ever recorded
+
+      const captured = recordWithSpy(req, res);
+
+      expect(captured.length).toBe(1);
+      expect(captured[0]).toBeUndefined();
     });
   });
 });

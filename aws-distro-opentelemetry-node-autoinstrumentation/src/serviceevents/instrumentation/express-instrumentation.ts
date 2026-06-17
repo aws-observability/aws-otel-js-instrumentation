@@ -15,6 +15,7 @@ import { setCurrentOperation, clearCurrentOperation, ServiceEventsMonitorState }
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
+import { unmatchedRouteLabel } from './unmatched-route';
 
 // Global references to collectors
 let _endpointCollector: EndpointMetricCollector | null = null;
@@ -22,62 +23,62 @@ let _incidentSnapshotCollector: IncidentSnapshotCollector | null = null;
 let _config: ServiceEventsConfig | null = null;
 
 /**
- * Sentinel route for genuine Express requests that matched no route layer (404s,
- * static-file middleware, errors before routing). Express only populates req.route
- * once a route matches, so an unmatched request has only its raw URL — recording that
- * raw path (/users/12345, /assets/<hash>.js) would create unbounded unique endpoint
- * keys and explode metric cardinality. Collapse unmatched Express traffic into one
- * bucket instead (matches the Python SDK's `<unmatched>` sentinel for Django).
- */
-const UNMATCHED_ROUTE = '<unmatched>';
-
-/**
- * True when `req` is a request decorated by Express. Express adds `app` and
- * `originalUrl` to every request it handles (regardless of whether a route matched),
- * whereas the raw Node IncomingMessage that other frameworks (Fastify/Koa/Next.js)
- * surface to the global http.end patch has neither. Used to decide whether an absent
- * `req.route` means "Express matched nothing" vs. "this isn't an Express request".
- */
-function isExpressRequest(req: any): boolean {
-  return req != null && (req.app !== undefined || typeof req.originalUrl === 'string');
-}
-
-/**
  * Get the route pattern from a request.
  *
  * Uses req.route.path (the parameterized Express pattern, e.g. /users/:id), prefixed
- * with req.baseUrl for mounted routers. When there is no matched route, the fallback
- * depends on who owns the request:
- *  - genuine Express request → UNMATCHED_ROUTE sentinel (bounds 404/static cardinality);
- *  - any other request flowing through the global http.end patch (Fastify/Koa/Next.js
- *    raw Node req) → raw URL path. We must NOT apply Express's "unmatched" logic to a
- *    foreign framework's request — its real route is resolved by its own hook, and
- *    collapsing it here would erase the route entirely. (Matches the cross-SDK model:
- *    the route is derived by the component that owns the request; Java's servlet path
- *    likewise falls back to the request URI, not a sentinel.)
+ * with req.baseUrl for mounted routers. When there is no matched route (404s, static-file
+ * middleware, scanner traffic, or a foreign framework's raw Node req reaching the global
+ * http.end patch), collapse the raw URL to its first path segment, e.g. /wp-admin/x.php →
+ * /wp-admin. Recording the full raw path would create unbounded unique endpoint keys and
+ * explode metric cardinality. The first-segment label matches Application Signals'
+ * unmatched-route handling (AwsSpanProcessingUtil.extractAPIPathValue).
  */
 function getRoutePattern(req: any): string {
   if (req.route?.path) {
     const base = req.baseUrl || '';
     return base + req.route.path;
   }
-  if (isExpressRequest(req)) {
-    return UNMATCHED_ROUTE;
-  }
-  return req.path || req.url || '/unknown';
+  return unmatchedRouteLabel(req.path || req.url);
 }
 
 /**
  * Extract error info from investigation data for error breakdown.
+ *
+ * Shared across all four framework hooks (Express/Fastify/Koa/Next.js) — the
+ * resolution logic is framework-independent (it reads only the passed-in
+ * exception and the module-global monitor state), so it lives here and is
+ * imported by the others, mirroring how `endInvestigationOnce` is shared.
  */
-function extractErrorFromCallPath(exception: Error | null): { errorType: string; functionName: string } | undefined {
+export function extractErrorFromCallPath(
+  exception: Error | null
+): { errorType: string; functionName: string } | undefined {
   const monitorState = ServiceEventsMonitorState.getInstance();
   const invData = monitorState.peekInvestigationData();
 
-  const errorType = exception?.constructor?.name ?? 'UnknownError';
-  let functionName = 'unknown';
+  // Resolve the error type. Prefer the passed-in exception; otherwise recover the type the
+  // monitor captured (a global error handler may have converted the error to a 5xx response
+  // before it reached this hook, leaving `exception` null even though a real error occurred).
+  let errorType: string | undefined;
+  if (exception?.constructor?.name) {
+    errorType = exception.constructor.name;
+  } else if (invData?.exception?.name) {
+    errorType = invData.exception.name;
+  }
 
-  if (invData?.callPath && invData.callPath.length > 0) {
+  // No real error type was captured — return undefined so the caller omits the error breakdown
+  // entirely, matching Java (whose gate is `statusCode >= 500 && errorType != null`). A 5xx with
+  // no captured exception (e.g. a handler that returns a 500 status without throwing) must NOT
+  // synthesize an "UnknownError" breakdown entry.
+  if (errorType === undefined) {
+    return undefined;
+  }
+
+  // Find the origin function. Prefer the function the monitor recorded as the actual thrower;
+  // fall back to the innermost call_path frame.
+  let functionName = 'unknown';
+  if (invData?.exception?.functionName) {
+    functionName = invData.exception.functionName;
+  } else if (invData?.callPath && invData.callPath.length > 0) {
     functionName = invData.callPath[0].functionName ?? 'unknown';
   }
 

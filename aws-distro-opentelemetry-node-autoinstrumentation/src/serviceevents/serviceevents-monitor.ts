@@ -860,7 +860,15 @@ export function __serviceeventsMonitorException(ctx: MonitorContext | null, err:
     return;
   }
   const invData = investigationStorage.getStore();
-  if (invData) {
+  // First-writer-wins: the AST `catch(err) { __tCatch(ctx, err); throw err }` runs
+  // innermost-first as the exception unwinds, so the first frame to observe it is the
+  // one closest to the raise (the true origin). Outer frames re-observe the SAME
+  // exception and must NOT overwrite invData.exception — otherwise the recorded
+  // functionName would always be the outermost instrumented frame. This matches
+  // Python's __exit__ (`if inv_data.get("exception") is None`) so the recovered
+  // origin function is identical across SDKs. (ctx.exceptionName above is still
+  // credited on every frame — that drives per-function error_count, not the origin.)
+  if (invData && !invData.exception) {
     const message = err instanceof Error ? err.message : String(err);
     const stackTrace = err instanceof Error ? err.stack ?? '' : '';
     invData.exception = {

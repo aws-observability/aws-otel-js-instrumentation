@@ -11,11 +11,12 @@
  */
 
 import { diag } from '@opentelemetry/api';
-import { setCurrentOperation, ServiceEventsMonitorState } from '../serviceevents-monitor';
+import { setCurrentOperation } from '../serviceevents-monitor';
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
-import { endInvestigationOnce } from './express-instrumentation';
+import { endInvestigationOnce, extractErrorFromCallPath } from './express-instrumentation';
+import { unmatchedRouteLabel } from './unmatched-route';
 
 // Global references to collectors
 let _endpointCollector: EndpointMetricCollector | null = null;
@@ -26,7 +27,7 @@ let _config: ServiceEventsConfig | null = null;
  * Get the route pattern from a Koa context.
  *
  * Tries ctx._matchedRoute (set by koa-router), then ctx.routePath,
- * then falls back to ctx.path.
+ * then collapses the raw path to its first segment for unmatched requests.
  */
 function getRoutePattern(ctx: any): string {
   // koa-router sets _matchedRoute
@@ -37,25 +38,9 @@ function getRoutePattern(ctx: any): string {
   if (ctx.routePath) {
     return ctx.routePath;
   }
-  // Fallback to raw path
-  return ctx.path || '/unknown';
-}
-
-/**
- * Extract error info from investigation data for error breakdown.
- */
-function extractErrorFromCallPath(exception: Error | null): { errorType: string; functionName: string } | undefined {
-  const monitorState = ServiceEventsMonitorState.getInstance();
-  const invData = monitorState.peekInvestigationData();
-
-  const errorType = exception?.constructor?.name ?? 'UnknownError';
-  let functionName = 'unknown';
-
-  if (invData?.callPath && invData.callPath.length > 0) {
-    functionName = invData.callPath[0].functionName ?? 'unknown';
-  }
-
-  return { errorType, functionName };
+  // No route matched: collapse the raw path to its first segment so scanner/bot traffic
+  // can't explode metric cardinality. Matches App Signals.
+  return unmatchedRouteLabel(ctx.path);
 }
 
 /**

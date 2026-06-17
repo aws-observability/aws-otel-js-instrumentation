@@ -93,6 +93,17 @@ function processNestedCollection(nested) {
   return nested.length;
 }
 
+/**
+ * BREAKPOINT target whose config carries a NUMERIC epoch-seconds ExpiresAt
+ * (the real Application Signals API wire format, e.g. 1.781739623E9). The
+ * breakpoint must NOT be treated as already expired, so a snapshot should
+ * still be captured. See the expiry config in mock_di_api.js.
+ */
+function expiryCheck(token) {
+  const verified = token > 0; // Line 103 - line-level breakpoint here
+  return verified;
+}
+
 // =========================================================================
 // Routes
 // =========================================================================
@@ -145,6 +156,13 @@ app.get('/limits-collection-depth', (req, res) => {
   const nested = [[[['deep']]]];
   const result = processNestedCollection(nested);
   res.json({ status: 'ok', size: result });
+});
+
+app.get('/expiry', (req, res) => {
+  // The expiryCheck breakpoint config carries a numeric epoch-seconds ExpiresAt
+  // set in the future; a snapshot must still be captured (not expired-on-create).
+  const result = expiryCheck(1);
+  res.json({ status: 'ok', verified: result });
 });
 
 app.listen(8080, () => {

@@ -202,12 +202,12 @@ describe('installGlobalHttpPatches', function () {
     });
   });
 
-  describe('unmatched routes collapse to a sentinel (cardinality bound)', function () {
-    it('records "<unmatched>" for an unmatched EXPRESS request (req.route absent)', function () {
+  describe('unmatched routes collapse to the first path segment (cardinality bound)', function () {
+    it('records the first path segment for an unmatched EXPRESS request (req.route absent)', function () {
       // A genuine Express request that matched no route (404, static middleware) has no
       // req.route. Recording its raw path (/users/12345, /assets/<hash>.js) would explode
-      // endpoint cardinality, so an Express request collapses to the sentinel. Express
-      // decorates every request with `app`/`originalUrl`, which is how we know it's Express.
+      // endpoint cardinality, so an unmatched request collapses to its first path segment
+      // (/users/12345 -> /users), matching Application Signals' unmatched-route handling.
       const recordedRoutes: string[] = [];
       const spyCollector = new EndpointMetricCollector(600_000, 'env', 'svc', '0.0.1');
       (spyCollector as any).recordRequest = (route: string) => {
@@ -231,16 +231,13 @@ describe('installGlobalHttpPatches', function () {
         // tolerate stubbed original end()
       }
 
-      expect(recordedRoutes).toEqual(['<unmatched>']);
+      expect(recordedRoutes).toEqual(['/users']);
       installExpressHooks(undefined, undefined, undefined, null);
     });
 
-    it('keeps the raw path for a NON-Express request (foreign framework via global patch)', function () {
-      // The global http.end patch also fires for Fastify/Koa/Next.js, surfacing a raw
-      // Node req with no Express markers and no req.route. We must NOT collapse those to
-      // <unmatched> — their real route is recorded by their own framework hook; the
-      // global patch falls back to the raw path (cross-SDK: route owned by the component
-      // that handles the request, like Java's servlet requestUri fallback).
+    it('collapses scanner traffic with a deep path to its first segment', function () {
+      // Scanner/bot traffic to nonexistent deep URLs (/wp-admin/setup-config.php) must not
+      // each become a distinct endpoint key — they collapse to the shared first segment.
       const recordedRoutes: string[] = [];
       const spyCollector = new EndpointMetricCollector(600_000, 'env', 'svc', '0.0.1');
       (spyCollector as any).recordRequest = (route: string) => {
@@ -249,15 +246,20 @@ describe('installGlobalHttpPatches', function () {
       installExpressHooks(spyCollector, undefined, 'svc', null);
 
       // Raw Node IncomingMessage shape — no `app`, no `originalUrl`, no `route`.
-      const req: any = { url: '/success', method: 'GET', headers: {}, __serviceeventsStartTime: 1 };
-      const res: any = { statusCode: 200, req };
+      const req: any = {
+        url: '/wp-admin/setup-config.php',
+        method: 'GET',
+        headers: {},
+        __serviceeventsStartTime: 1,
+      };
+      const res: any = { statusCode: 404, req };
       try {
         patchedResponseEnd.call(res);
       } catch {
         // tolerate
       }
 
-      expect(recordedRoutes).toEqual(['/success']);
+      expect(recordedRoutes).toEqual(['/wp-admin']);
       installExpressHooks(undefined, undefined, undefined, null);
     });
 

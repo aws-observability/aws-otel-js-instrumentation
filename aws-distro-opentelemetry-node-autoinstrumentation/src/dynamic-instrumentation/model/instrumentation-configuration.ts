@@ -54,7 +54,14 @@ function clampMaxHits(value: number): number {
 
 function parseTimestamp(value: unknown): number | null {
   if (value === null || value === undefined) return null;
-  if (typeof value === 'number') return value;
+  if (typeof value === 'number') {
+    // Heuristic: if < 1e12, treat as epoch seconds and convert to milliseconds;
+    // otherwise it is already in milliseconds. The Application Signals API
+    // serializes timestamps (e.g. ExpiresAt) as numeric epoch seconds over the
+    // JSON protocol, so without this conversion ExpiresAt is ~1000x too small
+    // and every BREAKPOINT is immediately treated as expired.
+    return value < 1e12 ? value * 1000 : value;
+  }
   if (typeof value === 'string') {
     // Try ISO 8601 format
     const ms = Date.parse(value);

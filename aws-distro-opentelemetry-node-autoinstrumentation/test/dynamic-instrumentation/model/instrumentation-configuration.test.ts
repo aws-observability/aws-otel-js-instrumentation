@@ -130,6 +130,23 @@ describe('parseInstrumentationConfiguration', function () {
     expect(config!.expiresAt).toBe(Date.parse('2026-01-01T00:00:00Z'));
   });
 
+  it('should parse numeric epoch-seconds ExpiresAt as milliseconds for BREAKPOINT', function () {
+    // The Application Signals API serializes ExpiresAt as numeric epoch seconds
+    // over the JSON protocol. It must be converted to milliseconds so it can be
+    // compared against Date.now(); otherwise the breakpoint is treated as expired.
+    const epochSeconds = Math.floor(Date.parse('2026-01-01T00:00:00Z') / 1000);
+    const config = parseInstrumentationConfiguration(makeConfig({ ExpiresAt: epochSeconds }));
+    expect(config).not.toBeNull();
+    expect(config!.expiresAt).toBe(Date.parse('2026-01-01T00:00:00Z'));
+  });
+
+  it('should pass through numeric millisecond ExpiresAt unchanged for BREAKPOINT', function () {
+    const epochMillis = Date.parse('2026-01-01T00:00:00Z');
+    const config = parseInstrumentationConfiguration(makeConfig({ ExpiresAt: epochMillis }));
+    expect(config).not.toBeNull();
+    expect(config!.expiresAt).toBe(epochMillis);
+  });
+
   it('should ignore ExpiresAt for PROBE', function () {
     const config = parseInstrumentationConfiguration(
       makeConfig({

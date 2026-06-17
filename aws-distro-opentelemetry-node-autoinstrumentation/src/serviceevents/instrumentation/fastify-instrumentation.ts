@@ -16,6 +16,7 @@ import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
 import { endInvestigationOnce, extractErrorFromCallPath } from './express-instrumentation';
+import { unmatchedRouteLabel } from './unmatched-route';
 
 // Global references to collectors
 let _endpointCollector: EndpointMetricCollector | null = null;
@@ -34,8 +35,9 @@ function getRoutePattern(request: any): string {
   if (request.routerPath) {
     return request.routerPath;
   }
-  // Fallback to raw URL path
-  return request.url || '/unknown';
+  // No route matched: collapse the raw URL (which may include a query string) to its first
+  // path segment so scanner/bot traffic can't explode metric cardinality. Matches App Signals.
+  return unmatchedRouteLabel(request.url);
 }
 
 /**

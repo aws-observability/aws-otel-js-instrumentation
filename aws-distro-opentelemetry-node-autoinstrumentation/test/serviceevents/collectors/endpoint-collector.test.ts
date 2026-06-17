@@ -77,6 +77,44 @@ describe('EndpointMetricCollector (OTLP)', function () {
     expect(evt.errors).toBe(1);
   });
 
+  it('records error_breakdown only for faults (5xx), not 4xx (Java parity)', function () {
+    // 4xx with error info still counts toward the aggregate errors counter, but
+    // produces no breakdown entry — the gate is statusCode >= 500, matching Java.
+    collector.recordRequest('/api/u', 'GET', 404, 10_000_000, {
+      errorType: 'NotFoundError',
+      functionName: 'app.handler',
+    });
+    collector.recordRequest('/api/u', 'GET', 500, 10_000_000, {
+      errorType: 'TypeError',
+      functionName: 'app.handler',
+    });
+    collector.collect();
+    const evt = emitter.endpointSummaries[0];
+    expect(evt.errors).toBe(1);
+    expect(evt.faults).toBe(1);
+    // Only the 5xx fault is in the breakdown.
+    expect(evt.error_breakdown.length).toBe(1);
+    expect(evt.error_breakdown[0].failure_type).toBe('500');
+    expect(evt.error_breakdown[0].errors[0].error_type).toBe('TypeError');
+    // The 5xx fault produces an EndpointErrorMetric; the 4xx does not.
+    expect(emitter.errorMetrics.length).toBe(1);
+    expect(emitter.errorMetrics[0].exception).toBe('TypeError');
+  });
+
+  it('records no error_breakdown for a 5xx without errorInfo (Java parity)', function () {
+    // A 5xx with no captured exception type (e.g. a handler that returns a 500 status
+    // without throwing) is passed to recordRequest with errorInfo=undefined — the framework
+    // hook's extractor returns undefined when no real error type was captured. It still
+    // counts as a fault, but produces no breakdown entry and no EndpointErrorMetric, matching
+    // Java (whose gate is `statusCode >= 500 && errorType != null`).
+    collector.recordRequest('/api/u', 'GET', 500, 10_000_000);
+    collector.collect();
+    const evt = emitter.endpointSummaries[0];
+    expect(evt.faults).toBe(1);
+    expect(evt.error_breakdown.length).toBe(0);
+    expect(emitter.errorMetrics.length).toBe(0);
+  });
+
   it('emits EndpointErrorMetric per error type', function () {
     collector.recordRequest('/api/u', 'GET', 500, 10_000_000, {
       errorType: 'TypeError',

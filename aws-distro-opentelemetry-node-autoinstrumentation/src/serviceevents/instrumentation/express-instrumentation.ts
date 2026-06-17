@@ -69,15 +69,42 @@ function getRoutePattern(req: any): string {
 
 /**
  * Extract error info from investigation data for error breakdown.
+ *
+ * Shared across all four framework hooks (Express/Fastify/Koa/Next.js) — the
+ * resolution logic is framework-independent (it reads only the passed-in
+ * exception and the module-global monitor state), so it lives here and is
+ * imported by the others, mirroring how `endInvestigationOnce` is shared.
  */
-function extractErrorFromCallPath(exception: Error | null): { errorType: string; functionName: string } | undefined {
+export function extractErrorFromCallPath(
+  exception: Error | null
+): { errorType: string; functionName: string } | undefined {
   const monitorState = ServiceEventsMonitorState.getInstance();
   const invData = monitorState.peekInvestigationData();
 
-  const errorType = exception?.constructor?.name ?? 'UnknownError';
-  let functionName = 'unknown';
+  // Resolve the error type. Prefer the passed-in exception; otherwise recover the type the
+  // monitor captured (a global error handler may have converted the error to a 5xx response
+  // before it reached this hook, leaving `exception` null even though a real error occurred).
+  let errorType: string | undefined;
+  if (exception?.constructor?.name) {
+    errorType = exception.constructor.name;
+  } else if (invData?.exception?.name) {
+    errorType = invData.exception.name;
+  }
 
-  if (invData?.callPath && invData.callPath.length > 0) {
+  // No real error type was captured — return undefined so the caller omits the error breakdown
+  // entirely, matching Java (whose gate is `statusCode >= 500 && errorType != null`). A 5xx with
+  // no captured exception (e.g. a handler that returns a 500 status without throwing) must NOT
+  // synthesize an "UnknownError" breakdown entry.
+  if (errorType === undefined) {
+    return undefined;
+  }
+
+  // Find the origin function. Prefer the function the monitor recorded as the actual thrower;
+  // fall back to the innermost call_path frame.
+  let functionName = 'unknown';
+  if (invData?.exception?.functionName) {
+    functionName = invData.exception.functionName;
+  } else if (invData?.callPath && invData.callPath.length > 0) {
     functionName = invData.callPath[0].functionName ?? 'unknown';
   }
 

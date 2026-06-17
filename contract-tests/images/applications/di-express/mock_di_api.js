@@ -15,6 +15,13 @@
 
 const http = require('http');
 
+// The Application Signals API serializes ExpiresAt/CreatedAt as NUMERIC epoch
+// SECONDS over the JSON protocol (e.g. 1.781739623E9), not ISO-8601 strings or
+// milliseconds. Use a future epoch-seconds value so the breakpoint is valid; the
+// distro must convert seconds->ms, otherwise the breakpoint is treated as expired
+// on creation and never captures a snapshot.
+const EXPIRES_AT_EPOCH_SECONDS = Math.floor(Date.now() / 1000) + 24 * 60 * 60; // +1 day, in SECONDS
+
 // BREAKPOINT configs — all line-level (JS requirement)
 const BREAKPOINT_CONFIGS = [
   // Breakpoint on processData — first executable line
@@ -178,6 +185,34 @@ const BREAKPOINT_CONFIGS = [
         CaptureLocals: ['nested'],
         CaptureStackTrace: false,
         CaptureLimits: { MaxCollectionDepth: 1, MaxObjectDepth: 3 },
+      },
+    },
+  },
+  // Breakpoint on expiryCheck with a NUMERIC epoch-SECONDS ExpiresAt (real API
+  // wire format). Validates that the distro converts seconds->ms; otherwise the
+  // breakpoint is expired-on-create and no snapshot is produced.
+  {
+    InstrumentationType: 'BREAKPOINT',
+    SignalType: 'SNAPSHOT',
+    Location: {
+      CodeLocation: {
+        Language: 'JavaScript',
+        CodeUnit: '',
+        ClassName: '',
+        MethodName: 'expiryCheck',
+        FilePath: 'app.js',
+        LineNumber: 103, // const verified = token > 0;
+      },
+    },
+    LocationHash: 'aabb00000000000a',
+    // Numeric epoch SECONDS (not ms, not ISO string) — matches the live API.
+    ExpiresAt: EXPIRES_AT_EPOCH_SECONDS,
+    CreatedAt: Math.floor(Date.now() / 1000),
+    CaptureConfiguration: {
+      CodeCapture: {
+        CaptureLocals: ['token', 'verified'],
+        CaptureStackTrace: true,
+        CaptureLimits: { MaxStringLength: 255 },
       },
     },
   },

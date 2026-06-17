@@ -30,6 +30,7 @@ _SHARED_FUNCTION_LINE = 67  # const processed = ...
 _LONG_STRING_LINE = 76  # return longString.length;
 _LARGE_COLLECTION_LINE = 84  # return largeList.length;
 _NESTED_COLLECTION_LINE = 92  # return nested.length;
+_EXPIRY_CHECK_LINE = 103  # const verified = token > 0;
 
 
 class DIExpressBreakpointTest(DITestInfrastructure):
@@ -353,3 +354,70 @@ class DIExpressCaptureLimitsTest(DITestInfrastructure):
             elements[0].get("not_captured_reason"),
             f"Nested array beyond MaxCollectionDepth=1 should be cut with reason 'depth', got: {elements[0]}",
         )
+
+
+class DIExpressNumericExpiresAtTest(DITestInfrastructure):
+    """Regression coverage for numeric epoch-SECONDS ExpiresAt parsing.
+
+    The Application Signals API serializes ExpiresAt as a numeric epoch-seconds
+    value over the JSON protocol (e.g. 1.781739623E9), NOT an ISO-8601 string or
+    milliseconds. The expiryCheck breakpoint config (mock_di_api.js) sets a future
+    epoch-SECONDS ExpiresAt. The distro must convert seconds->milliseconds before
+    comparing against Date.now(); otherwise the value is ~1000x too small, the
+    breakpoint is treated as expired the moment it is created, recordHit() returns
+    false, and NO snapshot is ever emitted.
+
+    Every other DI contract config omits ExpiresAt entirely, which is exactly why
+    the numeric-timestamp bug went uncaught at the contract layer. This class
+    exercises the real wire format and asserts the observable behavior: a snapshot
+    is still captured (the breakpoint is NOT expired-on-create). With the bug
+    present, wait_for_snapshots() times out with zero DI snapshots.
+
+    See PR #487 for the primary one-line source fix in
+    src/dynamic-instrumentation/model/instrumentation-configuration.ts.
+    """
+
+    __test__ = True
+
+    @override
+    @staticmethod
+    def get_application_image_name() -> str:
+        return _APP_IMAGE
+
+    def test_numeric_epoch_seconds_expiry_breakpoint_is_not_expired(self) -> None:
+        response = self.send_request("GET", "expiry")
+        self.assertEqual(200, response.status_code)
+
+        # If ExpiresAt (numeric epoch seconds) were not converted to milliseconds,
+        # the breakpoint would be expired-on-create and this would time out.
+        snapshots = self.wait_for_snapshots(min_count=1)
+        expiry_snaps = self.snapshots_for_line(snapshots, _EXPIRY_CHECK_LINE)
+        self.assertGreater(
+            len(expiry_snaps),
+            0,
+            "Expected a snapshot for expiryCheck — a future numeric epoch-seconds "
+            "ExpiresAt must not be treated as already expired.",
+        )
+
+    def test_numeric_expiry_snapshot_has_correct_location(self) -> None:
+        self.send_request("GET", "expiry")
+        snapshots = self.wait_for_snapshots(min_count=1)
+        snap = self.snapshots_for_line(snapshots, _EXPIRY_CHECK_LINE)[0]
+
+        attrs = self.log_attrs(snap)
+        self.assertEqual(_EXPIRY_CHECK_LINE, attrs.get("aws.di.line_number"))
+        self.assertEqual("aabb00000000000a", attrs.get("aws.di.location_hash"))
+
+    def test_numeric_expiry_snapshot_captures_locals(self) -> None:
+        """The /expiry route calls expiryCheck(1); the breakpoint sits on
+        'const verified = token > 0' with CaptureLocals: ['token', 'verified'],
+        so the argument token must be captured with its actual value."""
+        self.send_request("GET", "expiry")
+        snapshots = self.wait_for_snapshots(min_count=1)
+        snap = self.snapshots_for_line(snapshots, _EXPIRY_CHECK_LINE)[0]
+
+        locals_captured = self._line_locals(snap)
+        self.assertIn(
+            "token", locals_captured, f"Expected local 'token' captured, got: {list(locals_captured.keys())}"
+        )
+        self.assertEqual("1", locals_captured["token"].get("value"))

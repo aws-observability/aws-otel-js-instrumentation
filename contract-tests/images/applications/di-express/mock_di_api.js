@@ -280,11 +280,28 @@ function startMockDIApi(port) {
           const type = (payload.InstrumentationType || 'BREAKPOINT').toUpperCase();
           const configs = type === 'PROBE' ? PROBE_CONFIGS : BREAKPOINT_CONFIGS;
 
+          // Stamp a realistic NUMERIC epoch-SECONDS ExpiresAt/CreatedAt onto every
+          // BREAKPOINT config as the real Application Signals API does (timestamps are
+          // serialized as numeric epoch seconds, e.g. 1.781739623E9 — not ISO strings or
+          // ms). This keeps the whole BREAKPOINT contract suite exercising the expiry
+          // code path: the distro must convert seconds->ms, else the breakpoint is
+          // treated as expired-on-create and no snapshot is emitted. Configs that set
+          // their own ExpiresAt (e.g. expiryCheck) are left untouched. PROBE configs are
+          // permanent (no expiry) and are not stamped.
+          const nowSeconds = Math.floor(Date.now() / 1000);
+          const served = type === 'PROBE'
+            ? configs
+            : configs.map(cfg =>
+                cfg.ExpiresAt !== undefined
+                  ? cfg
+                  : { ...cfg, ExpiresAt: EXPIRES_AT_EPOCH_SECONDS, CreatedAt: nowSeconds }
+              );
+
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             Changed: true,
             SyncedAt: Date.now(),
-            LatestConfigurations: configs,
+            LatestConfigurations: served,
           }));
         } else if (req.url === '/report-instrumentation-configuration-status') {
           res.writeHead(200, { 'Content-Type': 'application/json' });

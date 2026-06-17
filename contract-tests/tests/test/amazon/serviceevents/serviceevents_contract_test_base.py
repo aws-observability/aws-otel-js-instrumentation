@@ -720,6 +720,21 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
             _sum_for_route("/fault", "aws.service_events.request.errors"), 0, "/fault should have errors == 0"
         )
 
+        # Fault-only breakdown: /error is a bare 4xx (status 400, no throw, no captured
+        # exception), so it increments `request.errors` but must NEVER produce an
+        # exception_breakdown entry. This guards the gate against regressing to the old
+        # `status >= 400` behavior AND against re-synthesizing an "UnknownError" entry for
+        # a 4xx — matching Java's `statusCode >= 500 && errorType != null`. Without this
+        # assertion a gate revert would still pass (the counts above only check errors/faults).
+        for rec in self._get_log_records_matching("aws.service_events.endpoint_summary"):
+            if self.log_attrs(rec).get("url.route") == "/error":
+                breakdown = self.log_body(rec).get("exception_breakdown") or []
+                self.assertEqual(
+                    breakdown,
+                    [],
+                    "/error (4xx) must produce no exception_breakdown entry (fault-only, Java parity)",
+                )
+
     def test_incident_snapshot_latency_trigger(self) -> None:
         """/slow busy-waits ~6s (> the 5000ms default threshold) and returns 200 with
         NO exception, so the only thing that can produce an incident snapshot is the

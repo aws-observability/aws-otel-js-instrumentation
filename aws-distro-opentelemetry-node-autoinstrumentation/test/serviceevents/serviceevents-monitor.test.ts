@@ -246,6 +246,34 @@ describe('ServiceEventsMonitor', function () {
       __serviceeventsMonitorException(ctx, new Error('test'));
       __serviceeventsMonitorExit(ctx!);
     });
+
+    it('records the INNERMOST frame as the exception origin (first-writer-wins, Python parity)', function () {
+      // The AST `catch(err){ __tCatch(ctx,err); throw err }` fires innermost-first as the
+      // exception unwinds, so the first frame to observe it is the true origin. Outer frames
+      // re-observe the SAME exception and must NOT overwrite invData.exception.functionName —
+      // otherwise the recorded thrower is always the outermost instrumented frame, diverging
+      // from Python's `__exit__` (`if inv_data.get("exception") is None`) and breaking the
+      // spec's "Identical across Java, Python, and JS" guarantee for exception_breakdown.
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation();
+
+      // Simulate a throw propagating through two instrumented frames: outer.dispatch calls
+      // inner.lookup, inner throws, then the error unwinds back out. The AST catch fires
+      // innermost-first, so __serviceeventsMonitorException(inner) runs before (outer); enter/exit
+      // nest LIFO (outer entered first since it's the caller).
+      const outer = __serviceeventsMonitorEnter('outer.dispatch');
+      const inner = __serviceeventsMonitorEnter('inner.lookup');
+      const err = new TypeError('boom');
+      __serviceeventsMonitorException(inner, err); // innermost observes first → origin
+      __serviceeventsMonitorExit(inner!);
+      __serviceeventsMonitorException(outer, err); // outermost re-observes → must NOT overwrite
+      __serviceeventsMonitorExit(outer!);
+
+      const invData = state.getInvestigationData();
+      expect(invData!.exception!.name).toBe('TypeError');
+      // The origin function is the innermost frame, not the outermost — first-writer-wins.
+      expect(invData!.exception!.functionName).toBe('inner.lookup');
+    });
   });
 
   describe('Investigation', function () {

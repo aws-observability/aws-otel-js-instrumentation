@@ -479,16 +479,41 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
     def test_endpoint_summary_success(self) -> None:
         for _ in range(3):
             self.assertEqual(200, self.send_request("GET", "success").status_code)
-        records = self.wait_for_log_records("aws.service_events.endpoint_summary")
-        rec = next(
-            (r for r in records if self.log_attrs(r).get("url.route") == "/success"),
-            None,
-        )
-        self.assertIsNotNone(rec, "No EndpointSummary for /success")
+        # EndpointSummary flushes on a fixed interval (ENDPOINT_FLUSH_INTERVAL), and the
+        # collector resets its per-route aggregation each flush. When the 3 requests straddle
+        # a flush boundary, the SDK correctly emits multiple /success summaries whose counts
+        # sum to 3 (e.g. count=1 then count=2) — no single window necessarily has count>=3.
+        # Sum request.count across all /success summary windows and poll until it reaches 3.
+        success_recs = self._wait_for_request_count_total("/success", expected_total=3)
+        rec = success_recs[0]
         self.assert_endpoint_summary(rec, method="GET", route="/success")
-        attrs = self.log_attrs(rec)
-        self.assertGreaterEqual(attrs.get("aws.service_events.request.count", 0), 3)
-        self.assertEqual(attrs.get("aws.service_events.request.faults", 0), 0)
+        total_faults = sum(self.log_attrs(r).get("aws.service_events.request.faults", 0) for r in success_recs)
+        self.assertEqual(total_faults, 0)
+
+    def _wait_for_request_count_total(
+        self, route: str, expected_total: int, timeout: Optional[float] = None
+    ) -> List[ResourceScopeLog]:
+        """Poll EndpointSummary records for `route` until the summed request.count reaches
+        `expected_total`, returning all matching records. Accounts for per-flush-window
+        aggregation: counts split across windows are summed rather than read from one window."""
+        deadline = time.time() + (timeout if timeout is not None else SERVICE_EVENTS_WAIT_TIMEOUT)
+        matched: List[ResourceScopeLog] = []
+        total = 0
+        while time.time() < deadline:
+            matched = [
+                r
+                for r in self._get_log_records_matching("aws.service_events.endpoint_summary")
+                if self.log_attrs(r).get("url.route") == route
+            ]
+            total = sum(self.log_attrs(r).get("aws.service_events.request.count", 0) for r in matched)
+            if total >= expected_total:
+                return matched
+            time.sleep(SERVICE_EVENTS_POLL_INTERVAL)
+        self.fail(
+            f"Timed out waiting for summed request.count>={expected_total} on EndpointSummary "
+            f"for route '{route}'. Found {len(matched)} record(s) summing to {total}."
+        )
+        return matched
 
     def test_endpoint_summary_fault(self) -> None:
         for _ in range(2):
@@ -535,11 +560,15 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
         has_caller = any("aws.service_events.caller" in self.dp_attrs(dp) for dp in data_points)
         self.assertTrue(has_caller, "Expected at least one data point with 'aws.service_events.caller'")
 
-    # NOTE: operation (e.g., "GET /success") is intentionally NOT a histogram
-    # attribute on `service.function.duration`. Tagging by operation × function ×
-    # status × exception.type would balloon attribute cardinality without bound.
-    # Operation→function correlation lives on the EndpointSummary log signal
-    # and on the legacy `aws.service_events.function_call` LogRecord.
+    # NOTE: operation (e.g., "GET /success") is now a histogram attribute on
+    # `service.function.duration`. It enables per-endpoint latency breakdown.
+
+    def test_function_duration_has_operation_attribute(self) -> None:
+        """At least one data point should carry the operation attribute."""
+        self.send_request("GET", "success")
+        data_points = self.wait_for_function_duration_metric()
+        has_operation = any("operation" in self.dp_attrs(dp) for dp in data_points)
+        self.assertTrue(has_operation, "Expected at least one data point with 'operation' attribute")
 
     def test_incident_snapshot_on_exception(self) -> None:
         self.send_request("GET", "exception")
@@ -691,6 +720,21 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
             _sum_for_route("/fault", "aws.service_events.request.errors"), 0, "/fault should have errors == 0"
         )
 
+        # Fault-only breakdown: /error is a bare 4xx (status 400, no throw, no captured
+        # exception), so it increments `request.errors` but must NEVER produce an
+        # exception_breakdown entry. This guards the gate against regressing to the old
+        # `status >= 400` behavior AND against re-synthesizing an "UnknownError" entry for
+        # a 4xx — matching Java's `statusCode >= 500 && errorType != null`. Without this
+        # assertion a gate revert would still pass (the counts above only check errors/faults).
+        for rec in self._get_log_records_matching("aws.service_events.endpoint_summary"):
+            if self.log_attrs(rec).get("url.route") == "/error":
+                breakdown = self.log_body(rec).get("exception_breakdown") or []
+                self.assertEqual(
+                    breakdown,
+                    [],
+                    "/error (4xx) must produce no exception_breakdown entry (fault-only, Java parity)",
+                )
+
     def test_incident_snapshot_latency_trigger(self) -> None:
         """/slow busy-waits ~6s (> the 5000ms default threshold) and returns 200 with
         NO exception, so the only thing that can produce an incident snapshot is the
@@ -738,8 +782,8 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
         self.assertGreater(len(records), 0)
         body = self.log_body(records[0])
         # The test should only run when we have a non-partial snapshot with
-        # AST-captured timing. If is_partial is true (adaptive sampling was
-        # active during the call), skip — timing assertions wouldn't apply.
+        # AST-captured timing. If is_partial is true (a call along the path was
+        # unsampled, so its duration is 0), skip — timing assertions wouldn't apply.
         if self.log_attrs(records[0]).get("aws.service_events.is_partial"):
             self.skipTest("incident captured partial — timing fields not guaranteed")
         exc_info = body.get("exception_info") or []

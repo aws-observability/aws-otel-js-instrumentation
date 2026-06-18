@@ -34,6 +34,7 @@ describe('SnapshotCollector trace context extraction', function () {
       probePollIntervalSeconds: 60,
       breakpointPollIntervalSeconds: 60,
       outputDirectory: '/tmp/test',
+      resourceAttributes: {},
     };
 
     collector = new SnapshotCollector(

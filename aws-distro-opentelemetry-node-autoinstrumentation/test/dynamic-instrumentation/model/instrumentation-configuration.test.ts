@@ -14,7 +14,6 @@ function makeConfig(overrides: Record<string, unknown> = {}): Record<string, unk
   return {
     InstrumentationType: 'BREAKPOINT',
     SignalType: 'SNAPSHOT',
-    InstrumentationName: 'test',
     Location: {
       CodeLocation: {
         Language: 'javascript',
@@ -46,7 +45,6 @@ describe('parseInstrumentationConfiguration', function () {
     const config = parseInstrumentationConfiguration(
       makeConfig({
         InstrumentationType: 'PROBE',
-        InstrumentationName: 'my-probe',
         Location: {
           CodeLocation: { Language: 'javascript', MethodName: 'myFunc', FilePath: 'app.js', LineNumber: 5 },
         },
@@ -56,13 +54,6 @@ describe('parseInstrumentationConfiguration', function () {
     expect(config!.instrumentationType).toBe(InstrumentationType.PROBE);
     expect(config!.lineNumber).toBe(0); // PROBE forces lineNumber to 0
     expect(config!.maxHits).toBe(Number.MAX_SAFE_INTEGER); // PROBE = unlimited
-  });
-
-  it('should reject PROBE without InstrumentationName', function () {
-    const config = parseInstrumentationConfiguration(
-      makeConfig({ InstrumentationType: 'PROBE', InstrumentationName: undefined })
-    );
-    expect(config).toBeNull();
   });
 
   it('should reject config without FilePath', function () {
@@ -139,11 +130,27 @@ describe('parseInstrumentationConfiguration', function () {
     expect(config!.expiresAt).toBe(Date.parse('2026-01-01T00:00:00Z'));
   });
 
+  it('should parse numeric epoch-seconds ExpiresAt as milliseconds for BREAKPOINT', function () {
+    // The Application Signals API serializes ExpiresAt as numeric epoch seconds
+    // over the JSON protocol. It must be converted to milliseconds so it can be
+    // compared against Date.now(); otherwise the breakpoint is treated as expired.
+    const epochSeconds = Math.floor(Date.parse('2026-01-01T00:00:00Z') / 1000);
+    const config = parseInstrumentationConfiguration(makeConfig({ ExpiresAt: epochSeconds }));
+    expect(config).not.toBeNull();
+    expect(config!.expiresAt).toBe(Date.parse('2026-01-01T00:00:00Z'));
+  });
+
+  it('should pass through numeric millisecond ExpiresAt unchanged for BREAKPOINT', function () {
+    const epochMillis = Date.parse('2026-01-01T00:00:00Z');
+    const config = parseInstrumentationConfiguration(makeConfig({ ExpiresAt: epochMillis }));
+    expect(config).not.toBeNull();
+    expect(config!.expiresAt).toBe(epochMillis);
+  });
+
   it('should ignore ExpiresAt for PROBE', function () {
     const config = parseInstrumentationConfiguration(
       makeConfig({
         InstrumentationType: 'PROBE',
-        InstrumentationName: 'test-probe',
         ExpiresAt: '2026-01-01T00:00:00Z',
       })
     );
@@ -180,7 +187,6 @@ describe('isLineLevel', function () {
     const config = parseInstrumentationConfiguration(
       makeConfig({
         InstrumentationType: 'PROBE',
-        InstrumentationName: 'probe',
         Location: { CodeLocation: { Language: 'javascript', MethodName: 'fn', FilePath: 'a.js', LineNumber: 0 } },
       })
     )!;
@@ -193,7 +199,6 @@ describe('isPermanent', function () {
     const config = parseInstrumentationConfiguration(
       makeConfig({
         InstrumentationType: 'PROBE',
-        InstrumentationName: 'probe',
       })
     )!;
     expect(isPermanent(config)).toBe(true);

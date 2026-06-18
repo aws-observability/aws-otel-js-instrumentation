@@ -44,7 +44,7 @@ let _sampleTier2Threshold = 1000;
 let _sampleTier2Rate = 10;
 let _sampleTier3Rate = 100;
 
-let _samplingMode: string = 'auto'; // "auto", "adaptive", "always", or "never"
+let _samplingMode: string = 'always'; // "auto", "always", or "never"
 
 // ============================================================================
 // Dynamic Function Detach (performance optimization)
@@ -116,41 +116,6 @@ function _checkDetach(): void {
   }
 }
 
-// ============================================================================
-// Hot Endpoint Tracking (for adaptive sampling)
-// ============================================================================
-
-let _hotEndpointCycles = 100;
-
-/** Map of operation → remaining hot cycles (key is "METHOD /route"). */
-const _hotOperations: Record<string, number> = Object.create(null);
-
-/**
- * Mark an operation as hot so adaptive sampling promotes it.
- */
-export function markOperationHot(operation: string): void {
-  _hotOperations[operation] = _hotEndpointCycles;
-}
-
-/**
- * Tick down hot-operation counters. Call once per collection cycle.
- */
-export function tickHotOperations(): void {
-  for (const key of Object.keys(_hotOperations)) {
-    _hotOperations[key]--;
-    if (_hotOperations[key] <= 0) {
-      delete _hotOperations[key];
-    }
-  }
-}
-
-/**
- * Check if an operation is currently hot.
- */
-export function isOperationHot(operation: string): boolean {
-  return operation in _hotOperations;
-}
-
 /**
  * Call counters keyed by functionName. Plain object is faster than Map for
  * string keys because V8 can optimize property access via hidden classes.
@@ -158,7 +123,7 @@ export function isOperationHot(operation: string): boolean {
 const _callCounts: Record<string, number> = Object.create(null);
 
 export function setSamplingMode(mode: string): void {
-  if (mode !== 'always' && mode !== 'never' && mode !== 'auto' && mode !== 'adaptive') {
+  if (mode !== 'always' && mode !== 'never' && mode !== 'auto') {
     throw new Error(`Invalid sampling mode: '${mode}'`);
   }
   _samplingMode = mode;
@@ -173,13 +138,11 @@ export function setSamplingThresholds(opts: {
   tier2Threshold?: number;
   tier2Rate?: number;
   tier3Rate?: number;
-  hotEndpointCycles?: number;
 }): void {
   if (opts.tier1Threshold !== undefined) _sampleTier1Threshold = opts.tier1Threshold;
   if (opts.tier2Threshold !== undefined) _sampleTier2Threshold = opts.tier2Threshold;
   if (opts.tier2Rate !== undefined) _sampleTier2Rate = opts.tier2Rate;
   if (opts.tier3Rate !== undefined) _sampleTier3Rate = opts.tier3Rate;
-  if (opts.hotEndpointCycles !== undefined) _hotEndpointCycles = opts.hotEndpointCycles;
 }
 
 /**
@@ -187,23 +150,20 @@ export function setSamplingThresholds(opts: {
  * every invocation, so it is on the hot path.
  *
  * Tiered sampling: 100% for the first tier-1 calls, then every Nth in tier 2, then
- * every Mth in tier 3. In 'adaptive' mode a hot operation forces sampling regardless
- * of call count; 'always'/'never' short-circuit.
+ * every Mth in tier 3. 'always'/'never' short-circuit.
  *
  * Exported so unit tests can assert the tier math and mode transitions directly.
  */
 export function shouldSampleFast(totalCalls: number): boolean {
   if (_samplingMode === 'always') return true;
   if (_samplingMode === 'never') return false;
-  // Adaptive: check if current endpoint is hot
-  if (_samplingMode === 'adaptive') {
-    const op = operationStorage.getStore() ?? null;
-    if (op && isOperationHot(op)) return true;
-  }
-  // Tier sampling
+  // Tier sampling. Rates are "1-in-N"; a non-positive N is degenerate (it can only arrive via the
+  // internal test-config hook, which doesn't validate). Guard it as "sample none in this tier" so a
+  // misconfigured rate degrades gracefully — `% 0` is NaN in JS (already falsy) but the explicit
+  // guard keeps the three SDKs identical and the intent clear.
   if (totalCalls <= _sampleTier1Threshold) return true;
-  if (totalCalls <= _sampleTier2Threshold) return totalCalls % _sampleTier2Rate === 0;
-  return totalCalls % _sampleTier3Rate === 0;
+  if (totalCalls <= _sampleTier2Threshold) return _sampleTier2Rate > 0 && totalCalls % _sampleTier2Rate === 0;
+  return _sampleTier3Rate > 0 && totalCalls % _sampleTier3Rate === 0;
 }
 
 // ============================================================================
@@ -258,6 +218,47 @@ export interface InvestigationData {
 }
 
 const investigationStorage = new AsyncLocalStorage<InvestigationData | null>();
+
+/**
+ * Hard cap on real call-path frames retained per request. The exit path records a frame for every
+ * instrumented call (not just sampled ones), so under "auto"/"never" sampling a high-call-volume
+ * request would otherwise grow this list without bound and could push a serialized IncidentSnapshot
+ * past the 1 MB CloudWatch OTLP Logs limit. At ~150-250 B/frame, 1024 frames is ~256 KB — well under
+ * the limit with room for the stack trace, yet far above any legitimate frame count. Java/Python match.
+ */
+const MAX_CALL_PATH_ENTRIES = 1024;
+
+/**
+ * Marker pushed once when the cap is exceeded. durationNs=0 also trips is_partial (computed from
+ * timing in the incident collector).
+ */
+const CALL_PATH_TRUNCATION_SENTINEL = '<call_path_truncated>';
+
+/**
+ * Append a call-path frame, enforcing MAX_CALL_PATH_ENTRIES. Keep-first: once the cap is reached the
+ * next frame becomes a single truncation sentinel and everything after is dropped, so the recorded
+ * path is at most [MAX real frames + 1 sentinel].
+ */
+function appendCallPathEntry(
+  invData: InvestigationData,
+  functionName: string,
+  caller: string | null,
+  durationNs: number
+): void {
+  const size = invData.callPath.length;
+  if (size > MAX_CALL_PATH_ENTRIES) {
+    return;
+  }
+  if (size === MAX_CALL_PATH_ENTRIES) {
+    invData.callPath.push({
+      functionName: CALL_PATH_TRUNCATION_SENTINEL,
+      callerFunctionName: null,
+      durationNs: 0,
+    });
+    return;
+  }
+  invData.callPath.push({ functionName, callerFunctionName: caller, durationNs });
+}
 
 /**
  * Counter tracking how many concurrent requests have an active investigation.
@@ -462,8 +463,8 @@ export class ServiceEventsMonitorState {
    *
    * When the histogram is wired this is the source of truth for the
    * function-call signal: the exit path skips `updateAggregations` and the
-   * `FunctionCallCollector` flushes as a no-op. The histogram therefore
-   * carries only its declared dimensions (function.name + status); total
+   * `FunctionCallCollector` flushes as a no-op. The histogram carries
+   * per-call dimensions (function.name, operation, status); total
    * invocation count, exception class breakdown, and caller_map are not
    * emitted on this path. See the Python `record_function_call_metrics` for
    * parity.
@@ -485,6 +486,10 @@ export class ServiceEventsMonitorState {
     // Copy the write-once base dict and add per-call keys directly.
     const attrs: Record<string, string | number | boolean> = { ...this._metricBaseAttrs };
     attrs['function.name'] = functionName;
+    const operation = operationStorage.getStore() ?? null;
+    if (operation) {
+      attrs['operation'] = operation;
+    }
     if (caller) {
       attrs['aws.service_events.caller'] = caller;
     }
@@ -636,8 +641,17 @@ export class ServiceEventsMonitorState {
     return deltas;
   }
 
-  /** Start capturing investigation data for the current request. */
+  /**
+   * Start capturing investigation data for the current request.
+   *
+   * Create-only: if an investigation already exists on this async context (a re-entrant begin),
+   * keep the outer request's data and do NOT increment again — otherwise the count would drift
+   * upward and never return to zero. Mirrors the Java/Python distros' begin guards.
+   */
   beginInvestigation(): void {
+    if (investigationStorage.getStore()) {
+      return; // nested begin — outer request's call path wins (no double-count)
+    }
     _investigationActiveCount++;
     investigationStorage.enterWith({
       callPath: [],
@@ -650,7 +664,12 @@ export class ServiceEventsMonitorState {
   getInvestigationData(): InvestigationData | null {
     const data = investigationStorage.getStore() ?? null;
     investigationStorage.enterWith(null);
-    if (_investigationActiveCount > 0) {
+    // Decrement only when THIS context actually held investigation data — not merely because the
+    // global count is positive. A teardown that fires for a request whose begin was skipped (e.g.
+    // an HTTP/2 / serverFactory path that bypasses the patched http.Server.emit) has null data
+    // here; decrementing on the global count alone would steal a decrement from a concurrent live
+    // investigation and drop its call_path. Clamp at zero for safety. Mirrors Java/Python.
+    if (data !== null && _investigationActiveCount > 0) {
       _investigationActiveCount--;
     }
     return data;
@@ -667,11 +686,7 @@ export class ServiceEventsMonitorState {
   recordCallPathEntry(functionName: string, caller: string | null, durationNs: number): void {
     const invData = investigationStorage.getStore();
     if (invData) {
-      invData.callPath.push({
-        functionName,
-        callerFunctionName: caller,
-        durationNs,
-      });
+      appendCallPathEntry(invData, functionName, caller, durationNs);
     }
   }
 }
@@ -845,7 +860,15 @@ export function __serviceeventsMonitorException(ctx: MonitorContext | null, err:
     return;
   }
   const invData = investigationStorage.getStore();
-  if (invData) {
+  // First-writer-wins: the AST `catch(err) { __tCatch(ctx, err); throw err }` runs
+  // innermost-first as the exception unwinds, so the first frame to observe it is the
+  // one closest to the raise (the true origin). Outer frames re-observe the SAME
+  // exception and must NOT overwrite invData.exception — otherwise the recorded
+  // functionName would always be the outermost instrumented frame. This matches
+  // Python's __exit__ (`if inv_data.get("exception") is None`) so the recovered
+  // origin function is identical across SDKs. (ctx.exceptionName above is still
+  // credited on every frame — that drives per-function error_count, not the origin.)
+  if (invData && !invData.exception) {
     const message = err instanceof Error ? err.message : String(err);
     const stackTrace = err instanceof Error ? err.stack ?? '' : '';
     invData.exception = {
@@ -884,11 +907,7 @@ export function __serviceeventsMonitorExit(ctx: MonitorContext | null): void {
   if (_investigationActiveCount > 0) {
     const invData = investigationStorage.getStore();
     if (invData) {
-      invData.callPath.push({
-        functionName: ctx.functionName,
-        callerFunctionName: ctx.caller,
-        durationNs,
-      });
+      appendCallPathEntry(invData, ctx.functionName, ctx.caller, durationNs);
     }
   }
 
@@ -911,9 +930,7 @@ export function __serviceeventsMonitorExit(ctx: MonitorContext | null): void {
     );
   } else {
     // ALS lookup is gated to the SEH/EMF path: `updateAggregations` keys its
-    // bucket map by operation, but the histogram path doesn't expose
-    // `operation` as an attribute (cardinality bound, see spec §"Per-call
-    // Attributes"), so the lookup is wasted work in the primary path.
+    // bucket map by operation.
     const operation = operationStorage.getStore() ?? null;
     state.updateAggregations(
       ctx.functionName,
@@ -973,16 +990,12 @@ export function unregisterMonitorGlobals(): void {
  * Reset all module state. Primarily for testing.
  */
 export function resetMonitorState(): void {
-  _samplingMode = 'auto';
-  // Fresh state is enabled (matches module-load default); only shutdown disables.
+  // Reset to the module-load default ('always'); only shutdown disables.
+  _samplingMode = 'always';
   _monitorEnabled = true;
   // Clear call counters
   for (const key of Object.keys(_callCounts)) {
     delete _callCounts[key];
-  }
-  // Clear hot operations
-  for (const key of Object.keys(_hotOperations)) {
-    delete _hotOperations[key];
   }
   // Reset global stack
   _globalStackIdx = -1;

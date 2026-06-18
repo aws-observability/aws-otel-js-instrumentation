@@ -22,11 +22,12 @@
  */
 
 import { diag } from '@opentelemetry/api';
-import { setCurrentOperation, ServiceEventsMonitorState } from '../serviceevents-monitor';
+import { setCurrentOperation } from '../serviceevents-monitor';
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
-import { endInvestigationOnce } from './express-instrumentation';
+import { endInvestigationOnce, extractErrorFromCallPath } from './express-instrumentation';
+import { unmatchedRouteLabel } from './unmatched-route';
 
 // Global references to collectors
 let _endpointCollector: EndpointMetricCollector | null = null;
@@ -97,26 +98,9 @@ function getRoutePattern(req: any): string {
     // Ignore
   }
 
-  // Fallback: raw URL path with query string stripped
-  const url = req.url || '/';
-  return url.split('?')[0] || '/';
-}
-
-/**
- * Extract error info from investigation data for error breakdown.
- */
-function extractErrorFromCallPath(exception: Error | null): { errorType: string; functionName: string } | undefined {
-  const monitorState = ServiceEventsMonitorState.getInstance();
-  const invData = monitorState.peekInvestigationData();
-
-  const errorType = exception?.constructor?.name ?? 'UnknownError';
-  let functionName = 'unknown';
-
-  if (invData?.callPath && invData.callPath.length > 0) {
-    functionName = invData.callPath[0].functionName ?? 'unknown';
-  }
-
-  return { errorType, functionName };
+  // Fallback: no route matched, collapse the raw URL to its first path segment (query
+  // stripped) so scanner/bot traffic can't explode metric cardinality. Matches App Signals.
+  return unmatchedRouteLabel(req.url);
 }
 
 /**

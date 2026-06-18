@@ -47,26 +47,33 @@ export class InstrumentationState {
   /**
    * Record a hit and check disable conditions.
    * Returns true if capture should proceed, false if disabled or rate-limited.
+   *
+   * Rate-limited hits do NOT count toward maxHits — hitCount tracks captures
+   * actually allowed, so maxHits equals the number of snapshots emitted
+   * (matching the Java and Python SDKs).
    */
   recordHit(): boolean {
     if (this.isDisabled) return false;
 
-    this.hitCount++;
+    // The breakpoint is being hit, even if this capture ends up throttled —
+    // keeps ACTIVE status reporting truthful.
     this.hitInLastPeriod = true;
 
-    // Check maxHits (BREAKPOINT only — PROBE has MAX_SAFE_INTEGER)
-    // Use > not >= : hitCount is incremented before check, so maxHits=2 means allow hits 1 and 2
-    if (this.hitCount > this.maxHits) {
+    // Check maxHits before consuming a rate-limiter token (BREAKPOINT only —
+    // PROBE has MAX_SAFE_INTEGER). hitCount is incremented only on allowed
+    // captures, so maxHits=2 means exactly 2 captures.
+    if (this.hitCount >= this.maxHits) {
       this.isDisabled = true;
       this.disableReason = DisableReason.MAX_HITS_REACHED;
       return false;
     }
 
-    // Check rate limit
+    // Check rate limit — a throttled hit does not consume maxHits budget
     if (!this.rateLimiter.tryAcquire()) {
       return false;
     }
 
+    this.hitCount++;
     return true;
   }
 

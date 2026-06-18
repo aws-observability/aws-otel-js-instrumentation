@@ -16,13 +16,9 @@ import {
   registerMonitorGlobals,
   unregisterMonitorGlobals,
   resetMonitorState,
-  markOperationHot,
-  tickHotOperations,
-  isOperationHot,
   setDetachThreshold,
   shouldSampleFast,
   setSamplingThresholds,
-  setCurrentOperation as setOp,
 } from '../../src/serviceevents/serviceevents-monitor';
 
 describe('ServiceEventsMonitor', function () {
@@ -66,8 +62,8 @@ describe('ServiceEventsMonitor', function () {
   });
 
   describe('Sampling', function () {
-    it('should default to auto mode', function () {
-      expect(getSamplingMode()).toBe('auto');
+    it('should default to always mode', function () {
+      expect(getSamplingMode()).toBe('always');
     });
 
     it('should accept valid modes', function () {
@@ -79,13 +75,14 @@ describe('ServiceEventsMonitor', function () {
 
       setSamplingMode('auto');
       expect(getSamplingMode()).toBe('auto');
-
-      setSamplingMode('adaptive');
-      expect(getSamplingMode()).toBe('adaptive');
     });
 
     it('should reject invalid mode', function () {
       expect(() => setSamplingMode('invalid')).toThrow('Invalid sampling mode');
+    });
+
+    it('should reject adaptive mode (removed)', function () {
+      expect(() => setSamplingMode('adaptive')).toThrow('Invalid sampling mode');
     });
 
     it('should always sample in always mode', function () {
@@ -249,6 +246,34 @@ describe('ServiceEventsMonitor', function () {
       __serviceeventsMonitorException(ctx, new Error('test'));
       __serviceeventsMonitorExit(ctx!);
     });
+
+    it('records the INNERMOST frame as the exception origin (first-writer-wins, Python parity)', function () {
+      // The AST `catch(err){ __tCatch(ctx,err); throw err }` fires innermost-first as the
+      // exception unwinds, so the first frame to observe it is the true origin. Outer frames
+      // re-observe the SAME exception and must NOT overwrite invData.exception.functionName —
+      // otherwise the recorded thrower is always the outermost instrumented frame, diverging
+      // from Python's `__exit__` (`if inv_data.get("exception") is None`) and breaking the
+      // spec's "Identical across Java, Python, and JS" guarantee for exception_breakdown.
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation();
+
+      // Simulate a throw propagating through two instrumented frames: outer.dispatch calls
+      // inner.lookup, inner throws, then the error unwinds back out. The AST catch fires
+      // innermost-first, so __serviceeventsMonitorException(inner) runs before (outer); enter/exit
+      // nest LIFO (outer entered first since it's the caller).
+      const outer = __serviceeventsMonitorEnter('outer.dispatch');
+      const inner = __serviceeventsMonitorEnter('inner.lookup');
+      const err = new TypeError('boom');
+      __serviceeventsMonitorException(inner, err); // innermost observes first → origin
+      __serviceeventsMonitorExit(inner!);
+      __serviceeventsMonitorException(outer, err); // outermost re-observes → must NOT overwrite
+      __serviceeventsMonitorExit(outer!);
+
+      const invData = state.getInvestigationData();
+      expect(invData!.exception!.name).toBe('TypeError');
+      // The origin function is the innermost frame, not the outermost — first-writer-wins.
+      expect(invData!.exception!.functionName).toBe('inner.lookup');
+    });
   });
 
   describe('Investigation', function () {
@@ -290,6 +315,26 @@ describe('ServiceEventsMonitor', function () {
       const innerEntry = invData!.callPath.find(e => e.functionName === 'inner');
       expect(innerEntry).toBeDefined();
       expect(innerEntry!.callerFunctionName).toBe('outer');
+    });
+
+    it('beginInvestigation is create-only: a re-entrant begin keeps the outer call path', function () {
+      // A nested begin (e.g. an internal /error forward re-entering the request) must NOT
+      // reset the in-progress investigation, nor double-count the active-count. Mirrors the
+      // Java/Python create-only begin guards. Under the pre-fix code the second begin
+      // overwrote the store with a fresh empty callPath, dropping already-recorded frames.
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation();
+      state.recordCallPathEntry('func-a', null, 1000);
+
+      state.beginInvestigation(); // re-entrant — must be a no-op
+
+      const data = state.peekInvestigationData();
+      expect(data).not.toBe(null);
+      expect(data!.callPath.map(e => e.functionName)).toEqual(['func-a']);
+
+      // The single begin is balanced by a single get; a second get returns null (no leak).
+      expect(state.getInvestigationData()).not.toBe(null);
+      expect(state.getInvestigationData()).toBe(null);
     });
   });
 
@@ -386,71 +431,6 @@ describe('ServiceEventsMonitor', function () {
     });
   });
 
-  describe('Adaptive sampling', function () {
-    it('should sample hot endpoints in adaptive mode', function () {
-      setSamplingMode('adaptive');
-      const operation = 'hot-ep-123';
-      markOperationHot(operation);
-      setCurrentOperation(operation);
-
-      // Even after many calls, hot endpoints should always be sampled
-      for (let i = 0; i < 200; i++) {
-        const ctx = __serviceeventsMonitorEnter('adaptive-func');
-        expect(ctx!.isSampled).toBe(true);
-        __serviceeventsMonitorExit(ctx!);
-      }
-
-      clearCurrentOperation();
-    });
-
-    it('should fall through to tier sampling for non-hot endpoints (inline check)', function () {
-      // Adaptive mode with non-hot endpoints uses the same inline tier check.
-      // The inline check doesn't distinguish adaptive from auto — it's just
-      // ++__tC[id] <= T1 || __tC[id] % T3 === 0.
-      // Hot endpoint promotion happens when __tEnter IS called (for sampled calls),
-      // and markOperationHot() triggers 100% sampling via the cached hot flag.
-      const T1 = 100,
-        T3 = 100;
-      let sampledCount = 0;
-      const counts: Record<string, number> = {};
-      for (let i = 0; i < 200; i++) {
-        const cc = (counts['cold-func'] = (counts['cold-func'] || 0) + 1);
-        if (cc <= T1 || cc % T3 === 0) sampledCount++;
-      }
-      // First 100 sampled, then 1/100 for next 100 = 1
-      expect(sampledCount).toBeGreaterThanOrEqual(100);
-      expect(sampledCount).toBeLessThan(110);
-    });
-  });
-
-  describe('Hot Endpoint Tracking', function () {
-    it('markOperationHot should mark endpoint as hot', function () {
-      expect(isOperationHot('ep-1')).toBe(false);
-      markOperationHot('ep-1');
-      expect(isOperationHot('ep-1')).toBe(true);
-    });
-
-    it('tickHotOperations should decrement and eventually remove', function () {
-      markOperationHot('ep-tick');
-      expect(isOperationHot('ep-tick')).toBe(true);
-
-      // Tick 100 times (HOT_ENDPOINT_CYCLES = 100)
-      for (let i = 0; i < 100; i++) {
-        tickHotOperations();
-      }
-
-      expect(isOperationHot('ep-tick')).toBe(false);
-    });
-
-    it('resetMonitorState should clear hot endpoints', function () {
-      markOperationHot('ep-reset');
-      expect(isOperationHot('ep-reset')).toBe(true);
-
-      resetMonitorState();
-      expect(isOperationHot('ep-reset')).toBe(false);
-    });
-  });
-
   describe('registerMonitorGlobals()', function () {
     it('should register monitor functions on globalThis', function () {
       registerMonitorGlobals();
@@ -515,6 +495,37 @@ describe('ServiceEventsMonitor', function () {
       const state = ServiceEventsMonitorState.getInstance();
       // No beginInvestigation() called - should not throw
       state.recordCallPathEntry('func-a', null, 1000);
+    });
+
+    it('should cap the call path and append a single truncation sentinel on overflow', function () {
+      const MAX = 1024; // mirrors MAX_CALL_PATH_ENTRIES in serviceevents-monitor.ts
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation();
+
+      // Record well past the cap; every frame has a non-zero duration so is_partial would be false
+      // if the cap never fired.
+      for (let i = 0; i < MAX + 50; i++) {
+        state.recordCallPathEntry(`func-${i}`, i === 0 ? null : `func-${i - 1}`, 1000);
+      }
+
+      const invData = state.getInvestigationData();
+      expect(invData).not.toBe(null);
+      // Keep-first: MAX real frames + exactly one sentinel, regardless of how far past the cap we went.
+      expect(invData!.callPath.length).toBe(MAX + 1);
+
+      // A below-cap frame is a normal entry.
+      expect(invData!.callPath[0].functionName).toBe('func-0');
+      expect(invData!.callPath[MAX - 1].functionName).toBe(`func-${MAX - 1}`);
+      expect(invData!.callPath[MAX - 1].durationNs).toBe(1000);
+
+      // The overflow frame is the sentinel with durationNs=0 (trips is_partial downstream).
+      const sentinel = invData!.callPath[MAX];
+      expect(sentinel.functionName).toBe('<call_path_truncated>');
+      expect(sentinel.callerFunctionName).toBe(null);
+      expect(sentinel.durationNs).toBe(0);
+
+      // is_partial parity: at least one zero-duration frame is present.
+      expect(invData!.callPath.some(e => e.durationNs === 0)).toBe(true);
     });
   });
 
@@ -714,29 +725,6 @@ describe('ServiceEventsMonitor', function () {
       expect(shouldSampleFast(1)).toBe(false);
     });
 
-    it('samples hot operations in adaptive mode regardless of call count', function () {
-      setSamplingMode('adaptive');
-      setSamplingThresholds({ tier1Threshold: 5, tier2Threshold: 50, tier2Rate: 10, tier3Rate: 100 });
-      setOp('GET /hot');
-      markOperationHot('GET /hot');
-      // Well above all tier thresholds, but the hot operation forces sampling.
-      expect(shouldSampleFast(999_999)).toBe(true);
-    });
-
-    it('applies tiered sampling when the operation is not hot in adaptive mode', function () {
-      setSamplingMode('adaptive');
-      setSamplingThresholds({ tier1Threshold: 5, tier2Threshold: 50, tier2Rate: 10, tier3Rate: 100 });
-      setOp('GET /cold');
-      // tier1: count <= 5 -> always sampled.
-      expect(shouldSampleFast(1)).toBe(true);
-      // tier2: 5 < count <= 50 -> sampled every 10th.
-      expect(shouldSampleFast(20)).toBe(true);
-      expect(shouldSampleFast(21)).toBe(false);
-      // tier3: count > 50 -> sampled every 100th.
-      expect(shouldSampleFast(100)).toBe(true);
-      expect(shouldSampleFast(101)).toBe(false);
-    });
-
     it('applies tiered sampling in auto mode', function () {
       setSamplingMode('auto');
       setSamplingThresholds({ tier1Threshold: 5, tier2Threshold: 50, tier2Rate: 10, tier3Rate: 100 });
@@ -745,6 +733,16 @@ describe('ServiceEventsMonitor', function () {
       expect(shouldSampleFast(31)).toBe(false);
       expect(shouldSampleFast(200)).toBe(true);
       expect(shouldSampleFast(201)).toBe(false);
+    });
+
+    it('samples none in a tier with a zero rate (no NaN/crash) in auto mode', function () {
+      // A non-positive rate is only reachable via the unvalidated test-config hook; it must
+      // degrade to "sample none in this tier" consistently with Python/Java.
+      setSamplingMode('auto');
+      setSamplingThresholds({ tier1Threshold: 5, tier2Threshold: 50, tier2Rate: 0, tier3Rate: 0 });
+      expect(shouldSampleFast(1)).toBe(true); // tier1 unaffected
+      expect(shouldSampleFast(20)).toBe(false); // tier2, zero rate
+      expect(shouldSampleFast(200)).toBe(false); // tier3, zero rate
     });
   });
 

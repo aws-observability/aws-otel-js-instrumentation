@@ -20,7 +20,6 @@ function makeConfig(locationHash: string, expiresAtIso: string = '2099-12-31T23:
   const config = parseInstrumentationConfiguration({
     InstrumentationType: 'BREAKPOINT',
     SignalType: 'SNAPSHOT',
-    InstrumentationName: `bp-${locationHash}`,
     Location: {
       CodeLocation: {
         Language: 'javascript',

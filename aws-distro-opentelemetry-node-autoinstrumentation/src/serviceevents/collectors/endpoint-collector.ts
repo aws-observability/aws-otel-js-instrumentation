@@ -127,8 +127,10 @@ export class EndpointMetricCollector extends BaseCollector {
       agg.sumDuration += durationNs;
     }
 
-    // Track error breakdown if error occurred
-    if (statusCode >= 400 && errorInfo) {
+    // Track error breakdown only for faults (5xx), matching Java. A 4xx is still
+    // reflected in the aggregate `errors` counter above, but does not produce an
+    // EndpointErrorMetric breakdown data point.
+    if (statusCode >= 500 && errorInfo) {
       const failureType = String(statusCode);
       const errorKey = `${errorInfo.errorType}:${errorInfo.functionName}`;
 

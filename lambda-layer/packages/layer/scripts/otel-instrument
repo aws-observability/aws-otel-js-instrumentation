@@ -39,6 +39,11 @@ _get_node_runtime_version() {
 
 NODE_VERSION=$(_get_node_runtime_version)
 
+# Profile require() times when NODE_PROFILE_IMPORT_TIME=1 (analogous to PYTHONPROFILEIMPORTTIME=1)
+if [[ "${NODE_PROFILE_IMPORT_TIME}" == "1" ]]; then
+  export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/profile-imports.js"
+fi
+
 if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
   if [[ $NODE_VERSION -ge 20 ]]; then
     # Node 20.6+ supports module.register() which allows selective module
@@ -90,6 +95,11 @@ fi
 # - Set the propagators
 if [[ -z "$OTEL_PROPAGATORS" ]]; then
   export OTEL_PROPAGATORS="baggage,tracecontext,xray"
+fi
+
+# - Set Lite Mode configuration
+if [ -z "${AWS_LAMBDA_LITE_MODE}" ]; then
+    export AWS_LAMBDA_LITE_MODE="false";
 fi
 
 # - Set Application Signals configuration

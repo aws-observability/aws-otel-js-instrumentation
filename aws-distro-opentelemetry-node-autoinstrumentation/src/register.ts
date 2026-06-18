@@ -2,6 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
+if ((process.env.AWS_LAMBDA_LITE_MODE || 'false').toLowerCase() === 'true') {
+  const { configureLiteMode } = require('./opentelemetry_lite_sdk');
+  configureLiteMode();
+  // @ts-expect-error: top-level return is valid in CommonJS (Node wraps modules in a function)
+  return;
+}
+
 // Short-term workaround to avoid Upsteam OTel emitting logs such as:
 // - `OTEL_TRACES_SAMPLER value "xray invalid, defaulting to always_on".`
 // OTel dependencies will always load a default Sampler configuration. Although unused, that

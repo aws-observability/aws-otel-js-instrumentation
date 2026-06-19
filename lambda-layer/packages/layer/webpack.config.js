@@ -1,19 +1,11 @@
 const path = require('path');
 
-module.exports = {
-  entry: './src/wrapper.ts',
+const commonConfig = {
   target: 'node',
   mode: 'production',
   externalsPresets: { node: true },
-  externals: [
-    'import-in-the-middle',
-    'require-in-the-middle',
-    /^@aws-sdk/,
-    /^@smithy/,
-  ],
   output: {
     path: path.resolve('./build/src'),
-    filename: 'wrapper.js',
     library: {
         type: 'commonjs2',
     }
@@ -41,9 +33,44 @@ module.exports = {
       },
     ],
   },
+};
+
+const wrapperConfig = {
+  ...commonConfig,
+  entry: './src/wrapper.ts',
+  output: {
+    ...commonConfig.output,
+    filename: 'wrapper.js',
+  },
+  externals: [
+    'import-in-the-middle',
+    'require-in-the-middle',
+    /^@aws-sdk/,
+    /^@smithy/,
+  ],
   optimization: {
     minimize: true,
     providedExports: true,
     usedExports: true,
   },
 };
+
+const liteWrapperConfig = {
+  ...commonConfig,
+  entry: './src/lite-wrapper.ts',
+  output: {
+    ...commonConfig.output,
+    filename: 'lite-wrapper.js',
+  },
+  externals: [
+    'import-in-the-middle',
+    'require-in-the-middle',
+    /^@aws-sdk/,
+    /^@smithy/,
+  ],
+  optimization: {
+    minimize: false,
+  },
+};
+
+module.exports = [wrapperConfig, liteWrapperConfig];

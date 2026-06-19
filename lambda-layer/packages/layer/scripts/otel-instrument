@@ -44,7 +44,11 @@ if [[ "${NODE_PROFILE_IMPORT_TIME}" == "1" ]]; then
   export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/profile-imports.js"
 fi
 
-if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
+if [[ "${AWS_LAMBDA_LITE_MODE}" == "true" ]]; then
+  # Lite mode bypasses register.ts and import-in-the-middle entirely.
+  # Instruments via require-in-the-middle and prototype patching only.
+  export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/lite-wrapper.js"
+elif _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
   if [[ $NODE_VERSION -ge 20 ]]; then
     # Node 20.6+ supports module.register() which allows selective module
     # interception. This avoids the global ESM loader hook (--experimental-loader)

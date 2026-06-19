@@ -454,13 +454,41 @@ const WIRE_FIXED64 = 1;
 const WIRE_LEN_DELIMITED = 2;
 
 function encodeVarint(value: number): Buffer {
-  const bytes: number[] = [];
-  let v = value >>> 0;
-  while (v > 0x7f) {
-    bytes.push((v & 0x7f) | 0x80);
-    v >>>= 7;
+  // Fast path for small non-negative values (tags, lengths, and the common
+  // case for integer attributes). `>>> 0` is only correct here because the
+  // value is known to fit in 32 bits; larger / negative values are routed
+  // through encodeVarintBig below.
+  if (value >= 0 && value <= 0xffffffff) {
+    const bytes: number[] = [];
+    let v = value >>> 0;
+    while (v > 0x7f) {
+      bytes.push((v & 0x7f) | 0x80);
+      v >>>= 7;
+    }
+    bytes.push(v & 0x7f);
+    return Buffer.from(bytes);
   }
-  bytes.push(v & 0x7f);
+  return encodeVarintBig(value);
+}
+
+// Full 64-bit varint encoding. Negative integers are encoded as two's
+// complement int64 (a 10-byte varint), matching protobuf int64 semantics.
+// Uses BigInt() constructor form (not `n` literals) to stay compatible with
+// the es2017 compile target.
+const BIG_ZERO = BigInt(0);
+const BIG_SEVEN_F = BigInt(0x7f);
+const BIG_EIGHT_0 = BigInt(0x80);
+const BIG_TWO_64 = BigInt(1) << BigInt(64);
+
+function encodeVarintBig(value: number): Buffer {
+  const bytes: number[] = [];
+  let v = BigInt(value);
+  if (v < BIG_ZERO) v += BIG_TWO_64;
+  while (v > BIG_SEVEN_F) {
+    bytes.push(Number((v & BIG_SEVEN_F) | BIG_EIGHT_0));
+    v >>= BigInt(7);
+  }
+  bytes.push(Number(v & BIG_SEVEN_F));
   return Buffer.from(bytes);
 }
 
@@ -769,7 +797,6 @@ export function configureLiteMode(): TracerProvider {
   const { AwsInstrumentation } = require('@opentelemetry/instrumentation-aws-sdk');
   const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http');
   const { AwsLambdaInstrumentation } = require('@opentelemetry/instrumentation-aws-lambda');
-  const { InstrumentationNodeModuleDefinition, InstrumentationNodeModuleFile } = require('@opentelemetry/instrumentation');
 
   const awsInstrumentation = new AwsInstrumentation({ suppressInternalInstrumentation: true });
   const httpInstrumentation = new HttpInstrumentation();
@@ -777,7 +804,7 @@ export function configureLiteMode(): TracerProvider {
     eventContextExtractor: liteEventContextExtractor,
   });
 
-  patchAwsSdkForSmithyCore(awsInstrumentation, InstrumentationNodeModuleDefinition, InstrumentationNodeModuleFile);
+  patchAwsSdkForSmithyCore(awsInstrumentation);
 
   awsInstrumentation.setTracerProvider(provider);
   httpInstrumentation.setTracerProvider(provider);
@@ -792,7 +819,7 @@ export function configureLiteMode(): TracerProvider {
 
 // ─── Lite Event Context Extractor ──────────────────────────────────────────
 
-function liteEventContextExtractor(event: any, handlerContext: any): Context {
+export function liteEventContextExtractor(event: any, handlerContext: any): Context {
   const xrayTraceId = handlerContext?.['xRayTraceId'] || process.env[TRACE_CONTEXT_ENV_KEY];
 
   const httpHeaders = event?.headers ? { ...event.headers } : {};
@@ -814,20 +841,28 @@ function liteEventContextExtractor(event: any, handlerContext: any): Context {
 }
 
 // ─── Smithy Core Patch ─────────────────────────────────────────────────────
+//
+// Overrides the upstream private `_getV3SmithyClientSendPatch` to add ADOT
+// middlewares (X-Ray context injection, credential extraction, response metadata
+// capture). The upstream AwsInstrumentation already registers the require hook for
+// `@smithy/core/dist-cjs/submodules/client/index.js` in its init(), so we only need
+// to override the patch factory — registering a second hook here would double-wrap
+// `Client.prototype.send` and break the captured `original` reference.
 
-function patchAwsSdkForSmithyCore(
-  awsInstrumentation: any,
-  NodeModuleDefinition: any,
-  NodeModuleFile: any
-): void {
+export function patchAwsSdkForSmithyCore(awsInstrumentation: any): void {
   try {
     const instr = awsInstrumentation;
 
-    instr['_getV3SmithyClientSendPatch'] = function (
-      this: any,
-      original: (...args: unknown[]) => Promise<any>
-    ) {
+    // shimmer invokes the patch factory as `wrapper(original, name)`. The upstream
+    // binds `moduleVersion` first (`_getV3SmithyClientSendPatch.bind(this, moduleVersion)`),
+    // so this factory actually receives (moduleVersion, original, name) — the original
+    // `send` is the sole function argument. Pick it by type rather than position so we are
+    // robust to either the bound or unbound upstream signature.
+    instr['_getV3SmithyClientSendPatch'] = function (this: any, ...factoryArgs: unknown[]) {
       const self = this;
+      const original = factoryArgs.find(arg => typeof arg === 'function') as (
+        ...args: unknown[]
+      ) => Promise<any>;
       return function send(this: any, command: any, ...args: unknown[]): Promise<any> {
         if (!this.__adotMiddlewarePatched) {
           if (this.middlewareStack) {
@@ -895,35 +930,7 @@ function patchAwsSdkForSmithyCore(
         return original.apply(this, [command, ...args]);
       };
     };
-
-    const clientBundleFile = new NodeModuleFile(
-      '@smithy/core/dist-cjs/submodules/client/index.js',
-      ['>=3.24.0'],
-      instr['patchV3SmithyClient'].bind(instr),
-      instr['unpatchV3SmithyClient'].bind(instr)
-    );
-    const smithyCoreModule = new NodeModuleDefinition(
-      '@smithy/core',
-      ['>=3.24.0'],
-      undefined,
-      undefined,
-      [clientBundleFile]
-    );
-
-    if (Array.isArray(instr._modules)) {
-      instr._modules.push(smithyCoreModule);
-    }
-
-    const singleton = instr._requireInTheMiddleSingleton;
-    if (singleton && typeof singleton.register === 'function') {
-      const onRequire = (exports: any, name: string, baseDir?: string) =>
-        instr._onRequire(smithyCoreModule, exports, name, baseDir);
-      const hook = singleton.register('@smithy/core', onRequire);
-      if (Array.isArray(instr._hooks) && hook) {
-        instr._hooks.push(hook);
-      }
-    }
   } catch (e) {
-    diag.debug('Failed to register @smithy/core patch for lite SDK', e);
+    diag.debug('Failed to patch _getV3SmithyClientSendPatch for lite SDK', e);
   }
 }

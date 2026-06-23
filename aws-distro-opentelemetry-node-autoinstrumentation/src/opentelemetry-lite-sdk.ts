@@ -22,7 +22,6 @@ import {
   Exception,
   HrTime,
   diag,
-  defaultTextMapSetter,
 } from '@opentelemetry/api';
 
 
@@ -31,7 +30,6 @@ const DEFAULT_ENDPOINT = '127.0.0.1:2000';
 const INVALID_TRACE_ID = '00000000000000000000000000000000';
 const INVALID_SPAN_ID = '0000000000000000';
 const XRAY_TRACE_ID_HEADER = 'x-amzn-trace-id';
-const XRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
 const TRACE_CONTEXT_ENV_KEY = '_X_AMZN_TRACE_ID';
 
 let isTracingSuppressed: (context: Context) => boolean = () => false;
@@ -937,7 +935,7 @@ export function buildInstrumentations(): any[] {
       }
       const instrumentation = new InstrumentationClass(instrumentationConfigFor(name));
       if (name === '@opentelemetry/instrumentation-aws-sdk') {
-        patchAwsSdkForSmithyCore(instrumentation);
+        require('./patches/smithy-send-patch').applySmithySendPatch(instrumentation);
       }
       instrumentations.push(instrumentation);
     } catch (e) {
@@ -1010,92 +1008,3 @@ export function liteEventContextExtractor(event: any, handlerContext: any): Cont
   return ROOT_CONTEXT;
 }
 
-// ─── Smithy Core Patch ─────────────────────────────────────────────────────
-//
-// Overrides the upstream private `_getV3SmithyClientSendPatch` to add ADOT
-// middlewares (X-Ray context injection, credential extraction, response metadata
-// capture). The upstream AwsInstrumentation already registers the require hook for
-// `@smithy/core/dist-cjs/submodules/client/index.js` in its init(), so we only need
-// to override the patch factory — registering a second hook here would double-wrap
-// `Client.prototype.send` and break the captured `original` reference.
-
-export function patchAwsSdkForSmithyCore(awsInstrumentation: any): void {
-  try {
-    const instr = awsInstrumentation;
-
-    instr['_getV3SmithyClientSendPatch'] = function (this: any, ...factoryArgs: unknown[]) {
-      const self = this;
-      const original = factoryArgs.find(arg => typeof arg === 'function') as (
-        ...args: unknown[]
-      ) => Promise<any>;
-      return function send(this: any, command: any, ...args: unknown[]): Promise<any> {
-        if (!this.__adotMiddlewarePatched) {
-          if (this.middlewareStack) {
-            self.patchV3MiddlewareStack(undefined, this.middlewareStack);
-          }
-          this.middlewareStack?.add(
-            (next: any) => async (middlewareArgs: any) => {
-              propagation.inject(contextApi.active(), middlewareArgs.request.headers, defaultTextMapSetter);
-              const xrayId = middlewareArgs.request.headers[XRAY_TRACE_ID_HEADER];
-              if (xrayId) {
-                middlewareArgs.request.headers[XRAY_TRACE_ID_HEADER_CAPITALIZED] = xrayId;
-                delete middlewareArgs.request.headers[XRAY_TRACE_ID_HEADER];
-              }
-              return await next(middlewareArgs);
-            },
-            { step: 'build', name: '_adotInjectXrayContextMiddleware', override: true }
-          );
-          const clientConfig = this.config;
-          this.middlewareStack?.add(
-            (next: any) => async (middlewareArgs: any) => {
-              const span = traceApi.getSpan(contextApi.active());
-              if (span) {
-                try {
-                  if (clientConfig.credentials instanceof Function) {
-                    const creds = await clientConfig.credentials();
-                    if (creds?.accessKeyId) {
-                      span.setAttribute('aws.auth.account.access_key', creds.accessKeyId);
-                    }
-                  }
-                  if (clientConfig.region instanceof Function) {
-                    const region = await clientConfig.region();
-                    if (region) {
-                      span.setAttribute('aws.auth.region', region);
-                    }
-                  }
-                } catch (_) { /* best-effort */ }
-              }
-              return await next(middlewareArgs);
-            },
-            { step: 'build', name: '_adotExtractCredentials', override: true }
-          );
-          this.middlewareStack?.add(
-            (next: any) => async (middlewareArgs: any) => {
-              const result = await next(middlewareArgs);
-              const span = traceApi.getSpan(contextApi.active());
-              if (span && result?.output?.$metadata) {
-                const meta = result.output.$metadata;
-                if (meta.requestId) {
-                  span.setAttribute('aws.request.id', meta.requestId);
-                }
-                if (meta.extendedRequestId) {
-                  span.setAttribute('aws.request.extended_id', meta.extendedRequestId);
-                }
-                if (meta.httpStatusCode) {
-                  span.setAttribute('http.status_code', meta.httpStatusCode);
-                }
-              }
-              return result;
-            },
-            { step: 'deserialize', name: '_adotCaptureResponseMetadata', override: true }
-          );
-          this.__adotMiddlewarePatched = true;
-        }
-        command[Symbol.for('opentelemetry.instrumentation.aws-sdk.client.config')] = this.config;
-        return original.apply(this, [command, ...args]);
-      };
-    };
-  } catch (e) {
-    diag.debug('Failed to patch _getV3SmithyClientSendPatch for lite SDK', e);
-  }
-}

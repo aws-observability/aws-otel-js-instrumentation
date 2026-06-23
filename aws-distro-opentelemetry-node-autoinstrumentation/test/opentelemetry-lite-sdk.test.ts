@@ -9,12 +9,12 @@ import {
   configureLiteMode,
   InstrumentationScope,
   liteEventContextExtractor,
-  patchAwsSdkForSmithyCore,
   Span,
   TracerProvider,
   UdpExporter,
   UdpSpanExporter,
 } from '../src/opentelemetry-lite-sdk';
+import { applySmithySendPatch as patchAwsSdkForSmithyCore } from '../src/patches/smithy-send-patch';
 
 const TEST_SERVICE_NAME = 'test-service';
 
@@ -1081,8 +1081,14 @@ describe('LiteSdk - liteEventContextExtractor', () => {
 describe('LiteSdk - patchAwsSdkForSmithyCore', () => {
   // The response-metadata middleware reads the active span, which requires the
   // global AsyncLocalStorage context manager that configureLiteMode installs.
+  // Set lite mode so the shared smithy-send-patch takes the lite branch.
   before(() => {
+    process.env.AWS_LAMBDA_LITE_MODE = 'true';
     configureLiteMode();
+  });
+
+  after(() => {
+    delete process.env.AWS_LAMBDA_LITE_MODE;
   });
 
   function makeInstrumentation() {

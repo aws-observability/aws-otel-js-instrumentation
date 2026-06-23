@@ -107,6 +107,14 @@ export interface ServiceEventsConfig {
   instrumentFastify: boolean;
   instrumentKoa: boolean;
   instrumentNextJs: boolean;
+  // Framework-agnostic endpoint span processor. When true (the default), ServiceEvents derives
+  // endpoint metrics + incident snapshots from the request-boundary span
+  // (EndpointServiceEventsSpanProcessor) instead of the per-framework hooks above, and skips
+  // installing those hooks and the global http patch. Set OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR
+  // to false to fall back to the legacy per-framework hooks. The legacy path is also used as an
+  // automatic fallback when the processor cannot be registered on the active tracer provider.
+  // Mirrors the Python distro's `use_span_processor` / OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR.
+  useSpanProcessor: boolean; // OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR
   // Endpoint Filtering - glob patterns in format "METHOD /route" or "* /route" or "METHOD *"
   // If includePatterns is set, only track matching endpoints; then excludePatterns removes from that set
   // Example: "GET /api/*,POST /api/*" or "* /health,* /metrics"
@@ -171,6 +179,7 @@ const DEFAULTS: ServiceEventsConfig = {
   instrumentFastify: true,
   instrumentKoa: true,
   instrumentNextJs: true,
+  useSpanProcessor: true,
   endpointIncludePatterns: [],
   endpointExcludePatterns: [],
   functionInstrumentEnabled: true,
@@ -367,6 +376,8 @@ export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
     instrumentFastify: DEFAULTS.instrumentFastify,
     instrumentKoa: DEFAULTS.instrumentKoa,
     instrumentNextJs: DEFAULTS.instrumentNextJs,
+    // Framework-agnostic endpoint span processor — env-reachable (matches the Python distro).
+    useSpanProcessor: getBool('OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR', DEFAULTS.useSpanProcessor),
     // Endpoint Filtering
     endpointIncludePatterns: getList(
       'OTEL_AWS_SERVICE_EVENTS_ENDPOINT_INCLUDE_PATTERNS',

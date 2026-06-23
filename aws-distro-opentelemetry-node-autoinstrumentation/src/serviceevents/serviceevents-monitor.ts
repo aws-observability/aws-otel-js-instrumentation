@@ -644,12 +644,25 @@ export class ServiceEventsMonitorState {
   /**
    * Start capturing investigation data for the current request.
    *
-   * Create-only: if an investigation already exists on this async context (a re-entrant begin),
-   * keep the outer request's data and do NOT increment again — otherwise the count would drift
-   * upward and never return to zero. Mirrors the Java/Python distros' begin guards.
+   * Default (create-only): if an investigation already exists on this async context (a re-entrant
+   * begin), keep the outer request's data and do NOT increment again — otherwise the count would
+   * drift upward and never return to zero. Used by the framework-hook path, whose begin
+   * (`http.Server.emit('request')`) and teardown (`res.on('close')`) fire on the SAME socket-level
+   * async context, so each request's begin genuinely sees a clean store.
+   *
+   * `forceNew=true` is for the span-processor path, where the processor's `onStart` is the SOLE
+   * begin caller (the global http patch is not installed) and `onEnd` always tears down. There a
+   * non-null store is NOT a legitimate re-entrant begin — it is a stale investigation that leaked
+   * forward onto a reused keep-alive socket's async context (the previous request's `enterWith`
+   * persists; `onEnd`'s `enterWith(null)` clears only its own branch). The create-only guard would
+   * then skip the increment while `onEnd` still decrements, drifting the active-count below zero
+   * and silently disabling exception/call-path capture from the second request onward. Forcing a
+   * fresh store + unconditional increment keeps begin/end balanced and prevents the leaked
+   * call-path/exception from polluting the next request. Each request boundary owns exactly one
+   * begin→end pair, so there is no genuine same-context nesting to wipe.
    */
-  beginInvestigation(): void {
-    if (investigationStorage.getStore()) {
+  beginInvestigation(forceNew: boolean = false): void {
+    if (!forceNew && investigationStorage.getStore()) {
       return; // nested begin — outer request's call path wins (no double-count)
     }
     _investigationActiveCount++;

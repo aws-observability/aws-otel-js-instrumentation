@@ -46,7 +46,7 @@ fi
 
 # - Resolve the metrics/logs exporters and Lite Mode BEFORE the NODE_OPTIONS
 #   routing below, which selects the lite wrapper vs the full SDK wrapper based on
-#   AWS_LAMBDA_LITE_MODE. Lite (traces-only, UDP to the X-Ray daemon) is the
+#   OTEL_AWS_LAMBDA_FAST_START. Lite (traces-only, UDP to the X-Ray daemon) is the
 #   default in Lambda because it greatly reduces cold start, but a configured
 #   metrics or logs exporter forces the full SDK since lite has no
 #   MeterProvider/LoggerProvider and would silently drop that data.
@@ -62,17 +62,17 @@ if [ -z "${OTEL_LOGS_EXPORTER}" ]; then
     export OTEL_LOGS_EXPORTER="none";
 fi
 
-# - Lite Mode defaults on; explicit AWS_LAMBDA_LITE_MODE=false opts out.
-if [ -z "${AWS_LAMBDA_LITE_MODE}" ]; then
-    export AWS_LAMBDA_LITE_MODE="true";
+# - Lite Mode defaults on; explicit OTEL_AWS_LAMBDA_FAST_START=false opts out.
+if [ -z "${OTEL_AWS_LAMBDA_FAST_START}" ]; then
+    export OTEL_AWS_LAMBDA_FAST_START="true";
 fi
 
 # - A configured metrics or logs exporter forces the full SDK.
 if [ "$OTEL_METRICS_EXPORTER" != "none" ] || [ "$OTEL_LOGS_EXPORTER" != "none" ]; then
-    export AWS_LAMBDA_LITE_MODE="false";
+    export OTEL_AWS_LAMBDA_FAST_START="false";
 fi
 
-if [[ "${AWS_LAMBDA_LITE_MODE}" == "true" ]]; then
+if [[ "${OTEL_AWS_LAMBDA_FAST_START}" == "true" ]]; then
   # Lite mode bypasses register.ts and import-in-the-middle entirely.
   # Instruments via require-in-the-middle and prototype patching only.
   export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/lite-wrapper.js"

@@ -1083,12 +1083,12 @@ describe('LiteSdk - patchAwsSdkForSmithyCore', () => {
   // global AsyncLocalStorage context manager that configureLiteMode installs.
   // Set lite mode so the shared smithy-send-patch takes the lite branch.
   before(() => {
-    process.env.AWS_LAMBDA_LITE_MODE = 'true';
+    process.env.OTEL_AWS_LAMBDA_FAST_START = 'true';
     configureLiteMode();
   });
 
   after(() => {
-    delete process.env.AWS_LAMBDA_LITE_MODE;
+    delete process.env.OTEL_AWS_LAMBDA_FAST_START;
   });
 
   function makeInstrumentation() {

@@ -6,7 +6,7 @@
 // the lite SDK (opentelemetry-lite-sdk.ts) consume this to avoid maintaining the same
 // patch logic in two places.
 //
-// Behavior differences between modes are gated via AWS_LAMBDA_LITE_MODE:
+// Behavior differences between modes are gated via OTEL_AWS_LAMBDA_FAST_START:
 // - Full mode: suppressTracing + recursion guard for credential extraction
 // - Lite mode: simple try/catch (no suppression context needed since lite suppresses
 //   internal instrumentation at the AwsInstrumentation config level)
@@ -28,7 +28,7 @@ const XRAY_TRACE_ID_HEADER = 'x-amzn-trace-id';
 const XRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
 
 const isLiteMode = (): boolean =>
-  (process.env.AWS_LAMBDA_LITE_MODE || 'false').toLowerCase() === 'true';
+  (process.env.OTEL_AWS_LAMBDA_FAST_START || 'false').toLowerCase() === 'true';
 
 // Symbol to prevent infinite recursion during credential capture in full mode.
 // When extracting credentials, the AWS SDK may make additional API calls (e.g. STS)

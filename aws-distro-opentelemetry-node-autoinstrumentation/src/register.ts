@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
-if ((process.env.AWS_LAMBDA_LITE_MODE || 'false').toLowerCase() === 'true') {
+if ((process.env.OTEL_AWS_LAMBDA_FAST_START || 'false').toLowerCase() === 'true') {
   const { configureLiteMode } = require('./opentelemetry-lite-sdk');
   configureLiteMode();
   // @ts-expect-error: top-level return is valid in CommonJS (Node wraps modules in a function)

@@ -69,7 +69,7 @@ const liteWrapperConfig = {
     /^@smithy/,
   ],
   optimization: {
-    minimize: false,
+    minimize: true,
   },
 };
 

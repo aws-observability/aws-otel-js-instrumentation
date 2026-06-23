@@ -14,7 +14,7 @@ import {
   TracerProvider,
   UdpExporter,
   UdpSpanExporter,
-} from '../src/opentelemetry_lite_sdk';
+} from '../src/opentelemetry-lite-sdk';
 
 const TEST_SERVICE_NAME = 'test-service';
 
@@ -34,8 +34,8 @@ describe('LiteSdk - buildLambdaResource', () => {
     expect(provider.resource['cloud.platform']).toBe('aws_lambda');
     expect(provider.resource['telemetry.sdk.language']).toBe('nodejs');
     expect(provider.resource['telemetry.sdk.name']).toBe('opentelemetry');
-    expect(provider.resource['telemetry.sdk.version']).toBe('2.7.0');
-    expect(provider.resource['telemetry.auto.version']).toBe('0.11.0-dev0-aws');
+    expect(provider.resource['telemetry.sdk.version']).toBe(require('@opentelemetry/core').VERSION);
+    expect(provider.resource['telemetry.auto.version']).toBe(require('../src/version').LIB_VERSION + '-aws');
   });
 
   it('handles empty env vars', () => {
@@ -320,7 +320,7 @@ describe('LiteSdk - Span', () => {
   it('suppressed context returns a non-recording span', () => {
     // isTracingSuppressed is wired from @opentelemetry/core inside
     // configureLiteMode; ensure it is active so the suppression branch is hit.
-    require('../src/opentelemetry_lite_sdk').configureLiteMode();
+    require('../src/opentelemetry-lite-sdk').configureLiteMode();
     const { suppressTracing } = require('@opentelemetry/core');
     const span = tracer.startSpan('suppressed', {}, suppressTracing(context.active())) as any;
     // wrapSpanContext returns a non-recording span with the invalid span id.
@@ -1393,7 +1393,7 @@ describe('LiteSdk - buildInstrumentations', () => {
   const DISABLED = 'OTEL_NODE_DISABLED_INSTRUMENTATIONS';
 
   before(() => {
-    buildInstrumentations = require('../src/opentelemetry_lite_sdk').buildInstrumentations;
+    buildInstrumentations = require('../src/opentelemetry-lite-sdk').buildInstrumentations;
   });
 
   afterEach(() => {
@@ -1547,8 +1547,8 @@ describe('LiteSdk - Parity Check vs Full SDK', () => {
       expect(serverSpan.resource['cloud.provider']).toBe('aws');
       expect(serverSpan.resource['telemetry.sdk.language']).toBe('nodejs');
       expect(serverSpan.resource['telemetry.sdk.name']).toBe('opentelemetry');
-      expect(serverSpan.resource['telemetry.sdk.version']).toBe('2.7.0');
-      expect(serverSpan.resource['telemetry.auto.version']).toBe('0.11.0-dev0-aws');
+      expect(serverSpan.resource['telemetry.sdk.version']).toBe(require('@opentelemetry/core').VERSION);
+      expect(serverSpan.resource['telemetry.auto.version']).toBe(require('../src/version').LIB_VERSION + '-aws');
     });
 
     it('span parent-child relationship is correct', () => {
@@ -1586,7 +1586,7 @@ describe('LiteSdk - Parity Check vs Full SDK', () => {
       // Decode with the full SDK's protobuf library to validate structure
       let decoded: any;
       try {
-        const { ProtobufTraceSerializer } = require('@opentelemetry/otlp-transformer');
+        require('@opentelemetry/otlp-transformer'); // ensure dep is available
         // The buffer is a raw ExportTraceServiceRequest — try deserializing via protobufjs
         const protobuf = require('protobufjs');
         const root = protobuf.loadSync(
@@ -1676,24 +1676,12 @@ describe('LiteSdk - Parity Check vs Full SDK', () => {
     });
 
     it('encoded output matches full SDK ProtobufTraceSerializer structure', () => {
-      const { serverSpan, clientSpan, exportedBuffer } = createLiteSpans();
+      const { exportedBuffer } = createLiteSpans();
 
       // Use the full SDK's serializer on equivalent ReadableSpan-like objects to compare
       try {
-        const { ProtobufTraceSerializer } = require('@opentelemetry/otlp-transformer');
-        const { resourceFromAttributes } = require('@opentelemetry/resources');
-
-        // Build a ReadableSpan-like object matching the full SDK's expected format
-        const resource = resourceFromAttributes({
-          'service.name': SERVICE_NAME,
-          'cloud.region': 'us-west-2',
-          'cloud.platform': 'aws_lambda',
-          'cloud.provider': 'aws',
-          'telemetry.sdk.language': 'nodejs',
-          'telemetry.sdk.name': 'opentelemetry',
-          'telemetry.sdk.version': '2.7.0',
-          'telemetry.auto.version': '0.11.0-dev0-aws',
-        });
+        require('@opentelemetry/otlp-transformer'); // ensure dep is available
+        require('@opentelemetry/resources'); // ensure dep is available
 
         // The full SDK serializer expects ReadableSpan[] — we can't easily construct those
         // without the full SDK pipeline. Instead verify both encode the same key attributes.
@@ -1718,7 +1706,7 @@ describe('LiteSdk - Parity Check vs Full SDK', () => {
           'aws.auth.account.access_key', 'AKIATEST',
           'aws.request.id', 'TESTREQID123',
           'aws.request.extended_id', 'EXTID456',
-          'telemetry.auto.version', '0.11.0-dev0-aws',
+          'telemetry.auto.version', require('../src/version').LIB_VERSION + '-aws',
           'faas.id',
         ];
 

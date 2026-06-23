@@ -99,11 +99,14 @@ function buildLambdaResource(): Record<string, string> {
       attrs[k.trim()] = rest.join('=').trim();
     }
   }
+  const { VERSION: sdkVersion } = require('@opentelemetry/core');
+  const { LIB_VERSION } = require('./version');
+
   attrs['service.name'] = process.env.OTEL_SERVICE_NAME || '';
   attrs['telemetry.sdk.language'] = 'nodejs';
   attrs['telemetry.sdk.name'] = 'opentelemetry';
-  attrs['telemetry.sdk.version'] = '2.7.0';
-  attrs['telemetry.auto.version'] = '0.11.0-dev0-aws';
+  attrs['telemetry.sdk.version'] = sdkVersion;
+  attrs['telemetry.auto.version'] = LIB_VERSION + '-aws';
   return attrs;
 }
 
@@ -498,22 +501,22 @@ function encodeTag(fieldNumber: number, wireType: number): Buffer {
 }
 
 function encodeBytesField(fieldNumber: number, data: Buffer): Buffer {
-  if (!data || data.length === 0) return Buffer.alloc(0);
+  if (data == null || data.length === 0) return Buffer.alloc(0);
   return Buffer.concat([encodeTag(fieldNumber, WIRE_LEN_DELIMITED), encodeVarint(data.length), data]);
 }
 
 function encodeStringField(fieldNumber: number, value: string): Buffer {
-  if (!value) return Buffer.alloc(0);
+  if (value == null || value === '') return Buffer.alloc(0);
   return encodeBytesField(fieldNumber, Buffer.from(value, 'utf-8'));
 }
 
 function encodeVarintField(fieldNumber: number, value: number): Buffer {
-  if (!value) return Buffer.alloc(0);
+  if (value == null) return Buffer.alloc(0);
   return Buffer.concat([encodeTag(fieldNumber, WIRE_VARINT), encodeVarint(value)]);
 }
 
 function encodeFixed64Field(fieldNumber: number, value: number): Buffer {
-  if (!value) return Buffer.alloc(0);
+  if (value == null) return Buffer.alloc(0);
   const buf = Buffer.alloc(8);
   buf.writeBigUInt64LE(BigInt(value));
   return Buffer.concat([encodeTag(fieldNumber, WIRE_FIXED64), buf]);

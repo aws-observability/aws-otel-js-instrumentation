@@ -3,7 +3,7 @@
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
 if ((process.env.AWS_LAMBDA_LITE_MODE || 'false').toLowerCase() === 'true') {
-  const { configureLiteMode } = require('./opentelemetry_lite_sdk');
+  const { configureLiteMode } = require('./opentelemetry-lite-sdk');
   configureLiteMode();
   // @ts-expect-error: top-level return is valid in CommonJS (Node wraps modules in a function)
   return;

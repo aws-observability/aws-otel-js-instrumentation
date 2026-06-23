@@ -4,6 +4,9 @@
 import { Attributes, HrTime, SpanContext, SpanKind } from '@opentelemetry/api';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
+  ATTR_EXCEPTION_MESSAGE,
+  ATTR_EXCEPTION_STACKTRACE,
+  ATTR_EXCEPTION_TYPE,
   ATTR_HTTP_REQUEST_METHOD,
   ATTR_HTTP_RESPONSE_STATUS_CODE,
   ATTR_URL_PATH,
@@ -16,6 +19,7 @@ import * as sinon from 'sinon';
 import { AWS_ATTRIBUTE_KEYS } from '../../../src/aws-attribute-keys';
 import {
   EndpointServiceEventsSpanProcessor,
+  exceptionFromSpanEvent,
   getHttpMethod,
   getStatusCode,
   isRequestBoundary,
@@ -37,6 +41,7 @@ function buildSpan(opts: {
   name?: string;
   localRoot?: boolean;
   duration?: HrTime;
+  events?: Array<{ name: string; attributes?: Attributes }>;
 }): ReadableSpan {
   const attributes: Attributes = { ...(opts.attributes ?? {}) };
   if (opts.localRoot !== undefined) {
@@ -57,7 +62,7 @@ function buildSpan(opts: {
     status: { code: 0 },
     attributes,
     links: [],
-    events: [],
+    events: opts.events ?? [],
     duration: opts.duration ?? [0, 5_000_000], // 5 ms
     ended: true,
     resource: undefined as any,
@@ -515,6 +520,152 @@ describe('EndpointServiceEventsSpanProcessor', () => {
         (globalThis as any).__serviceeventsMonitorExit(ctx);
         expect(state.peekInvestigationData()?.exception?.functionName).toBe('boomHandler');
         expect(state.peekInvestigationData()?.exception?.name).toBe('TypeError');
+      } finally {
+        monitor.unregisterMonitorGlobals();
+      }
+    });
+  });
+
+  describe('exceptionFromSpanEvent', () => {
+    const excEvent = (type?: string, message?: string, stacktrace?: string) => {
+      const attributes: Attributes = {};
+      if (type !== undefined) attributes[ATTR_EXCEPTION_TYPE] = type;
+      if (message !== undefined) attributes[ATTR_EXCEPTION_MESSAGE] = message;
+      if (stacktrace !== undefined) attributes[ATTR_EXCEPTION_STACKTRACE] = stacktrace;
+      return { name: 'exception', attributes };
+    };
+
+    it('returns undefined when the span has no events', () => {
+      expect(exceptionFromSpanEvent(buildSpan({ events: [] }))).toBeUndefined();
+    });
+
+    it('returns undefined when there is no exception event', () => {
+      expect(exceptionFromSpanEvent(buildSpan({ events: [{ name: 'some.other.event' }] }))).toBeUndefined();
+    });
+
+    it('parses an exception event into name/message/traceback', () => {
+      const result = exceptionFromSpanEvent(
+        buildSpan({ events: [excEvent('ValueError', 'bad input', 'Traceback...')] })
+      );
+      expect(result).toEqual({
+        name: 'ValueError',
+        message: 'bad input',
+        traceback: 'Traceback...',
+        functionName: 'unknown',
+      });
+    });
+
+    it('takes the last exception event when several are recorded', () => {
+      const result = exceptionFromSpanEvent(buildSpan({ events: [excEvent('FirstError'), excEvent('LastError')] }));
+      expect(result?.name).toBe('LastError');
+    });
+
+    it('skips an exception event missing exception.type', () => {
+      expect(exceptionFromSpanEvent(buildSpan({ events: [excEvent(undefined, 'no type')] }))).toBeUndefined();
+    });
+
+    it('defaults message and traceback to empty strings when absent', () => {
+      const result = exceptionFromSpanEvent(buildSpan({ events: [excEvent('KeyError')] }));
+      expect(result).toEqual({ name: 'KeyError', message: '', traceback: '', functionName: 'unknown' });
+    });
+  });
+
+  describe('span-event fault recovery (onEnd seeds investigation data)', () => {
+    const excEvent = (type: string, message: string) => ({
+      name: 'exception',
+      attributes: { [ATTR_EXCEPTION_TYPE]: type, [ATTR_EXCEPTION_MESSAGE]: message },
+    });
+
+    it('seeds the span exception into investigation data for a 5xx with no AST capture', () => {
+      // The 5xx unwound through uninstrumented code: the AST monitor captured nothing, but OTel
+      // recorded an exception event on the span. onEnd must seed it so the breakdown/snapshot
+      // recover the fault — otherwise exception attribution is silently lost.
+      monitor.registerMonitorGlobals();
+      try {
+        const state = monitor.ServiceEventsMonitorState.getInstance();
+        state.beginInvestigation(true); // fresh store, no exception (as onStart would leave it)
+        const processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+        const span = buildSpan({
+          name: 'GET /boom',
+          attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 500 },
+          events: [excEvent('RuntimeError', 'boom')],
+        });
+        // onEnd clears the store in its finally, so capture the exception via the express extractor
+        // which peeks the seeded data before the clear.
+        const seen: Array<string | undefined> = [];
+        const stub = sinon.stub(express, 'extractErrorFromCallPath').callsFake(() => {
+          seen.push(state.peekInvestigationData()?.exception?.name);
+          return undefined;
+        });
+        try {
+          processor.onEnd(span);
+        } finally {
+          stub.restore();
+        }
+        expect(seen).toEqual(['RuntimeError']);
+      } finally {
+        monitor.unregisterMonitorGlobals();
+      }
+    });
+
+    it('does not overwrite an AST-captured exception (first-writer-wins)', () => {
+      monitor.registerMonitorGlobals();
+      try {
+        const state = monitor.ServiceEventsMonitorState.getInstance();
+        state.beginInvestigation(true);
+        // A real instrumented throw recorded its origin function.
+        const ctx = (globalThis as any).__serviceeventsMonitorEnter('realHandler');
+        (globalThis as any).__serviceeventsMonitorException(ctx, new TypeError('real'));
+        (globalThis as any).__serviceeventsMonitorExit(ctx);
+
+        const processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+        const span = buildSpan({
+          name: 'GET /boom',
+          attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 500 },
+          events: [excEvent('RuntimeError', 'from span')],
+        });
+        const captured: Array<{ name?: string; functionName?: string }> = [];
+        const stub = sinon.stub(express, 'extractErrorFromCallPath').callsFake(() => {
+          const exc = state.peekInvestigationData()?.exception;
+          captured.push({ name: exc?.name, functionName: exc?.functionName });
+          return undefined;
+        });
+        try {
+          processor.onEnd(span);
+        } finally {
+          stub.restore();
+        }
+        // The instrumented capture (with its true origin) wins over the span event.
+        expect(captured).toEqual([{ name: 'TypeError', functionName: 'realHandler' }]);
+      } finally {
+        monitor.unregisterMonitorGlobals();
+      }
+    });
+
+    it('does not seed for a 2xx even when an exception event is present', () => {
+      monitor.registerMonitorGlobals();
+      try {
+        const state = monitor.ServiceEventsMonitorState.getInstance();
+        state.beginInvestigation(true);
+        const processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+        const span = buildSpan({
+          name: 'GET /ok',
+          attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 200 },
+          events: [excEvent('RuntimeError', 'boom')],
+        });
+        const seen: Array<unknown> = [];
+        const stub = sinon.stub(express, 'extractErrorFromCallPath').callsFake(() => {
+          seen.push(state.peekInvestigationData()?.exception ?? null);
+          return undefined;
+        });
+        try {
+          processor.onEnd(span);
+        } finally {
+          stub.restore();
+        }
+        // extractErrorFromCallPath only runs for >= 400; a 2xx never reaches it, so `seen` is empty
+        // and nothing was seeded.
+        expect(seen).toEqual([]);
       } finally {
         monitor.unregisterMonitorGlobals();
       }

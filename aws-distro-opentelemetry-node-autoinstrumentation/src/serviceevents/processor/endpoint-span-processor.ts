@@ -41,6 +41,9 @@ import { hrTimeToMilliseconds, hrTimeToNanoseconds } from '@opentelemetry/core';
 import type { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { SpanKind } from '@opentelemetry/api';
 import {
+  ATTR_EXCEPTION_MESSAGE,
+  ATTR_EXCEPTION_STACKTRACE,
+  ATTR_EXCEPTION_TYPE,
   ATTR_HTTP_REQUEST_METHOD,
   ATTR_HTTP_RESPONSE_STATUS_CODE,
   SEMATTRS_HTTP_METHOD,
@@ -57,6 +60,52 @@ import { ServiceEventsMonitorState, setCurrentOperation, clearCurrentOperation }
 export function getHttpMethod(span: ReadableSpan): string | undefined {
   const method = span.attributes[ATTR_HTTP_REQUEST_METHOD] ?? span.attributes[SEMATTRS_HTTP_METHOD];
   return typeof method === 'string' ? method : undefined;
+}
+
+/**
+ * Recover an exception from the span's own OTel `exception` event.
+ *
+ * The AST function-monitor only captures an exception when the throw unwinds through an
+ * instrumented frame. A 5xx thrown in uninstrumented library code, or swallowed by a framework
+ * global handler that converts it to a 500 *before* it reaches any instrumented frame, leaves the
+ * investigation data empty — yet OTel's own instrumentation still records an `exception` event on
+ * the span (`span.recordException`). Java's `ServiceEventsSpanProcessor` reads that event as its
+ * exception source; this is the Node.js equivalent.
+ *
+ * Returns an object shaped like the monitor's captured exception so it can seed the investigation
+ * data and flow through the unchanged breakdown + snapshot recovery paths, or undefined when the
+ * span has no exception event.
+ */
+export function exceptionFromSpanEvent(
+  span: ReadableSpan
+): { name: string; message: string; traceback: string; functionName: string } | undefined {
+  const events = span.events;
+  if (!events || events.length === 0) {
+    return undefined;
+  }
+  // Last exception event wins — it is the one closest to the response being produced.
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (event.name !== 'exception') {
+      continue;
+    }
+    const attributes = event.attributes ?? {};
+    const excType = attributes[ATTR_EXCEPTION_TYPE];
+    if (typeof excType !== 'string' || excType.length === 0) {
+      continue;
+    }
+    const message = attributes[ATTR_EXCEPTION_MESSAGE];
+    const stacktrace = attributes[ATTR_EXCEPTION_STACKTRACE];
+    return {
+      name: excType,
+      message: typeof message === 'string' ? message : '',
+      traceback: typeof stacktrace === 'string' ? stacktrace : '',
+      // The span event carries no origin function; 'unknown' matches the breakdown's fallback
+      // when no instrumented frame recorded the throw.
+      functionName: 'unknown',
+    };
+  }
+  return undefined;
 }
 
 /**
@@ -187,6 +236,24 @@ export class EndpointServiceEventsSpanProcessor implements SpanProcessor {
     return Promise.resolve();
   }
 
+  /**
+   * Seed the span's recorded exception into the investigation data (first-writer-wins).
+   *
+   * Only fills the exception when the AST monitor captured none, so an instrumented throw's origin
+   * function (which the span event lacks) is always preferred. No-ops when the span has no
+   * exception event or no investigation context exists.
+   */
+  private seedExceptionFromSpan(span: ReadableSpan): void {
+    const invData = ServiceEventsMonitorState.getInstance().peekInvestigationData();
+    if (!invData || invData.exception) {
+      return;
+    }
+    const spanException = exceptionFromSpanEvent(span);
+    if (spanException) {
+      invData.exception = spanException;
+    }
+  }
+
   private processRequestSpan(span: ReadableSpan): void {
     const method = getHttpMethod(span);
     if (!method) {
@@ -213,10 +280,22 @@ export class EndpointServiceEventsSpanProcessor implements SpanProcessor {
     const durationNs = hrTimeToNanoseconds(span.duration);
     const durationMs = hrTimeToMilliseconds(span.duration);
 
-    // Error info from the AST monitor's captured call-path. extractErrorFromCallPath PEEKS
-    // (does not clear) so the incident collector can still consume the investigation data.
-    // null exception is correct: like Java, the original Error object is gone by span end;
-    // the captured type/origin live in the investigation data.
+    // Fault recovery from the span's own exception event. When a 5xx unwound through code the AST
+    // monitor never instrumented (library internals, or a global handler that converted the error
+    // to a 500 before any instrumented frame saw it), the investigation data holds no exception.
+    // OTel still recorded an `exception` event on the span, so seed it into the investigation data
+    // here — first-writer-wins, so a real AST-captured exception is never overwritten. Both the
+    // breakdown and the snapshot recover the exception from that same investigation data, matching
+    // Java which reads the span event directly.
+    if (statusCode >= 500) {
+      this.seedExceptionFromSpan(span);
+    }
+
+    // Error info from the AST monitor's captured call-path (now also seeded from the span event
+    // for uninstrumented faults). extractErrorFromCallPath PEEKS (does not clear) so the incident
+    // collector can still consume the investigation data. null exception is correct: like Java,
+    // the original Error object is gone by span end; the captured type/origin live in the
+    // investigation data.
     let errorInfo: { errorType: string; functionName: string } | undefined;
     if (statusCode >= 400) {
       errorInfo = extractErrorFromCallPath(null);

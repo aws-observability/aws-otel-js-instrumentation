@@ -37,6 +37,16 @@ if [ $? = 1 ]; then
   exit 1
 fi
 
+# Create mock-udp-collector image (used by the lite SDK contract tests; it mimics
+# the X-Ray daemon's UDP interface that the lite SDK exports to).
+cd ../mock-udp-collector
+docker build . -t mock-udp-collector
+if [ $? = 1 ]; then
+  echo "Docker build for mock UDP collector failed"
+  exit 1
+fi
+cd ../mock-collector
+
 # Find and store aws_opentelemetry_distro whl file
 cd ../../../dist
 DISTRO=(aws-aws-distro-opentelemetry-node-autoinstrumentation-*.tgz)

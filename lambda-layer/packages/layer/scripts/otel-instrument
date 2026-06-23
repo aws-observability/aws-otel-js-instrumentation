@@ -44,6 +44,34 @@ if [[ "${NODE_PROFILE_IMPORT_TIME}" == "1" ]]; then
   export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/profile-imports.js"
 fi
 
+# - Resolve the metrics/logs exporters and Lite Mode BEFORE the NODE_OPTIONS
+#   routing below, which selects the lite wrapper vs the full SDK wrapper based on
+#   AWS_LAMBDA_LITE_MODE. Lite (traces-only, UDP to the X-Ray daemon) is the
+#   default in Lambda because it greatly reduces cold start, but a configured
+#   metrics or logs exporter forces the full SDK since lite has no
+#   MeterProvider/LoggerProvider and would silently drop that data.
+#   Mirrors the Python layer's otel-instrument behavior.
+
+# - Disable otel metrics export by default
+if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
+    export OTEL_METRICS_EXPORTER="none";
+fi
+
+# - Disable logs exporter by default
+if [ -z "${OTEL_LOGS_EXPORTER}" ]; then
+    export OTEL_LOGS_EXPORTER="none";
+fi
+
+# - Lite Mode defaults on; explicit AWS_LAMBDA_LITE_MODE=false opts out.
+if [ -z "${AWS_LAMBDA_LITE_MODE}" ]; then
+    export AWS_LAMBDA_LITE_MODE="true";
+fi
+
+# - A configured metrics or logs exporter forces the full SDK.
+if [ "$OTEL_METRICS_EXPORTER" != "none" ] || [ "$OTEL_LOGS_EXPORTER" != "none" ]; then
+    export AWS_LAMBDA_LITE_MODE="false";
+fi
+
 if [[ "${AWS_LAMBDA_LITE_MODE}" == "true" ]]; then
   # Lite mode bypasses register.ts and import-in-the-middle entirely.
   # Instruments via require-in-the-middle and prototype patching only.
@@ -101,24 +129,9 @@ if [[ -z "$OTEL_PROPAGATORS" ]]; then
   export OTEL_PROPAGATORS="baggage,tracecontext,xray"
 fi
 
-# - Set Lite Mode configuration
-if [ -z "${AWS_LAMBDA_LITE_MODE}" ]; then
-    export AWS_LAMBDA_LITE_MODE="false";
-fi
-
 # - Set Application Signals configuration
 if [ -z "${OTEL_AWS_APPLICATION_SIGNALS_ENABLED}" ]; then
     export OTEL_AWS_APPLICATION_SIGNALS_ENABLED="true";
-fi
-
-# - Disable otel metrics export by default
-if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
-    export OTEL_METRICS_EXPORTER="none";
-fi
-
-# - Disable logs exporter by default
-if [ -z "${OTEL_LOGS_EXPORTER}" ]; then
-    export OTEL_LOGS_EXPORTER="none";
 fi
 
 # - Append Lambda Resource Attributes to OTel Resource Attribute List

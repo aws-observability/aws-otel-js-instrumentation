@@ -286,6 +286,58 @@ describe('LiteSdk - Span', () => {
     expect(capturedSpan!.events.length).toBe(1);
     expect(capturedSpan!.events[0].name).toBe('exception');
   });
+
+  it('recordException accepts a string exception', () => {
+    const span = tracer.startSpan('test') as Span;
+    span.recordException('something broke');
+    expect(span.events[0].name).toBe('exception');
+    expect(span.events[0].attributes['exception.message']).toBe('something broke');
+    span.end();
+  });
+
+  it('addLink and addLinks are no-ops returning this', () => {
+    const span = tracer.startSpan('test') as Span;
+    expect(span.addLink({ context: span.spanContext() })).toBe(span);
+    expect(span.addLinks([{ context: span.spanContext() }])).toBe(span);
+    span.end();
+  });
+
+  it('treats a small numeric startTime as seconds (converts to nanos)', () => {
+    // timeInputToNanos: values < 1e12 are seconds -> multiply by 1e9.
+    const span = tracer.startSpan('test', { startTime: 100 }) as Span;
+    expect(span.startTime).toBe(100 * 1e9);
+    span.end();
+  });
+
+  it('treats a large numeric startTime as already-nanos', () => {
+    // values >= 1e12 are passed through unchanged.
+    const nanos = 1700000000000000000;
+    const span = tracer.startSpan('test', { startTime: nanos }) as Span;
+    expect(span.startTime).toBe(nanos);
+    span.end();
+  });
+
+  it('suppressed context returns a non-recording span', () => {
+    // isTracingSuppressed is wired from @opentelemetry/core inside
+    // configureLiteMode; ensure it is active so the suppression branch is hit.
+    require('../src/opentelemetry_lite_sdk').configureLiteMode();
+    const { suppressTracing } = require('@opentelemetry/core');
+    const span = tracer.startSpan('suppressed', {}, suppressTracing(context.active())) as any;
+    // wrapSpanContext returns a non-recording span with the invalid span id.
+    expect(span.spanContext().spanId).toBe('0000000000000000');
+  });
+
+  it('generates a fresh trace id when the parent context is invalid', () => {
+    const invalidParent = trace.setSpanContext(context.active(), {
+      traceId: '00000000000000000000000000000000',
+      spanId: '0000000000000000',
+      traceFlags: TraceFlags.NONE,
+    });
+    const span = tracer.startSpan('child', {}, invalidParent) as Span;
+    expect(span.spanContext().traceId).not.toBe('00000000000000000000000000000000');
+    expect(span.parent).toBeUndefined();
+    span.end();
+  });
 });
 
 describe('LiteSdk - BatchingSpanProcessor', () => {
@@ -758,6 +810,129 @@ function findLenField(buf: Buffer, fieldNumber: number): Buffer | undefined {
   return undefined;
 }
 
+// Find a fixed32 (wire type 5) field and return its little-endian uint value.
+function findFixed32Field(buf: Buffer, fieldNumber: number): number | undefined {
+  let p = 0;
+  while (p < buf.length) {
+    const tag = readVarint(buf, p);
+    p = tag.pos;
+    const field = Number(tag.value >> B3);
+    const wire = Number(tag.value & BMASK);
+    if (wire === 5) {
+      if (field === fieldNumber) return buf.readUInt32LE(p);
+      p += 4;
+    } else if (wire === 0) {
+      p = readVarint(buf, p).pos;
+    } else if (wire === 1) {
+      p += 8;
+    } else if (wire === 2) {
+      const len = readVarint(buf, p);
+      p = len.pos + Number(len.value);
+    } else {
+      break;
+    }
+  }
+  return undefined;
+}
+
+// Collect the bytes of every field matching `fieldNumber` (wire type 2).
+function findAllLenFields(buf: Buffer, fieldNumber: number): Buffer[] {
+  const out: Buffer[] = [];
+  let p = 0;
+  while (p < buf.length) {
+    const tag = readVarint(buf, p);
+    p = tag.pos;
+    const field = Number(tag.value >> B3);
+    const wire = Number(tag.value & BMASK);
+    if (wire === 2) {
+      const len = readVarint(buf, p);
+      p = len.pos;
+      const end = p + Number(len.value);
+      if (field === fieldNumber) out.push(buf.subarray(p, end));
+      p = end;
+    } else if (wire === 0) {
+      p = readVarint(buf, p).pos;
+    } else if (wire === 1) {
+      p += 8;
+    } else if (wire === 5) {
+      p += 4;
+    } else {
+      break;
+    }
+  }
+  return out;
+}
+
+describe('LiteSdk - OTLP wire-format correctness', () => {
+  afterEach(() => {
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+  });
+
+  function exportAndCapture(buildSpans: (provider: TracerProvider, exporter: UdpSpanExporter) => void): Buffer {
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'false';
+    const exporter = new UdpSpanExporter('127.0.0.1:2000');
+    let sent: Buffer | undefined;
+    (exporter as any)._udpExporter = {
+      sendOtlp: (data: Buffer) => { sent = data; },
+      shutdown: () => {},
+    };
+    const provider = new TracerProvider({ 'service.name': 'test' });
+    buildSpans(provider, exporter);
+    return sent!;
+  }
+
+  it('writes the span flags field (field 16) with HAS_IS_REMOTE and sampled bits', () => {
+    const sent = exportAndCapture((provider, exporter) => {
+      const tracer = provider.getTracer('scope-a', '1.0.0');
+      const span = tracer.startSpan('s', { kind: SpanKind.SERVER }) as Span;
+      span.end();
+      exporter.export([span]);
+    });
+    const resourceSpans = findLenField(sent, 1)!;
+    const scopeSpans = findLenField(resourceSpans, 2)!;
+    const spanBytes = findLenField(scopeSpans, 2)!;
+    const flags = findFixed32Field(spanBytes, 16);
+    expect(flags).toBeDefined();
+    expect(flags! & 0x100).toBe(0x100); // HAS_IS_REMOTE
+    expect(flags! & 0x01).toBe(0x01); // SAMPLED (root spans are always sampled)
+  });
+
+  it('encodes span status at field 15 (not 13/links)', () => {
+    const sent = exportAndCapture((provider, exporter) => {
+      const tracer = provider.getTracer('scope-a', '1.0.0');
+      const span = tracer.startSpan('s') as Span;
+      span.setStatus({ code: SpanStatusCode.ERROR, message: 'boom' });
+      span.end();
+      exporter.export([span]);
+    });
+    const resourceSpans = findLenField(sent, 1)!;
+    const scopeSpans = findLenField(resourceSpans, 2)!;
+    const spanBytes = findLenField(scopeSpans, 2)!;
+    expect(findLenField(spanBytes, 15)).toBeDefined(); // status present at 15
+    expect(findLenField(spanBytes, 13)).toBeUndefined(); // nothing leaked into links
+  });
+
+  it('groups spans into separate ScopeSpans by instrumentation scope', () => {
+    const sent = exportAndCapture((provider, exporter) => {
+      const tracerA = provider.getTracer('scope-a', '1.0.0');
+      const tracerB = provider.getTracer('scope-b', '2.0.0');
+      const a = tracerA.startSpan('a', { kind: SpanKind.SERVER }) as Span;
+      const b = tracerB.startSpan('b', { kind: SpanKind.CLIENT }) as Span;
+      a.end();
+      b.end();
+      exporter.export([a, b]);
+    });
+    const resourceSpans = findLenField(sent, 1)!;
+    const scopeSpansList = findAllLenFields(resourceSpans, 2);
+    expect(scopeSpansList.length).toBe(2);
+    const scopeNames = scopeSpansList
+      .map(ss => findLenField(ss, 1)) // InstrumentationScope
+      .map(scope => (scope ? findLenField(scope, 1)?.toString('utf-8') : undefined));
+    expect(scopeNames).toContain('scope-a');
+    expect(scopeNames).toContain('scope-b');
+  });
+});
+
 describe('LiteSdk - encodeVarint (64-bit / negative)', () => {
   // encodeVarint is module-private; exercise it through encodeAnyValue, which
   // is itself reached via the public KeyValue path. We decode the resulting
@@ -1209,5 +1384,44 @@ describe('LiteSdk - Full Invocation Simulation', () => {
     }
 
     expect(mockUdp.sendOtlp.callCount).toBe(3);
+  });
+});
+
+describe('LiteSdk - buildInstrumentations', () => {
+  let buildInstrumentations: () => any[];
+  const ENABLED = 'OTEL_NODE_ENABLED_INSTRUMENTATIONS';
+  const DISABLED = 'OTEL_NODE_DISABLED_INSTRUMENTATIONS';
+
+  before(() => {
+    buildInstrumentations = require('../src/opentelemetry_lite_sdk').buildInstrumentations;
+  });
+
+  afterEach(() => {
+    delete process.env[ENABLED];
+    delete process.env[DISABLED];
+  });
+
+  it('returns instances when no enable/disable env is set (registry default)', () => {
+    const instrs = buildInstrumentations();
+    expect(Array.isArray(instrs)).toBe(true);
+    // aws-sdk, http and aws-lambda are installed deps, so at least these load.
+    expect(instrs.length).toBeGreaterThan(0);
+  });
+
+  it('honors the enabled allowlist (only aws-sdk)', () => {
+    process.env[ENABLED] = 'aws-sdk';
+    const instrs = buildInstrumentations();
+    // Exactly the allowlisted, installed instrumentation is built.
+    expect(instrs.length).toBe(1);
+    expect(instrs[0].constructor.name).toBe('AwsInstrumentation');
+  });
+
+  it('honors the disabled denylist', () => {
+    process.env[ENABLED] = 'aws-sdk,http';
+    process.env[DISABLED] = 'http';
+    const instrs = buildInstrumentations();
+    const names = instrs.map(i => i.constructor.name);
+    expect(names).toContain('AwsInstrumentation');
+    expect(names).not.toContain('HttpInstrumentation');
   });
 });

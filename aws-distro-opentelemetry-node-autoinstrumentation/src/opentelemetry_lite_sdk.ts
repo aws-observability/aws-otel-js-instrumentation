@@ -452,6 +452,7 @@ function resolveRemoteOperation(attributes: Record<string, AttributeValue>): str
 const WIRE_VARINT = 0;
 const WIRE_FIXED64 = 1;
 const WIRE_LEN_DELIMITED = 2;
+const WIRE_FIXED32 = 5;
 
 function encodeVarint(value: number): Buffer {
   // Fast path for small non-negative values (tags, lengths, and the common
@@ -516,6 +517,15 @@ function encodeFixed64Field(fieldNumber: number, value: number): Buffer {
   const buf = Buffer.alloc(8);
   buf.writeBigUInt64LE(BigInt(value));
   return Buffer.concat([encodeTag(fieldNumber, WIRE_FIXED64), buf]);
+}
+
+// Always writes the field (no zero-skip), since the only caller — the span
+// `flags` field — always has the HAS_IS_REMOTE bit (0x100) set, so it is never
+// zero and must always be emitted.
+function encodeFixed32Field(fieldNumber: number, value: number): Buffer {
+  const buf = Buffer.alloc(4);
+  buf.writeUInt32LE(value >>> 0);
+  return Buffer.concat([encodeTag(fieldNumber, WIRE_FIXED32), buf]);
 }
 
 function encodeAnyValue(value: AttributeValue): Buffer {
@@ -596,8 +606,14 @@ function encodeSpanOtlp(span: Span): Buffer {
     parts.push(encodeBytesField(11, encodeSpanEvent(event)));
   }
 
+  // Field 16: flags. OTLP SpanFlags packs the W3C trace flags into the low byte
+  // and sets HAS_IS_REMOTE (0x100) to indicate the is_remote bit is meaningful.
+  parts.push(encodeFixed32Field(16, (ctx.traceFlags | 0x100) >>> 0));
+
+  // Field 15: status. (Field 13 is `links` in the OTLP Span message — the
+  // previous code wrote status to 13, which corrupted it.)
   const statusBytes = encodeSpanStatus(span.status);
-  if (statusBytes.length > 0) parts.push(encodeBytesField(13, statusBytes));
+  if (statusBytes.length > 0) parts.push(encodeBytesField(15, statusBytes));
 
   return Buffer.concat(parts);
 }
@@ -616,27 +632,63 @@ function encodeInstrumentationScope(scope: InstrumentationScope): Buffer {
   return Buffer.concat(parts);
 }
 
+function resourceKey(resource: Record<string, string>): string {
+  if (!resource) return '';
+  return Object.keys(resource)
+    .sort()
+    .map(k => `${k}=${resource[k]}`)
+    .join(',');
+}
+
+function scopeKey(scope: InstrumentationScope | undefined): string {
+  if (!scope) return ' ';
+  return `${scope.name || ''} ${scope.version || ''}`;
+}
+
 function encodeExportTraceRequest(spans: Span[]): Buffer {
   if (spans.length === 0) return Buffer.alloc(0);
 
-  const firstSpan = spans[0];
-
-  const encodedSpanParts: Buffer[] = [];
+  // Group spans by resource, then by instrumentation scope, so each distinct
+  // scope produces its own ScopeSpans entry (matching OTLP semantics and the
+  // Python lite SDK). Insertion-ordered Maps keep the output deterministic.
+  const resourceGroups = new Map<string, { resource: Record<string, string>; scopes: Map<string, Span[]> }>();
   for (const span of spans) {
-    encodedSpanParts.push(encodeBytesField(2, encodeSpanOtlp(span)));
+    const rKey = resourceKey(span.resource);
+    let rGroup = resourceGroups.get(rKey);
+    if (!rGroup) {
+      rGroup = { resource: span.resource, scopes: new Map() };
+      resourceGroups.set(rKey, rGroup);
+    }
+    const sKey = scopeKey(span.instrumentationScope);
+    let scopeSpans = rGroup.scopes.get(sKey);
+    if (!scopeSpans) {
+      scopeSpans = [];
+      rGroup.scopes.set(sKey, scopeSpans);
+    }
+    scopeSpans.push(span);
   }
 
-  const scopeBytes = encodeInstrumentationScope(firstSpan.instrumentationScope);
-  const scopeSpanParts: Buffer[] = [];
-  if (scopeBytes.length > 0) scopeSpanParts.push(encodeBytesField(1, scopeBytes));
-  scopeSpanParts.push(...encodedSpanParts);
+  const resourceSpansParts: Buffer[] = [];
+  for (const rGroup of resourceGroups.values()) {
+    const resourceSpanParts: Buffer[] = [];
 
-  const resourceBytes = encodeResource(firstSpan.resource);
-  const resourceSpanParts: Buffer[] = [];
-  if (resourceBytes.length > 0) resourceSpanParts.push(encodeBytesField(1, resourceBytes));
-  resourceSpanParts.push(encodeBytesField(2, Buffer.concat(scopeSpanParts)));
+    const resourceBytes = encodeResource(rGroup.resource);
+    if (resourceBytes.length > 0) resourceSpanParts.push(encodeBytesField(1, resourceBytes));
 
-  return encodeBytesField(1, Buffer.concat(resourceSpanParts));
+    for (const scopeSpans of rGroup.scopes.values()) {
+      const scopeSpanParts: Buffer[] = [];
+      const scopeBytes = encodeInstrumentationScope(scopeSpans[0].instrumentationScope);
+      if (scopeBytes.length > 0) scopeSpanParts.push(encodeBytesField(1, scopeBytes));
+      for (const span of scopeSpans) {
+        scopeSpanParts.push(encodeBytesField(2, encodeSpanOtlp(span)));
+      }
+      resourceSpanParts.push(encodeBytesField(2, Buffer.concat(scopeSpanParts)));
+    }
+
+    resourceSpansParts.push(encodeBytesField(1, Buffer.concat(resourceSpanParts)));
+  }
+
+  return Buffer.concat(resourceSpansParts);
 }
 
 
@@ -770,8 +822,140 @@ export class BatchingSpanProcessor implements SpanProcessor {
   }
 }
 
+const INSTRUMENTATION_REGISTRY: Record<string, () => any> = {
+  '@opentelemetry/instrumentation-amqplib': () => require('@opentelemetry/instrumentation-amqplib').AmqplibInstrumentation,
+  '@opentelemetry/instrumentation-aws-lambda': () => require('@opentelemetry/instrumentation-aws-lambda').AwsLambdaInstrumentation,
+  '@opentelemetry/instrumentation-aws-sdk': () => require('@opentelemetry/instrumentation-aws-sdk').AwsInstrumentation,
+  '@opentelemetry/instrumentation-bunyan': () => require('@opentelemetry/instrumentation-bunyan').BunyanInstrumentation,
+  '@opentelemetry/instrumentation-cassandra-driver': () => require('@opentelemetry/instrumentation-cassandra-driver').CassandraDriverInstrumentation,
+  '@opentelemetry/instrumentation-connect': () => require('@opentelemetry/instrumentation-connect').ConnectInstrumentation,
+  '@opentelemetry/instrumentation-cucumber': () => require('@opentelemetry/instrumentation-cucumber').CucumberInstrumentation,
+  '@opentelemetry/instrumentation-dataloader': () => require('@opentelemetry/instrumentation-dataloader').DataloaderInstrumentation,
+  '@opentelemetry/instrumentation-dns': () => require('@opentelemetry/instrumentation-dns').DnsInstrumentation,
+  '@opentelemetry/instrumentation-express': () => require('@opentelemetry/instrumentation-express').ExpressInstrumentation,
+  '@opentelemetry/instrumentation-fs': () => require('@opentelemetry/instrumentation-fs').FsInstrumentation,
+  '@opentelemetry/instrumentation-generic-pool': () => require('@opentelemetry/instrumentation-generic-pool').GenericPoolInstrumentation,
+  '@opentelemetry/instrumentation-graphql': () => require('@opentelemetry/instrumentation-graphql').GraphQLInstrumentation,
+  '@opentelemetry/instrumentation-grpc': () => require('@opentelemetry/instrumentation-grpc').GrpcInstrumentation,
+  '@opentelemetry/instrumentation-hapi': () => require('@opentelemetry/instrumentation-hapi').HapiInstrumentation,
+  '@opentelemetry/instrumentation-host-metrics': () => require('@opentelemetry/instrumentation-host-metrics').HostMetricsInstrumentation,
+  '@opentelemetry/instrumentation-http': () => require('@opentelemetry/instrumentation-http').HttpInstrumentation,
+  '@opentelemetry/instrumentation-ioredis': () => require('@opentelemetry/instrumentation-ioredis').IORedisInstrumentation,
+  '@opentelemetry/instrumentation-kafkajs': () => require('@opentelemetry/instrumentation-kafkajs').KafkaJsInstrumentation,
+  '@opentelemetry/instrumentation-knex': () => require('@opentelemetry/instrumentation-knex').KnexInstrumentation,
+  '@opentelemetry/instrumentation-koa': () => require('@opentelemetry/instrumentation-koa').KoaInstrumentation,
+  '@opentelemetry/instrumentation-lru-memoizer': () => require('@opentelemetry/instrumentation-lru-memoizer').LruMemoizerInstrumentation,
+  '@opentelemetry/instrumentation-memcached': () => require('@opentelemetry/instrumentation-memcached').MemcachedInstrumentation,
+  '@opentelemetry/instrumentation-mongodb': () => require('@opentelemetry/instrumentation-mongodb').MongoDBInstrumentation,
+  '@opentelemetry/instrumentation-mongoose': () => require('@opentelemetry/instrumentation-mongoose').MongooseInstrumentation,
+  '@opentelemetry/instrumentation-mysql2': () => require('@opentelemetry/instrumentation-mysql2').MySQL2Instrumentation,
+  '@opentelemetry/instrumentation-mysql': () => require('@opentelemetry/instrumentation-mysql').MySQLInstrumentation,
+  '@opentelemetry/instrumentation-nestjs-core': () => require('@opentelemetry/instrumentation-nestjs-core').NestInstrumentation,
+  '@opentelemetry/instrumentation-net': () => require('@opentelemetry/instrumentation-net').NetInstrumentation,
+  '@opentelemetry/instrumentation-openai': () => require('@opentelemetry/instrumentation-openai').OpenAIInstrumentation,
+  '@opentelemetry/instrumentation-oracledb': () => require('@opentelemetry/instrumentation-oracledb').OracleInstrumentation,
+  '@opentelemetry/instrumentation-pg': () => require('@opentelemetry/instrumentation-pg').PgInstrumentation,
+  '@opentelemetry/instrumentation-pino': () => require('@opentelemetry/instrumentation-pino').PinoInstrumentation,
+  '@opentelemetry/instrumentation-redis': () => require('@opentelemetry/instrumentation-redis').RedisInstrumentation,
+  '@opentelemetry/instrumentation-restify': () => require('@opentelemetry/instrumentation-restify').RestifyInstrumentation,
+  '@opentelemetry/instrumentation-router': () => require('@opentelemetry/instrumentation-router').RouterInstrumentation,
+  '@opentelemetry/instrumentation-runtime-node': () => require('@opentelemetry/instrumentation-runtime-node').RuntimeNodeInstrumentation,
+  '@opentelemetry/instrumentation-socket.io': () => require('@opentelemetry/instrumentation-socket.io').SocketIoInstrumentation,
+  '@opentelemetry/instrumentation-tedious': () => require('@opentelemetry/instrumentation-tedious').TediousInstrumentation,
+  '@opentelemetry/instrumentation-undici': () => require('@opentelemetry/instrumentation-undici').UndiciInstrumentation,
+  '@opentelemetry/instrumentation-winston': () => require('@opentelemetry/instrumentation-winston').WinstonInstrumentation,
+};
+
+
+const DEFAULT_EXCLUDED_INSTRUMENTATIONS: string[] = [
+  '@opentelemetry/instrumentation-fs',
+  '@opentelemetry/instrumentation-host-metrics',
+];
+
+
+function instrumentationConfigFor(name: string): Record<string, unknown> {
+  if (name === '@opentelemetry/instrumentation-aws-sdk') {
+    return { suppressInternalInstrumentation: true };
+  }
+  if (name === '@opentelemetry/instrumentation-aws-lambda') {
+    return { eventContextExtractor: liteEventContextExtractor };
+  }
+  return {};
+}
+
+function parseInstrumentationEnv(envVar: string): string[] {
+  const value = process.env[envVar];
+  if (!value) return [];
+  return value
+    .split(',')
+    .map(suffix => suffix.trim())
+    .filter(suffix => suffix !== '')
+    .map(suffix => `@opentelemetry/instrumentation-${suffix}`);
+}
+
+function getEnabledInstrumentationsFromEnv(): string[] {
+  if (!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
+    return Object.keys(INSTRUMENTATION_REGISTRY).filter(
+      key => !DEFAULT_EXCLUDED_INSTRUMENTATIONS.includes(key)
+    );
+  }
+  return parseInstrumentationEnv('OTEL_NODE_ENABLED_INSTRUMENTATIONS');
+}
+
+function shouldDisableInstrumentation(
+  name: string,
+  enabledFromEnv: string[],
+  disabledFromEnv: string[]
+): boolean {
+  if (disabledFromEnv.includes(name)) return true;
+
+  const isEnabledEnvSet = !!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS;
+  if (isEnabledEnvSet && !enabledFromEnv.includes(name)) return true;
+
+  if (!isEnabledEnvSet && DEFAULT_EXCLUDED_INSTRUMENTATIONS.includes(name)) return true;
+
+  return false;
+}
+
+export function buildInstrumentations(): any[] {
+  const enabledFromEnv = getEnabledInstrumentationsFromEnv();
+  const disabledFromEnv = parseInstrumentationEnv('OTEL_NODE_DISABLED_INSTRUMENTATIONS');
+  const instrumentations: any[] = [];
+
+  for (const name of Object.keys(INSTRUMENTATION_REGISTRY)) {
+    if (shouldDisableInstrumentation(name, enabledFromEnv, disabledFromEnv)) {
+      continue;
+    }
+    try {
+      const InstrumentationClass = INSTRUMENTATION_REGISTRY[name]();
+      if (typeof InstrumentationClass !== 'function') {
+        diag.debug(`Lite SDK: instrumentation class not found for ${name}`);
+        continue;
+      }
+      const instrumentation = new InstrumentationClass(instrumentationConfigFor(name));
+      if (name === '@opentelemetry/instrumentation-aws-sdk') {
+        patchAwsSdkForSmithyCore(instrumentation);
+      }
+      instrumentations.push(instrumentation);
+    } catch (e) {
+      diag.debug(`Lite SDK: failed to load instrumentation ${name}`, e);
+    }
+  }
+
+  return instrumentations;
+}
+
 
 export function configureLiteMode(): TracerProvider {
+  const logLevelName = (process.env.OTEL_LOG_LEVEL || '').toUpperCase();
+  if (logLevelName) {
+    const { DiagConsoleLogger, DiagLogLevel } = require('@opentelemetry/api');
+    const level = (DiagLogLevel as Record<string, number>)[logLevelName];
+    if (level !== undefined) {
+      diag.setLogger(new DiagConsoleLogger(), level);
+    }
+  }
+
   const provider = new TracerProvider();
   const endpoint = process.env.AWS_XRAY_DAEMON_ADDRESS || DEFAULT_ENDPOINT;
   provider.addSpanProcessor(new BatchingSpanProcessor(new UdpSpanExporter(endpoint)));
@@ -794,30 +978,13 @@ export function configureLiteMode(): TracerProvider {
     })
   );
 
-  const { AwsInstrumentation } = require('@opentelemetry/instrumentation-aws-sdk');
-  const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http');
-  const { AwsLambdaInstrumentation } = require('@opentelemetry/instrumentation-aws-lambda');
-
-  const awsInstrumentation = new AwsInstrumentation({ suppressInternalInstrumentation: true });
-  const httpInstrumentation = new HttpInstrumentation();
-  const lambdaInstrumentation = new AwsLambdaInstrumentation({
-    eventContextExtractor: liteEventContextExtractor,
-  });
-
-  patchAwsSdkForSmithyCore(awsInstrumentation);
-
-  awsInstrumentation.setTracerProvider(provider);
-  httpInstrumentation.setTracerProvider(provider);
-  lambdaInstrumentation.setTracerProvider(provider);
-
-  awsInstrumentation.enable();
-  httpInstrumentation.enable();
-  lambdaInstrumentation.enable();
+  for (const instrumentation of buildInstrumentations()) {
+    instrumentation.setTracerProvider(provider);
+    instrumentation.enable();
+  }
 
   return provider;
 }
-
-// ─── Lite Event Context Extractor ──────────────────────────────────────────
 
 export function liteEventContextExtractor(event: any, handlerContext: any): Context {
   const xrayTraceId = handlerContext?.['xRayTraceId'] || process.env[TRACE_CONTEXT_ENV_KEY];
@@ -853,11 +1020,6 @@ export function patchAwsSdkForSmithyCore(awsInstrumentation: any): void {
   try {
     const instr = awsInstrumentation;
 
-    // shimmer invokes the patch factory as `wrapper(original, name)`. The upstream
-    // binds `moduleVersion` first (`_getV3SmithyClientSendPatch.bind(this, moduleVersion)`),
-    // so this factory actually receives (moduleVersion, original, name) — the original
-    // `send` is the sole function argument. Pick it by type rather than position so we are
-    // robust to either the bound or unbound upstream signature.
     instr['_getV3SmithyClientSendPatch'] = function (this: any, ...factoryArgs: unknown[]) {
       const self = this;
       const original = factoryArgs.find(arg => typeof arg === 'function') as (

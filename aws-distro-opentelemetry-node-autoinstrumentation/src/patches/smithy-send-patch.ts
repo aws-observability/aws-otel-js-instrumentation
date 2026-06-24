@@ -16,19 +16,12 @@
 // - Capture aws.auth.account.access_key and aws.auth.region from client config
 // - Capture aws.request.id, aws.request.extended_id, http.status_code from response $metadata
 
-import {
-  context as otelContext,
-  diag,
-  propagation,
-  trace,
-  defaultTextMapSetter,
-} from '@opentelemetry/api';
+import { context as otelContext, diag, propagation, trace, defaultTextMapSetter } from '@opentelemetry/api';
 
 const XRAY_TRACE_ID_HEADER = 'x-amzn-trace-id';
 const XRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
 
-const isLiteMode = (): boolean =>
-  (process.env.OTEL_AWS_LAMBDA_FAST_START || 'false').toLowerCase() === 'true';
+const isLiteMode = (): boolean => (process.env.OTEL_AWS_LAMBDA_FAST_START || 'false').toLowerCase() === 'true';
 
 // Symbol to prevent infinite recursion during credential capture in full mode.
 // When extracting credentials, the AWS SDK may make additional API calls (e.g. STS)
@@ -57,9 +50,7 @@ export function applySmithySendPatch(awsInstrumentation: any): void {
     // either the bound `(moduleVersion, original, name)` or unbound `(original, name)`.
     instr['_getV3SmithyClientSendPatch'] = function (this: any, ...factoryArgs: unknown[]) {
       const self = this;
-      const original = factoryArgs.find(arg => typeof arg === 'function') as (
-        ...args: unknown[]
-      ) => Promise<any>;
+      const original = factoryArgs.find(arg => typeof arg === 'function') as (...args: unknown[]) => Promise<any>;
 
       return function send(this: any, command: any, ...args: unknown[]): Promise<any> {
         if (!this.__adotMiddlewarePatched) {
@@ -102,7 +93,9 @@ export function applySmithySendPatch(awsInstrumentation: any): void {
                         span.setAttribute('aws.auth.region', region);
                       }
                     }
-                  } catch (_) { /* best-effort */ }
+                  } catch (_) {
+                    /* best-effort */
+                  }
                 }
                 return await next(middlewareArgs);
               },
@@ -120,9 +113,7 @@ export function applySmithySendPatch(awsInstrumentation: any): void {
                 }
                 const span = trace.getSpan(activeContext);
                 if (span) {
-                  const suppressedContext = suppressTracing(activeContext).setValue(
-                    SKIP_CREDENTIAL_CAPTURE_KEY, true
-                  );
+                  const suppressedContext = suppressTracing(activeContext).setValue(SKIP_CREDENTIAL_CAPTURE_KEY, true);
                   if (suppressedContext.getValue(SKIP_CREDENTIAL_CAPTURE_KEY)) {
                     await otelContext.with(suppressedContext, async () => {
                       try {

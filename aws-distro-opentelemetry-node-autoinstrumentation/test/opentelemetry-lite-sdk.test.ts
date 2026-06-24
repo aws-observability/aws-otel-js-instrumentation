@@ -48,7 +48,6 @@ describe('LiteSdk - buildLambdaResource', () => {
   });
 });
 
-
 describe('LiteSdk - InstrumentationScope', () => {
   it('stores properties', () => {
     const scope = new InstrumentationScope('my-module', '1.0.0', 'https://schema.url');
@@ -302,18 +301,18 @@ describe('LiteSdk - Span', () => {
     span.end();
   });
 
-  it('treats a small numeric startTime as seconds (converts to nanos)', () => {
-    // timeInputToNanos: values < 1e12 are seconds -> multiply by 1e9.
-    const span = tracer.startSpan('test', { startTime: 100 }) as Span;
-    expect(span.startTime).toBe(100 * 1e9);
+  it('treats numeric startTime as epoch milliseconds (converts to nanos)', () => {
+    // Per OTel convention, numeric TimeInput is epoch milliseconds (like Date.now()).
+    const epochMs = 1700000000000; // Nov 2023 in ms
+    const span = tracer.startSpan('test', { startTime: epochMs }) as Span;
+    expect(span.startTime).toBe(epochMs * 1e6);
     span.end();
   });
 
-  it('treats a large numeric startTime as already-nanos', () => {
-    // values >= 1e12 are passed through unchanged.
-    const nanos = 1700000000000000000;
-    const span = tracer.startSpan('test', { startTime: nanos }) as Span;
-    expect(span.startTime).toBe(nanos);
+  it('treats Date startTime as epoch milliseconds (converts to nanos)', () => {
+    const date = new Date(1700000000000);
+    const span = tracer.startSpan('test', { startTime: date }) as Span;
+    expect(span.startTime).toBe(1700000000000 * 1e6);
     span.end();
   });
 
@@ -647,7 +646,9 @@ describe('LiteSdk - OTLP Encoding', () => {
     const exporter = new UdpSpanExporter('127.0.0.1:2000');
     const sentBuffers: Buffer[] = [];
     (exporter as any)._udpExporter = {
-      sendOtlp: (data: Buffer) => { sentBuffers.push(data); },
+      sendOtlp: (data: Buffer) => {
+        sentBuffers.push(data);
+      },
       shutdown: () => {},
     };
 
@@ -667,7 +668,9 @@ describe('LiteSdk - OTLP Encoding', () => {
     const exporter = new UdpSpanExporter('127.0.0.1:2000');
     const sentBuffers: Buffer[] = [];
     (exporter as any)._udpExporter = {
-      sendOtlp: (data: Buffer) => { sentBuffers.push(data); },
+      sendOtlp: (data: Buffer) => {
+        sentBuffers.push(data);
+      },
       shutdown: () => {},
     };
 
@@ -688,7 +691,9 @@ describe('LiteSdk - OTLP Encoding', () => {
     const exporter = new UdpSpanExporter('127.0.0.1:2000');
     const sentBuffers: Buffer[] = [];
     (exporter as any)._udpExporter = {
-      sendOtlp: (data: Buffer) => { sentBuffers.push(data); },
+      sendOtlp: (data: Buffer) => {
+        sentBuffers.push(data);
+      },
       shutdown: () => {},
     };
 
@@ -707,7 +712,9 @@ describe('LiteSdk - OTLP Encoding', () => {
     const exporter = new UdpSpanExporter('127.0.0.1:2000');
     const sentBuffers: Buffer[] = [];
     (exporter as any)._udpExporter = {
-      sendOtlp: (data: Buffer) => { sentBuffers.push(data); },
+      sendOtlp: (data: Buffer) => {
+        sentBuffers.push(data);
+      },
       shutdown: () => {},
     };
     const provider = new TracerProvider({ 'service.name': 'test' });
@@ -724,7 +731,9 @@ describe('LiteSdk - OTLP Encoding', () => {
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'false';
     const exporter = new UdpSpanExporter('127.0.0.1:2000');
     (exporter as any)._udpExporter = {
-      sendOtlp: () => { throw new Error('udp down'); },
+      sendOtlp: () => {
+        throw new Error('udp down');
+      },
       shutdown: () => {},
     };
     const provider = new TracerProvider({ 'service.name': 'test' });
@@ -746,7 +755,9 @@ describe('LiteSdk - OTLP Encoding', () => {
     const exporter = new UdpSpanExporter('127.0.0.1:2000');
     const sentBuffers: Buffer[] = [];
     (exporter as any)._udpExporter = {
-      sendOtlp: (data: Buffer) => { sentBuffers.push(data); },
+      sendOtlp: (data: Buffer) => {
+        sentBuffers.push(data);
+      },
       shutdown: () => {},
     };
 
@@ -873,7 +884,9 @@ describe('LiteSdk - OTLP wire-format correctness', () => {
     const exporter = new UdpSpanExporter('127.0.0.1:2000');
     let sent: Buffer | undefined;
     (exporter as any)._udpExporter = {
-      sendOtlp: (data: Buffer) => { sent = data; },
+      sendOtlp: (data: Buffer) => {
+        sent = data;
+      },
       shutdown: () => {},
     };
     const provider = new TracerProvider({ 'service.name': 'test' });
@@ -942,7 +955,9 @@ describe('LiteSdk - encodeVarint (64-bit / negative)', () => {
     const exporter = new UdpSpanExporter('127.0.0.1:2000');
     let sent: Buffer | undefined;
     (exporter as any)._udpExporter = {
-      sendOtlp: (data: Buffer) => { sent = data; },
+      sendOtlp: (data: Buffer) => {
+        sent = data;
+      },
       shutdown: () => {},
     };
     const provider = new TracerProvider({ 'service.name': 'test' });
@@ -983,8 +998,10 @@ describe('LiteSdk - encodeVarint (64-bit / negative)', () => {
                 return readVarint(anyValue, ap).value;
               }
               if (aw === 0) ap = readVarint(anyValue, ap).pos;
-              else if (aw === 2) { const l = readVarint(anyValue, ap); ap = l.pos + Number(l.value); }
-              else if (aw === 1) ap += 8;
+              else if (aw === 2) {
+                const l = readVarint(anyValue, ap);
+                ap = l.pos + Number(l.value);
+              } else if (aw === 1) ap += 8;
               else break;
             }
           }
@@ -1016,24 +1033,32 @@ describe('LiteSdk - encodeVarint (64-bit / negative)', () => {
     expect(encodeAndExtractIntAttr(big)).toBe(BigInt(big));
   });
 
-  it('encodes a negative integer as two\'s-complement int64', () => {
+  it("encodes a negative integer as two's-complement int64", () => {
     // -1 in two's complement int64 is 0xffffffffffffffff.
     expect(encodeAndExtractIntAttr(-1)).toBe((BigInt(1) << BigInt(64)) - BigInt(1));
   });
 });
 
 describe('LiteSdk - liteEventContextExtractor', () => {
-  // Extraction relies on the global X-Ray propagator that configureLiteMode installs.
+  // When run with --require @opentelemetry/contrib-test-utils, the global propagator
+  // is already set and can't be overridden. Use disable() first to release the lock.
   before(() => {
-    configureLiteMode();
+    const { propagation } = require('@opentelemetry/api');
+    const { CompositePropagator, W3CBaggagePropagator, W3CTraceContextPropagator } = require('@opentelemetry/core');
+    const { AWSXRayPropagator } = require('@opentelemetry/propagator-aws-xray');
+    propagation.disable();
+    propagation.setGlobalPropagator(
+      new CompositePropagator({
+        propagators: [new W3CBaggagePropagator(), new AWSXRayPropagator(), new W3CTraceContextPropagator()],
+      })
+    );
   });
 
   afterEach(() => {
     delete process.env._X_AMZN_TRACE_ID;
   });
 
-  const VALID_XRAY =
-    'Root=1-5759e988-bd862e3fe1be46a994272793;Parent=53995c3f42cd8ad8;Sampled=1';
+  const VALID_XRAY = 'Root=1-5759e988-bd862e3fe1be46a994272793;Parent=53995c3f42cd8ad8;Sampled=1';
 
   it('extracts context from the _X_AMZN_TRACE_ID env var', () => {
     process.env._X_AMZN_TRACE_ID = VALID_XRAY;
@@ -1044,18 +1069,14 @@ describe('LiteSdk - liteEventContextExtractor', () => {
   });
 
   it('prefers the handler context xRayTraceId over the env var', () => {
-    process.env._X_AMZN_TRACE_ID =
-      'Root=1-00000000-000000000000000000000000;Parent=0000000000000000;Sampled=0';
+    process.env._X_AMZN_TRACE_ID = 'Root=1-00000000-000000000000000000000000;Parent=0000000000000000;Sampled=0';
     const ctx = liteEventContextExtractor({}, { xRayTraceId: VALID_XRAY });
     const sc = trace.getSpan(ctx)?.spanContext();
     expect(sc?.traceId).toBe('5759e988bd862e3fe1be46a994272793');
   });
 
   it('extracts from event headers when no x-ray id present', () => {
-    const ctx = liteEventContextExtractor(
-      { headers: { 'x-amzn-trace-id': VALID_XRAY } },
-      {}
-    );
+    const ctx = liteEventContextExtractor({ headers: { 'x-amzn-trace-id': VALID_XRAY } }, {});
     const sc = trace.getSpan(ctx)?.spanContext();
     expect(sc?.traceId).toBe('5759e988bd862e3fe1be46a994272793');
   });
@@ -1069,10 +1090,7 @@ describe('LiteSdk - liteEventContextExtractor', () => {
     // Event already carries an x-amzn-trace-id; the env/handler id must win,
     // exercising the header-dedup loop.
     process.env._X_AMZN_TRACE_ID = VALID_XRAY;
-    const ctx = liteEventContextExtractor(
-      { headers: { 'X-Amzn-Trace-Id': 'Root=1-stale-stale-stale' } },
-      {}
-    );
+    const ctx = liteEventContextExtractor({ headers: { 'X-Amzn-Trace-Id': 'Root=1-stale-stale-stale' } }, {});
     const sc = trace.getSpan(ctx)?.spanContext();
     expect(sc?.traceId).toBe('5759e988bd862e3fe1be46a994272793');
   });
@@ -1161,9 +1179,7 @@ describe('LiteSdk - patchAwsSdkForSmithyCore', () => {
     const client = makeClient();
     await send.call(client, {});
 
-    const inject = client.added.find(
-      a => a.opts.name === '_adotInjectXrayContextMiddleware'
-    ).mw;
+    const inject = client.added.find(a => a.opts.name === '_adotInjectXrayContextMiddleware').mw;
     const headers: Record<string, string> = { 'x-amzn-trace-id': 'Root=1-abc' };
     const next = sinon.stub().resolves({});
     await inject(next)({ request: { headers } });
@@ -1181,9 +1197,7 @@ describe('LiteSdk - patchAwsSdkForSmithyCore', () => {
     const client = makeClient();
     await send.call(client, {});
 
-    const capture = client.added.find(
-      a => a.opts.name === '_adotCaptureResponseMetadata'
-    ).mw;
+    const capture = client.added.find(a => a.opts.name === '_adotCaptureResponseMetadata').mw;
 
     const provider = new TracerProvider({ 'service.name': 'test' });
     const tracer = provider.getTracer('test');
@@ -1215,9 +1229,7 @@ describe('LiteSdk - patchAwsSdkForSmithyCore', () => {
     client.config.region = async () => 'us-west-2';
     await send.call(client, {});
 
-    const extract = client.added.find(
-      a => a.opts.name === '_adotExtractCredentials'
-    ).mw;
+    const extract = client.added.find(a => a.opts.name === '_adotExtractCredentials').mw;
 
     const provider = new TracerProvider({ 'service.name': 'test' });
     const tracer = provider.getTracer('test');
@@ -1241,12 +1253,12 @@ describe('LiteSdk - patchAwsSdkForSmithyCore', () => {
     const send = instr._getV3SmithyClientSendPatch(original);
 
     const client = makeClient();
-    client.config.credentials = async () => { throw new Error('no creds'); };
+    client.config.credentials = async () => {
+      throw new Error('no creds');
+    };
     await send.call(client, {});
 
-    const extract = client.added.find(
-      a => a.opts.name === '_adotExtractCredentials'
-    ).mw;
+    const extract = client.added.find(a => a.opts.name === '_adotExtractCredentials').mw;
 
     const provider = new TracerProvider({ 'service.name': 'test' });
     const tracer = provider.getTracer('test');
@@ -1308,9 +1320,7 @@ describe('LiteSdk - UdpExporter', () => {
 
   it('sendOtlp swallows socket send errors', () => {
     const exporter = new UdpExporter('127.0.0.1:2000');
-    const sendStub = sinon
-      .stub((exporter as any)._socket, 'send')
-      .throws(new Error('socket closed'));
+    const sendStub = sinon.stub((exporter as any)._socket, 'send').throws(new Error('socket closed'));
 
     expect(() => exporter.sendOtlp(Buffer.from('data'), 'T1U')).not.toThrow();
 
@@ -1473,7 +1483,9 @@ describe('LiteSdk - Parity Check vs Full SDK', () => {
     const exporter = new UdpSpanExporter('127.0.0.1:2000');
     let capturedBuffer: Buffer = Buffer.alloc(0);
     (exporter as any)._udpExporter = {
-      sendOtlp: (data: Buffer) => { capturedBuffer = data; },
+      sendOtlp: (data: Buffer) => {
+        capturedBuffer = data;
+      },
       shutdown: () => {},
     };
 
@@ -1540,9 +1552,7 @@ describe('LiteSdk - Parity Check vs Full SDK', () => {
 
     it('CLIENT span inherits faas.id from parent', () => {
       const { clientSpan } = createLiteSpans();
-      expect(clientSpan.attributes['faas.id']).toBe(
-        `arn:aws:lambda:us-west-2:123456789012:function:${FUNCTION_NAME}`
-      );
+      expect(clientSpan.attributes['faas.id']).toBe(`arn:aws:lambda:us-west-2:123456789012:function:${FUNCTION_NAME}`);
     });
 
     it('resource attributes match expected full SDK output', () => {
@@ -1596,7 +1606,9 @@ describe('LiteSdk - Parity Check vs Full SDK', () => {
         // The buffer is a raw ExportTraceServiceRequest — try deserializing via protobufjs
         const protobuf = require('protobufjs');
         const root = protobuf.loadSync(
-          require.resolve('@opentelemetry/otlp-transformer/protos/opentelemetry/proto/collector/trace/v1/trace_service.proto')
+          require.resolve(
+            '@opentelemetry/otlp-transformer/protos/opentelemetry/proto/collector/trace/v1/trace_service.proto'
+          )
         );
         const ExportTraceServiceRequest = root.lookupType(
           'opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest'
@@ -1633,8 +1645,9 @@ describe('LiteSdk - Parity Check vs Full SDK', () => {
 
       // Verify parent-child via spanId/parentSpanId
       expect(clientProto.parentSpanId).toBeDefined();
-      expect(clientProto.traceId.toString('hex') || Buffer.from(clientProto.traceId).toString('hex'))
-        .toBe(serverProto.traceId.toString('hex') || Buffer.from(serverProto.traceId).toString('hex'));
+      expect(clientProto.traceId.toString('hex') || Buffer.from(clientProto.traceId).toString('hex')).toBe(
+        serverProto.traceId.toString('hex') || Buffer.from(serverProto.traceId).toString('hex')
+      );
     });
 
     it('resource attributes are encoded in the protobuf payload', () => {
@@ -1665,7 +1678,9 @@ describe('LiteSdk - Parity Check vs Full SDK', () => {
       const exporter = new UdpSpanExporter('127.0.0.1:2000');
       let capturedPrefix = '';
       (exporter as any)._udpExporter = {
-        sendOtlp: (_data: Buffer, prefix: string) => { capturedPrefix = prefix; },
+        sendOtlp: (_data: Buffer, prefix: string) => {
+          capturedPrefix = prefix;
+        },
         shutdown: () => {},
       };
 
@@ -1698,21 +1713,36 @@ describe('LiteSdk - Parity Check vs Full SDK', () => {
         // These are the attributes the full SDK puts on spans via AwsMetricAttributesSpanExporter
         // Verify the lite SDK's encoding contains them all
         const expectedAttributes = [
-          'aws.local.service', SERVICE_NAME,
-          'aws.local.operation', `${FUNCTION_NAME}/FunctionHandler`,
-          'aws.local.environment', 'lambda:default',
-          'aws.remote.service', 'AWS::S3',
-          'aws.remote.operation', 'ListBuckets',
-          'aws.span.kind', 'LOCAL_ROOT',
-          'aws.span.kind', 'CLIENT',
-          'rpc.service', 'S3',
-          'rpc.system', 'aws-api',
-          'rpc.method', 'ListBuckets',
-          'aws.auth.region', 'us-west-2',
-          'aws.auth.account.access_key', 'AKIATEST',
-          'aws.request.id', 'TESTREQID123',
-          'aws.request.extended_id', 'EXTID456',
-          'telemetry.auto.version', require('../src/version').LIB_VERSION + '-aws',
+          'aws.local.service',
+          SERVICE_NAME,
+          'aws.local.operation',
+          `${FUNCTION_NAME}/FunctionHandler`,
+          'aws.local.environment',
+          'lambda:default',
+          'aws.remote.service',
+          'AWS::S3',
+          'aws.remote.operation',
+          'ListBuckets',
+          'aws.span.kind',
+          'LOCAL_ROOT',
+          'aws.span.kind',
+          'CLIENT',
+          'rpc.service',
+          'S3',
+          'rpc.system',
+          'aws-api',
+          'rpc.method',
+          'ListBuckets',
+          'aws.auth.region',
+          'us-west-2',
+          'aws.auth.account.access_key',
+          'AKIATEST',
+          'aws.request.id',
+          'TESTREQID123',
+          'aws.request.extended_id',
+          'EXTID456',
+          'telemetry.auto.version',
+          require('../src/version').LIB_VERSION + '-aws',
           'faas.id',
         ];
 

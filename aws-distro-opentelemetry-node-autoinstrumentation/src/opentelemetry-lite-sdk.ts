@@ -1,3 +1,5 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
 import * as dgram from 'dgram';
 import * as crypto from 'crypto';
 
@@ -24,7 +26,6 @@ import {
   diag,
 } from '@opentelemetry/api';
 
-
 const PROTOCOL_HEADER = '{"format":"json","version":1}\n';
 const DEFAULT_ENDPOINT = '127.0.0.1:2000';
 const INVALID_TRACE_ID = '00000000000000000000000000000000';
@@ -32,8 +33,11 @@ const INVALID_SPAN_ID = '0000000000000000';
 const XRAY_TRACE_ID_HEADER = 'x-amzn-trace-id';
 const TRACE_CONTEXT_ENV_KEY = '_X_AMZN_TRACE_ID';
 
+// Lazy-loaded from @opentelemetry/core on first use (via configureLiteMode). The lite
+// wrapper invokes configureLiteMode() at module load so any Tracer obtained after that
+// point sees the real implementation. The default no-op is safe because no Tracer can
+// be obtained before the global TracerProvider is set (also done in configureLiteMode).
 let isTracingSuppressed: (context: Context) => boolean = () => false;
-
 
 function generateTraceId(): string {
   return crypto.randomBytes(16).toString('hex');
@@ -43,9 +47,11 @@ function generateSpanId(): string {
   return crypto.randomBytes(8).toString('hex');
 }
 
-function isSpanContextValid(spanContext: SpanContext): boolean {
-  return spanContext.traceId !== INVALID_TRACE_ID && spanContext.spanId !== INVALID_SPAN_ID;
-}
+// Uses the stricter @opentelemetry/api isSpanContextValid when available (loaded lazily
+// alongside the API in configureLiteMode). Falls back to the zero-check for the brief
+// window before configureLiteMode runs (if ever — the lite-wrapper calls it at load).
+let isSpanContextValid: (spanContext: SpanContext) => boolean = spanContext =>
+  spanContext.traceId !== INVALID_TRACE_ID && spanContext.spanId !== INVALID_SPAN_ID;
 
 const _hrOffset = (() => {
   const wallMs = Date.now();
@@ -67,10 +73,14 @@ function hrTimeToNanos(hrTime: HrTime): number {
 
 function timeInputToNanos(time: TimeInput): number {
   if (typeof time === 'number') {
-    return time < 1e12 ? time * 1e9 : time;
+    // Per OTel convention, numeric TimeInput is epoch milliseconds (like Date.now())
+    return time * 1e6;
   }
   if (Array.isArray(time)) {
     return hrTimeToNanos(time as HrTime);
+  }
+  if (time instanceof Date) {
+    return time.getTime() * 1e6;
   }
   return hrTimeToNanos(getHrTime());
 }
@@ -87,7 +97,6 @@ function attrStr(attributes: Record<string, AttributeValue>, ...keys: string[]):
   return '';
 }
 
-
 function buildLambdaResource(): Record<string, string> {
   const attrs: Record<string, string> = {};
   const raw = process.env.OTEL_RESOURCE_ATTRIBUTES || '';
@@ -100,14 +109,14 @@ function buildLambdaResource(): Record<string, string> {
   const { VERSION: sdkVersion } = require('@opentelemetry/core');
   const { LIB_VERSION } = require('./version');
 
-  attrs['service.name'] = process.env.OTEL_SERVICE_NAME || '';
+  if (process.env.OTEL_SERVICE_NAME) attrs['service.name'] = process.env.OTEL_SERVICE_NAME;
+  else if (attrs['service.name'] == null) attrs['service.name'] = '';
   attrs['telemetry.sdk.language'] = 'nodejs';
   attrs['telemetry.sdk.name'] = 'opentelemetry';
   attrs['telemetry.sdk.version'] = sdkVersion;
   attrs['telemetry.auto.version'] = LIB_VERSION + '-aws';
   return attrs;
 }
-
 
 export class InstrumentationScope {
   readonly name: string;
@@ -133,7 +142,6 @@ export interface SpanProcessor {
   forceFlush(timeoutMillis?: number): boolean;
   shutdown(): void;
 }
-
 
 export class Span implements SpanAPI {
   private _name: string;
@@ -178,18 +186,40 @@ export class Span implements SpanAPI {
     this._events = [];
   }
 
-  get name(): string { return this._name; }
-  get parent(): SpanContext | undefined { return this._parent; }
-  get kind(): SpanKind { return this._kind; }
-  get resource(): Record<string, string> { return this._resource; }
-  get instrumentationScope(): InstrumentationScope { return this._instrumentationScope; }
-  get attributes(): Record<string, AttributeValue> { return this._attributes; }
-  get startTime(): number | undefined { return this._startTime; }
-  get endTime(): number | undefined { return this._endTime; }
-  get status(): SpanStatus { return this._status; }
-  get events(): SpanEvent[] { return this._events; }
+  get name(): string {
+    return this._name;
+  }
+  get parent(): SpanContext | undefined {
+    return this._parent;
+  }
+  get kind(): SpanKind {
+    return this._kind;
+  }
+  get resource(): Record<string, string> {
+    return this._resource;
+  }
+  get instrumentationScope(): InstrumentationScope {
+    return this._instrumentationScope;
+  }
+  get attributes(): Record<string, AttributeValue> {
+    return this._attributes;
+  }
+  get startTime(): number | undefined {
+    return this._startTime;
+  }
+  get endTime(): number | undefined {
+    return this._endTime;
+  }
+  get status(): SpanStatus {
+    return this._status;
+  }
+  get events(): SpanEvent[] {
+    return this._events;
+  }
 
-  spanContext(): SpanContext { return this._context; }
+  spanContext(): SpanContext {
+    return this._context;
+  }
 
   setAttribute(key: string, value: AttributeValue): this {
     if (this._endTime !== undefined) return this;
@@ -205,13 +235,16 @@ export class Span implements SpanAPI {
     return this;
   }
 
-  addEvent(name: string, attributesOrStartTime?: Attributes | TimeInput, _startTime?: TimeInput): this {
+  addEvent(name: string, attributesOrStartTime?: Attributes | TimeInput, startTime?: TimeInput): this {
     if (this._endTime !== undefined) return this;
     let attrs: Attributes = {};
+    let time: TimeInput | undefined = startTime;
     if (attributesOrStartTime && typeof attributesOrStartTime === 'object' && !Array.isArray(attributesOrStartTime)) {
       attrs = attributesOrStartTime as Attributes;
+    } else if (attributesOrStartTime !== undefined) {
+      time = attributesOrStartTime as TimeInput;
     }
-    this._events.push({ name, timestamp: nowNanos(), attributes: attrs });
+    this._events.push({ name, timestamp: time !== undefined ? timeInputToNanos(time) : nowNanos(), attributes: attrs });
     return this;
   }
 
@@ -233,7 +266,7 @@ export class Span implements SpanAPI {
     return this._endTime === undefined;
   }
 
-  recordException(exception: Exception, _time?: TimeInput): void {
+  recordException(exception: Exception, time?: TimeInput): void {
     if (this._endTime !== undefined) return;
     const attrs: Record<string, AttributeValue> = {};
     if (typeof exception === 'string') {
@@ -244,11 +277,19 @@ export class Span implements SpanAPI {
       if (exception.stack) attrs['exception.stacktrace'] = exception.stack;
     }
     attrs['exception.escaped'] = 'false';
-    this._events.push({ name: 'exception', timestamp: nowNanos(), attributes: attrs });
+    this._events.push({
+      name: 'exception',
+      timestamp: time !== undefined ? timeInputToNanos(time) : nowNanos(),
+      attributes: attrs,
+    });
   }
 
-  addLink(_link: Link): this { return this; }
-  addLinks(_links: Link[]): this { return this; }
+  addLink(_link: Link): this {
+    return this;
+  }
+  addLinks(_links: Link[]): this {
+    return this;
+  }
 
   start(startTime?: number, parentContext?: Context): void {
     if (this._startTime !== undefined) return;
@@ -263,7 +304,6 @@ export class Span implements SpanAPI {
     this._provider.onEnd(this);
   }
 }
-
 
 export class Tracer implements TracerAPI {
   private _resource: Record<string, string>;
@@ -384,7 +424,6 @@ export class Tracer implements TracerAPI {
   }
 }
 
-
 export class TracerProvider implements TracerProviderAPI {
   private _spanProcessors: SpanProcessor[] = [];
   private _resource: Record<string, string>;
@@ -393,7 +432,9 @@ export class TracerProvider implements TracerProviderAPI {
     this._resource = resource || buildLambdaResource();
   }
 
-  get resource(): Record<string, string> { return this._resource; }
+  get resource(): Record<string, string> {
+    return this._resource;
+  }
 
   getTracer(name: string, version?: string, options?: { schemaUrl?: string }): TracerAPI {
     return new Tracer(this._resource, this, new InstrumentationScope(name, version, options?.schemaUrl));
@@ -421,7 +462,6 @@ export class TracerProvider implements TracerProviderAPI {
   }
 }
 
-
 function resolveRemoteService(attributes: Record<string, AttributeValue>): string {
   const rpcService = attributes['rpc.service'];
   if (rpcService) {
@@ -429,8 +469,11 @@ function resolveRemoteService(attributes: Record<string, AttributeValue>): strin
   }
   const httpUrl = attrStr(attributes, 'http.url', 'url.full');
   if (httpUrl) {
-    try { return new URL(httpUrl).hostname || 'UnknownRemoteService'; }
-    catch { return 'UnknownRemoteService'; }
+    try {
+      return new URL(httpUrl).hostname || 'UnknownRemoteService';
+    } catch {
+      return 'UnknownRemoteService';
+    }
   }
   return 'UnknownRemoteService';
 }
@@ -442,8 +485,11 @@ function resolveRemoteOperation(attributes: Record<string, AttributeValue>): str
   const httpMethod = attrStr(attributes, 'http.method', 'http.request.method');
   const httpUrl = attrStr(attributes, 'http.url', 'url.full');
   if (httpMethod && httpUrl) {
-    try { return `${httpMethod} ${new URL(httpUrl).pathname || '/'}`; }
-    catch { return httpMethod; }
+    try {
+      return `${httpMethod} ${new URL(httpUrl).pathname || '/'}`;
+    } catch {
+      return httpMethod;
+    }
   }
   return httpMethod || 'UnknownRemoteOperation';
 }
@@ -562,10 +608,7 @@ function encodeSpanStatus(status: SpanStatus): Buffer {
 }
 
 function encodeSpanEvent(event: SpanEvent): Buffer {
-  const parts: Buffer[] = [
-    encodeFixed64Field(1, event.timestamp),
-    encodeStringField(2, event.name),
-  ];
+  const parts: Buffer[] = [encodeFixed64Field(1, event.timestamp), encodeStringField(2, event.name)];
   if (event.attributes) {
     for (const [key, value] of Object.entries(event.attributes)) {
       if (value !== undefined) parts.push(encodeBytesField(3, encodeKeyValue(key, value)));
@@ -692,7 +735,6 @@ function encodeExportTraceRequest(spans: Span[]): Buffer {
   return Buffer.concat(resourceSpansParts);
 }
 
-
 export class UdpExporter {
   private _host: string;
   private _port: number;
@@ -705,12 +747,17 @@ export class UdpExporter {
     this._port = parseInt(portStr, 10);
     this._socket = dgram.createSocket('udp4');
     this._socket.unref();
+    this._socket.on('error', (err: Error) => {
+      diag.error('UDP socket error', err);
+    });
   }
 
   sendOtlp(data: Buffer, prefix: string = 'T1U'): void {
     const message = `${PROTOCOL_HEADER}${prefix}${data.toString('base64')}`;
     try {
-      this._socket.send(Buffer.from(message, 'utf-8'), this._port, this._host);
+      this._socket.send(Buffer.from(message, 'utf-8'), this._port, this._host, (err: Error | null) => {
+        if (err) diag.error('Error sending OTLP UDP data', err);
+      });
     } catch (err) {
       diag.error('Error sending OTLP UDP data', err);
     }
@@ -720,7 +767,6 @@ export class UdpExporter {
     this._socket.close();
   }
 }
-
 
 export class UdpSpanExporter {
   private _udpExporter: UdpExporter;
@@ -738,6 +784,9 @@ export class UdpSpanExporter {
       } else {
         for (const span of spans) delete span.attributes['aws.is.local.root'];
       }
+      // Sampling prefix is determined from spans[0]. In Lambda all spans in a batch
+      // share the same trace (and thus the same sampling decision from the parent's
+      // traceFlags), so checking the first span is sufficient.
       const sampled = spans.length > 0 && (spans[0].spanContext().traceFlags & TraceFlags.SAMPLED) !== 0;
       const prefix = sampled ? 'T1S' : 'T1U';
       this._udpExporter.sendOtlp(encodeExportTraceRequest(spans), prefix);
@@ -748,6 +797,10 @@ export class UdpSpanExporter {
     }
   }
 
+  // Deliberately writes to span.attributes after the span has ended, bypassing
+  // setAttribute()'s _endTime guard. This mirrors the full SDK's
+  // AwsMetricAttributesSpanExporter which also mutates ended spans at export time
+  // to inject derived metric attributes before serialization.
   private _injectAppSignalsAttributes(span: Span): void {
     const serviceName = span.resource['service.name'] || '';
     const lambdaFunctionName = process.env.AWS_LAMBDA_FUNCTION_NAME || '';
@@ -772,13 +825,14 @@ export class UdpSpanExporter {
     }
   }
 
-  forceFlush(): boolean { return true; }
+  forceFlush(): boolean {
+    return true;
+  }
 
   shutdown(): void {
     this._udpExporter.shutdown();
   }
 }
-
 
 export class BatchingSpanProcessor implements SpanProcessor {
   private _exporter: UdpSpanExporter;
@@ -809,6 +863,8 @@ export class BatchingSpanProcessor implements SpanProcessor {
     this._spans.push(span);
   }
 
+  // Timeout is accepted for interface compatibility but ignored — the UDP send is
+  // non-blocking (fire-and-forget), so there is nothing to cancel or await.
   forceFlush(_timeoutMillis?: number): boolean {
     if (this._spans.length > 0) {
       this._exporter.export(this._spans);
@@ -824,55 +880,76 @@ export class BatchingSpanProcessor implements SpanProcessor {
 }
 
 const INSTRUMENTATION_REGISTRY: Record<string, () => any> = {
-  '@opentelemetry/instrumentation-amqplib': () => require('@opentelemetry/instrumentation-amqplib').AmqplibInstrumentation,
-  '@opentelemetry/instrumentation-aws-lambda': () => require('@opentelemetry/instrumentation-aws-lambda').AwsLambdaInstrumentation,
+  '@opentelemetry/instrumentation-amqplib': () =>
+    require('@opentelemetry/instrumentation-amqplib').AmqplibInstrumentation,
+  '@opentelemetry/instrumentation-aws-lambda': () =>
+    require('@opentelemetry/instrumentation-aws-lambda').AwsLambdaInstrumentation,
   '@opentelemetry/instrumentation-aws-sdk': () => require('@opentelemetry/instrumentation-aws-sdk').AwsInstrumentation,
   '@opentelemetry/instrumentation-bunyan': () => require('@opentelemetry/instrumentation-bunyan').BunyanInstrumentation,
-  '@opentelemetry/instrumentation-cassandra-driver': () => require('@opentelemetry/instrumentation-cassandra-driver').CassandraDriverInstrumentation,
-  '@opentelemetry/instrumentation-connect': () => require('@opentelemetry/instrumentation-connect').ConnectInstrumentation,
-  '@opentelemetry/instrumentation-cucumber': () => require('@opentelemetry/instrumentation-cucumber').CucumberInstrumentation,
-  '@opentelemetry/instrumentation-dataloader': () => require('@opentelemetry/instrumentation-dataloader').DataloaderInstrumentation,
+  '@opentelemetry/instrumentation-cassandra-driver': () =>
+    require('@opentelemetry/instrumentation-cassandra-driver').CassandraDriverInstrumentation,
+  '@opentelemetry/instrumentation-connect': () =>
+    require('@opentelemetry/instrumentation-connect').ConnectInstrumentation,
+  '@opentelemetry/instrumentation-cucumber': () =>
+    require('@opentelemetry/instrumentation-cucumber').CucumberInstrumentation,
+  '@opentelemetry/instrumentation-dataloader': () =>
+    require('@opentelemetry/instrumentation-dataloader').DataloaderInstrumentation,
   '@opentelemetry/instrumentation-dns': () => require('@opentelemetry/instrumentation-dns').DnsInstrumentation,
-  '@opentelemetry/instrumentation-express': () => require('@opentelemetry/instrumentation-express').ExpressInstrumentation,
+  '@opentelemetry/instrumentation-express': () =>
+    require('@opentelemetry/instrumentation-express').ExpressInstrumentation,
   '@opentelemetry/instrumentation-fs': () => require('@opentelemetry/instrumentation-fs').FsInstrumentation,
-  '@opentelemetry/instrumentation-generic-pool': () => require('@opentelemetry/instrumentation-generic-pool').GenericPoolInstrumentation,
-  '@opentelemetry/instrumentation-graphql': () => require('@opentelemetry/instrumentation-graphql').GraphQLInstrumentation,
+  '@opentelemetry/instrumentation-generic-pool': () =>
+    require('@opentelemetry/instrumentation-generic-pool').GenericPoolInstrumentation,
+  '@opentelemetry/instrumentation-graphql': () =>
+    require('@opentelemetry/instrumentation-graphql').GraphQLInstrumentation,
   '@opentelemetry/instrumentation-grpc': () => require('@opentelemetry/instrumentation-grpc').GrpcInstrumentation,
   '@opentelemetry/instrumentation-hapi': () => require('@opentelemetry/instrumentation-hapi').HapiInstrumentation,
-  '@opentelemetry/instrumentation-host-metrics': () => require('@opentelemetry/instrumentation-host-metrics').HostMetricsInstrumentation,
+  '@opentelemetry/instrumentation-host-metrics': () =>
+    require('@opentelemetry/instrumentation-host-metrics').HostMetricsInstrumentation,
   '@opentelemetry/instrumentation-http': () => require('@opentelemetry/instrumentation-http').HttpInstrumentation,
-  '@opentelemetry/instrumentation-ioredis': () => require('@opentelemetry/instrumentation-ioredis').IORedisInstrumentation,
-  '@opentelemetry/instrumentation-kafkajs': () => require('@opentelemetry/instrumentation-kafkajs').KafkaJsInstrumentation,
+  '@opentelemetry/instrumentation-ioredis': () =>
+    require('@opentelemetry/instrumentation-ioredis').IORedisInstrumentation,
+  '@opentelemetry/instrumentation-kafkajs': () =>
+    require('@opentelemetry/instrumentation-kafkajs').KafkaJsInstrumentation,
   '@opentelemetry/instrumentation-knex': () => require('@opentelemetry/instrumentation-knex').KnexInstrumentation,
   '@opentelemetry/instrumentation-koa': () => require('@opentelemetry/instrumentation-koa').KoaInstrumentation,
-  '@opentelemetry/instrumentation-lru-memoizer': () => require('@opentelemetry/instrumentation-lru-memoizer').LruMemoizerInstrumentation,
-  '@opentelemetry/instrumentation-memcached': () => require('@opentelemetry/instrumentation-memcached').MemcachedInstrumentation,
-  '@opentelemetry/instrumentation-mongodb': () => require('@opentelemetry/instrumentation-mongodb').MongoDBInstrumentation,
-  '@opentelemetry/instrumentation-mongoose': () => require('@opentelemetry/instrumentation-mongoose').MongooseInstrumentation,
+  '@opentelemetry/instrumentation-lru-memoizer': () =>
+    require('@opentelemetry/instrumentation-lru-memoizer').LruMemoizerInstrumentation,
+  '@opentelemetry/instrumentation-memcached': () =>
+    require('@opentelemetry/instrumentation-memcached').MemcachedInstrumentation,
+  '@opentelemetry/instrumentation-mongodb': () =>
+    require('@opentelemetry/instrumentation-mongodb').MongoDBInstrumentation,
+  '@opentelemetry/instrumentation-mongoose': () =>
+    require('@opentelemetry/instrumentation-mongoose').MongooseInstrumentation,
   '@opentelemetry/instrumentation-mysql2': () => require('@opentelemetry/instrumentation-mysql2').MySQL2Instrumentation,
   '@opentelemetry/instrumentation-mysql': () => require('@opentelemetry/instrumentation-mysql').MySQLInstrumentation,
-  '@opentelemetry/instrumentation-nestjs-core': () => require('@opentelemetry/instrumentation-nestjs-core').NestInstrumentation,
+  '@opentelemetry/instrumentation-nestjs-core': () =>
+    require('@opentelemetry/instrumentation-nestjs-core').NestInstrumentation,
   '@opentelemetry/instrumentation-net': () => require('@opentelemetry/instrumentation-net').NetInstrumentation,
   '@opentelemetry/instrumentation-openai': () => require('@opentelemetry/instrumentation-openai').OpenAIInstrumentation,
-  '@opentelemetry/instrumentation-oracledb': () => require('@opentelemetry/instrumentation-oracledb').OracleInstrumentation,
+  '@opentelemetry/instrumentation-oracledb': () =>
+    require('@opentelemetry/instrumentation-oracledb').OracleInstrumentation,
   '@opentelemetry/instrumentation-pg': () => require('@opentelemetry/instrumentation-pg').PgInstrumentation,
   '@opentelemetry/instrumentation-pino': () => require('@opentelemetry/instrumentation-pino').PinoInstrumentation,
   '@opentelemetry/instrumentation-redis': () => require('@opentelemetry/instrumentation-redis').RedisInstrumentation,
-  '@opentelemetry/instrumentation-restify': () => require('@opentelemetry/instrumentation-restify').RestifyInstrumentation,
+  '@opentelemetry/instrumentation-restify': () =>
+    require('@opentelemetry/instrumentation-restify').RestifyInstrumentation,
   '@opentelemetry/instrumentation-router': () => require('@opentelemetry/instrumentation-router').RouterInstrumentation,
-  '@opentelemetry/instrumentation-runtime-node': () => require('@opentelemetry/instrumentation-runtime-node').RuntimeNodeInstrumentation,
-  '@opentelemetry/instrumentation-socket.io': () => require('@opentelemetry/instrumentation-socket.io').SocketIoInstrumentation,
-  '@opentelemetry/instrumentation-tedious': () => require('@opentelemetry/instrumentation-tedious').TediousInstrumentation,
+  '@opentelemetry/instrumentation-runtime-node': () =>
+    require('@opentelemetry/instrumentation-runtime-node').RuntimeNodeInstrumentation,
+  '@opentelemetry/instrumentation-socket.io': () =>
+    require('@opentelemetry/instrumentation-socket.io').SocketIoInstrumentation,
+  '@opentelemetry/instrumentation-tedious': () =>
+    require('@opentelemetry/instrumentation-tedious').TediousInstrumentation,
   '@opentelemetry/instrumentation-undici': () => require('@opentelemetry/instrumentation-undici').UndiciInstrumentation,
-  '@opentelemetry/instrumentation-winston': () => require('@opentelemetry/instrumentation-winston').WinstonInstrumentation,
+  '@opentelemetry/instrumentation-winston': () =>
+    require('@opentelemetry/instrumentation-winston').WinstonInstrumentation,
 };
-
 
 const DEFAULT_EXCLUDED_INSTRUMENTATIONS: string[] = [
   '@opentelemetry/instrumentation-fs',
   '@opentelemetry/instrumentation-host-metrics',
 ];
-
 
 function instrumentationConfigFor(name: string): Record<string, unknown> {
   if (name === '@opentelemetry/instrumentation-aws-sdk') {
@@ -896,18 +973,12 @@ function parseInstrumentationEnv(envVar: string): string[] {
 
 function getEnabledInstrumentationsFromEnv(): string[] {
   if (!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS) {
-    return Object.keys(INSTRUMENTATION_REGISTRY).filter(
-      key => !DEFAULT_EXCLUDED_INSTRUMENTATIONS.includes(key)
-    );
+    return Object.keys(INSTRUMENTATION_REGISTRY).filter(key => !DEFAULT_EXCLUDED_INSTRUMENTATIONS.includes(key));
   }
   return parseInstrumentationEnv('OTEL_NODE_ENABLED_INSTRUMENTATIONS');
 }
 
-function shouldDisableInstrumentation(
-  name: string,
-  enabledFromEnv: string[],
-  disabledFromEnv: string[]
-): boolean {
+function shouldDisableInstrumentation(name: string, enabledFromEnv: string[], disabledFromEnv: string[]): boolean {
   if (disabledFromEnv.includes(name)) return true;
 
   const isEnabledEnvSet = !!process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS;
@@ -946,7 +1017,6 @@ export function buildInstrumentations(): any[] {
   return instrumentations;
 }
 
-
 export function configureLiteMode(): TracerProvider {
   const logLevelName = (process.env.OTEL_LOG_LEVEL || '').toUpperCase();
   if (logLevelName) {
@@ -971,6 +1041,10 @@ export function configureLiteMode(): TracerProvider {
   const otelCore = require('@opentelemetry/core');
   const { CompositePropagator, W3CBaggagePropagator, W3CTraceContextPropagator } = otelCore;
   isTracingSuppressed = otelCore.isTracingSuppressed;
+  const api = require('@opentelemetry/api');
+  if (api.isSpanContextValid) {
+    isSpanContextValid = api.isSpanContextValid;
+  }
   const { AWSXRayPropagator } = require('@opentelemetry/propagator-aws-xray');
 
   propagation.setGlobalPropagator(
@@ -999,12 +1073,15 @@ export function liteEventContextExtractor(event: any, handlerContext: any): Cont
   }
 
   const headerGetter = {
-    keys(carrier: any): string[] { return Object.keys(carrier); },
-    get(carrier: any, key: string) { return carrier[key]; },
+    keys(carrier: any): string[] {
+      return Object.keys(carrier);
+    },
+    get(carrier: any, key: string) {
+      return carrier[key];
+    },
   };
 
   const extractedContext = propagation.extract(contextApi.active(), httpHeaders, headerGetter);
   if (traceApi.getSpan(extractedContext)?.spanContext()) return extractedContext;
   return ROOT_CONTEXT;
 }
-

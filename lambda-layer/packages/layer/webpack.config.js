@@ -63,6 +63,10 @@ const liteWrapperConfig = {
     filename: 'lite-wrapper.js',
   },
   externals: [
+    // Both RITM and IITM are needed at runtime: RITM for CJS module hooking by
+    // instrumentations, IITM because the @opentelemetry/instrumentation base class
+    // unconditionally registers ESM hooks in .enable() (even in CJS-only mode, the
+    // import must resolve without throwing).
     'import-in-the-middle',
     'require-in-the-middle',
     /^@aws-sdk/,

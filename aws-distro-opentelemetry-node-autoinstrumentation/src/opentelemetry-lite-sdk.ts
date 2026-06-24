@@ -122,11 +122,18 @@ export class InstrumentationScope {
   readonly name: string;
   readonly version: string;
   readonly schemaUrl: string;
+  readonly attributes: Record<string, AttributeValue>;
 
-  constructor(name: string, version?: string, schemaUrl?: string) {
+  constructor(name: string, version?: string, schemaUrl?: string, attributes?: Attributes) {
     this.name = name;
     this.version = version || '';
     this.schemaUrl = schemaUrl || '';
+    this.attributes = {};
+    if (attributes) {
+      for (const [k, v] of Object.entries(attributes)) {
+        if (v !== undefined) this.attributes[k] = v;
+      }
+    }
   }
 }
 
@@ -436,8 +443,12 @@ export class TracerProvider implements TracerProviderAPI {
     return this._resource;
   }
 
-  getTracer(name: string, version?: string, options?: { schemaUrl?: string }): TracerAPI {
-    return new Tracer(this._resource, this, new InstrumentationScope(name, version, options?.schemaUrl));
+  getTracer(name: string, version?: string, options?: { schemaUrl?: string; attributes?: Attributes }): TracerAPI {
+    return new Tracer(
+      this._resource,
+      this,
+      new InstrumentationScope(name, version, options?.schemaUrl, options?.attributes)
+    );
   }
 
   addSpanProcessor(processor: SpanProcessor): void {
@@ -597,13 +608,13 @@ function encodeKeyValue(key: string, value: AttributeValue): Buffer {
 function encodeSpanStatus(status: SpanStatus): Buffer {
   if (!status || status.code === SpanStatusCode.UNSET) return Buffer.alloc(0);
   const parts: Buffer[] = [];
-  if (status.message) parts.push(encodeStringField(1, status.message));
+  if (status.message) parts.push(encodeStringField(2, status.message));
   const codeMap: Record<number, number> = {
     [SpanStatusCode.UNSET]: 0,
     [SpanStatusCode.OK]: 1,
     [SpanStatusCode.ERROR]: 2,
   };
-  parts.push(encodeVarintField(2, codeMap[status.code] || 0));
+  parts.push(encodeVarintField(3, codeMap[status.code] || 0));
   return Buffer.concat(parts);
 }
 
@@ -650,9 +661,14 @@ function encodeSpanOtlp(span: Span): Buffer {
     parts.push(encodeBytesField(11, encodeSpanEvent(event)));
   }
 
-  // Field 16: flags. OTLP SpanFlags packs the W3C trace flags into the low byte
-  // and sets HAS_IS_REMOTE (0x100) to indicate the is_remote bit is meaningful.
-  parts.push(encodeFixed32Field(16, (ctx.traceFlags | 0x100) >>> 0));
+  // Field 16: flags. OTLP SpanFlags packs the W3C trace flags into the low byte,
+  // sets HAS_IS_REMOTE (0x100) to indicate the is_remote bit is meaningful, and
+  // sets IS_REMOTE (0x200) when the parent span context is remote.
+  let flags = (ctx.traceFlags | 0x100) >>> 0;
+  if (span.parent && span.parent.isRemote) {
+    flags = (flags | 0x200) >>> 0;
+  }
+  parts.push(encodeFixed32Field(16, flags));
 
   // Field 15: status. (Field 13 is `links` in the OTLP Span message — the
   // previous code wrote status to 13, which corrupted it.)
@@ -673,6 +689,11 @@ function encodeResource(resourceAttrs: Record<string, string>): Buffer {
 function encodeInstrumentationScope(scope: InstrumentationScope): Buffer {
   const parts: Buffer[] = [encodeStringField(1, scope.name)];
   if (scope.version) parts.push(encodeStringField(2, scope.version));
+  if (scope.attributes) {
+    for (const [key, value] of Object.entries(scope.attributes)) {
+      if (value !== undefined) parts.push(encodeBytesField(3, encodeKeyValue(key, value)));
+    }
+  }
   return Buffer.concat(parts);
 }
 
@@ -685,8 +706,12 @@ function resourceKey(resource: Record<string, string>): string {
 }
 
 function scopeKey(scope: InstrumentationScope | undefined): string {
-  if (!scope) return ' ';
-  return `${scope.name || ''} ${scope.version || ''}`;
+  if (!scope) return '\0\0';
+  const attrsKey =
+    scope.attributes && Object.keys(scope.attributes).length > 0
+      ? JSON.stringify(Object.entries(scope.attributes).sort())
+      : '';
+  return `${scope.name || ''}\0${scope.version || ''}\0${attrsKey}`;
 }
 
 function encodeExportTraceRequest(spans: Span[]): Buffer {

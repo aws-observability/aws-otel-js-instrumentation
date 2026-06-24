@@ -452,8 +452,7 @@ function patchAwsLambdaInstrumentation(instrumentation: Instrumentation): void {
   }
 }
 
-import { applySmithySendPatch, SKIP_CREDENTIAL_CAPTURE_KEY } from './smithy-send-patch';
-export { SKIP_CREDENTIAL_CAPTURE_KEY };
+import { applySmithySendPatch } from './smithy-send-patch';
 
 function patchAwsSdkInstrumentation(instrumentation: Instrumentation): void {
   applySmithySendPatch(instrumentation);

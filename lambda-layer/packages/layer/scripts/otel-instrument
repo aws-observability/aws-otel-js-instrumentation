@@ -39,18 +39,12 @@ _get_node_runtime_version() {
 
 NODE_VERSION=$(_get_node_runtime_version)
 
-# Profile require() times when NODE_PROFILE_IMPORT_TIME=1 (analogous to PYTHONPROFILEIMPORTTIME=1)
-if [[ "${NODE_PROFILE_IMPORT_TIME}" == "1" ]]; then
-  export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/profile-imports.js"
-fi
-
 # - Resolve the metrics/logs exporters and Lite Mode BEFORE the NODE_OPTIONS
 #   routing below, which selects the lite wrapper vs the full SDK wrapper based on
-#   OTEL_AWS_LAMBDA_FAST_START. Lite (traces-only, UDP to the X-Ray daemon) is the
-#   default in Lambda because it greatly reduces cold start, but a configured
-#   metrics or logs exporter forces the full SDK since lite has no
-#   MeterProvider/LoggerProvider and would silently drop that data.
-#   Mirrors the Python layer's otel-instrument behavior.
+#   OTEL_AWS_LAMBDA_FAST_START. Lite (traces-only, UDP to the X-Ray daemon) is an
+#   opt-in mode that greatly reduces cold start. A configured metrics or logs
+#   exporter forces the full SDK since lite has no MeterProvider/LoggerProvider
+#   and would silently drop that data.
 
 # - Disable otel metrics export by default
 if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
@@ -62,9 +56,9 @@ if [ -z "${OTEL_LOGS_EXPORTER}" ]; then
     export OTEL_LOGS_EXPORTER="none";
 fi
 
-# - Lite Mode defaults on; explicit OTEL_AWS_LAMBDA_FAST_START=false opts out.
+# - Lite Mode defaults off; explicit OTEL_AWS_LAMBDA_FAST_START=true opts in.
 if [ -z "${OTEL_AWS_LAMBDA_FAST_START}" ]; then
-    export OTEL_AWS_LAMBDA_FAST_START="true";
+    export OTEL_AWS_LAMBDA_FAST_START="false";
 fi
 
 # - A configured metrics or logs exporter forces the full SDK.

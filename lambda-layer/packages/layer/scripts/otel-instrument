@@ -56,11 +56,6 @@ if [ -z "${OTEL_LOGS_EXPORTER}" ]; then
     export OTEL_LOGS_EXPORTER="none";
 fi
 
-# - Lite Mode defaults off; explicit OTEL_AWS_LAMBDA_FAST_START=true opts in.
-if [ -z "${OTEL_AWS_LAMBDA_FAST_START}" ]; then
-    export OTEL_AWS_LAMBDA_FAST_START="false";
-fi
-
 # - A configured metrics or logs exporter forces the full SDK.
 if [ "$OTEL_METRICS_EXPORTER" != "none" ] || [ "$OTEL_LOGS_EXPORTER" != "none" ]; then
     export OTEL_AWS_LAMBDA_FAST_START="false";

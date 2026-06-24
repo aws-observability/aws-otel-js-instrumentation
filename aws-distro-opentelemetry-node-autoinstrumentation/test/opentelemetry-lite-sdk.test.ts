@@ -62,6 +62,22 @@ describe('LiteSdk - InstrumentationScope', () => {
     expect(scope.version).toBe('');
     expect(scope.schemaUrl).toBe('');
   });
+
+  it('stores attributes when provided', () => {
+    const scope = new InstrumentationScope('my-module', '1.0.0', '', { 'scope.key': 'scope-val' });
+    expect(scope.attributes['scope.key']).toBe('scope-val');
+  });
+
+  it('defaults attributes to empty object when not provided', () => {
+    const scope = new InstrumentationScope('my-module');
+    expect(scope.attributes).toEqual({});
+  });
+
+  it('skips undefined attribute values', () => {
+    const scope = new InstrumentationScope('my-module', '1.0.0', '', { valid: 'yes', bad: undefined as any });
+    expect(scope.attributes['valid']).toBe('yes');
+    expect(scope.attributes['bad']).toBeUndefined();
+  });
 });
 
 describe('LiteSdk - TracerProvider', () => {
@@ -74,6 +90,17 @@ describe('LiteSdk - TracerProvider', () => {
     const provider = new TracerProvider({ 'service.name': 'test' });
     const tracer = provider.getTracer('test-module', '1.0.0');
     expect(tracer).toBeDefined();
+  });
+
+  it('getTracer forwards scope attributes to InstrumentationScope', () => {
+    const provider = new TracerProvider({ 'service.name': 'test' });
+    const tracer = provider.getTracer('test-module', '1.0.0', {
+      schemaUrl: 'https://schema.url',
+      attributes: { 'scope.attr': 'value' },
+    });
+    const span = tracer.startSpan('s') as Span;
+    expect(span.instrumentationScope.attributes['scope.attr']).toBe('value');
+    span.end();
   });
 
   it('addSpanProcessor registers processor', () => {
@@ -943,6 +970,74 @@ describe('LiteSdk - OTLP wire-format correctness', () => {
       .map(scope => (scope ? findLenField(scope, 1)?.toString('utf-8') : undefined));
     expect(scopeNames).toContain('scope-a');
     expect(scopeNames).toContain('scope-b');
+  });
+
+  it('sets IS_REMOTE flag (0x200) when parent span context is remote', () => {
+    const sent = exportAndCapture((provider, exporter) => {
+      const tracer = provider.getTracer('scope-a', '1.0.0');
+      const remoteParentContext = trace.setSpanContext(context.active(), {
+        traceId: 'a'.repeat(32),
+        spanId: 'b'.repeat(16),
+        traceFlags: TraceFlags.SAMPLED,
+        isRemote: true,
+      });
+      const span = tracer.startSpan('child', {}, remoteParentContext) as Span;
+      span.end();
+      exporter.export([span]);
+    });
+    const resourceSpans = findLenField(sent, 1)!;
+    const scopeSpans = findLenField(resourceSpans, 2)!;
+    const spanBytes = findLenField(scopeSpans, 2)!;
+    const flags = findFixed32Field(spanBytes, 16);
+    expect(flags! & 0x200).toBe(0x200); // IS_REMOTE
+  });
+
+  it('does not set IS_REMOTE flag for local parent spans', () => {
+    const sent = exportAndCapture((provider, exporter) => {
+      const tracer = provider.getTracer('scope-a', '1.0.0');
+      const parent = tracer.startSpan('parent') as Span;
+      const parentCtx = trace.setSpan(context.active(), parent);
+      const child = tracer.startSpan('child', {}, parentCtx) as Span;
+      parent.end();
+      child.end();
+      exporter.export([child]);
+    });
+    const resourceSpans = findLenField(sent, 1)!;
+    const scopeSpans = findLenField(resourceSpans, 2)!;
+    const spanBytes = findLenField(scopeSpans, 2)!;
+    const flags = findFixed32Field(spanBytes, 16);
+    expect(flags! & 0x200).toBe(0); // IS_REMOTE not set
+  });
+
+  it('encodes scope attributes into InstrumentationScope field 3', () => {
+    const sent = exportAndCapture((provider, exporter) => {
+      const tracer = provider.getTracer('scope-a', '1.0.0', { attributes: { 'scope.key': 'scope-val' } });
+      const span = tracer.startSpan('s') as Span;
+      span.end();
+      exporter.export([span]);
+    });
+    const resourceSpans = findLenField(sent, 1)!;
+    const scopeSpans = findLenField(resourceSpans, 2)!;
+    const scopeBytes = findLenField(scopeSpans, 1)!; // InstrumentationScope
+    const attrBytes = findLenField(scopeBytes, 3); // field 3 = attributes
+    expect(attrBytes).toBeDefined();
+    const keyBytes = findLenField(attrBytes!, 1);
+    expect(keyBytes?.toString('utf-8')).toBe('scope.key');
+  });
+
+  it('groups scopes with different attributes into separate ScopeSpans', () => {
+    const sent = exportAndCapture((provider, exporter) => {
+      const tracerA = provider.getTracer('scope-a', '1.0.0', { attributes: { 'scope.key': 'val-a' } });
+      const tracerB = provider.getTracer('scope-a', '1.0.0', { attributes: { 'scope.key': 'val-b' } });
+      const a = tracerA.startSpan('a') as Span;
+      const b = tracerB.startSpan('b') as Span;
+      a.end();
+      b.end();
+      exporter.export([a, b]);
+    });
+    const resourceSpans = findLenField(sent, 1)!;
+    const scopeSpansList = findAllLenFields(resourceSpans, 2);
+    expect(scopeSpansList.length).toBe(2);
   });
 });
 

@@ -5,7 +5,7 @@
  * Framework-agnostic endpoint span processor for ServiceEvents.
  *
  * This is the Node.js port of the Java agent's `ServiceEventsSpanProcessor` (and the
- * counterpart of the Python `EndpointServiceEventsSpanProcessor`). Instead of installing
+ * counterpart of the Python `ServiceEventsSpanProcessor`). Instead of installing
  * per-framework hooks (Express/Fastify/Koa/Next.js), it reads the request-boundary span that
  * OpenTelemetry's own HTTP/framework instrumentation already produces and derives the same
  * endpoint metric + incident telemetry from span attributes alone. Any framework OTel
@@ -169,7 +169,7 @@ export function routeFromOperation(operation: string | undefined, method: string
  * Crash-safe by contract: a telemetry failure must never disrupt application tracing, so
  * `onEnd` swallows every exception.
  */
-export class EndpointServiceEventsSpanProcessor implements SpanProcessor {
+export class ServiceEventsSpanProcessor implements SpanProcessor {
   constructor(
     private readonly endpointCollector: EndpointMetricCollector | null,
     private readonly incidentSnapshotCollector: IncidentSnapshotCollector | null,

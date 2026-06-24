@@ -12,7 +12,7 @@
 import { diag, trace } from '@opentelemetry/api';
 import type { SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { ServiceEventsConfig, getLatencyThresholdPatterns } from './config';
-import { EndpointServiceEventsSpanProcessor } from './processor/endpoint-span-processor';
+import { ServiceEventsSpanProcessor } from './processor/endpoint-span-processor';
 import {
   ServiceEventsMonitorState,
   setSamplingMode,
@@ -289,7 +289,7 @@ export class ServiceEventsInstrumentation {
       for (const c of this.collectors) c.start();
 
       // Endpoint signals come from one of two mutually exclusive sources:
-      //   - useSpanProcessor (the default): the framework-agnostic EndpointServiceEventsSpanProcessor
+      //   - useSpanProcessor (the default): the framework-agnostic ServiceEventsSpanProcessor
       //     reads the request-boundary span OTel already emits (covers every OTel-instrumented
       //     framework for free, mirrors the Java/Python distros). Owns its own begin→end
       //     investigation lifecycle, so the global http patch + per-framework hooks are NOT installed
@@ -379,7 +379,7 @@ export class ServiceEventsInstrumentation {
   }
 
   /**
-   * Span-processor path: register the framework-agnostic EndpointServiceEventsSpanProcessor on the
+   * Span-processor path: register the framework-agnostic ServiceEventsSpanProcessor on the
    * active tracer provider. Does NOT install the global http patch or any per-framework hook — the
    * processor owns the whole begin→end lifecycle off the request-boundary span.
    *
@@ -399,7 +399,7 @@ export class ServiceEventsInstrumentation {
     endpointCollector: EndpointMetricCollector,
     incidentSnapshotCollector: IncidentSnapshotCollector
   ): boolean {
-    const processor = new EndpointServiceEventsSpanProcessor(endpointCollector, incidentSnapshotCollector, this.config);
+    const processor = new ServiceEventsSpanProcessor(endpointCollector, incidentSnapshotCollector, this.config);
     if (registerSpanProcessorOnActiveProvider(processor)) {
       diag.info('ServiceEvents endpoint span processor registered on the active tracer provider');
       return true;

@@ -18,7 +18,7 @@ import { expect } from 'expect';
 import * as sinon from 'sinon';
 import { AWS_ATTRIBUTE_KEYS } from '../../../src/aws-attribute-keys';
 import {
-  EndpointServiceEventsSpanProcessor,
+  ServiceEventsSpanProcessor,
   exceptionFromSpanEvent,
   getHttpMethod,
   getStatusCode,
@@ -73,7 +73,7 @@ function buildSpan(opts: {
   } as unknown as ReadableSpan;
 }
 
-describe('EndpointServiceEventsSpanProcessor', () => {
+describe('ServiceEventsSpanProcessor', () => {
   // getIngressOperation short-circuits to "<fn>/FunctionHandler" when AWS_LAMBDA_FUNCTION_NAME is
   // set (isLambdaEnvironment). Other test files in the suite set it without cleanup, which would
   // make every operation here back out to undefined and skip recording — so neutralize it for
@@ -194,11 +194,11 @@ describe('EndpointServiceEventsSpanProcessor', () => {
   });
 
   describe('onStart', () => {
-    let processor: EndpointServiceEventsSpanProcessor;
+    let processor: ServiceEventsSpanProcessor;
     let beginSpy: sinon.SinonSpy;
 
     beforeEach(() => {
-      processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+      processor = new ServiceEventsSpanProcessor(null, null, null);
       beginSpy = sinon.spy(monitor.ServiceEventsMonitorState.getInstance(), 'beginInvestigation');
     });
 
@@ -223,7 +223,7 @@ describe('EndpointServiceEventsSpanProcessor', () => {
     let endpointCollector: any;
     let incidentCollector: any;
     let config: ServiceEventsConfig;
-    let processor: EndpointServiceEventsSpanProcessor;
+    let processor: ServiceEventsSpanProcessor;
     let extractStub: sinon.SinonStub;
 
     beforeEach(() => {
@@ -236,7 +236,7 @@ describe('EndpointServiceEventsSpanProcessor', () => {
         processPotentialIncident: sinon.stub().returns(null),
       };
       config = { endpointIncludePatterns: [], endpointExcludePatterns: [] } as unknown as ServiceEventsConfig;
-      processor = new EndpointServiceEventsSpanProcessor(endpointCollector, incidentCollector, config);
+      processor = new ServiceEventsSpanProcessor(endpointCollector, incidentCollector, config);
       // Default: no captured error so error breakdown is omitted unless a test opts in.
       extractStub = sinon.stub(express, 'extractErrorFromCallPath').returns(undefined);
     });
@@ -445,7 +445,7 @@ describe('EndpointServiceEventsSpanProcessor', () => {
     });
 
     it('tolerates null collectors (records nothing, still tears down)', () => {
-      const bare = new EndpointServiceEventsSpanProcessor(null, null, null);
+      const bare = new ServiceEventsSpanProcessor(null, null, null);
       const getInvSpy = sinon.spy(monitor.ServiceEventsMonitorState.getInstance(), 'getInvestigationData');
       const span = buildSpan({
         name: 'GET /x',
@@ -458,7 +458,7 @@ describe('EndpointServiceEventsSpanProcessor', () => {
 
   describe('onStart/onEnd active-count balance', () => {
     it('begin in onStart is balanced by end in onEnd for a SERVER span', () => {
-      const processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+      const processor = new ServiceEventsSpanProcessor(null, null, null);
       const state = monitor.ServiceEventsMonitorState.getInstance();
       const beginSpy = sinon.spy(state, 'beginInvestigation');
       const getInvSpy = sinon.spy(state, 'getInvestigationData');
@@ -478,7 +478,7 @@ describe('EndpointServiceEventsSpanProcessor', () => {
       // create-only default, beginInvestigation would skip the increment while onEnd still
       // decrements — pinning _investigationActiveCount at 0 and silently disabling exception
       // capture from the second request on. onStart MUST pass forceNew=true.
-      const processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+      const processor = new ServiceEventsSpanProcessor(null, null, null);
       const state = monitor.ServiceEventsMonitorState.getInstance();
       const beginSpy = sinon.spy(state, 'beginInvestigation');
       processor.onStart(buildSpan({ kind: SpanKind.SERVER }) as any);
@@ -504,7 +504,7 @@ describe('EndpointServiceEventsSpanProcessor', () => {
         expect(state.peekInvestigationData()?.exception?.functionName).toBe('staleHandler');
 
         // New request boundary arrives on the same polluted context.
-        const processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+        const processor = new ServiceEventsSpanProcessor(null, null, null);
         processor.onStart(buildSpan({ kind: SpanKind.SERVER }) as any);
 
         // forceNew replaced the store: the leaked exception/callPath are gone.
@@ -584,7 +584,7 @@ describe('EndpointServiceEventsSpanProcessor', () => {
       try {
         const state = monitor.ServiceEventsMonitorState.getInstance();
         state.beginInvestigation(true); // fresh store, no exception (as onStart would leave it)
-        const processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+        const processor = new ServiceEventsSpanProcessor(null, null, null);
         const span = buildSpan({
           name: 'GET /boom',
           attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 500 },
@@ -618,7 +618,7 @@ describe('EndpointServiceEventsSpanProcessor', () => {
         (globalThis as any).__serviceeventsMonitorException(ctx, new TypeError('real'));
         (globalThis as any).__serviceeventsMonitorExit(ctx);
 
-        const processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+        const processor = new ServiceEventsSpanProcessor(null, null, null);
         const span = buildSpan({
           name: 'GET /boom',
           attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 500 },
@@ -647,7 +647,7 @@ describe('EndpointServiceEventsSpanProcessor', () => {
       try {
         const state = monitor.ServiceEventsMonitorState.getInstance();
         state.beginInvestigation(true);
-        const processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+        const processor = new ServiceEventsSpanProcessor(null, null, null);
         const span = buildSpan({
           name: 'GET /ok',
           attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 200 },
@@ -674,7 +674,7 @@ describe('EndpointServiceEventsSpanProcessor', () => {
 
   describe('lifecycle', () => {
     it('forceFlush and shutdown resolve', async () => {
-      const processor = new EndpointServiceEventsSpanProcessor(null, null, null);
+      const processor = new ServiceEventsSpanProcessor(null, null, null);
       await expect(processor.forceFlush()).resolves.toBeUndefined();
       await expect(processor.shutdown()).resolves.toBeUndefined();
     });

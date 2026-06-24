@@ -26,13 +26,13 @@ import expect from 'expect';
 import { EndpointMetricCollector } from '../../../src/serviceevents/collectors/endpoint-collector';
 import { EndpointMetricEvent } from '../../../src/serviceevents/models/endpoint-telemetry';
 import { ServiceEventsConfig } from '../../../src/serviceevents/config';
-import { EndpointServiceEventsSpanProcessor } from '../../../src/serviceevents/processor/endpoint-span-processor';
+import { ServiceEventsSpanProcessor } from '../../../src/serviceevents/processor/endpoint-span-processor';
 import * as monitor from '../../../src/serviceevents/serviceevents-monitor';
 
 const ATTR_HTTP_ROUTE = 'http.route';
 const ATTR_URL_PATH = 'url.path';
 
-describe('EndpointServiceEventsSpanProcessor (integration: real provider + real span)', function () {
+describe('ServiceEventsSpanProcessor (integration: real provider + real span)', function () {
   let savedLambdaFn: string | undefined;
   let emitted: EndpointMetricEvent[];
   let collector: EndpointMetricCollector;
@@ -52,7 +52,7 @@ describe('EndpointServiceEventsSpanProcessor (integration: real provider + real 
     };
     collector = new EndpointMetricCollector(3_600_000, undefined, 'svc', '0.0.0', fakeEmitter);
     const config = { endpointIncludePatterns: [], endpointExcludePatterns: [] } as unknown as ServiceEventsConfig;
-    const processor = new EndpointServiceEventsSpanProcessor(collector, null, config);
+    const processor = new ServiceEventsSpanProcessor(collector, null, config);
 
     // SDK 2.x registers processors via the provider constructor. Pin AlwaysOnSampler so leaked
     // sampler env/state from other suites can't yield non-recording spans (which skip onStart/onEnd).

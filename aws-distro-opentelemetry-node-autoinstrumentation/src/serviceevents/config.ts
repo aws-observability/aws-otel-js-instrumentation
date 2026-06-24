@@ -109,7 +109,7 @@ export interface ServiceEventsConfig {
   instrumentNextJs: boolean;
   // Framework-agnostic endpoint span processor. When true (the default), ServiceEvents derives
   // endpoint metrics + incident snapshots from the request-boundary span
-  // (EndpointServiceEventsSpanProcessor) instead of the per-framework hooks above, and skips
+  // (ServiceEventsSpanProcessor) instead of the per-framework hooks above, and skips
   // installing those hooks and the global http patch. Set OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR
   // to false to fall back to the legacy per-framework hooks. The legacy path is also used as an
   // automatic fallback when the processor cannot be registered on the active tracer provider.

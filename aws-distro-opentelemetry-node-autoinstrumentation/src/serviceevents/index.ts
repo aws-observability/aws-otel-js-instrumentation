@@ -14,7 +14,7 @@ export {
   ServiceEventsInstrumentation,
 } from './serviceevents-instrumentation';
 
-export { EndpointServiceEventsSpanProcessor } from './processor/endpoint-span-processor';
+export { ServiceEventsSpanProcessor } from './processor/endpoint-span-processor';
 
 export * from './models';
 export * from './utils';

@@ -520,7 +520,14 @@ export class IncidentSnapshotCollector extends BaseCollector {
   // --- Data sanitization ---
 
   private extractTraceId(requestData: RequestData): string | null {
-    // Try OTel span first
+    // Prefer explicitly-supplied trace_id (from the span-processor path, which passes the
+    // boundary span's own SpanContext — guaranteed correct regardless of ambient context).
+    const explicit = requestData.trace_id;
+    if (typeof explicit === 'string' && explicit.length > 0) {
+      return explicit;
+    }
+
+    // Try OTel span (framework-hook path: the active span is the boundary span itself).
     try {
       const currentSpan = trace.getActiveSpan();
       if (currentSpan) {
@@ -571,7 +578,13 @@ export class IncidentSnapshotCollector extends BaseCollector {
   }
 
   private extractSpanId(requestData: RequestData): string | null {
-    // Try OTel span first
+    // Prefer explicitly-supplied span_id (from the span-processor path).
+    const explicit = requestData.span_id;
+    if (typeof explicit === 'string' && explicit.length > 0) {
+      return explicit;
+    }
+
+    // Try OTel span (framework-hook path).
     try {
       const currentSpan = trace.getActiveSpan();
       if (currentSpan) {

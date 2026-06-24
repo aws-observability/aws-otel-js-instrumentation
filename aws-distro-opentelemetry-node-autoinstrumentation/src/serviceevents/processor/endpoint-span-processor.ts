@@ -36,7 +36,7 @@
  * App Signals operation so the rebuilt operation is identical to what App Signals reports.
  */
 
-import { diag } from '@opentelemetry/api';
+import { diag, trace } from '@opentelemetry/api';
 import { hrTimeToMilliseconds, hrTimeToNanoseconds } from '@opentelemetry/core';
 import type { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { SpanKind } from '@opentelemetry/api';
@@ -76,6 +76,24 @@ export function getHttpMethod(span: ReadableSpan): string | undefined {
  * data and flow through the unchanged breakdown + snapshot recovery paths, or undefined when the
  * span has no exception event.
  */
+/**
+ * Extract the origin function name from a Node.js/V8 stack trace string.
+ *
+ * V8 format: `"    at functionName (/path/file.js:line:col)"` or `"    at Object.method (...)"`
+ * The throw site is the FIRST `at` frame (most recent call first — same as Java).
+ * Returns "unknown" if unparseable.
+ */
+export function extractFunctionFromStackTrace(stacktrace: string | undefined): string {
+  if (!stacktrace) {
+    return 'unknown';
+  }
+  const match = stacktrace.match(/\n?\s+at\s+([^\s(]+)/);
+  if (match && match[1]) {
+    return match[1];
+  }
+  return 'unknown';
+}
+
 export function exceptionFromSpanEvent(
   span: ReadableSpan
 ): { name: string; message: string; traceback: string; functionName: string } | undefined {
@@ -83,8 +101,8 @@ export function exceptionFromSpanEvent(
   if (!events || events.length === 0) {
     return undefined;
   }
-  // Last exception event wins — it is the one closest to the response being produced.
-  for (let i = events.length - 1; i >= 0; i--) {
+  // First exception event wins — the original root-cause exception, matching Java.
+  for (let i = 0; i < events.length; i++) {
     const event = events[i];
     if (event.name !== 'exception') {
       continue;
@@ -96,13 +114,12 @@ export function exceptionFromSpanEvent(
     }
     const message = attributes[ATTR_EXCEPTION_MESSAGE];
     const stacktrace = attributes[ATTR_EXCEPTION_STACKTRACE];
+    const traceStr = typeof stacktrace === 'string' ? stacktrace : '';
     return {
       name: excType,
       message: typeof message === 'string' ? message : '',
-      traceback: typeof stacktrace === 'string' ? stacktrace : '',
-      // The span event carries no origin function; 'unknown' matches the breakdown's fallback
-      // when no instrumented frame recorded the throw.
-      functionName: 'unknown',
+      traceback: traceStr,
+      functionName: extractFunctionFromStackTrace(traceStr),
     };
   }
   return undefined;
@@ -123,14 +140,28 @@ export function getStatusCode(span: ReadableSpan): number {
 }
 
 /**
+ * A span is a local root if it has no parent or its parent is remote (from another
+ * service/process). Matches Java's `!parentContext.isValid() || parentContext.isRemote()`
+ * and Python's `span.parent is None or not span.parent.is_valid or span.parent.is_remote`.
+ *
+ * This is a direct check on the span's parentSpanContext — it does NOT depend on the
+ * precalculated `aws.is.local.root` attribute (which requires AttributePropagatingSpanProcessor
+ * to run first). The direct check is self-contained and works regardless of processor ordering.
+ */
+function isLocalRoot(span: ReadableSpan): boolean {
+  const parent = span.parentSpanContext;
+  if (!parent || !trace.isSpanContextValid(parent)) {
+    return true;
+  }
+  return parent.isRemote === true;
+}
+
+/**
  * True for the span that delimits an inbound request. Matches Java's filter
  * (`getKind() != SERVER && !isLocalRoot` → skip): a SERVER span, or any local-root span.
- * `AwsSpanProcessingUtil.isLocalRoot` reads the `aws.is.local.root` attribute precalculated by
- * AttributePropagatingSpanProcessor, so this requires that processor to run first (it always
- * does — the configurator registers it ahead of every other processor).
  */
 export function isRequestBoundary(span: ReadableSpan): boolean {
-  return span.kind === SpanKind.SERVER || AwsSpanProcessingUtil.isLocalRoot(span);
+  return span.kind === SpanKind.SERVER || isLocalRoot(span);
 }
 
 /**
@@ -320,7 +351,12 @@ export class ServiceEventsSpanProcessor implements SpanProcessor {
         this.config?.incidentSnapshotDurationThresholdMs ??
         5000;
       if (statusCode >= 400 || durationMs > incidentThreshold) {
-        const requestData: RequestData = { headers: {} };
+        const spanCtx = span.spanContext();
+        const requestData: RequestData = {
+          headers: {},
+          trace_id: spanCtx.traceId !== '00000000000000000000000000000000' ? spanCtx.traceId : undefined,
+          span_id: spanCtx.spanId !== '0000000000000000' ? spanCtx.spanId : undefined,
+        };
         const exemplar = this.incidentSnapshotCollector.processPotentialIncident(
           route,
           method,

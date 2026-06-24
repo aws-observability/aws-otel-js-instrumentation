@@ -20,6 +20,7 @@ import { AWS_ATTRIBUTE_KEYS } from '../../../src/aws-attribute-keys';
 import {
   ServiceEventsSpanProcessor,
   exceptionFromSpanEvent,
+  extractFunctionFromStackTrace,
   getHttpMethod,
   getStatusCode,
   isRequestBoundary,
@@ -30,9 +31,11 @@ import * as monitor from '../../../src/serviceevents/serviceevents-monitor';
 import * as express from '../../../src/serviceevents/instrumentation/express-instrumentation';
 
 /**
- * Build a fake ReadableSpan. `localRoot` controls the precalculated `aws.is.local.root`
- * attribute that AwsSpanProcessingUtil.isLocalRoot reads (set by AttributePropagatingSpanProcessor
- * in production). A SERVER span is a boundary regardless of localRoot; a non-SERVER span is a
+ * Build a fake ReadableSpan. `localRoot` controls the parentSpanContext:
+ * - true/undefined: parentSpanContext is undefined (no parent = local root)
+ * - false: parentSpanContext is a valid local (non-remote) parent (= NOT a local root)
+ *
+ * A SERVER span is a boundary regardless of localRoot; a non-SERVER span is a
  * boundary only when localRoot is true.
  */
 function buildSpan(opts: {
@@ -52,11 +55,17 @@ function buildSpan(opts: {
     spanId: '0000000000000009',
     traceFlags: 1,
   };
+  // localRoot=false means the span has a valid local (non-remote) parent — NOT a local root.
+  // localRoot=true or undefined means no parent (or invalid parent) — IS a local root.
+  const parentCtx: SpanContext | undefined =
+    opts.localRoot === false
+      ? { traceId: '00000000000000000000000000000008', spanId: '0000000000000001', traceFlags: 1, isRemote: false }
+      : undefined;
   return {
     name: opts.name ?? 'GET /users/:id',
     kind: opts.kind ?? SpanKind.SERVER,
     spanContext: () => spanContext,
-    parentSpanContext: undefined,
+    parentSpanContext: parentCtx,
     startTime: [0, 0],
     endTime: [0, 5_000_000],
     status: { code: 0 },
@@ -555,9 +564,9 @@ describe('ServiceEventsSpanProcessor', () => {
       });
     });
 
-    it('takes the last exception event when several are recorded', () => {
+    it('takes the first exception event when several are recorded', () => {
       const result = exceptionFromSpanEvent(buildSpan({ events: [excEvent('FirstError'), excEvent('LastError')] }));
-      expect(result?.name).toBe('LastError');
+      expect(result?.name).toBe('FirstError');
     });
 
     it('skips an exception event missing exception.type', () => {
@@ -567,6 +576,41 @@ describe('ServiceEventsSpanProcessor', () => {
     it('defaults message and traceback to empty strings when absent', () => {
       const result = exceptionFromSpanEvent(buildSpan({ events: [excEvent('KeyError')] }));
       expect(result).toEqual({ name: 'KeyError', message: '', traceback: '', functionName: 'unknown' });
+    });
+
+    it('extracts function name from a V8 stack trace', () => {
+      const stack = 'Error: gateway down\n    at processOrder (/app/checkout.js:42:10)\n    at handler (/app/server.js:5:3)';
+      const result = exceptionFromSpanEvent(buildSpan({ events: [excEvent('Error', 'gateway down', stack)] }));
+      expect(result?.functionName).toBe('processOrder');
+    });
+
+    it('returns unknown when stack trace has no parseable frames', () => {
+      const result = exceptionFromSpanEvent(buildSpan({ events: [excEvent('Error', 'oops', 'no frames here')] }));
+      expect(result?.functionName).toBe('unknown');
+    });
+  });
+
+  describe('extractFunctionFromStackTrace', () => {
+    it('extracts function from standard V8 stack', () => {
+      const stack = 'Error: boom\n    at myFunction (/app/file.js:10:5)\n    at caller (/app/main.js:3:1)';
+      expect(extractFunctionFromStackTrace(stack)).toBe('myFunction');
+    });
+
+    it('extracts Object.method format', () => {
+      const stack = 'TypeError: x\n    at Object.processPayment (/app/pay.js:7:3)';
+      expect(extractFunctionFromStackTrace(stack)).toBe('Object.processPayment');
+    });
+
+    it('returns unknown for undefined', () => {
+      expect(extractFunctionFromStackTrace(undefined)).toBe('unknown');
+    });
+
+    it('returns unknown for empty string', () => {
+      expect(extractFunctionFromStackTrace('')).toBe('unknown');
+    });
+
+    it('returns unknown when no at-frames present', () => {
+      expect(extractFunctionFromStackTrace('just a message')).toBe('unknown');
     });
   });
 

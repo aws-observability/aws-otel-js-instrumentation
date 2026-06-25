@@ -67,25 +67,32 @@ function getHrTime(): HrTime {
   return [seconds, nanos];
 }
 
-function hrTimeToNanos(hrTime: HrTime): number {
-  return hrTime[0] * 1e9 + hrTime[1];
+// Returns nanoseconds since the Unix epoch as a bigint. A JS number cannot hold
+// epoch-nanos exactly — the value (~1.78e18) far exceeds Number.MAX_SAFE_INTEGER
+// (~9.0e15), so number math here would silently round and corrupt sub-millisecond
+// precision. BigInt keeps the full 64-bit value through to the protobuf encoder.
+const NANOS_PER_SECOND = BigInt(1e9);
+const NANOS_PER_MILLI = BigInt(1e6);
+
+function hrTimeToNanos(hrTime: HrTime): bigint {
+  return BigInt(hrTime[0]) * NANOS_PER_SECOND + BigInt(hrTime[1]);
 }
 
-function timeInputToNanos(time: TimeInput): number {
+function timeInputToNanos(time: TimeInput): bigint {
   if (typeof time === 'number') {
     // Per OTel convention, numeric TimeInput is epoch milliseconds (like Date.now())
-    return time * 1e6;
+    return BigInt(Math.round(time)) * NANOS_PER_MILLI;
   }
   if (Array.isArray(time)) {
     return hrTimeToNanos(time as HrTime);
   }
   if (time instanceof Date) {
-    return time.getTime() * 1e6;
+    return BigInt(time.getTime()) * NANOS_PER_MILLI;
   }
   return hrTimeToNanos(getHrTime());
 }
 
-function nowNanos(): number {
+function nowNanos(): bigint {
   return hrTimeToNanos(getHrTime());
 }
 
@@ -139,7 +146,7 @@ export class InstrumentationScope {
 
 export interface SpanEvent {
   name: string;
-  timestamp: number;
+  timestamp: bigint;
   attributes: Attributes;
 }
 
@@ -158,8 +165,8 @@ export class Span implements SpanAPI {
   private _resource: Record<string, string>;
   private _instrumentationScope: InstrumentationScope;
   private _provider: TracerProvider;
-  private _startTime: number | undefined;
-  private _endTime: number | undefined;
+  private _startTime: bigint | undefined;
+  private _endTime: bigint | undefined;
   private _status: SpanStatus;
   private _attributes: Record<string, AttributeValue>;
   private _events: SpanEvent[];
@@ -211,10 +218,10 @@ export class Span implements SpanAPI {
   get attributes(): Record<string, AttributeValue> {
     return this._attributes;
   }
-  get startTime(): number | undefined {
+  get startTime(): bigint | undefined {
     return this._startTime;
   }
-  get endTime(): number | undefined {
+  get endTime(): bigint | undefined {
     return this._endTime;
   }
   get status(): SpanStatus {
@@ -246,7 +253,12 @@ export class Span implements SpanAPI {
     if (this._endTime !== undefined) return this;
     let attrs: Attributes = {};
     let time: TimeInput | undefined = startTime;
-    if (attributesOrStartTime && typeof attributesOrStartTime === 'object' && !Array.isArray(attributesOrStartTime)) {
+    if (
+      attributesOrStartTime &&
+      typeof attributesOrStartTime === 'object' &&
+      !Array.isArray(attributesOrStartTime) &&
+      !(attributesOrStartTime instanceof Date)
+    ) {
       attrs = attributesOrStartTime as Attributes;
     } else if (attributesOrStartTime !== undefined) {
       time = attributesOrStartTime as TimeInput;
@@ -298,7 +310,7 @@ export class Span implements SpanAPI {
     return this;
   }
 
-  start(startTime?: number, parentContext?: Context): void {
+  start(startTime?: bigint, parentContext?: Context): void {
     if (this._startTime !== undefined) return;
     this._startTime = startTime !== undefined ? startTime : nowNanos();
     this._provider.onStart(this, parentContext);
@@ -570,7 +582,7 @@ function encodeVarintField(fieldNumber: number, value: number): Buffer {
   return Buffer.concat([encodeTag(fieldNumber, WIRE_VARINT), encodeVarint(value)]);
 }
 
-function encodeFixed64Field(fieldNumber: number, value: number): Buffer {
+function encodeFixed64Field(fieldNumber: number, value: number | bigint): Buffer {
   if (value == null) return Buffer.alloc(0);
   const buf = Buffer.alloc(8);
   buf.writeBigUInt64LE(BigInt(value));
@@ -597,6 +609,15 @@ function encodeAnyValue(value: AttributeValue): Buffer {
     const buf = Buffer.alloc(8);
     buf.writeDoubleLE(value);
     return Buffer.concat([encodeTag(4, WIRE_FIXED64), buf]);
+  }
+  // OTLP AnyValue.array_value (field 5): an ArrayValue message whose repeated
+  // `values` (field 1) each hold a nested AnyValue. Mirrors the Python lite SDK.
+  if (Array.isArray(value)) {
+    const parts: Buffer[] = [];
+    for (const item of value) {
+      parts.push(encodeBytesField(1, encodeAnyValue(item as AttributeValue)));
+    }
+    return encodeBytesField(5, Buffer.concat(parts));
   }
   return encodeStringField(1, String(value));
 }
@@ -651,8 +672,8 @@ function encodeSpanOtlp(span: Span): Buffer {
 
   parts.push(encodeStringField(5, span.name));
   parts.push(encodeVarintField(6, spanKindToOtlp(span.kind)));
-  parts.push(encodeFixed64Field(7, span.startTime || 0));
-  parts.push(encodeFixed64Field(8, span.endTime || 0));
+  parts.push(encodeFixed64Field(7, span.startTime ?? BigInt(0)));
+  parts.push(encodeFixed64Field(8, span.endTime ?? BigInt(0)));
 
   for (const [key, value] of Object.entries(span.attributes)) {
     if (value !== undefined) parts.push(encodeBytesField(9, encodeKeyValue(key, value)));

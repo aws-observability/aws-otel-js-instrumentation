@@ -244,6 +244,23 @@ describe('LiteSdk - Span', () => {
     span.end();
   });
 
+  it('addEvent treats a Date second arg as the timestamp, not attributes', () => {
+    const span = tracer.startSpan('test') as Span;
+    const when = new Date(1700000000000);
+    span.addEvent('dated-event', when);
+    expect(span.events[0].attributes).toEqual({});
+    expect(span.events[0].timestamp).toBe(BigInt(1700000000000) * BigInt(1e6));
+    span.end();
+  });
+
+  it('addEvent treats an HrTime array second arg as the timestamp', () => {
+    const span = tracer.startSpan('test') as Span;
+    span.addEvent('hr-event', [1700000000, 500]);
+    expect(span.events[0].attributes).toEqual({});
+    expect(span.events[0].timestamp).toBe(BigInt(1700000000) * BigInt(1e9) + BigInt(500));
+    span.end();
+  });
+
   it('updateName changes name', () => {
     const span = tracer.startSpan('original') as Span;
     span.updateName('updated');
@@ -332,14 +349,14 @@ describe('LiteSdk - Span', () => {
     // Per OTel convention, numeric TimeInput is epoch milliseconds (like Date.now()).
     const epochMs = 1700000000000; // Nov 2023 in ms
     const span = tracer.startSpan('test', { startTime: epochMs }) as Span;
-    expect(span.startTime).toBe(epochMs * 1e6);
+    expect(span.startTime).toBe(BigInt(epochMs) * BigInt(1e6));
     span.end();
   });
 
   it('treats Date startTime as epoch milliseconds (converts to nanos)', () => {
     const date = new Date(1700000000000);
     const span = tracer.startSpan('test', { startTime: date }) as Span;
-    expect(span.startTime).toBe(1700000000000 * 1e6);
+    expect(span.startTime).toBe(BigInt(1700000000000) * BigInt(1e6));
     span.end();
   });
 
@@ -1038,6 +1055,32 @@ describe('LiteSdk - OTLP wire-format correctness', () => {
     const resourceSpans = findLenField(sent, 1)!;
     const scopeSpansList = findAllLenFields(resourceSpans, 2);
     expect(scopeSpansList.length).toBe(2);
+  });
+
+  it('encodes an array attribute as an OTLP ArrayValue (field 5)', () => {
+    const sent = exportAndCapture((provider, exporter) => {
+      const tracer = provider.getTracer('scope-a', '1.0.0');
+      const span = tracer.startSpan('s') as Span;
+      span.setAttribute('tags', ['a', 'b', 'c']);
+      span.end();
+      exporter.export([span]);
+    });
+    const resourceSpans = findLenField(sent, 1)!;
+    const scopeSpans = findLenField(resourceSpans, 2)!;
+    const spanBytes = findLenField(scopeSpans, 2)!;
+
+    // Find the KeyValue (Span.attributes, field 9) whose key is 'tags'.
+    const tagsAnyValue = findAllLenFields(spanBytes, 9)
+      .map(kv => ({ key: findLenField(kv, 1)?.toString('utf-8'), value: findLenField(kv, 2) }))
+      .find(kv => kv.key === 'tags')?.value;
+    expect(tagsAnyValue).toBeDefined();
+
+    // AnyValue.array_value is field 5; its ArrayValue.values are repeated field 1,
+    // each a nested AnyValue whose string_value is field 1.
+    const arrayValue = findLenField(tagsAnyValue!, 5);
+    expect(arrayValue).toBeDefined();
+    const elements = findAllLenFields(arrayValue!, 1).map(el => findLenField(el, 1)?.toString('utf-8'));
+    expect(elements).toEqual(['a', 'b', 'c']);
   });
 });
 

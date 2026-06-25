@@ -231,7 +231,7 @@ export class ServiceEventsSpanProcessor implements SpanProcessor {
       }
       ServiceEventsMonitorState.getInstance().beginInvestigation(true);
     } catch (err) {
-      diag.debug('ServiceEvents endpoint span processor onStart failed', err);
+      diag.warn('ServiceEvents endpoint span processor onStart failed', err);
     }
   }
 
@@ -255,7 +255,7 @@ export class ServiceEventsSpanProcessor implements SpanProcessor {
         clearCurrentOperation();
       }
     } catch (err) {
-      diag.debug('ServiceEvents endpoint span processor onEnd failed', err);
+      diag.warn('ServiceEvents endpoint span processor onEnd failed', err);
     }
   }
 
@@ -334,7 +334,11 @@ export class ServiceEventsSpanProcessor implements SpanProcessor {
 
     // 1. Endpoint metric.
     if (this.endpointCollector) {
-      this.endpointCollector.recordRequest(route, method, statusCode, durationNs, errorInfo);
+      try {
+        this.endpointCollector.recordRequest(route, method, statusCode, durationNs, errorInfo);
+      } catch (err) {
+        diag.warn('ServiceEvents recordRequest failed', err);
+      }
     }
 
     // Set current operation before the incident path so exemplar correlation matches the

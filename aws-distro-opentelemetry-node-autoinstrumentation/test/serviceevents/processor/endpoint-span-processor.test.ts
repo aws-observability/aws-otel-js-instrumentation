@@ -28,7 +28,7 @@ import {
 } from '../../../src/serviceevents/processor/endpoint-span-processor';
 import { ServiceEventsConfig } from '../../../src/serviceevents/config';
 import * as monitor from '../../../src/serviceevents/serviceevents-monitor';
-import * as express from '../../../src/serviceevents/instrumentation/express-instrumentation';
+import * as errorExtraction from '../../../src/serviceevents/processor/error-extraction';
 
 /**
  * Build a fake ReadableSpan. `localRoot` controls the parentSpanContext:
@@ -247,7 +247,7 @@ describe('ServiceEventsSpanProcessor', () => {
       config = { endpointIncludePatterns: [], endpointExcludePatterns: [] } as unknown as ServiceEventsConfig;
       processor = new ServiceEventsSpanProcessor(endpointCollector, incidentCollector, config);
       // Default: no captured error so error breakdown is omitted unless a test opts in.
-      extractStub = sinon.stub(express, 'extractErrorFromCallPath').returns(undefined);
+      extractStub = sinon.stub(errorExtraction, 'extractErrorFromCallPath').returns(undefined);
     });
 
     it('records a matched-route request with route/method/status/duration', () => {
@@ -579,7 +579,8 @@ describe('ServiceEventsSpanProcessor', () => {
     });
 
     it('extracts function name from a V8 stack trace', () => {
-      const stack = 'Error: gateway down\n    at processOrder (/app/checkout.js:42:10)\n    at handler (/app/server.js:5:3)';
+      const stack =
+        'Error: gateway down\n    at processOrder (/app/checkout.js:42:10)\n    at handler (/app/server.js:5:3)';
       const result = exceptionFromSpanEvent(buildSpan({ events: [excEvent('Error', 'gateway down', stack)] }));
       expect(result?.functionName).toBe('processOrder');
     });
@@ -634,10 +635,10 @@ describe('ServiceEventsSpanProcessor', () => {
           attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 500 },
           events: [excEvent('RuntimeError', 'boom')],
         });
-        // onEnd clears the store in its finally, so capture the exception via the express extractor
+        // onEnd clears the store in its finally, so capture the exception via the error extractor
         // which peeks the seeded data before the clear.
         const seen: Array<string | undefined> = [];
-        const stub = sinon.stub(express, 'extractErrorFromCallPath').callsFake(() => {
+        const stub = sinon.stub(errorExtraction, 'extractErrorFromCallPath').callsFake(() => {
           seen.push(state.peekInvestigationData()?.exception?.name);
           return undefined;
         });
@@ -669,7 +670,7 @@ describe('ServiceEventsSpanProcessor', () => {
           events: [excEvent('RuntimeError', 'from span')],
         });
         const captured: Array<{ name?: string; functionName?: string }> = [];
-        const stub = sinon.stub(express, 'extractErrorFromCallPath').callsFake(() => {
+        const stub = sinon.stub(errorExtraction, 'extractErrorFromCallPath').callsFake(() => {
           const exc = state.peekInvestigationData()?.exception;
           captured.push({ name: exc?.name, functionName: exc?.functionName });
           return undefined;
@@ -698,7 +699,7 @@ describe('ServiceEventsSpanProcessor', () => {
           events: [excEvent('RuntimeError', 'boom')],
         });
         const seen: Array<unknown> = [];
-        const stub = sinon.stub(express, 'extractErrorFromCallPath').callsFake(() => {
+        const stub = sinon.stub(errorExtraction, 'extractErrorFromCallPath').callsFake(() => {
           seen.push(state.peekInvestigationData()?.exception ?? null);
           return undefined;
         });

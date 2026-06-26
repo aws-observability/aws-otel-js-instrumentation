@@ -69,12 +69,6 @@ describe('ServiceEventsConfig', function () {
       expect(config.incidentSnapshotDurationThresholdMs).toBe(5000);
       expect(config.incidentSnapshotMaxSameError).toBe(1);
       expect(config.latencyThresholds).toEqual([]);
-      expect(config.instrumentExpress).toBe(true);
-      expect(config.instrumentFastify).toBe(true);
-      expect(config.instrumentKoa).toBe(true);
-      expect(config.instrumentNextJs).toBe(true);
-      // Span-processor mode is the default; set the env var to false to use the legacy hooks.
-      expect(config.useSpanProcessor).toBe(true);
       expect(config.endpointIncludePatterns).toEqual([]);
       expect(config.endpointExcludePatterns).toEqual([]);
       expect(config.functionInstrumentEnabled).toBe(true);
@@ -103,20 +97,18 @@ describe('ServiceEventsConfig', function () {
       expect(config.logStream).toBe('');
     });
 
-    it('sampling tiers and framework toggles ignore env', function () {
+    it('sampling tiers and the detach threshold ignore env', function () {
       clearServiceEventsEnvVars();
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER1_THRESHOLD = '7';
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER2_THRESHOLD = '70';
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER2_RATE = '3';
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER3_RATE = '30';
-      process.env.OTEL_AWS_SERVICE_EVENTS_JS_INSTRUMENT_EXPRESS = 'false';
       process.env.OTEL_AWS_SERVICE_EVENTS_JS_FUNCTION_DETACH_THRESHOLD = '99';
       const config = createServiceEventsConfigFromEnv();
       expect(config.sampleTier1Threshold).toBe(100);
       expect(config.sampleTier2Threshold).toBe(1000);
       expect(config.sampleTier2Rate).toBe(10);
       expect(config.sampleTier3Rate).toBe(100);
-      expect(config.instrumentExpress).toBe(true);
       expect(config.functionDetachThreshold).toBe(5000);
     });
 
@@ -197,21 +189,6 @@ describe('ServiceEventsConfig', function () {
       delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
       const config = createServiceEventsConfigFromEnv();
       expect(config.applicationSignalsEnabled).toBe(false);
-    });
-  });
-
-  describe('useSpanProcessor env binding', function () {
-    it('mirrors OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR=false (opt out of the default)', function () {
-      clearServiceEventsEnvVars();
-      process.env.OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR = 'false';
-      const config = createServiceEventsConfigFromEnv();
-      expect(config.useSpanProcessor).toBe(false);
-    });
-
-    it('defaults to true when the env var is unset', function () {
-      clearServiceEventsEnvVars();
-      const config = createServiceEventsConfigFromEnv();
-      expect(config.useSpanProcessor).toBe(true);
     });
   });
 

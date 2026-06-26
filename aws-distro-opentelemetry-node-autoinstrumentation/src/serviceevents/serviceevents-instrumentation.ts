@@ -4,9 +4,9 @@
 /**
  * Main entry point for ServiceEvents instrumentation.
  *
- * Manages the lifecycle of AST hooks, monitor state, collectors,
- * OTLP emitter, and framework instrumentations for deep observability
- * of Node.js applications.
+ * Manages the lifecycle of AST hooks, monitor state, collectors, the OTLP
+ * emitter, and the framework-agnostic endpoint span processor for deep
+ * observability of Node.js applications.
  */
 
 import { diag, trace } from '@opentelemetry/api';
@@ -33,10 +33,6 @@ import { FunctionCallCollector } from './collectors/function-call-collector';
 import { EndpointMetricCollector } from './collectors/endpoint-collector';
 import { IncidentSnapshotCollector } from './collectors/incident-snapshot-collector';
 import { BaseCollector } from './collectors/base-collector';
-import { installExpressHooks, installGlobalHttpPatches } from './instrumentation/express-instrumentation';
-import { installFastifyHooks } from './instrumentation/fastify-instrumentation';
-import { installKoaHooks } from './instrumentation/koa-instrumentation';
-import { installNextJsHooks } from './instrumentation/nextjs-instrumentation';
 import { DeploymentEventCollector } from './collectors/deployment-event-collector';
 
 // Module-level singleton instance
@@ -288,30 +284,19 @@ export class ServiceEventsInstrumentation {
 
       for (const c of this.collectors) c.start();
 
-      // Endpoint signals come from one of two mutually exclusive sources:
-      //   - useSpanProcessor (the default): the framework-agnostic ServiceEventsSpanProcessor
-      //     reads the request-boundary span OTel already emits (covers every OTel-instrumented
-      //     framework for free, mirrors the Java/Python distros). Owns its own begin→end
-      //     investigation lifecycle, so the global http patch + per-framework hooks are NOT installed
-      //     (they would double-record and the http patch's res.on('close') backstop would race the
-      //     processor's onEnd teardown).
-      //   - legacy (flag off): the per-framework hooks + the global http patch (the original JS path).
+      // Endpoint signals come from the framework-agnostic ServiceEventsSpanProcessor: it reads the
+      // request-boundary span OTel already emits (covering every OTel-instrumented framework for
+      // free, mirroring the Java/Python distros) and owns its own begin→end investigation lifecycle.
       //
-      // The span processor registers itself on the already-built tracer provider via private SDK
-      // internals (SDK 2.x dropped the public addSpanProcessor). If that registration fails, fall
-      // back to the legacy hooks rather than emit no endpoint signals at all — the default-on path
-      // must never silently lose endpoint metrics on a provider shape we can't splice into.
-      const spanProcessorRegistered =
-        this.config.useSpanProcessor &&
-        this._installEndpointSpanProcessor(endpointCollector, incidentSnapshotCollector);
-      if (!spanProcessorRegistered) {
-        if (this.config.useSpanProcessor) {
-          diag.warn(
-            'ServiceEvents: endpoint span processor could not be registered; falling back to the ' +
-              'legacy per-framework hooks for endpoint signals.'
-          );
-        }
-        this._installFrameworkHooks(endpointCollector, incidentSnapshotCollector);
+      // The processor registers itself on the already-built tracer provider via private SDK
+      // internals (SDK 2.x dropped the public addSpanProcessor). If registration fails (a provider
+      // shape we cannot splice into), ServiceEvents emits no endpoint signals — there is no span
+      // pipeline to read from.
+      if (!this._installEndpointSpanProcessor(endpointCollector, incidentSnapshotCollector)) {
+        diag.warn(
+          'ServiceEvents: endpoint span processor could not be registered on the active tracer ' +
+            'provider; endpoint signals will not be emitted.'
+        );
       }
 
       this._initialized = true;
@@ -323,65 +308,9 @@ export class ServiceEventsInstrumentation {
   }
 
   /**
-   * Default path: install the global HTTP patch (begin signal + sole recorder for Express) plus
-   * the per-framework hooks, each gated on its config toggle. This is the original JS endpoint
-   * pipeline and remains the default.
-   */
-  private _installFrameworkHooks(
-    endpointCollector: EndpointMetricCollector,
-    incidentSnapshotCollector: IncidentSnapshotCollector
-  ): void {
-    // Install universal HTTP patches unconditionally, BEFORE framework hooks.
-    // This guarantees endpoint metrics work even when Express isn't
-    // a dependency (Fastify/Koa/Next.js-only apps). Idempotent.
-    try {
-      installGlobalHttpPatches();
-    } catch (err) {
-      diag.warn(`Failed to install global HTTP patches: ${err}`);
-    }
-
-    if (this.config.instrumentExpress) {
-      try {
-        if (installExpressHooks(endpointCollector, incidentSnapshotCollector, this.config.serviceName, this.config)) {
-          diag.info('Express instrumentation hooks installed');
-        }
-      } catch (err) {
-        diag.error(`Error installing Express hooks: ${err}`);
-      }
-    }
-    if (this.config.instrumentFastify) {
-      try {
-        if (installFastifyHooks(endpointCollector, incidentSnapshotCollector, this.config.serviceName, this.config)) {
-          diag.info('Fastify instrumentation hooks installed');
-        }
-      } catch (err) {
-        diag.error(`Error installing Fastify hooks: ${err}`);
-      }
-    }
-    if (this.config.instrumentKoa) {
-      try {
-        if (installKoaHooks(endpointCollector, incidentSnapshotCollector, this.config.serviceName, this.config)) {
-          diag.info('Koa instrumentation hooks installed');
-        }
-      } catch (err) {
-        diag.error(`Error installing Koa hooks: ${err}`);
-      }
-    }
-    if (this.config.instrumentNextJs) {
-      try {
-        if (installNextJsHooks(endpointCollector, incidentSnapshotCollector, this.config.serviceName, this.config)) {
-          diag.info('Next.js instrumentation hooks installed');
-        }
-      } catch (err) {
-        diag.error(`Error installing Next.js hooks: ${err}`);
-      }
-    }
-  }
-
-  /**
-   * Span-processor path: register the framework-agnostic ServiceEventsSpanProcessor on the
-   * active tracer provider. Does NOT install the global http patch or any per-framework hook — the
-   * processor owns the whole begin→end lifecycle off the request-boundary span.
+   * Register the framework-agnostic ServiceEventsSpanProcessor on the active tracer provider. The
+   * processor owns the whole begin→end lifecycle off the request-boundary span, covering every
+   * OTel-instrumented framework without bespoke hook code.
    *
    * ServiceEvents initializes after `sdk.start()`, so the provider already exists. OTel JS SDK 2.x
    * removed the public `addSpanProcessor`, and the provider is built once from a fixed
@@ -390,10 +319,8 @@ export class ServiceEventsInstrumentation {
    * iterates on every span (its `onStart`/`onEnd` read the array each call, so a late push takes
    * effect immediately).
    *
-   * Returns true when the processor was registered, false when neither strategy was reachable so
-   * the caller can fall back to the legacy per-framework hooks (the span-processor path is the
-   * default, so a registration miss must degrade to the working hooks rather than emit no endpoint
-   * signals).
+   * Returns true when the processor was registered, false when neither strategy was reachable — in
+   * which case ServiceEvents emits no endpoint signals (there is no span pipeline to read from).
    */
   private _installEndpointSpanProcessor(
     endpointCollector: EndpointMetricCollector,

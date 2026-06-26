@@ -102,19 +102,6 @@ export interface ServiceEventsConfig {
   // Format: "METHOD /route:threshold_ms,METHOD /route:threshold_ms,..."
   // Example: "POST /api/checkout:500,GET /api/health:50,GET /api/reports:5000"
   latencyThresholds: string[]; // OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS
-  // Framework Toggles (JS-only). Internal — no env override; all default true.
-  instrumentExpress: boolean;
-  instrumentFastify: boolean;
-  instrumentKoa: boolean;
-  instrumentNextJs: boolean;
-  // Framework-agnostic endpoint span processor. When true (the default), ServiceEvents derives
-  // endpoint metrics + incident snapshots from the request-boundary span
-  // (ServiceEventsSpanProcessor) instead of the per-framework hooks above, and skips
-  // installing those hooks and the global http patch. Set OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR
-  // to false to fall back to the legacy per-framework hooks. The legacy path is also used as an
-  // automatic fallback when the processor cannot be registered on the active tracer provider.
-  // Mirrors the Python distro's `use_span_processor` / OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR.
-  useSpanProcessor: boolean; // OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR
   // Endpoint Filtering - glob patterns in format "METHOD /route" or "* /route" or "METHOD *"
   // If includePatterns is set, only track matching endpoints; then excludePatterns removes from that set
   // Example: "GET /api/*,POST /api/*" or "* /health,* /metrics"
@@ -175,11 +162,6 @@ const DEFAULTS: ServiceEventsConfig = {
   incidentSnapshotDurationThresholdMs: 5000,
   incidentSnapshotMaxSameError: 1,
   latencyThresholds: [],
-  instrumentExpress: true,
-  instrumentFastify: true,
-  instrumentKoa: true,
-  instrumentNextJs: true,
-  useSpanProcessor: true,
   endpointIncludePatterns: [],
   endpointExcludePatterns: [],
   functionInstrumentEnabled: true,
@@ -371,13 +353,6 @@ export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
       100_000
     ),
     latencyThresholds: getList('OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS', DEFAULTS.latencyThresholds),
-    // Framework Toggles — internal (no env override); all default true.
-    instrumentExpress: DEFAULTS.instrumentExpress,
-    instrumentFastify: DEFAULTS.instrumentFastify,
-    instrumentKoa: DEFAULTS.instrumentKoa,
-    instrumentNextJs: DEFAULTS.instrumentNextJs,
-    // Framework-agnostic endpoint span processor — env-reachable (matches the Python distro).
-    useSpanProcessor: getBool('OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR', DEFAULTS.useSpanProcessor),
     // Endpoint Filtering
     endpointIncludePatterns: getList(
       'OTEL_AWS_SERVICE_EVENTS_ENDPOINT_INCLUDE_PATTERNS',

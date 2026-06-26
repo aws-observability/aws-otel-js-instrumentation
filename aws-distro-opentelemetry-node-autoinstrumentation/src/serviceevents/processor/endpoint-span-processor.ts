@@ -25,10 +25,8 @@
  *   the only surviving record of the error. An `AsyncLocalStorage.enterWith` issued here
  *   propagates to both the request handler and `onEnd` — verified empirically against
  *   `instrumentation-http` (the SERVER span's `onStart` runs at the head of the request's async
- *   subtree, so the begin is visible everywhere downstream). Because of this, span-processor
- *   mode does NOT install `installGlobalHttpPatches`; the processor owns the whole begin→end
- *   lifecycle itself, mirroring Python and avoiding the global patch's `res.on('close')`
- *   teardown racing ahead of `onEnd`.
+ *   subtree, so the begin is visible everywhere downstream). The processor owns the whole
+ *   begin→end lifecycle itself, mirroring Python.
  *
  * The collectors are reused verbatim: both rebuild `operation = `${method} ${route}`` internally
  * and hold the fault-only (`status >= 500 && errorInfo`) breakdown gate, so this processor passes
@@ -53,7 +51,7 @@ import { AwsSpanProcessingUtil } from '../../aws-span-processing-util';
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
 import { IncidentSnapshotCollector, RequestData } from '../collectors/incident-snapshot-collector';
 import { ServiceEventsConfig, shouldTrackEndpoint } from '../config';
-import { extractErrorFromCallPath } from '../instrumentation/express-instrumentation';
+import * as errorExtraction from './error-extraction';
 import { ServiceEventsMonitorState, setCurrentOperation, clearCurrentOperation } from '../serviceevents-monitor';
 
 /** HTTP method from the span: stable `http.request.method` first, legacy `http.method`. */
@@ -329,7 +327,7 @@ export class ServiceEventsSpanProcessor implements SpanProcessor {
     // investigation data.
     let errorInfo: { errorType: string; functionName: string } | undefined;
     if (statusCode >= 400) {
-      errorInfo = extractErrorFromCallPath(null);
+      errorInfo = errorExtraction.extractErrorFromCallPath(null);
     }
 
     // 1. Endpoint metric.

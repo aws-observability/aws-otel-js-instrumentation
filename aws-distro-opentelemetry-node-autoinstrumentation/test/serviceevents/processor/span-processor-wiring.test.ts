@@ -12,7 +12,6 @@ import {
   ServiceEventsInstrumentation,
 } from '../../../src/serviceevents/serviceevents-instrumentation';
 import { createServiceEventsConfigFromEnv } from '../../../src/serviceevents/config';
-import * as express from '../../../src/serviceevents/instrumentation/express-instrumentation';
 
 function fakeProcessor(): SpanProcessor {
   return {
@@ -68,14 +67,13 @@ describe('registerSpanProcessorOnActiveProvider', function () {
   });
 });
 
-describe('ServiceEventsInstrumentation endpoint-source mode branch', function () {
+describe('ServiceEventsInstrumentation endpoint span processor wiring', function () {
   let savedEnv: Record<string, string | undefined>;
 
   beforeEach(function () {
     savedEnv = {
       enabled: process.env.OTEL_AWS_SERVICE_EVENTS_ENABLED,
       outFile: process.env.OTEL_AWS_SERVICE_EVENTS_OUTPUT_FILE,
-      useSp: process.env.OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR,
     };
     process.env.OTEL_AWS_SERVICE_EVENTS_ENABLED = 'true';
     // File-export mode so the emitter never touches the network.
@@ -88,74 +86,36 @@ describe('ServiceEventsInstrumentation endpoint-source mode branch', function ()
       v === undefined ? delete process.env[k] : (process.env[k] = v);
     restore('OTEL_AWS_SERVICE_EVENTS_ENABLED', savedEnv.enabled);
     restore('OTEL_AWS_SERVICE_EVENTS_OUTPUT_FILE', savedEnv.outFile);
-    restore('OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR', savedEnv.useSp);
   });
 
-  it('flag ON (default): registers the span processor and SKIPS the framework hooks', async function () {
-    // Default is on; assert the unset-env behavior explicitly.
-    delete process.env.OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR;
+  it('registers the endpoint span processor on the active provider', async function () {
     // A registrable stub provider so the splice strategy succeeds.
     const spanProcessors: SpanProcessor[] = [];
     sinon
       .stub(trace, 'getTracerProvider')
       .returns({ getDelegate: () => ({ _activeSpanProcessor: { _spanProcessors: spanProcessors } }) } as any);
 
-    const globalPatchSpy = sinon.spy(express, 'installGlobalHttpPatches');
-    const expressSpy = sinon.spy(express, 'installExpressHooks');
-
     const config = createServiceEventsConfigFromEnv();
-    expect(config.useSpanProcessor).toBe(true);
     const instr = new ServiceEventsInstrumentation(config);
     instr.initialize();
 
-    // The endpoint span processor was registered on the provider.
+    // The endpoint span processor — the sole endpoint-measurement path — was registered.
     expect(spanProcessors.length).toBe(1);
-    // The per-framework hooks and the global http patch were NOT installed.
-    sinon.assert.notCalled(globalPatchSpy);
-    sinon.assert.notCalled(expressSpy);
 
     await instr.shutdown();
   });
 
-  it('flag OFF: installs the global http patch + framework hooks, registers no processor', async function () {
-    process.env.OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR = 'false';
-    const spanProcessors: SpanProcessor[] = [];
-    sinon
-      .stub(trace, 'getTracerProvider')
-      .returns({ getDelegate: () => ({ _activeSpanProcessor: { _spanProcessors: spanProcessors } }) } as any);
-
-    const globalPatchSpy = sinon.spy(express, 'installGlobalHttpPatches');
-
-    const config = createServiceEventsConfigFromEnv();
-    expect(config.useSpanProcessor).toBe(false);
-    const instr = new ServiceEventsInstrumentation(config);
-    instr.initialize();
-
-    // Legacy path installs the global http patch and registers no span processor.
-    sinon.assert.called(globalPatchSpy);
-    expect(spanProcessors.length).toBe(0);
-
-    await instr.shutdown();
-  });
-
-  it('flag ON but registration fails: falls back to the legacy framework hooks', async function () {
-    delete process.env.OTEL_AWS_SERVICE_EVENTS_USE_SPAN_PROCESSOR;
+  it('initializes without throwing when the processor cannot be registered', async function () {
     // A provider neither strategy can register on (no addSpanProcessor, no _activeSpanProcessor) →
-    // registerSpanProcessorOnActiveProvider returns false, so init must fall back to the hooks
-    // rather than emit no endpoint signals.
+    // registerSpanProcessorOnActiveProvider returns false. Init logs a warning and emits no endpoint
+    // signals (there is no longer a legacy hook fallback), but must not throw.
     sinon.stub(trace, 'getTracerProvider').returns({ getDelegate: () => ({}) } as any);
 
-    const globalPatchSpy = sinon.spy(express, 'installGlobalHttpPatches');
-    const expressSpy = sinon.spy(express, 'installExpressHooks');
-
     const config = createServiceEventsConfigFromEnv();
-    expect(config.useSpanProcessor).toBe(true);
     const instr = new ServiceEventsInstrumentation(config);
     instr.initialize();
 
-    // Registration failed → legacy hooks installed as the fallback.
-    sinon.assert.called(globalPatchSpy);
-    sinon.assert.called(expressSpy);
+    expect(instr.isInitialized()).toBe(true);
 
     await instr.shutdown();
   });

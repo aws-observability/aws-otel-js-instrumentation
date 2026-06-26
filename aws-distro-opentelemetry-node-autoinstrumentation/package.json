@@ -17,7 +17,8 @@
   "main": "build/src/index.js",
   "types": "build/src/index.d.ts",
   "exports": {
-    "./register": "./build/src/register.js"
+    "./register": "./build/src/register.js",
+    "./lite": "./build/src/opentelemetry-lite-sdk.js"
   },
   "repository": "aws-observability/aws-otel-js-instrumentation",
   "scripts": {

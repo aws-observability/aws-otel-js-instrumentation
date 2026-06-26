@@ -50,6 +50,21 @@ jobs:
       staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
       caller-workflow-name: 'main-build'
 
+  adot-di:
+    needs: [ upload-main-build ]
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [ '18', '20', '22', '24' ]
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-adot-di-test.yml@main
+    secrets: inherit
+    with:
+      aws-region: us-east-1
+      staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
+      caller-workflow-name: 'main-build'
+      node-version: ${{ matrix.node-version }}
+      cpu-architecture: 'x86_64'
+
   ec2-asg:
     needs: [ upload-main-build ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-asg-test.yml@main

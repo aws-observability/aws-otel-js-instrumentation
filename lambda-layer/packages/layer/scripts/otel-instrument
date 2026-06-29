@@ -39,7 +39,33 @@ _get_node_runtime_version() {
 
 NODE_VERSION=$(_get_node_runtime_version)
 
-if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
+# - Resolve the metrics/logs exporters and Lite Mode BEFORE the NODE_OPTIONS
+#   routing below, which selects the lite wrapper vs the full SDK wrapper based on
+#   OTEL_AWS_LAMBDA_FAST_START. Lite (traces-only, UDP to the X-Ray daemon) is an
+#   opt-in mode that greatly reduces cold start. A configured metrics or logs
+#   exporter forces the full SDK since lite has no MeterProvider/LoggerProvider
+#   and would silently drop that data.
+
+# - Disable otel metrics export by default
+if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
+    export OTEL_METRICS_EXPORTER="none";
+fi
+
+# - Disable logs exporter by default
+if [ -z "${OTEL_LOGS_EXPORTER}" ]; then
+    export OTEL_LOGS_EXPORTER="none";
+fi
+
+# - A configured metrics or logs exporter forces the full SDK.
+if [ "$OTEL_METRICS_EXPORTER" != "none" ] || [ "$OTEL_LOGS_EXPORTER" != "none" ]; then
+    export OTEL_AWS_LAMBDA_FAST_START="false";
+fi
+
+if [[ "${OTEL_AWS_LAMBDA_FAST_START}" == "true" ]]; then
+  # Lite mode bypasses register.ts and import-in-the-middle entirely.
+  # Instruments via require-in-the-middle and prototype patching only.
+  export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/lite-wrapper.js"
+elif _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
   if [[ $NODE_VERSION -ge 20 ]]; then
     # Node 20.6+ supports module.register() which allows selective module
     # interception. This avoids the global ESM loader hook (--experimental-loader)
@@ -95,16 +121,6 @@ fi
 # - Set Application Signals configuration
 if [ -z "${OTEL_AWS_APPLICATION_SIGNALS_ENABLED}" ]; then
     export OTEL_AWS_APPLICATION_SIGNALS_ENABLED="true";
-fi
-
-# - Disable otel metrics export by default
-if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
-    export OTEL_METRICS_EXPORTER="none";
-fi
-
-# - Disable logs exporter by default
-if [ -z "${OTEL_LOGS_EXPORTER}" ]; then
-    export OTEL_LOGS_EXPORTER="none";
 fi
 
 # - Append Lambda Resource Attributes to OTel Resource Attribute List

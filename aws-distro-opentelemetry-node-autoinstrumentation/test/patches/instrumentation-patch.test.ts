@@ -31,8 +31,8 @@ import {
   customExtractor,
   ExtendedAwsLambdaInstrumentation,
   headerGetter,
-  SKIP_CREDENTIAL_CAPTURE_KEY,
 } from './../../src/patches/instrumentation-patch';
+import { SKIP_CREDENTIAL_CAPTURE_KEY } from './../../src/patches/smithy-send-patch';
 import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { Context } from 'aws-lambda';

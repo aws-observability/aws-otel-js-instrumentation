@@ -44,8 +44,10 @@ import {
   ATTR_EXCEPTION_TYPE,
   ATTR_HTTP_REQUEST_METHOD,
   ATTR_HTTP_RESPONSE_STATUS_CODE,
+  ATTR_URL_PATH,
   SEMATTRS_HTTP_METHOD,
   SEMATTRS_HTTP_STATUS_CODE,
+  SEMATTRS_HTTP_TARGET,
 } from '@opentelemetry/semantic-conventions';
 import { AwsSpanProcessingUtil } from '../../aws-span-processing-util';
 import { EndpointMetricCollector } from '../collectors/endpoint-collector';
@@ -58,6 +60,22 @@ import { ServiceEventsMonitorState, setCurrentOperation, clearCurrentOperation }
 export function getHttpMethod(span: ReadableSpan): string | undefined {
   const method = span.attributes[ATTR_HTTP_REQUEST_METHOD] ?? span.attributes[SEMATTRS_HTTP_METHOD];
   return typeof method === 'string' ? method : undefined;
+}
+
+/**
+ * Raw request URL path from the span: stable `url.path` first, legacy `http.target`. The query
+ * string is stripped so the value matches the `{method} {route}`-less path the old per-framework
+ * hooks stamped on arrival. Both attributes are set by `instrumentation-http` when it CREATES the
+ * SERVER span (`getIncomingRequestAttributes`), so they are present at `onStart` — before routing
+ * resolves the template route. Returns undefined when neither attribute is present.
+ */
+export function getUrlPath(span: ReadableSpan): string | undefined {
+  const raw = span.attributes[ATTR_URL_PATH] ?? span.attributes[SEMATTRS_HTTP_TARGET];
+  if (typeof raw !== 'string' || raw.length === 0) {
+    return undefined;
+  }
+  const qIdx = raw.indexOf('?');
+  return qIdx >= 0 ? raw.substring(0, qIdx) : raw;
 }
 
 /**
@@ -221,6 +239,15 @@ export class ServiceEventsSpanProcessor implements SpanProcessor {
    * increment there while `onEnd` still decrements — drifting `_investigationActiveCount` below
    * zero and silently disabling exception capture from the second request on. A forced fresh store
    * resets the leaked call-path/exception and keeps every begin paired with its `onEnd` decrement.
+   *
+   * It also stamps the raw URL path into the operation ALS here, mirroring phase 1 of the old
+   * per-framework hooks ("stamp the raw URL on arrival; the resolved `{method} {route}` operation
+   * overwrites once routing has matched"). This is required for the `service.function.duration`
+   * histogram: each per-function duration reads `operationStorage` at the moment the function EXITS
+   * — i.e. DURING the request, long before `onEnd` runs — so without an early stamp every data
+   * point would lack the `operation` attribute. The resolved operation is set in `onEnd`
+   * (`setCurrentOperation(operation)`), so the endpoint/incident paths still see the template route;
+   * only the in-request function-duration path depends on this earlier raw-path value.
    */
   onStart(span: Span): void {
     try {
@@ -228,6 +255,13 @@ export class ServiceEventsSpanProcessor implements SpanProcessor {
         return;
       }
       ServiceEventsMonitorState.getInstance().beginInvestigation(true);
+      // Stamp the raw URL path so function-duration data points recorded mid-request carry a
+      // non-null `operation`. enterWith propagates to the request's async subtree (this onStart
+      // runs at the head of it); onEnd later upgrades it to the resolved `{method} {route}`.
+      const urlPath = getUrlPath(span);
+      if (urlPath) {
+        setCurrentOperation(urlPath);
+      }
     } catch (err) {
       diag.warn('ServiceEvents endpoint span processor onStart failed', err);
     }

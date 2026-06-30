@@ -23,6 +23,7 @@ import {
   extractFunctionFromStackTrace,
   getHttpMethod,
   getStatusCode,
+  getUrlPath,
   isRequestBoundary,
   routeFromOperation,
 } from '../../../src/serviceevents/processor/endpoint-span-processor';
@@ -221,10 +222,51 @@ describe('ServiceEventsSpanProcessor', () => {
       sinon.assert.notCalled(beginSpy);
     });
 
+    it('stamps the raw URL path into the operation ALS so mid-request function durations carry operation', () => {
+      // Mirrors phase 1 of the old per-framework hooks: the function-duration histogram reads the
+      // operation ALS when each function EXITS (during the request), so the boundary span's onStart
+      // must populate it before any handler frame runs.
+      processor.onStart(buildSpan({ kind: SpanKind.SERVER, attributes: { [ATTR_URL_PATH]: '/users/42?q=1' } }) as any);
+      expect(monitor.getCurrentOperation()).toBe('/users/42');
+    });
+
+    it('falls back to http.target when url.path is absent', () => {
+      processor.onStart(
+        buildSpan({ kind: SpanKind.SERVER, attributes: { [SEMATTRS_HTTP_TARGET]: '/legacy?x=2' } }) as any
+      );
+      expect(monitor.getCurrentOperation()).toBe('/legacy');
+    });
+
+    it('does NOT stamp the operation for a child span', () => {
+      processor.onStart(
+        buildSpan({ kind: SpanKind.INTERNAL, localRoot: false, attributes: { [ATTR_URL_PATH]: '/users/42' } }) as any
+      );
+      expect(monitor.getCurrentOperation()).toBeNull();
+    });
+
+    it('leaves the operation unset when the boundary span has no URL path', () => {
+      processor.onStart(buildSpan({ kind: SpanKind.SERVER }) as any);
+      expect(monitor.getCurrentOperation()).toBeNull();
+    });
+
     it('never throws even when the monitor blows up', () => {
       beginSpy.restore();
       sinon.stub(monitor.ServiceEventsMonitorState, 'getInstance').throws(new Error('boom'));
       expect(() => processor.onStart(buildSpan({ kind: SpanKind.SERVER }) as any)).not.toThrow();
+    });
+  });
+
+  describe('getUrlPath', () => {
+    it('prefers url.path and strips the query string', () => {
+      expect(getUrlPath(buildSpan({ attributes: { [ATTR_URL_PATH]: '/a/b?c=d' } }))).toBe('/a/b');
+    });
+
+    it('falls back to http.target', () => {
+      expect(getUrlPath(buildSpan({ attributes: { [SEMATTRS_HTTP_TARGET]: '/legacy' } }))).toBe('/legacy');
+    });
+
+    it('returns undefined when neither attribute is present', () => {
+      expect(getUrlPath(buildSpan({}))).toBeUndefined();
     });
   });
 

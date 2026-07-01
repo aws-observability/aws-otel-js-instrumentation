@@ -151,6 +151,10 @@ jobs:
       caller-workflow-name: 'main-build'
 
   service-events-eks:
+    # Serialize after the eks job: both target e2e-node-adot-test and the sample-app Service binds
+    # cluster-wide NodePort 30100, which this SE test also uses. Running in parallel would collide
+    # on that port ("provided port is already allocated").
+    needs: [ eks ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-eks-service-events-test.yml@main
     secrets: inherit
     with:

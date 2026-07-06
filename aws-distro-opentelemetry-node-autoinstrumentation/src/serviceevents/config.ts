@@ -316,6 +316,24 @@ function getEnvironment(): string | undefined {
  * Uses DEFAULTS as fallback when environment variables are not set.
  */
 export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
+  // Resolve maxSameError up front so the incident-snapshot flush interval can be derived from it.
+  const incidentMaxSameError = getIntClamped(
+    'OTEL_AWS_SERVICE_EVENTS_INCIDENT_SNAPSHOT_MAX_SAME_ERROR',
+    DEFAULTS.incidentSnapshotMaxSameError,
+    1,
+    100_000
+  );
+  // Derive the incident-snapshot flush interval from maxSameError rather than exposing it as an
+  // independent knob. Batch dedup keeps exactly one snapshot per error hash per flush cycle, and
+  // period dedup allows up to maxSameError (N) per fixed 60s window, so to emit all N the 60s
+  // window must be sliced into at least N flush cycles: flush <= 60s / N. We pick the *largest*
+  // such value, flush = 60s / N, because a wider cycle is a wider Point #2 window (more chances
+  // for a later SAMPLED occurrence to upgrade a pending UNSAMPLED snapshot), maximizing the odds
+  // each emitted snapshot carries a resolvable trace link. Floored at 10s to bound export latency
+  // and crash-loss; this caps the effective per-error rate at 60s/10s = 6/min. The test hook
+  // (applied to the returned object) can still override flush directly for fast test cycles.
+  const incidentFlushInterval = Math.max(10_000, Math.floor(60_000 / incidentMaxSameError));
+
   return applyTestConfigHook({
     // Enable/Disable
     enabled: getBool('OTEL_AWS_SERVICE_EVENTS_ENABLED', DEFAULTS.enabled),
@@ -324,11 +342,12 @@ export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
     // surface). sdkVersion is internal — always the ADOT package version, no env override.
     environment: getEnvironment(),
     sdkVersion: DEFAULTS.sdkVersion,
-    // Flush Intervals — internal (no env override); defaults stand. The first three are
-    // overridable via the test-config hook.
+    // Flush Intervals. functionCall_, endpoint_ and deploymentEvent_ are internal (no env
+    // override; defaults stand). incidentSnapshotFlushInterval is derived from maxSameError above
+    // (flush = 60s / N, floored at 10s). All are overridable via the test-config hook.
     functionCallFlushInterval: DEFAULTS.functionCallFlushInterval,
     endpointFlushInterval: DEFAULTS.endpointFlushInterval,
-    incidentSnapshotFlushInterval: DEFAULTS.incidentSnapshotFlushInterval,
+    incidentSnapshotFlushInterval: incidentFlushInterval,
     deploymentEventFlushInterval: DEFAULTS.deploymentEventFlushInterval,
     // Incident Snapshot Settings. Window fixed at 1 minute; only the per-minute
     // ceiling is configurable.
@@ -346,12 +365,7 @@ export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
       1,
       3_600_000 // 1 hour
     ),
-    incidentSnapshotMaxSameError: getIntClamped(
-      'OTEL_AWS_SERVICE_EVENTS_INCIDENT_SNAPSHOT_MAX_SAME_ERROR',
-      DEFAULTS.incidentSnapshotMaxSameError,
-      1,
-      100_000
-    ),
+    incidentSnapshotMaxSameError: incidentMaxSameError,
     latencyThresholds: getList('OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS', DEFAULTS.latencyThresholds),
     // Endpoint Filtering
     endpointIncludePatterns: getList(

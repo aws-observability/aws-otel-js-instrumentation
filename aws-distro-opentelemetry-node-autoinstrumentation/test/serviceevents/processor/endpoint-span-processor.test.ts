@@ -46,6 +46,7 @@ function buildSpan(opts: {
   localRoot?: boolean;
   duration?: HrTime;
   events?: Array<{ name: string; attributes?: Attributes }>;
+  traceFlags?: number;
 }): ReadableSpan {
   const attributes: Attributes = { ...(opts.attributes ?? {}) };
   if (opts.localRoot !== undefined) {
@@ -54,7 +55,7 @@ function buildSpan(opts: {
   const spanContext: SpanContext = {
     traceId: '00000000000000000000000000000008',
     spanId: '0000000000000009',
-    traceFlags: 1,
+    traceFlags: opts.traceFlags ?? 1,
   };
   // localRoot=false means the span has a valid local (non-remote) parent — NOT a local root.
   // localRoot=true or undefined means no parent (or invalid parent) — IS a local root.
@@ -412,6 +413,32 @@ describe('ServiceEventsSpanProcessor', () => {
       expect(method).toBe('GET');
       expect(status).toBe(500);
       expect(exception).toBeNull();
+    });
+
+    it('correlates trace_id/span_id when the span is sampled', () => {
+      const span = buildSpan({
+        name: 'GET /boom',
+        attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 500 },
+      });
+      processor.onEnd(span);
+      const requestData = incidentCollector.processPotentialIncident.firstCall.args[5];
+      expect(requestData.trace_id).toBe('00000000000000000000000000000008');
+      expect(requestData.span_id).toBe('0000000000000009');
+    });
+
+    it('omits trace_id/span_id for an unsampled (RECORD_ONLY) span', () => {
+      // AlwaysRecordSampler keeps an unsampled span recording, but its trace is dropped before
+      // export — so the incident must NOT be correlated to it. The incident is still emitted.
+      const span = buildSpan({
+        name: 'GET /boom',
+        attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 500 },
+        traceFlags: 0,
+      });
+      processor.onEnd(span);
+      sinon.assert.calledOnce(incidentCollector.processPotentialIncident);
+      const requestData = incidentCollector.processPotentialIncident.firstCall.args[5];
+      expect(requestData.trace_id).toBeUndefined();
+      expect(requestData.span_id).toBeUndefined();
     });
 
     it('triggers an incident on a slow 2xx that exceeds the latency threshold', () => {

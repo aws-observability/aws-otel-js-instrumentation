@@ -34,7 +34,7 @@
  * App Signals operation so the rebuilt operation is identical to what App Signals reports.
  */
 
-import { diag, trace } from '@opentelemetry/api';
+import { diag, trace, TraceFlags } from '@opentelemetry/api';
 import { hrTimeToMilliseconds, hrTimeToNanoseconds } from '@opentelemetry/core';
 import type { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { SpanKind } from '@opentelemetry/api';
@@ -387,11 +387,18 @@ export class ServiceEventsSpanProcessor implements SpanProcessor {
         this.config?.incidentSnapshotDurationThresholdMs ??
         5000;
       if (statusCode >= 400 || durationMs > incidentThreshold) {
+        // Trace correlation is best-effort and sampling-conditional: under reduced sampling,
+        // AlwaysRecordSampler keeps this span recording (so App Signals metrics see every request)
+        // even though its trace was dropped before export — a recorded-but-unsampled (RECORD_ONLY)
+        // span. Capturing its ids would emit a correlation link to a trace the backend never
+        // received, so gate on the SAMPLED flag in addition to the non-zero id check. An unsampled
+        // request still emits a complete (self-contained) IncidentSnapshot, just without
+        // trace_id/span_id.
         const spanCtx = span.spanContext();
+        const sampled = (spanCtx.traceFlags & TraceFlags.SAMPLED) !== 0;
         const requestData: RequestData = {
-          headers: {},
-          trace_id: spanCtx.traceId !== '00000000000000000000000000000000' ? spanCtx.traceId : undefined,
-          span_id: spanCtx.spanId !== '0000000000000000' ? spanCtx.spanId : undefined,
+          trace_id: sampled && spanCtx.traceId !== '00000000000000000000000000000000' ? spanCtx.traceId : undefined,
+          span_id: sampled && spanCtx.spanId !== '0000000000000000' ? spanCtx.spanId : undefined,
         };
         const exemplar = this.incidentSnapshotCollector.processPotentialIncident(
           route,

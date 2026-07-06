@@ -150,6 +150,12 @@ class ServiceEventsTestInfrastructure(TestCase):
             .with_env("OTEL_METRICS_EXPORTER", "none")
             .with_env("OTEL_LOGS_EXPORTER", "none")
             .with_env("OTEL_AWS_APPLICATION_SIGNALS_ENABLED", "false")
+            # Force always-on sampling so every request's trace is sampled. Incident-snapshot
+            # trace correlation is sampling-conditional (the SDK only attaches trace_id/span_id
+            # when the trace was sampled), so this makes the correlation assertions in
+            # test_incident_snapshot_on_exception deterministic — matching the Java and Python
+            # serviceevents contract suites.
+            .with_env("OTEL_TRACES_SAMPLER", "always_on")
             .with_env("OTEL_SERVICE_NAME", self.get_application_otel_service_name())
             .with_env("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment.name=test")
             # ServiceEvents-specific OTLP endpoints. ServiceEvents is HTTP-only; routes
@@ -575,6 +581,18 @@ class ServiceEventsContractTestBase(ServiceEventsTestInfrastructure):
         records = self.wait_for_log_records("aws.service_events.incident_snapshot")
         self.assertGreater(len(records), 0)
         self.assert_incident_snapshot(records[0], trigger_type="exception")
+        # Trace correlation is sampling-conditional: the SDK only attaches trace_id/span_id when the
+        # request's trace was sampled (otherwise the link would point at a trace the backend never
+        # received). This suite forces OTEL_TRACES_SAMPLER=always_on (see _create_application), so
+        # every request IS sampled and these ids are always populated. Under reduced sampling an
+        # unsampled request would still emit a complete IncidentSnapshot, but with empty
+        # trace_id/span_id and flags 0. (Matches the Java + Python serviceevents contract suites.)
+        log_record = records[0].log_record
+        self.assertTrue(any(log_record.trace_id), "Expected non-zero trace_id")
+        self.assertTrue(any(log_record.span_id), "Expected non-zero span_id")
+        # The OTLP proto LogRecord exposes the trace flags as `flags`; the SDK emits the trace's
+        # real flags, so SAMPLED (1) here reflects the always_on sampling decision above.
+        self.assertEqual(log_record.flags, 1, "Expected SAMPLED trace flags")
 
     def test_incident_snapshot_has_call_path(self) -> None:
         self.send_request("GET", "exception")

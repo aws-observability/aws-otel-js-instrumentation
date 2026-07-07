@@ -291,8 +291,8 @@ export class IncidentSnapshotCollector extends BaseCollector {
    * Java LatencyThresholdResolver (key = METHOD + ' ' + route; first glob match;
    * else global default).
    *
-   * Public so the framework instrumentation gates (which decide whether to bother
-   * building RequestData and calling processPotentialIncident) resolve the SAME
+   * Public so the ServiceEventsSpanProcessor's incident gate (which decides whether to
+   * bother building RequestData and calling processPotentialIncident) resolves the SAME
    * per-endpoint threshold the collector uses. Gating on the global default instead
    * made any per-endpoint threshold below the global silently dead — a slow request
    * over its per-endpoint limit but under the global never reached the collector.

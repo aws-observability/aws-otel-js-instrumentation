@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- refactor(serviceevents): make the endpoint span processor framework-agnostic
+- fix(serviceevents): gate incident trace correlation on the SAMPLED flag and harden incident dedup/rate-limiting
 - feat: feat: add OTel lite SDK for Lambda cold start optimization
   ([#493](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/493))
 

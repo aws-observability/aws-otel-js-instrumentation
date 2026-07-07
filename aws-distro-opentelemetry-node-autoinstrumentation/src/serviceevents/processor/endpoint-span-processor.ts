@@ -385,40 +385,35 @@ export class ServiceEventsSpanProcessor implements SpanProcessor {
     // recorded aggregation key (mirrors Java onEnd line 241).
     setCurrentOperation(operation as string);
 
-    // 2. Potential incident. Resolve the per-endpoint latency threshold so a route with a
-    // sub-global LATENCY_THRESHOLDS value still trips the gate. exception=null: the trigger
-    // gate uses statusCode >= 500, and exception detail is recovered from investigation data
-    // inside the collector, exactly as Java does.
+    // 2. Potential incident. Delegate unconditionally to the collector — it owns the trigger
+    // decision (statusCode >= 500 or unhandled exception → "exception"; duration over the
+    // per-endpoint latency threshold → "latency"; otherwise no snapshot), mirroring the Python
+    // and Java distros, which likewise call the collector for every request boundary. exception=null:
+    // the collector recovers exception detail from the investigation data, exactly as Java does.
     if (this.incidentSnapshotCollector) {
-      const incidentThreshold =
-        this.incidentSnapshotCollector.resolveLatencyThresholdMs(method, route) ??
-        this.config?.incidentSnapshotDurationThresholdMs ??
-        5000;
-      if (statusCode >= 400 || durationMs > incidentThreshold) {
-        // Trace correlation is best-effort and sampling-conditional: under reduced sampling,
-        // AlwaysRecordSampler keeps this span recording (so App Signals metrics see every request)
-        // even though its trace was dropped before export — a recorded-but-unsampled (RECORD_ONLY)
-        // span. Capturing its ids would emit a correlation link to a trace the backend never
-        // received, so gate on the SAMPLED flag in addition to the non-zero id check. An unsampled
-        // request still emits a complete (self-contained) IncidentSnapshot, just without
-        // trace_id/span_id.
-        const spanCtx = span.spanContext();
-        const sampled = (spanCtx.traceFlags & TraceFlags.SAMPLED) !== 0;
-        const requestData: RequestData = {
-          trace_id: sampled && spanCtx.traceId !== '00000000000000000000000000000000' ? spanCtx.traceId : undefined,
-          span_id: sampled && spanCtx.spanId !== '0000000000000000' ? spanCtx.spanId : undefined,
-        };
-        const exemplar = this.incidentSnapshotCollector.processPotentialIncident(
-          route,
-          method,
-          statusCode,
-          durationMs,
-          null,
-          requestData
-        );
-        if (exemplar && this.endpointCollector) {
-          this.endpointCollector.recordIncidentExemplar(`${method} ${route}`, exemplar);
-        }
+      // Trace correlation is best-effort and sampling-conditional: under reduced sampling,
+      // AlwaysRecordSampler keeps this span recording (so App Signals metrics see every request)
+      // even though its trace was dropped before export — a recorded-but-unsampled (RECORD_ONLY)
+      // span. Capturing its ids would emit a correlation link to a trace the backend never
+      // received, so gate on the SAMPLED flag in addition to the non-zero id check. An unsampled
+      // request still emits a complete (self-contained) IncidentSnapshot, just without
+      // trace_id/span_id.
+      const spanCtx = span.spanContext();
+      const sampled = (spanCtx.traceFlags & TraceFlags.SAMPLED) !== 0;
+      const requestData: RequestData = {
+        trace_id: sampled && spanCtx.traceId !== '00000000000000000000000000000000' ? spanCtx.traceId : undefined,
+        span_id: sampled && spanCtx.spanId !== '0000000000000000' ? spanCtx.spanId : undefined,
+      };
+      const exemplar = this.incidentSnapshotCollector.processPotentialIncident(
+        route,
+        method,
+        statusCode,
+        durationMs,
+        null,
+        requestData
+      );
+      if (exemplar && this.endpointCollector) {
+        this.endpointCollector.recordIncidentExemplar(`${method} ${route}`, exemplar);
       }
     }
     // No teardown here: onEnd's finally clears the operation + investigation data atomically.

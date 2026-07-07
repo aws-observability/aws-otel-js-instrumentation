@@ -67,6 +67,13 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
     expect(exemplar).toBeNull();
   });
 
+  it('skips snapshot for a plain 4xx under the latency threshold', function () {
+    // A 4xx is a client error, not a service incident. Only 5xx / exception / slow requests
+    // trigger. The processor no longer pre-filters status, so this contract lives entirely here.
+    const exemplar = collector.processPotentialIncident('/api/x', 'GET', 404, 50, null, makeRequestData());
+    expect(exemplar).toBeNull();
+  });
+
   it('emits snapshot via OTLP on collect', function () {
     collector.processPotentialIncident('/api/x', 'POST', 500, 50, new Error('boom'), makeRequestData());
     collector.collect();
@@ -856,12 +863,10 @@ describe('IncidentSnapshotCollector per-endpoint latency thresholds', function (
     expect(collector.processPotentialIncident('/api/x', 'GET', 200, 6000, null, makeRequestData())).not.toBeNull();
   });
 
-  // resolveLatencyThresholdMs is public so the framework instrumentation gates can
-  // resolve the SAME per-endpoint threshold the collector uses. Previously the gates
-  // hard-coded the global default, so any sub-global per-endpoint threshold was dead
-  // (a slow request over its endpoint limit but under the global never reached the
-  // collector). These assert the resolver the gates now call.
-  it('resolveLatencyThresholdMs returns the per-endpoint threshold for the gate', function () {
+  // resolveLatencyThresholdMs is public so it can be unit-tested directly against the
+  // configured glob patterns. The trigger decision (determineTriggerType) uses it
+  // internally; these assert the resolution itself.
+  it('resolveLatencyThresholdMs returns the per-endpoint threshold', function () {
     const collector = makeCollector([
       ['POST /api/checkout', 200],
       ['GET /api/*', 1000],

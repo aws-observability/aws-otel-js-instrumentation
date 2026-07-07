@@ -291,11 +291,9 @@ export class IncidentSnapshotCollector extends BaseCollector {
    * Java LatencyThresholdResolver (key = METHOD + ' ' + route; first glob match;
    * else global default).
    *
-   * Public so the ServiceEventsSpanProcessor's incident gate (which decides whether to
-   * bother building RequestData and calling processPotentialIncident) resolves the SAME
-   * per-endpoint threshold the collector uses. Gating on the global default instead
-   * made any per-endpoint threshold below the global silently dead — a slow request
-   * over its per-endpoint limit but under the global never reached the collector.
+   * The trigger decision uses this internally (see determineTriggerType). Kept public so it
+   * can be unit-tested directly against the configured glob patterns — mirrors the Python
+   * distro's get_latency_threshold, which is likewise public and exercised by its own tests.
    */
   resolveLatencyThresholdMs(method: string, route: string): number {
     if (this.latencyThresholdPatterns.length === 0) {

@@ -457,41 +457,42 @@ describe('ServiceEventsSpanProcessor', () => {
       expect(requestData.span_id).toBeUndefined();
     });
 
-    it('triggers an incident on a slow 2xx that exceeds the latency threshold', () => {
-      incidentCollector.resolveLatencyThresholdMs.returns(10); // 10 ms threshold
+    it('delegates every tracked request boundary to the collector — including a fast 2xx', () => {
+      // The processor does NOT pre-filter on status/latency; the collector owns the trigger
+      // decision (mirrors the Python and Java distros). A fast 2xx is still handed off — the
+      // collector is what returns null for it.
       const span = buildSpan({
-        name: 'GET /slow',
-        attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 200 },
-        duration: [0, 50_000_000], // 50 ms > 10 ms
-      });
-      processor.onEnd(span);
-      sinon.assert.calledOnce(incidentCollector.processPotentialIncident);
-    });
-
-    it('falls back to the config threshold when resolveLatencyThresholdMs returns undefined', () => {
-      // Exercises the `?? config.incidentSnapshotDurationThresholdMs ?? 5000` fallback chain.
-      incidentCollector.resolveLatencyThresholdMs.returns(undefined);
-      config.incidentSnapshotDurationThresholdMs = 20; // 20 ms fallback threshold
-      const span = buildSpan({
-        name: 'GET /slow',
-        attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 200 },
-        duration: [0, 50_000_000], // 50 ms > 20 ms fallback
-      });
-      processor.onEnd(span);
-      sinon.assert.calledOnce(incidentCollector.processPotentialIncident);
-    });
-
-    it('uses the hardcoded 5000ms default when neither resolver nor config provides a threshold', () => {
-      // Exercises the final `?? 5000` arm: resolver undefined AND config threshold undefined.
-      incidentCollector.resolveLatencyThresholdMs.returns(undefined);
-      (config as any).incidentSnapshotDurationThresholdMs = undefined;
-      const fast = buildSpan({
         name: 'GET /fast',
         attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 200 },
-        duration: [0, 10_000_000], // 10 ms < 5000 ms default -> no incident
+        duration: [0, 5_000_000], // 5 ms — well under any latency threshold
       });
-      processor.onEnd(fast);
-      sinon.assert.notCalled(incidentCollector.processPotentialIncident);
+      processor.onEnd(span);
+      sinon.assert.calledOnce(incidentCollector.processPotentialIncident);
+    });
+
+    it('delegates a 4xx to the collector rather than pre-filtering it', () => {
+      // Previously the processor pre-gated on `statusCode >= 400`, allocating RequestData and
+      // calling the collector for every 4xx just to have it dropped inside determineTriggerType.
+      // Now the collector decides; a plain 4xx is still delegated (and dropped there).
+      const span = buildSpan({
+        name: 'GET /missing',
+        attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 404 },
+        duration: [0, 5_000_000],
+      });
+      processor.onEnd(span);
+      sinon.assert.calledOnce(incidentCollector.processPotentialIncident);
+    });
+
+    it('passes the raw durationMs through so the collector can apply the latency threshold', () => {
+      const span = buildSpan({
+        name: 'GET /slow',
+        attributes: { [ATTR_HTTP_REQUEST_METHOD]: 'GET', [ATTR_HTTP_RESPONSE_STATUS_CODE]: 200 },
+        duration: [0, 50_000_000], // 50 ms
+      });
+      processor.onEnd(span);
+      sinon.assert.calledOnce(incidentCollector.processPotentialIncident);
+      const durationMs = incidentCollector.processPotentialIncident.firstCall.args[3];
+      expect(durationMs).toBe(50);
     });
 
     it('records an exemplar when the incident collector returns one', () => {

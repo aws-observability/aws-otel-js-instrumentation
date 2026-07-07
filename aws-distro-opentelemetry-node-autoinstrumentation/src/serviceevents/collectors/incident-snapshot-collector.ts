@@ -94,6 +94,11 @@ export class IncidentSnapshotCollector extends BaseCollector {
   // pending snapshot's correlation before it flushes — see maybeUpgradePendingCorrelation. Cleared
   // each collect().
   private _pendingByHash: Map<string, IncidentSnapshot> = new Map();
+  // The endpoint exemplar object returned for each pending snapshot, keyed by error hash. The
+  // endpoint collector holds the SAME object reference, so mutating it on a Point #2 upgrade keeps
+  // the recorded exemplar's emitted fields (trigger_type/timestamp) coherent with the swapped
+  // snapshot (they share a snapshot_id). Cleared each collect().
+  private _pendingExemplarByHash: Map<string, IncidentExemplar> = new Map();
 
   // Monitor state
   private _monitorState: ServiceEventsMonitorState;
@@ -152,8 +157,14 @@ export class IncidentSnapshotCollector extends BaseCollector {
       return null;
     }
 
-    // Generate error hash for deduplication
-    const errorHash = this.generateErrorHash(route, exception);
+    // Generate error hash for deduplication. The processor passes exception=null (like Java) and
+    // defers exception detail to the collector, so recover the error identity (type + message) from
+    // the investigation data — already seeded from the span's exception event for uninstrumented
+    // 5xx — BEFORE hashing. Without this the hash would collapse to route-only and two distinct
+    // errors on the same route would deduplicate together. Latency incidents have no exception →
+    // route-only hash, matching the pre-refactor behavior.
+    const { type: excType, message: excMessage } = this.recoverErrorIdentity(exception);
+    const errorHash = this.errorHash(route, excType, excMessage);
 
     // Check batch-level deduplication FIRST (one per error type per collection interval)
     if (this._currentBatchHashes.has(errorHash)) {
@@ -213,28 +224,32 @@ export class IncidentSnapshotCollector extends BaseCollector {
         triggerType
       );
 
-      // Add to pending, and index by error hash so a later sampled occurrence of the same error
-      // can upgrade this snapshot's correlation in place before it flushes.
-      this._pendingSnapshots.push(snapshot);
-      this._pendingByHash.set(errorHash, snapshot);
-
-      diag.info(`Incident snapshot triggered: ${route} ${method} (status=${statusCode}, trigger=${triggerType})`);
-
-      // Return exemplar
-      return {
+      // Build the exemplar for endpoint telemetry correlation. Keep a reference indexed by error
+      // hash: the endpoint collector holds this SAME object, so a later Point #2 upgrade can mutate
+      // it in place to track the swapped snapshot's emitted fields (trigger_type/timestamp).
+      const exemplar: IncidentExemplar = {
         snapshot_id: snapshot.snapshot_id,
         trigger_type: snapshot.trigger_type,
         severity: snapshot.severity,
         timestamp: snapshot.timestamp,
       };
+
+      // Add to pending, and index by error hash so a later sampled occurrence of the same error
+      // can upgrade this snapshot's correlation in place before it flushes.
+      this._pendingSnapshots.push(snapshot);
+      this._pendingByHash.set(errorHash, snapshot);
+      this._pendingExemplarByHash.set(errorHash, exemplar);
+
+      diag.info(`Incident snapshot triggered: ${route} ${method} (status=${statusCode}, trigger=${triggerType})`);
+
+      return exemplar;
     } catch (err) {
       diag.error(`Error collecting incident snapshot data: ${err}`);
-      // Roll back the slots this attempt consumed. The batch/period-dedup/rate-limit slots are
-      // claimed above (lines 200-202) before collection, because the claim-then-check ordering is
-      // required for the concurrent-request dedup race protection. If collection then fails, leaving
-      // them claimed would suppress a *later* identical error that could have produced a snapshot —
-      // for up to the 60s dedup/rate windows — and (with Point #2) would leave errorHash in the
-      // batch set with nothing in _pendingByHash, so a later sampled occurrence's upgrade finds no
+      // Roll back the slots this attempt consumed. The batch/period-dedup/rate-limit slots were all
+      // committed together just above, only after every pure check passed. If collection then fails,
+      // leaving them committed would suppress a *later* identical error that could have produced a
+      // snapshot — for up to the 60s dedup/rate windows — and (with Point #2) would leave errorHash in
+      // the batch set with nothing in _pendingByHash, so a later sampled occurrence's upgrade finds no
       // pending snapshot and is silently dropped.
       this.rollbackReservation(errorHash);
       return null;
@@ -248,8 +263,9 @@ export class IncidentSnapshotCollector extends BaseCollector {
     // Swap pending snapshots
     const snapshots = this._pendingSnapshots;
     this._pendingSnapshots = [];
-    // Drop the per-hash index for the drained cycle; the upgrade window is one cycle.
+    // Drop the per-hash indexes for the drained cycle; the upgrade window is one cycle.
     this._pendingByHash = new Map();
+    this._pendingExemplarByHash = new Map();
 
     if (snapshots.length === 0) {
       diag.debug('No incident snapshots to export');
@@ -352,16 +368,48 @@ export class IncidentSnapshotCollector extends BaseCollector {
 
   // --- Deduplication ---
 
-  private generateErrorHash(route: string, exception: Error | null): string {
-    let hashInput: string;
-    if (exception === null) {
-      hashInput = `route:${route}`;
-    } else {
-      const excType = exception.constructor?.name ?? 'Error';
-      const excMessage = exception.message ?? String(exception);
-      hashInput = `route:${route}|exc:${excType}:${excMessage}`;
+  /**
+   * Recover the {type, message} that keys the dedup hash.
+   *
+   * The endpoint span processor passes `exception=null` (like Java) and defers exception detail to
+   * the collector, so the dedup key must be recovered from the same investigation data the snapshot
+   * body uses. Without this the hash would collapse to route-only and two distinct errors on the
+   * same route would deduplicate together (defeating per-error incident coverage).
+   *
+   * - When an explicit `exception` object is supplied (manual callers), use it directly.
+   * - Otherwise PEEK the per-request investigation data — the AST monitor's captured exception, or
+   *   the span's exception event seeded into it by the processor for uninstrumented 5xx.
+   * - A latency incident (no exception anywhere) returns {type: null} → route-only hash, matching
+   *   the pre-refactor behavior for slow requests.
+   *
+   * Best-effort and guarded: hashing must never crash the host, so any failure degrades to
+   * {type: null} (route-only), the safe default.
+   */
+  private recoverErrorIdentity(exception: Error | null): { type: string | null; message: string } {
+    try {
+      if (exception !== null) {
+        return { type: exception.constructor?.name ?? 'Error', message: exception.message ?? String(exception) };
+      }
+      const invData = this._monitorState.peekInvestigationData();
+      const excData = invData?.exception;
+      if (excData && excData.name) {
+        return { type: excData.name, message: excData.message ?? '' };
+      }
+    } catch (err) {
+      diag.debug(`Failed to recover error identity for dedup hash: ${err}`);
     }
+    return { type: null, message: '' };
+  }
 
+  /**
+   * Hash the dedup key from route + recovered exception type/message.
+   *
+   * Keyed `route:<route>` for latency (no exception) or `route:<route>|exc:<type>:<message>` for
+   * errors, matching the documented per-SDK key (see SERVICE_EVENTS_INCIDENT_RATE_LIMITING.md) and
+   * the Python distro's `_error_hash`.
+   */
+  private errorHash(route: string, excType: string | null, excMessage: string): string {
+    const hashInput = excType === null ? `route:${route}` : `route:${route}|exc:${excType}:${excMessage}`;
     return crypto.createHash('md5').update(hashInput, 'utf-8').digest('hex');
   }
 
@@ -413,6 +461,11 @@ export class IncidentSnapshotCollector extends BaseCollector {
   private rollbackReservation(errorHash: string): void {
     try {
       this._currentBatchHashes.delete(errorHash);
+      // No snapshot/exemplar was indexed for this failed attempt (indexing happens only after a
+      // successful collection), but drop any stale entries defensively so the batch set and the
+      // pending indexes stay consistent for a later sampled occurrence's upgrade.
+      this._pendingByHash.delete(errorHash);
+      this._pendingExemplarByHash.delete(errorHash);
       const timestamps = this._errorHashes.get(errorHash);
       if (timestamps && timestamps.length > 0) {
         timestamps.pop(); // drop the timestamp this attempt added
@@ -645,6 +698,12 @@ export class IncidentSnapshotCollector extends BaseCollector {
       );
       // Preserve the original identity so the already-emitted endpoint exemplar pointer stays valid.
       replacement.snapshot_id = pending.snapshot_id;
+      // Preserve the original affected_endpoint too. The dedup hash keys on route (not method), so a
+      // GET and a POST to the same route with the same error share a hash and can upgrade each other.
+      // The endpoint exemplar is filed under the FIRST occurrence's operation key; rebuilding
+      // affected_endpoint from THIS occurrence's method would make the swapped snapshot's operation
+      // disagree with the endpoint summary that references its snapshot_id. Keep the first one.
+      replacement.affected_endpoint = pending.affected_endpoint;
 
       const idx = this._pendingSnapshots.indexOf(pending);
       if (idx < 0) {
@@ -652,6 +711,16 @@ export class IncidentSnapshotCollector extends BaseCollector {
       }
       this._pendingSnapshots[idx] = replacement;
       this._pendingByHash.set(errorHash, replacement);
+      // The whole-snapshot swap can change trigger_type/timestamp (a later occurrence may have a
+      // different status or fire later). The endpoint exemplar was already recorded pointing at this
+      // snapshot_id, so update the SAME object in place — the endpoint collector holds this reference
+      // — to keep the emitted fields coherent with the snapshot they link to. Only trigger_type and
+      // timestamp are serialized onto the wire (the emitter drops severity), so those are what we sync.
+      const exemplar = this._pendingExemplarByHash.get(errorHash);
+      if (exemplar) {
+        exemplar.trigger_type = replacement.trigger_type;
+        exemplar.timestamp = replacement.timestamp;
+      }
       diag.debug(`Upgraded pending incident snapshot to a sampled occurrence (hash: ${errorHash})`);
     } catch (err) {
       // Match the primary collection path's visibility (processPotentialIncident logs at error);

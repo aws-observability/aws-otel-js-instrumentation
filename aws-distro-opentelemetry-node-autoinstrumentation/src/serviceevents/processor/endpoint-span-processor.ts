@@ -255,6 +255,14 @@ export class ServiceEventsSpanProcessor implements SpanProcessor {
         return;
       }
       ServiceEventsMonitorState.getInstance().beginInvestigation(true);
+      // Force-clear the operation ALS FIRST, for the same keep-alive reason beginInvestigation(true)
+      // force-resets the investigation store: a reused socket's async context carries the previous
+      // request's `enterWith(operation)` forward, and onEnd's clearCurrentOperation() only cleared
+      // its own branch. Without this reset, a boundary span that lacks url.path (a non-HTTP local
+      // root, or a transport that omits url attributes) would skip the stamp below and inherit the
+      // stale operation on this request's function-duration data points. Reset unconditionally, then
+      // stamp the raw URL path when present.
+      clearCurrentOperation();
       // Stamp the raw URL path so function-duration data points recorded mid-request carry a
       // non-null `operation`. enterWith propagates to the request's async subtree (this onStart
       // runs at the head of it); onEnd later upgrades it to the resolved `{method} {route}`.

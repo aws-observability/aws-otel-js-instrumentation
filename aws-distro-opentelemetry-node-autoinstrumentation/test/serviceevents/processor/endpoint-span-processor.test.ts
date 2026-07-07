@@ -250,6 +250,22 @@ describe('ServiceEventsSpanProcessor', () => {
       expect(monitor.getCurrentOperation()).toBeNull();
     });
 
+    it('force-clears a leaked operation when the boundary span has no URL path (keep-alive)', () => {
+      // A reused keep-alive socket carries the previous request's operation forward on the async
+      // context. onStart must reset the operation ALS unconditionally — for the same reason
+      // beginInvestigation(true) force-resets the investigation store — so a boundary span lacking
+      // url.path does not inherit the stale operation on this request's function-duration data.
+      monitor.setCurrentOperation('GET /previous/request');
+      processor.onStart(buildSpan({ kind: SpanKind.SERVER }) as any);
+      expect(monitor.getCurrentOperation()).toBeNull();
+    });
+
+    it('overwrites a leaked operation with the raw URL path of this request when present', () => {
+      monitor.setCurrentOperation('GET /previous/request');
+      processor.onStart(buildSpan({ kind: SpanKind.SERVER, attributes: { [ATTR_URL_PATH]: '/current/42' } }) as any);
+      expect(monitor.getCurrentOperation()).toBe('/current/42');
+    });
+
     it('never throws even when the monitor blows up', () => {
       beginSpy.restore();
       sinon.stub(monitor.ServiceEventsMonitorState, 'getInstance').throws(new Error('boom'));

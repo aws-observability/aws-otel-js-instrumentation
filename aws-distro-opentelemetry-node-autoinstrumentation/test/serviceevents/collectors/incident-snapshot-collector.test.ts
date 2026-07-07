@@ -427,6 +427,170 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
     });
   });
 
+  describe('dedup keys on the recovered error identity (not route-only)', function () {
+    // Regression: the span processor passes exception=null and defers exception detail to the
+    // collector. The dedup hash must recover the error type+message from investigation data so two
+    // DISTINCT errors on the same route do NOT collapse to one snapshot under maxSameError=1.
+    function seedException(name: string, message: string): void {
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation(true);
+      const inv = state.peekInvestigationData();
+      inv!.exception = { name, message, traceback: `${name}: ${message}`, functionName: 'app.handler' };
+    }
+
+    it('two distinct error TYPES on the same route both emit (maxSameError=1)', function () {
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('TypeError', 'x');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect(); // clears the per-batch set so the next call reaches period dedup
+        seedException('RangeError', 'y');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('two distinct error MESSAGES of the same type on one route both emit (maxSameError=1)', function () {
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('DbError', 'timeout on shard A');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedException('DbError', 'timeout on shard B');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('the SAME error (type+message) on one route deduplicates (maxSameError=1)', function () {
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('DbError', 'timeout');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedException('DbError', 'timeout');
+        // Same recovered identity → same hash → period-deduplicated.
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('a latency incident (no exception) still keys route-only', function () {
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        // No investigation exception; two slow 2xx on the same route dedup together (route-only).
+        expect(c.processPotentialIncident('/slow', 'GET', 200, 6000, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(c.processPotentialIncident('/slow', 'GET', 200, 6000, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+  });
+
+  describe('rate-limited request does not poison dedup (pure-check/commit)', function () {
+    it('a rate-limited error does not consume a dedup slot for the same error', function () {
+      // maxPerMinute=1, maxSameError=1. Two DISTINCT errors: the first emits (consuming the single
+      // rate slot); the second is rate-limited. That rate-limited attempt must NOT record a dedup
+      // occurrence — otherwise a later retry of it (after the rate window frees) would be dropped as
+      // a duplicate even though it never produced a snapshot.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 1, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        const errA = new Error('A');
+        const errB = new Error('B');
+        expect(c.processPotentialIncident('/x', 'GET', 500, 10, errA, makeRequestData())).not.toBeNull();
+        // Second distinct error: gates would pass dedup but the rate window (1) is full → rejected.
+        expect(c.processPotentialIncident('/x', 'GET', 500, 10, errB, makeRequestData())).toBeNull();
+        // errB left NO dedup timestamp and NO batch entry behind. Free the rate window and retry it
+        // in a fresh cycle: it must now emit (it was never actually recorded).
+        (c as unknown as { _snapshotTimestamps: number[] })._snapshotTimestamps = [];
+        c.collect();
+        expect(c.processPotentialIncident('/x', 'GET', 500, 10, errB, makeRequestData())).not.toBeNull();
+      } finally {
+        c.stop();
+      }
+    });
+  });
+
+  describe('endpoint exemplar tracks a Point #2 upgrade', function () {
+    const sampledTraceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+    const sampledSpanId = '00f067aa0ba902b7';
+
+    it('re-syncs the returned exemplar (snapshot_id + timestamp) to the upgraded snapshot', function () {
+      // Advance the clock between the two occurrences so the upgraded snapshot gets a DIFFERENT
+      // timestamp than the first. This is what makes the in-place exemplar.timestamp sync observable:
+      // if the mutation were dropped, the exemplar would keep the first occurrence's timestamp while
+      // the emitted snapshot carries the later one.
+      const clock = sinon.useFakeTimers({ now: 1_000_000 });
+      try {
+        const err = new Error('boom');
+        // First (unsampled) occurrence. This is the exemplar the endpoint collector records.
+        const exemplar = collector.processPotentialIncident('/api/x', 'POST', 500, 50, err, makeRequestData());
+        expect(exemplar).not.toBeNull();
+        const firstTimestamp = exemplar!.timestamp;
+        // Advance 5s, then a SAMPLED occurrence of the same error upgrades the pending snapshot
+        // wholesale. The already-returned exemplar object (held by reference by the endpoint
+        // collector) must track the swap.
+        clock.tick(5_000);
+        collector.processPotentialIncident(
+          '/api/x',
+          'POST',
+          500,
+          50,
+          err,
+          makeRequestData({ trace_id: sampledTraceId, span_id: sampledSpanId })
+        );
+        collector.collect();
+        expect(emitter.snapshots.length).toBe(1);
+        // The emitter serializes snapshot_id/trigger_type/timestamp for the exemplar (severity is NOT
+        // on the wire), so those must stay coherent with the emitted (upgraded) snapshot.
+        expect(exemplar!.snapshot_id).toBe(emitter.snapshots[0].snapshot_id);
+        expect(exemplar!.trigger_type).toBe(emitter.snapshots[0].trigger_type);
+        // The exemplar timestamp moved to the upgraded snapshot's (later) timestamp, not the first.
+        expect(emitter.snapshots[0].timestamp).toBeGreaterThan(firstTimestamp);
+        expect(exemplar!.timestamp).toBe(emitter.snapshots[0].timestamp);
+        // The upgraded snapshot now carries the sampled trace correlation.
+        expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe(sampledTraceId);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('preserves the first occurrence affected_endpoint when a different-method occurrence upgrades', function () {
+      // The dedup hash keys on route (not method), so GET /api/x and POST /api/x with the same error
+      // share a hash. The exemplar is filed under the FIRST occurrence's operation, so the swapped
+      // snapshot must keep the first occurrence's affected_endpoint, not adopt the upgrader's method.
+      const err = new Error('boom');
+      const exemplar = collector.processPotentialIncident('/api/x', 'GET', 500, 50, err, makeRequestData());
+      expect(exemplar).not.toBeNull();
+      // Sampled POST occurrence of the same error upgrades the pending (unsampled) GET snapshot.
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        err,
+        makeRequestData({ trace_id: sampledTraceId, span_id: sampledSpanId })
+      );
+      collector.collect();
+      expect(emitter.snapshots.length).toBe(1);
+      // affected_endpoint stays 'GET /api/x' (the exemplar's filed operation), NOT 'POST /api/x'.
+      expect(emitter.snapshots[0].affected_endpoint).toBe('GET /api/x');
+      expect(emitter.snapshots[0].snapshot_id).toBe(exemplar!.snapshot_id);
+    });
+  });
+
   describe('buildCallPath function registry enrichment', function () {
     afterEach(function () {
       clearFunctionRegistry();

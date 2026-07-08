@@ -50,6 +50,21 @@ jobs:
       staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
       caller-workflow-name: 'main-build'
 
+  adot-di:
+    needs: [ upload-main-build ]
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [ '18', '20', '22', '24' ]
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-adot-di-test.yml@main
+    secrets: inherit
+    with:
+      aws-region: us-east-1
+      staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
+      caller-workflow-name: 'main-build'
+      node-version: ${{ matrix.node-version }}
+      cpu-architecture: 'x86_64'
+
   ec2-asg:
     needs: [ upload-main-build ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-asg-test.yml@main
@@ -140,6 +155,19 @@ jobs:
     with:
       aws-region: us-east-1
       staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
+      caller-workflow-name: 'main-build'
+
+  service-events-eks:
+    # Serialize after the eks job: both target e2e-node-adot-test and the sample-app Service binds
+    # cluster-wide NodePort 30100, which this SE test also uses. Running in parallel would collide
+    # on that port ("provided port is already allocated").
+    needs: [ eks ]
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-eks-service-events-test.yml@main
+    secrets: inherit
+    with:
+      aws-region: us-east-1
+      test-cluster-name: 'e2e-node-adot-test'
+      adot-image-name: ${{ inputs.adot-image-name }}
       caller-workflow-name: 'main-build'
 
   # This validation is to ensure that all test workflows relevant to this repo are actually

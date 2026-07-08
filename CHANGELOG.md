@@ -15,6 +15,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 - feat: feat: add OTel lite SDK for Lambda cold start optimization
   ([#493](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/493))
+
+## v0.12.0 - 2026-06-18
+
 - feat: add ServiceEvents deep observability instrumentation — endpoint, function-call,
   deployment, and incident-snapshot telemetry with profiling support
   ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))

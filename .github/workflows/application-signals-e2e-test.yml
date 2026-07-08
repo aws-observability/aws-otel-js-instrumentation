@@ -132,7 +132,7 @@ jobs:
       caller-workflow-name: 'main-build'
 
   lambda-lite-sdk:
-    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-lambda-lite-sdk-test.yml@otel-lite-sdk
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-lambda-lite-sdk-test.yml@main
     secrets: inherit
     with:
       aws-region: us-east-1

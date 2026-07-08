@@ -23,7 +23,7 @@
     "prepare": "npm run compile && npm run install-externals && npm run package",
     "compile": "webpack",
     "package": "cd build/workspace && bestzip ../layer.zip *",
-    "postcompile": "copyfiles -f 'scripts/*' build/workspace && copyfiles -f 'build/src/*' build/workspace && copyfiles -f 'src/wrapper.mjs' build/workspace"
+    "postcompile": "copyfiles -f 'scripts/*' build/workspace && copyfiles -f 'build/src/*' build/workspace && copyfiles -f 'src/wrapper.mjs' build/workspace && copyfiles -f 'src/lite-wrapper.mjs' build/workspace"
   },
   "keywords": [
     "awsdistroopentelemetry",
@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "ts-loader": "^9.5.2",
+    "typescript": "^5.0.4",
     "webpack": "^5.98.0",
     "webpack-cli": "^6.0.1"
   }

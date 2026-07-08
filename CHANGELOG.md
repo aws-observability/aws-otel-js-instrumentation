@@ -13,6 +13,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat(serviceevents): resolve `aws.local.environment` in the SDK (eks/k8s/ecs/ec2/generic) to align
+  ServiceEvents & Dynamic Instrumentation with the CloudWatch agent, with a custom EC2 ASG detector
+  ([#503](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/503))
 - feat: support lite mode on ESM handlers and Node.js 24
   ([#502](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/502))
 - refactor(serviceevents): make the endpoint span processor framework-agnostic

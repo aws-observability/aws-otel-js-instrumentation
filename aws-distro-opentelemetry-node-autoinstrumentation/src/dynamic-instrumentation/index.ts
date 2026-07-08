@@ -7,6 +7,7 @@ import { Worker } from 'worker_threads';
 import { diag } from '@opentelemetry/api';
 import { Resource } from '@opentelemetry/resources';
 import { createDynamicInstrumentationConfig, DynamicInstrumentationConfig } from './config';
+import { resolveLocalEnvironment } from '../serviceevents/utils/environment-resolver';
 
 // Max time to wait for async resource detectors (EC2/ECS/EKS, etc.) to resolve
 // before reading resource attributes for attribute-filter evaluation.
@@ -72,6 +73,16 @@ export class DynamicInstrumentationManager {
       }
 
       this.config.resourceAttributes = await resolveResourceAttributes(resource);
+
+      // SDK-only environment resolution: compute aws.local.environment from the detected
+      // resource attributes using the same precedence as the CloudWatch agent, and use it
+      // as the DI request's Environment lookup key. This makes DI self-sufficient (no
+      // dependency on the agent proxy injecting the environment). An explicit
+      // deployment.environment[.name] still wins via the resolver's precedence.
+      const resolvedEnv = resolveLocalEnvironment({ attributes: this.config.resourceAttributes });
+      if (resolvedEnv) {
+        this.config.environment = resolvedEnv;
+      }
 
       this.spawnWorker();
       this.initialized = true;

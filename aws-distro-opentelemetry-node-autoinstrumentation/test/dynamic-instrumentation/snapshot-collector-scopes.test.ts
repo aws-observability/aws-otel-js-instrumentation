@@ -34,6 +34,7 @@ describe('SnapshotCollector scope chain', function () {
       enabled: true,
       serviceName: 'test-service',
       environment: 'test',
+      namespace: '',
       apiUrl: 'http://localhost:4321',
       logsEndpoint: 'http://localhost:4321/v1/logs',
       probePollIntervalSeconds: 60,

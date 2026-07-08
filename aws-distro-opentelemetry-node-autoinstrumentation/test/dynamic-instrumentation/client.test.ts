@@ -66,6 +66,50 @@ describe('DynamicInstrumentationClient', function () {
       scope.done();
     });
 
+    it('sends X-Aws-K8s-Namespace and X-Aws-Deployment-Environment headers when set', async function () {
+      let nsHeader: string | undefined;
+      let envHeader: string | undefined;
+      const scope = nock(API_HOST)
+        .post(LIST_PATH)
+        .reply(function () {
+          nsHeader = this.req.headers['x-aws-k8s-namespace'] as string | undefined;
+          envHeader = this.req.headers['x-aws-deployment-environment'] as string | undefined;
+          return [
+            200,
+            { Changed: false, SyncedAt: null, SyncInterval: null, LatestConfigurations: [], NextToken: null },
+          ];
+        });
+
+      const client = new DynamicInstrumentationClient(API_HOST, undefined, 'default', 'sample-env');
+      await client.fetchConfigurations('svc', 'sample-env', InstrumentationType.BREAKPOINT);
+
+      expect(nsHeader).toBe('default');
+      expect(envHeader).toBe('sample-env');
+      scope.done();
+    });
+
+    it('omits the environment headers when namespace/environment are empty', async function () {
+      let nsHeader: string | undefined;
+      let envHeader: string | undefined;
+      const scope = nock(API_HOST)
+        .post(LIST_PATH)
+        .reply(function () {
+          nsHeader = this.req.headers['x-aws-k8s-namespace'] as string | undefined;
+          envHeader = this.req.headers['x-aws-deployment-environment'] as string | undefined;
+          return [
+            200,
+            { Changed: false, SyncedAt: null, SyncInterval: null, LatestConfigurations: [], NextToken: null },
+          ];
+        });
+
+      const client = new DynamicInstrumentationClient(API_HOST);
+      await client.fetchConfigurations('svc', '', InstrumentationType.BREAKPOINT);
+
+      expect(nsHeader).toBeUndefined();
+      expect(envHeader).toBeUndefined();
+      scope.done();
+    });
+
     it('includes SyncedAt when lastSyncTime is provided', async function () {
       let captured: Record<string, unknown> = {};
       const scope = nock(API_HOST)

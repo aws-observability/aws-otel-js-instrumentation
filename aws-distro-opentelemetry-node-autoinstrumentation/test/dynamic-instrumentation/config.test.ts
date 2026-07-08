@@ -112,6 +112,20 @@ describe('DynamicInstrumentationConfig', function () {
     expect(config.environment).toBe('prod');
   });
 
+  it('should resolve namespace from OTEL_RESOURCE_ATTRIBUTES[k8s.namespace.name]', function () {
+    clearDIEnvVars();
+    process.env.OTEL_RESOURCE_ATTRIBUTES = 'service.name=svc,k8s.namespace.name=team-a,other=val';
+    const config = createDynamicInstrumentationConfig();
+    expect(config.namespace).toBe('team-a');
+  });
+
+  it('should default namespace to empty when k8s.namespace.name is absent', function () {
+    clearDIEnvVars();
+    process.env.OTEL_RESOURCE_ATTRIBUTES = 'service.name=svc';
+    const config = createDynamicInstrumentationConfig();
+    expect(config.namespace).toBe('');
+  });
+
   it('should default service name to unknown_service', function () {
     clearDIEnvVars();
     delete process.env.OTEL_SERVICE_NAME;

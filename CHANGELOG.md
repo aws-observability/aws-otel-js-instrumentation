@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat: support lite mode on ESM handlers and Node.js 24
+  ([#502](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/502))
 - feat: feat: add OTel lite SDK for Lambda cold start optimization
   ([#493](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/493))
 

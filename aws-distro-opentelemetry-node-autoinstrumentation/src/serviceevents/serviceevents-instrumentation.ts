@@ -173,6 +173,12 @@ export class ServiceEventsInstrumentation {
         serviceName: this.config.serviceName,
         environment: this.config.environment,
         sdkVersion: this.config.sdkVersion,
+        // Cloud/host/k8s resource attributes (e.g. k8s.namespace.name) so the
+        // CloudWatch agent resolves the same aws.local.environment as App Signals.
+        resourceAttributes: this.config.resourceAttributes,
+        // Fully-detected OTel Resource: when present, the emitter resolves
+        // aws.local.environment itself from this resource, no CWAgent dependency.
+        detectedResource: this.config.detectedResource,
         outputFile: this.config.outputFile,
         logGroup: this.config.logGroup,
         logStream: this.config.logStream,

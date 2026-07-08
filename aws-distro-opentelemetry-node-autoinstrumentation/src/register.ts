@@ -274,10 +274,11 @@ try {
   diag.debug(`Environment variable OTEL_EXPORTER_OTLP_PROTOCOL is set to '${process.env.OTEL_EXPORTER_OTLP_PROTOCOL}'`);
   diag.info('AWS Distro of OpenTelemetry automatic instrumentation started successfully');
 
-  // Pass the configured SDK Resource so DI can evaluate AttributeFilters against
-  // the application's real resource attributes (service.name, deployment.environment,
-  // and detector-contributed attributes such as cloud.region, host.name, etc.).
-  initializeDynamicInstrumentation(process.env, configuration.resource);
+  // Pass the ServiceEvents resource (global resource + EC2 ASG detector) so DI can both
+  // evaluate AttributeFilters AND resolve aws.local.environment to ec2:<asg> on EC2.
+  // This resource carries the ASG tag that is intentionally kept off the global resource;
+  // off-EC2 it equals configuration.resource.
+  initializeDynamicInstrumentation(process.env, configurator.getServiceEventsResource());
 
   // Initialize ServiceEvents deep observability instrumentation (main thread only).
   // When the DI manager spawns a Worker, Node re-runs `--require register` inside
@@ -298,7 +299,13 @@ try {
       // config.enabled mirrors OTEL_AWS_SERVICE_EVENTS_ENABLED directly; the outer
       // bundling gate above has already decided ServiceEvents should run, so flip
       // the inner flag on regardless of whether the env var was set.
-      const serviceeventsConfig = { ...createServiceEventsConfigFromEnv(), enabled: true };
+      const serviceeventsConfig = {
+        ...createServiceEventsConfigFromEnv(),
+        enabled: true,
+        // ServiceEvents resource (global + EC2 ASG detector); off-EC2 equals
+        // configuration.resource. Keeps the ASG tag off the global/AppSignals resource.
+        detectedResource: configurator.getServiceEventsResource(),
+      };
       const serviceevents = getServiceEventsInstrumentation(serviceeventsConfig);
       if (serviceevents) {
         serviceevents.initialize();

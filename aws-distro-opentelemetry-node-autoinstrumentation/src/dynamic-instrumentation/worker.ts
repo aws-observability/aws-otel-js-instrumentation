@@ -47,7 +47,7 @@ let exiting: boolean = false;
  */
 async function initialize(): Promise<void> {
   try {
-    const client = new DynamicInstrumentationClient(config.apiUrl);
+    const client = new DynamicInstrumentationClient(config.apiUrl, undefined, config.namespace, config.environment);
     const sourceMapResolver = new SourceMapResolver();
     const fileResolver = new FileResolver();
     fileResolver.setSourceMapResolver(sourceMapResolver);

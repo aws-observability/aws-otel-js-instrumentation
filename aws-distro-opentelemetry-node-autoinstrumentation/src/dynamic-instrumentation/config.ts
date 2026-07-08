@@ -20,6 +20,10 @@ export interface DynamicInstrumentationConfig {
   logsEndpoint: string;
   serviceName: string;
   environment: string;
+  // Kubernetes namespace (from OTEL_RESOURCE_ATTRIBUTES[k8s.namespace.name]). Sent to
+  // the CloudWatch agent proxy so it can resolve the same aws.local.environment
+  // (eks:<cluster>/<namespace>) that Application Signals uses. Empty when not on K8s.
+  namespace: string;
   /**
    * Resource attributes (string-valued) from the OTel SDK Resource, used to
    * evaluate AttributeFilters on instrumentation configurations. Populated by
@@ -119,6 +123,25 @@ function resolveEnvironment(): string {
 }
 
 /**
+ * Extract k8s.namespace.name from OTEL_RESOURCE_ATTRIBUTES (injected by the
+ * CloudWatch Agent Operator on EKS). Sent to the agent proxy so it can resolve the
+ * workload's deployment environment; the agent cannot know the caller pod's
+ * namespace on its own.
+ */
+function resolveNamespace(): string {
+  const envResources = process.env.OTEL_RESOURCE_ATTRIBUTES ?? '';
+  for (const pair of envResources.split(',')) {
+    if (pair.includes('=')) {
+      const [key, ...rest] = pair.split('=');
+      if (key.trim() === 'k8s.namespace.name') {
+        return rest.join('=').trim();
+      }
+    }
+  }
+  return '';
+}
+
+/**
  * Create DI config from environment variables.
  */
 export function createDynamicInstrumentationConfig(): DynamicInstrumentationConfig {
@@ -141,6 +164,7 @@ export function createDynamicInstrumentationConfig(): DynamicInstrumentationConf
     logsEndpoint: getEnvStr('OTEL_AWS_OTLP_LOGS_ENDPOINT', 'http://localhost:4316/v1/logs'),
     serviceName: resolveServiceName(),
     environment: resolveEnvironment(),
+    namespace: resolveNamespace(),
     resourceAttributes: {},
   };
 }

@@ -27,6 +27,7 @@ function makeConfig(overrides: Partial<DynamicInstrumentationConfig> = {}): Dyna
     logsEndpoint: 'http://localhost:4316/v1/logs',
     serviceName: 'order-service',
     environment: 'production',
+    namespace: '',
     resourceAttributes: {
       'service.name': 'order-service',
       'deployment.environment.name': 'production',

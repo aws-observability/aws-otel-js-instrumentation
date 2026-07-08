@@ -19,10 +19,23 @@ import { DI_USER_AGENT, DEFAULT_HTTP_TIMEOUT_MS, MAX_PAGES_PER_FETCH } from './m
 export class DynamicInstrumentationClient {
   private readonly apiUrl: string;
   private readonly timeoutMs: number;
+  private readonly namespace: string;
+  private readonly environment: string;
 
-  constructor(apiUrl: string, timeoutMs: number = DEFAULT_HTTP_TIMEOUT_MS) {
+  constructor(
+    apiUrl: string,
+    timeoutMs: number = DEFAULT_HTTP_TIMEOUT_MS,
+    namespace: string = '',
+    environment: string = ''
+  ) {
     this.apiUrl = apiUrl.replace(/\/+$/, ''); // strip trailing slashes
     this.timeoutMs = timeoutMs;
+    // Pod-owned environment inputs forwarded to the CloudWatch agent proxy so it can
+    // resolve the same aws.local.environment Application Signals uses. The agent
+    // cannot derive these itself: the namespace and an explicit deployment environment
+    // are properties of the calling pod, not the agent.
+    this.namespace = namespace;
+    this.environment = environment;
   }
 
   /**
@@ -98,17 +111,28 @@ export class DynamicInstrumentationClient {
         const transport = isHttps ? https : http;
 
         const data = JSON.stringify(body);
+        const headers: Record<string, string | number> = {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data),
+          'User-Agent': DI_USER_AGENT,
+        };
+        // Forward the pod-owned environment inputs so the CloudWatch agent proxy can
+        // resolve the deployment environment (eks:<cluster>/<namespace>, or an explicit
+        // value) and inject it as the request's Environment lookup key. Only sent when
+        // present, so non-K8s / no-explicit-env deployments are unaffected.
+        if (this.namespace) {
+          headers['X-Aws-K8s-Namespace'] = this.namespace;
+        }
+        if (this.environment) {
+          headers['X-Aws-Deployment-Environment'] = this.environment;
+        }
         const options: http.RequestOptions = {
           method: 'POST',
           hostname: url.hostname,
           port: url.port || (isHttps ? 443 : 80),
           path: url.pathname,
           timeout: this.timeoutMs,
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(data),
-            'User-Agent': DI_USER_AGENT,
-          },
+          headers,
         };
 
         const req = transport.request(options, res => {

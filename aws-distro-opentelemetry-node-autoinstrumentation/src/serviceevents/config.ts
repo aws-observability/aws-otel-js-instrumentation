@@ -140,8 +140,14 @@ export interface ServiceEventsConfig {
   // EndpointMetricCollector still runs so latency histograms feed
   // IncidentSnapshot thresholds. Per-exception-type error metrics still emit.
   applicationSignalsEnabled: boolean; // OTEL_AWS_APPLICATION_SIGNALS_ENABLED
-  // Resource attributes from OTel resource
+  // Resource attributes from OTel resource (env-var parsed subset for EMF dimensions)
   resourceAttributes: ResourceAttributes;
+  // The fully-detected OTel Resource from the configurator (includes all cloud/host/k8s
+  // attributes from resource detectors). When available, the emitter uses this as the
+  // base resource — enabling the SDK-side environment resolver to compute
+  // aws.local.environment with the same inputs the agent would have. Undefined when
+  // the SDK Resource is not yet available at config time.
+  detectedResource?: { attributes: Record<string, unknown> };
 }
 
 /** Default configuration values. */

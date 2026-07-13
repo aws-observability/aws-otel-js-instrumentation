@@ -4,13 +4,15 @@
 /**
  * Main entry point for ServiceEvents instrumentation.
  *
- * Manages the lifecycle of AST hooks, monitor state, collectors,
- * OTLP emitter, and framework instrumentations for deep observability
- * of Node.js applications.
+ * Manages the lifecycle of AST hooks, monitor state, collectors, the OTLP
+ * emitter, and the framework-agnostic endpoint span processor for deep
+ * observability of Node.js applications.
  */
 
-import { diag } from '@opentelemetry/api';
+import { diag, trace } from '@opentelemetry/api';
+import type { SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { ServiceEventsConfig, getLatencyThresholdPatterns } from './config';
+import { ServiceEventsSpanProcessor } from './processor/endpoint-span-processor';
 import {
   ServiceEventsMonitorState,
   setSamplingMode,
@@ -31,10 +33,6 @@ import { FunctionCallCollector } from './collectors/function-call-collector';
 import { EndpointMetricCollector } from './collectors/endpoint-collector';
 import { IncidentSnapshotCollector } from './collectors/incident-snapshot-collector';
 import { BaseCollector } from './collectors/base-collector';
-import { installExpressHooks, installGlobalHttpPatches } from './instrumentation/express-instrumentation';
-import { installFastifyHooks } from './instrumentation/fastify-instrumentation';
-import { installKoaHooks } from './instrumentation/koa-instrumentation';
-import { installNextJsHooks } from './instrumentation/nextjs-instrumentation';
 import { DeploymentEventCollector } from './collectors/deployment-event-collector';
 
 // Module-level singleton instance
@@ -57,6 +55,57 @@ export function getServiceEventsInstrumentation(config?: ServiceEventsConfig): S
 
   _serviceeventsInstance = new ServiceEventsInstrumentation(config);
   return _serviceeventsInstance;
+}
+
+/**
+ * Attach a SpanProcessor to whatever tracer provider is globally registered, returning true on
+ * success. Exported for unit testing the two registration strategies against stub providers.
+ *
+ * Strategy, in order:
+ *  1. Unwrap the ProxyTracerProvider that `trace.getTracerProvider()` returns to its real delegate
+ *     (`getDelegate()`), if present.
+ *  2. If the delegate exposes a public `addSpanProcessor(p)` (older OTel SDKs and the shape the
+ *     Python distro relies on), call it.
+ *  3. Otherwise splice into the live `MultiSpanProcessor` the provider iterates per span:
+ *     `delegate._activeSpanProcessor._spanProcessors`. The MultiSpanProcessor reads that array on
+ *     every onStart/onEnd, so a late push is honored immediately. This is the supported path on
+ *     SDK 2.x, which dropped the public `addSpanProcessor`.
+ *
+ * All field access is defensive (the SDK internals are not part of the public API), so a future
+ * SDK reshape degrades to `false` (caller warns) rather than throwing into ServiceEvents init.
+ */
+export function registerSpanProcessorOnActiveProvider(processor: SpanProcessor): boolean {
+  try {
+    const proxy = trace.getTracerProvider() as unknown as {
+      getDelegate?: () => unknown;
+    };
+    const provider = (typeof proxy?.getDelegate === 'function' ? proxy.getDelegate() : proxy) as
+      | {
+          addSpanProcessor?: (p: SpanProcessor) => void;
+          _activeSpanProcessor?: { _spanProcessors?: SpanProcessor[] };
+        }
+      | undefined;
+
+    if (!provider) {
+      return false;
+    }
+
+    if (typeof provider.addSpanProcessor === 'function') {
+      provider.addSpanProcessor(processor);
+      return true;
+    }
+
+    const active = provider._activeSpanProcessor;
+    if (active && Array.isArray(active._spanProcessors)) {
+      active._spanProcessors.push(processor);
+      return true;
+    }
+
+    return false;
+  } catch (err) {
+    diag.debug('ServiceEvents: failed to register span processor on active provider', err);
+    return false;
+  }
 }
 
 /** Reset singleton (for testing). */
@@ -235,51 +284,19 @@ export class ServiceEventsInstrumentation {
 
       for (const c of this.collectors) c.start();
 
-      // Install universal HTTP patches unconditionally, BEFORE framework hooks.
-      // This guarantees endpoint metrics work even when Express isn't
-      // a dependency (Fastify/Koa/Next.js-only apps). Idempotent.
-      try {
-        installGlobalHttpPatches();
-      } catch (err) {
-        diag.warn(`Failed to install global HTTP patches: ${err}`);
-      }
-
-      // Framework hooks
-      if (this.config.instrumentExpress) {
-        try {
-          if (installExpressHooks(endpointCollector, incidentSnapshotCollector, this.config.serviceName, this.config)) {
-            diag.info('Express instrumentation hooks installed');
-          }
-        } catch (err) {
-          diag.error(`Error installing Express hooks: ${err}`);
-        }
-      }
-      if (this.config.instrumentFastify) {
-        try {
-          if (installFastifyHooks(endpointCollector, incidentSnapshotCollector, this.config.serviceName, this.config)) {
-            diag.info('Fastify instrumentation hooks installed');
-          }
-        } catch (err) {
-          diag.error(`Error installing Fastify hooks: ${err}`);
-        }
-      }
-      if (this.config.instrumentKoa) {
-        try {
-          if (installKoaHooks(endpointCollector, incidentSnapshotCollector, this.config.serviceName, this.config)) {
-            diag.info('Koa instrumentation hooks installed');
-          }
-        } catch (err) {
-          diag.error(`Error installing Koa hooks: ${err}`);
-        }
-      }
-      if (this.config.instrumentNextJs) {
-        try {
-          if (installNextJsHooks(endpointCollector, incidentSnapshotCollector, this.config.serviceName, this.config)) {
-            diag.info('Next.js instrumentation hooks installed');
-          }
-        } catch (err) {
-          diag.error(`Error installing Next.js hooks: ${err}`);
-        }
+      // Endpoint signals come from the framework-agnostic ServiceEventsSpanProcessor: it reads the
+      // request-boundary span OTel already emits (covering every OTel-instrumented framework for
+      // free, mirroring the Java/Python distros) and owns its own begin→end investigation lifecycle.
+      //
+      // The processor registers itself on the already-built tracer provider via private SDK
+      // internals (SDK 2.x dropped the public addSpanProcessor). If registration fails (a provider
+      // shape we cannot splice into), ServiceEvents emits no endpoint signals — there is no span
+      // pipeline to read from.
+      if (!this._installEndpointSpanProcessor(endpointCollector, incidentSnapshotCollector)) {
+        diag.warn(
+          'ServiceEvents: endpoint span processor could not be registered on the active tracer ' +
+            'provider; endpoint signals will not be emitted.'
+        );
       }
 
       this._initialized = true;
@@ -288,6 +305,33 @@ export class ServiceEventsInstrumentation {
       diag.error(`Failed to initialize ServiceEvents instrumentation: ${err}`);
       this._initialized = false;
     }
+  }
+
+  /**
+   * Register the framework-agnostic ServiceEventsSpanProcessor on the active tracer provider. The
+   * processor owns the whole begin→end lifecycle off the request-boundary span, covering every
+   * OTel-instrumented framework without bespoke hook code.
+   *
+   * ServiceEvents initializes after `sdk.start()`, so the provider already exists. OTel JS SDK 2.x
+   * removed the public `addSpanProcessor`, and the provider is built once from a fixed
+   * `spanProcessors` list. We therefore register defensively: use a public `addSpanProcessor` if the
+   * running SDK still exposes one, else splice into the live `MultiSpanProcessor` the provider
+   * iterates on every span (its `onStart`/`onEnd` read the array each call, so a late push takes
+   * effect immediately).
+   *
+   * Returns true when the processor was registered, false when neither strategy was reachable — in
+   * which case ServiceEvents emits no endpoint signals (there is no span pipeline to read from).
+   */
+  private _installEndpointSpanProcessor(
+    endpointCollector: EndpointMetricCollector,
+    incidentSnapshotCollector: IncidentSnapshotCollector
+  ): boolean {
+    const processor = new ServiceEventsSpanProcessor(endpointCollector, incidentSnapshotCollector, this.config);
+    if (registerSpanProcessorOnActiveProvider(processor)) {
+      diag.info('ServiceEvents endpoint span processor registered on the active tracer provider');
+      return true;
+    }
+    return false;
   }
 
   /**

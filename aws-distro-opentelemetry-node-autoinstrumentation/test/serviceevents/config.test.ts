@@ -64,15 +64,12 @@ describe('ServiceEventsConfig', function () {
       expect(config.environment).toBeUndefined();
       expect(config.functionCallFlushInterval).toBe(30000);
       expect(config.endpointFlushInterval).toBe(30000);
-      expect(config.incidentSnapshotFlushInterval).toBe(10000);
+      // Derived from the default maxSameError=1: flush = 60s / 1 = 60s.
+      expect(config.incidentSnapshotFlushInterval).toBe(60000);
       expect(config.incidentSnapshotMaxPerMinute).toBe(100);
       expect(config.incidentSnapshotDurationThresholdMs).toBe(5000);
       expect(config.incidentSnapshotMaxSameError).toBe(1);
       expect(config.latencyThresholds).toEqual([]);
-      expect(config.instrumentExpress).toBe(true);
-      expect(config.instrumentFastify).toBe(true);
-      expect(config.instrumentKoa).toBe(true);
-      expect(config.instrumentNextJs).toBe(true);
       expect(config.endpointIncludePatterns).toEqual([]);
       expect(config.endpointExcludePatterns).toEqual([]);
       expect(config.functionInstrumentEnabled).toBe(true);
@@ -101,20 +98,18 @@ describe('ServiceEventsConfig', function () {
       expect(config.logStream).toBe('');
     });
 
-    it('sampling tiers and framework toggles ignore env', function () {
+    it('sampling tiers and the detach threshold ignore env', function () {
       clearServiceEventsEnvVars();
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER1_THRESHOLD = '7';
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER2_THRESHOLD = '70';
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER2_RATE = '3';
       process.env.OTEL_AWS_SERVICE_EVENTS_SAMPLE_TIER3_RATE = '30';
-      process.env.OTEL_AWS_SERVICE_EVENTS_JS_INSTRUMENT_EXPRESS = 'false';
       process.env.OTEL_AWS_SERVICE_EVENTS_JS_FUNCTION_DETACH_THRESHOLD = '99';
       const config = createServiceEventsConfigFromEnv();
       expect(config.sampleTier1Threshold).toBe(100);
       expect(config.sampleTier2Threshold).toBe(1000);
       expect(config.sampleTier2Rate).toBe(10);
       expect(config.sampleTier3Rate).toBe(100);
-      expect(config.instrumentExpress).toBe(true);
       expect(config.functionDetachThreshold).toBe(5000);
     });
 
@@ -128,9 +123,33 @@ describe('ServiceEventsConfig', function () {
       const config = createServiceEventsConfigFromEnv();
       expect(config.functionCallFlushInterval).toBe(30000);
       expect(config.endpointFlushInterval).toBe(30000);
-      expect(config.incidentSnapshotFlushInterval).toBe(10000);
+      // The incident flush env var has no effect: the interval is derived from maxSameError
+      // (unset → 1 → 60s), not read from OTEL_AWS_SERVICE_EVENTS_INCIDENT_SNAPSHOT_FLUSH_INTERVAL.
+      expect(config.incidentSnapshotFlushInterval).toBe(60000);
       expect(config.deploymentEventFlushInterval).toBe(86_400_000);
       expect(config.sdkVersion).not.toBe('9.9.9-fake');
+    });
+  });
+
+  // Incident-snapshot flush interval is derived from maxSameError: flush = max(10s, 60s / N).
+  // Batch dedup keeps one snapshot per error per flush cycle and period dedup allows N per 60s
+  // window, so the 60s window must be sliced into >= N cycles to emit all N; the largest such
+  // cycle (60s / N) is the widest Point #2 upgrade window.
+  describe('incident flush interval derived from maxSameError', function () {
+    it('N=3 → flush = 60s / 3 = 20s', function () {
+      clearServiceEventsEnvVars();
+      process.env.OTEL_AWS_SERVICE_EVENTS_INCIDENT_SNAPSHOT_MAX_SAME_ERROR = '3';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.incidentSnapshotMaxSameError).toBe(3);
+      expect(config.incidentSnapshotFlushInterval).toBe(20000);
+    });
+
+    it('N=10 → 60s / 10 = 6s, floored at 10s (effective per-error rate caps at 6/min)', function () {
+      clearServiceEventsEnvVars();
+      process.env.OTEL_AWS_SERVICE_EVENTS_INCIDENT_SNAPSHOT_MAX_SAME_ERROR = '10';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.incidentSnapshotMaxSameError).toBe(10);
+      expect(config.incidentSnapshotFlushInterval).toBe(10000);
     });
   });
 
@@ -219,6 +238,8 @@ describe('ServiceEventsConfig', function () {
       expect(config.incidentSnapshotMaxPerMinute).toBe(10);
       expect(config.incidentSnapshotDurationThresholdMs).toBe(1000);
       expect(config.incidentSnapshotMaxSameError).toBe(5);
+      // Flush is derived from maxSameError: 60s / 5 = 12s.
+      expect(config.incidentSnapshotFlushInterval).toBe(12000);
       // FUNCTION_INSTRUMENT_ENABLED=false above overrides the (now true) default.
       expect(config.functionInstrumentEnabled).toBe(false);
       expect(config.samplingMode).toBe('always');
@@ -704,6 +725,8 @@ describe('ServiceEventsConfig', function () {
       const config = createServiceEventsConfigFromEnv();
       expect(config.incidentSnapshotDurationThresholdMs).toBe(1);
       expect(config.incidentSnapshotMaxSameError).toBe(1);
+      // Flush is derived from the clamped value (1), not the raw 0 — no divide-by-zero: 60s / 1.
+      expect(config.incidentSnapshotFlushInterval).toBe(60000);
     });
 
     it('falls back to default on non-numeric input', function () {

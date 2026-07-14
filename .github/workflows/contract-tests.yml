@@ -68,5 +68,4 @@ jobs:
       - name: Build images and run ${{ matrix.test.name }} contract tests
         run: |
           bash scripts/set-up-contract-tests.sh ${{ matrix.test.name }}
-          pip install pytest
           pytest ${{ matrix.test.pytest_args }} -v

@@ -5,6 +5,10 @@
 import * as assert from 'assert';
 import { spawnSync, SpawnSyncReturns } from 'child_process';
 import expect from 'expect';
+import type { resolveServiceEventsBootstrap as ResolveServiceEventsBootstrapFn } from '../src/register';
+// Populated lazily inside describe('resolveServiceEventsBootstrap()') — see before() hook.
+// Do NOT import from '../src/register' statically: register.ts calls sdk.start() on load.
+let resolveServiceEventsBootstrap: typeof ResolveServiceEventsBootstrapFn;
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import * as sinon from 'sinon';
 import { trace } from '@opentelemetry/api';
@@ -412,6 +416,73 @@ describe('Register', function () {
     });
   });
 
+  describe('resolveServiceEventsBootstrap()', () => {
+    before(() => {
+      const stub = sinon.stub(opentelemetry.NodeSDK.prototype, 'start');
+      resolveServiceEventsBootstrap = require('../src/register').resolveServiceEventsBootstrap;
+      stub.restore();
+    });
+
+    it('skips on Lambda regardless of other flags', () => {
+      expect(
+        resolveServiceEventsBootstrap({
+          AWS_LAMBDA_FUNCTION_NAME: 'my-fn',
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'true',
+          OTEL_AWS_APPLICATION_SIGNALS_ENABLED: 'true',
+        })
+      ).toEqual({ action: 'skip', reason: 'lambda' });
+    });
+
+    it('initializes when App Signals enabled and ServiceEvents unset (bundled)', () => {
+      expect(resolveServiceEventsBootstrap({ OTEL_AWS_APPLICATION_SIGNALS_ENABLED: 'true' })).toEqual({
+        action: 'init',
+      });
+    });
+
+    it('skips when App Signals disabled and ServiceEvents unset', () => {
+      expect(resolveServiceEventsBootstrap({})).toEqual({ action: 'skip', reason: 'bundledOff' });
+    });
+
+    it('skips when ServiceEvents explicitly false even with App Signals on', () => {
+      expect(
+        resolveServiceEventsBootstrap({
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'false',
+          OTEL_AWS_APPLICATION_SIGNALS_ENABLED: 'true',
+        })
+      ).toEqual({ action: 'skip', reason: 'explicitOff' });
+    });
+
+    it('force-enabled without App Signals requires both endpoints', () => {
+      expect(
+        resolveServiceEventsBootstrap({
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'true',
+          OTEL_AWS_OTLP_LOGS_ENDPOINT: 'http://custom:9999/v1/logs',
+          OTEL_AWS_OTLP_METRICS_ENDPOINT: 'http://custom:9999/v1/metrics',
+        })
+      ).toEqual({ action: 'init' });
+
+      expect(
+        resolveServiceEventsBootstrap({
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'true',
+          OTEL_AWS_OTLP_LOGS_ENDPOINT: 'http://custom:9999/v1/logs',
+        })
+      ).toEqual({ action: 'skipForceEnabledWithoutEndpoints' });
+
+      expect(resolveServiceEventsBootstrap({ OTEL_AWS_SERVICE_EVENTS_ENABLED: 'true' })).toEqual({
+        action: 'skipForceEnabledWithoutEndpoints',
+      });
+    });
+
+    it('force-enabled with App Signals: endpoints optional (backfill downstream)', () => {
+      expect(
+        resolveServiceEventsBootstrap({
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'true',
+          OTEL_AWS_APPLICATION_SIGNALS_ENABLED: 'true',
+        })
+      ).toEqual({ action: 'init' });
+    });
+  });
+
   describe('Healthcheck suppression', () => {
     it('suppresses /ping for incoming HTTP requests', () => {
       const { isHttpPingRequest } = require('../src/register');
@@ -426,6 +497,76 @@ describe('Register', function () {
       assert.strictEqual(isUndiciPingRequest({ path: '/ping' }), true);
       assert.strictEqual(isUndiciPingRequest({ path: '/invocations' }), false);
       assert.strictEqual(isUndiciPingRequest({ path: '/' }), false);
+    });
+  });
+
+  describe('Dynamic Instrumentation wiring', () => {
+    // register.ts is already required once by the top-level before() hook; re-requiring it
+    // here returns the cached module (no re-execution of its side effects).
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let initializeDynamicInstrumentation: (env: NodeJS.ProcessEnv) => void;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let shutdownDynamicInstrumentation: () => void;
+    let initStub: sinon.SinonStub;
+    let shutdownStub: sinon.SinonStub;
+    let setTimeoutSpy: sinon.SinonStub;
+
+    beforeEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const register = require('../src/register');
+      initializeDynamicInstrumentation = register.initializeDynamicInstrumentation;
+      shutdownDynamicInstrumentation = register.shutdownDynamicInstrumentation;
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { DynamicInstrumentationManager } = require('../src/dynamic-instrumentation');
+      const manager = DynamicInstrumentationManager.getInstance();
+      initStub = sinon.stub(manager, 'initialize');
+      shutdownStub = sinon.stub(manager, 'shutdown');
+      // Stub global setTimeout so the deferred init runs synchronously in-test, WITHOUT
+      // faking the global clock (faking it leaks into other suites' real-timer async tests).
+      setTimeoutSpy = sinon.stub(global, 'setTimeout').callsFake(((fn: () => void) => {
+        fn();
+        return 0 as unknown as NodeJS.Timeout;
+      }) as unknown as typeof setTimeout);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('initializes DI (deferred via setTimeout) when enabled and not in Lambda', () => {
+      initializeDynamicInstrumentation({ OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED: 'true' });
+      assert.strictEqual(setTimeoutSpy.calledOnce, true);
+      assert.strictEqual(setTimeoutSpy.firstCall.args[1], 100); // 100ms defer
+      assert.strictEqual(initStub.calledOnce, true);
+    });
+
+    it('does not initialize DI when the flag is unset (default off)', () => {
+      initializeDynamicInstrumentation({});
+      assert.strictEqual(initStub.called, false);
+      assert.strictEqual(setTimeoutSpy.called, false);
+    });
+
+    it('does not initialize DI when the flag is explicitly false', () => {
+      initializeDynamicInstrumentation({ OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED: 'false' });
+      assert.strictEqual(initStub.called, false);
+    });
+
+    it('does not initialize DI in a Lambda environment even when enabled', () => {
+      initializeDynamicInstrumentation({
+        OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED: 'true',
+        AWS_LAMBDA_FUNCTION_NAME: 'my-fn',
+      });
+      assert.strictEqual(initStub.called, false);
+    });
+
+    it('treats a whitespace/mixed-case true value as enabled', () => {
+      initializeDynamicInstrumentation({ OTEL_AWS_DYNAMIC_INSTRUMENTATION_ENABLED: '  TRUE  ' });
+      assert.strictEqual(initStub.calledOnce, true);
+    });
+
+    it('shutdownDynamicInstrumentation invokes the manager shutdown', () => {
+      shutdownDynamicInstrumentation();
+      assert.strictEqual(shutdownStub.calledOnce, true);
     });
   });
 

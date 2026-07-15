@@ -42,7 +42,6 @@ import { ChatGroq } from '@langchain/groq';
 import { ChatCohere } from '@langchain/cohere';
 import { ChatDeepSeek } from '@langchain/deepseek';
 import { ChatXAI } from '@langchain/xai';
-import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -95,12 +94,15 @@ function createModel(
   | ChatXAI {
   switch (provider) {
     case ProviderName.BEDROCK: {
-      const client = new BedrockRuntimeClient({
+      return new ChatBedrockConverse({
+        model: BEDROCK_MODEL,
         region: AWS_REGION,
         credentials: { accessKeyId: FAKE_AWS_ACCESS_KEY_ID, secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY },
-        requestHandler: new NodeHttpHandler(),
+        clientOptions: {
+          requestHandler: new NodeHttpHandler(),
+        },
+        ...opts,
       });
-      return new ChatBedrockConverse({ model: BEDROCK_MODEL, region: AWS_REGION, client, ...opts });
     }
     case ProviderName.OPENAI:
       return new ChatOpenAI({

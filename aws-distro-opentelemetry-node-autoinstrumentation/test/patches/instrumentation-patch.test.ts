@@ -31,8 +31,8 @@ import {
   customExtractor,
   ExtendedAwsLambdaInstrumentation,
   headerGetter,
-  SKIP_CREDENTIAL_CAPTURE_KEY,
 } from './../../src/patches/instrumentation-patch';
+import { SKIP_CREDENTIAL_CAPTURE_KEY } from './../../src/patches/smithy-send-patch';
 import * as sinon from 'sinon';
 import { AWSXRAY_TRACE_ID_HEADER, AWSXRayPropagator } from '@opentelemetry/propagator-aws-xray';
 import { Context } from 'aws-lambda';
@@ -751,7 +751,7 @@ describe('InstrumentationPatchTest', () => {
           region: () => Promise.resolve('us-west-2'),
         };
         const send = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
-          ['_getV3SmithyClientSendPatch']((...args: unknown[]) => Promise.resolve())
+          ['_getV3SmithyClientSendPatch'](undefined, (...args: unknown[]) => Promise.resolve())
           .bind({ middlewareStack: mockedMiddlewareStack, config: mockConfig });
 
         middlewareArgsHeader = {
@@ -850,7 +850,7 @@ describe('InstrumentationPatchTest', () => {
 
         const middlewareStack: any[] = [];
         const recursiveSdkSend = extractAwsSdkInstrumentation(PATCHED_INSTRUMENTATIONS)
-          ['_getV3SmithyClientSendPatch'](() => Promise.resolve())
+          ['_getV3SmithyClientSendPatch'](undefined, () => Promise.resolve())
           .bind({
             middlewareStack: { add: (middleware: any, config: any) => middlewareStack.push([middleware, config]) },
             config: {
@@ -987,7 +987,7 @@ describe('InstrumentationPatchTest', () => {
           .stub()
           .returns({ traceId: '00000000000000000000000000000001', spanId: '0000000000000001', traceFlags: 0 }),
       } as unknown as Span;
-      awsLambdaInstrumentation['_endSpan'](mockSpan, 'SomeError', () => {
+      awsLambdaInstrumentation['_endInvocationSpanAndFlush'](mockSpan, 'SomeError', () => {
         expect((mockSpan.recordException as any).getCall(0).args[0]).toEqual('SomeError');
         expect((mockSpan.setStatus as any).getCall(0).args[0]).toEqual({
           code: SpanStatusCode.ERROR,
@@ -1073,7 +1073,7 @@ describe('InstrumentationPatchTest', () => {
       expect(flusher).toBeUndefined();
     });
 
-    it('Tests _endSpan with all flushers', done => {
+    it('Tests _endInvocationSpanAndFlush with all flushers', done => {
       // Create a mock Span object since Span is no longer exported as a value in OTel 2.x
       const mockSpan: Span = {
         setAttribute: sinon.stub(),
@@ -1100,7 +1100,7 @@ describe('InstrumentationPatchTest', () => {
       awsLambdaInstrumentation['_metricForceFlusher'] = mockMetricFlush;
       awsLambdaInstrumentation['_logForceFlusher'] = mockLogFlush;
 
-      awsLambdaInstrumentation['_endSpan'](mockSpan, null, () => {
+      awsLambdaInstrumentation['_endInvocationSpanAndFlush'](mockSpan, null, () => {
         expect(mockTraceFlush.called).toBeTruthy();
         expect(mockMetricFlush.called).toBeTruthy();
         expect(mockLogFlush.called).toBeTruthy();
@@ -1108,7 +1108,7 @@ describe('InstrumentationPatchTest', () => {
       });
     });
 
-    it('Tests _endSpan handles missing flushers gracefully', done => {
+    it('Tests _endInvocationSpanAndFlush handles missing flushers gracefully', done => {
       // Create a mock Span object since Span is no longer exported as a value in OTel 2.x
       const mockSpan: Span = {
         setAttribute: sinon.stub(),
@@ -1128,7 +1128,7 @@ describe('InstrumentationPatchTest', () => {
       const mockDiag = sinon.spy(diag, 'debug');
       const mockDiagError = sinon.spy(diag, 'error');
 
-      awsLambdaInstrumentation['_endSpan'](mockSpan, null, () => {
+      awsLambdaInstrumentation['_endInvocationSpanAndFlush'](mockSpan, null, () => {
         expect(
           mockDiagError.calledWith(
             'Spans may not be exported for the lambda function because we are not force flushing before callback.'

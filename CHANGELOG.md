@@ -13,15 +13,36 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
-### Breaking Changes
+- feat: support lite mode on ESM handlers and Node.js 24
+  ([#502](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/502))
+- refactor(serviceevents): make the endpoint span processor framework-agnostic
+- fix(serviceevents): gate incident trace correlation on the SAMPLED flag and harden incident dedup/rate-limiting
+- feat: feat: add OTel lite SDK for Lambda cold start optimization
+  ([#493](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/493))
 
-- refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.
+## v0.12.0 - 2026-06-18
+
+- feat: add ServiceEvents deep observability instrumentation — endpoint, function-call,
+  deployment, and incident-snapshot telemetry with profiling support
+  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
+- fix: AWS SDK v3 span creation when using `@smithy/core` >= 3.24.0 (`@smithy/smithy-client` >= 4.13.0)
+  by backporting the upstream aws-sdk instrumentation fix via patch
+  ([#467](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/467))
+- Fix(lambda-layer): CompactConsoleLogRecordExporter output with CloudWatch OTLP backend schema.
+  Field renames: `timestamp` → `timeUnixNano`, `observedTimestamp` → `observedTimeUnixNano`,
+  `instrumentationScope` → `scope`, `traceFlags` → `flags`. Attribute values preserve native
+  types.
+  ([#392](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/392))
+- (**Breaking Change**) refactor: remove BedrockRuntime, SecretsManager, StepFunction, SNS instrumentation patches.
   ([#446](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/446))
-
-### Bug Fixes
-
+- feat: add Bedrock AgentCore data plane instrumentation
+  ([#455](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/455))
 - suppress /ping endpoint instrumentation for HTTP libraries in AgentCore
   ([#453](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/453))
+- feat(agent-observability): remove LLO handler from OTLP span exporter
+  ([#464](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/464))
+- feat: add Dynamic Instrumentation — opt-in, on-demand runtime snapshot capture.
+  ([#466](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/466))
 
 ## v0.11.0 - 2026-04-30
 

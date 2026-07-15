@@ -76,7 +76,6 @@ import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-export
 import { isAgentObservabilityEnabled, parseOtelBaggageKeysEnvVar } from './utils';
 import { GenAiNestedClientSpanProcessor } from './gen-ai-nested-client-span-processor';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
-import { logs } from '@opentelemetry/api-logs';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
 import { ConsoleEMFExporter } from './exporter/aws/metrics/console-emf-exporter';
@@ -308,13 +307,7 @@ export class AwsOpentelemetryConfigurator {
       return;
     }
 
-    let spanExporter: SpanExporter;
-    // Create the appropriate span exporter based on the endpoint
-    if (isAwsOtlpEndpoint(tracesEndpoint, 'xray')) {
-      spanExporter = new OTLPAwsSpanExporter(tracesEndpoint, undefined, logs.getLoggerProvider());
-    } else {
-      spanExporter = new OTLPAwsSpanExporter(tracesEndpoint);
-    }
+    const spanExporter = new OTLPAwsSpanExporter(tracesEndpoint);
 
     // Add the unsampled span processor
     spanProcessors.push(new AwsBatchUnsampledSpanProcessor(spanExporter));
@@ -520,7 +513,7 @@ export class AwsLoggerProcessorProvider {
     const exporters = AwsLoggerProcessorProvider.configureLogExportersFromEnv();
 
     return exporters.map(exporter => {
-      if (exporter instanceof ConsoleLogRecordExporter) {
+      if (exporter instanceof ConsoleLogRecordExporter || exporter instanceof CompactConsoleLogRecordExporter) {
         return new SimpleLogRecordProcessor(exporter);
       } else if (exporter instanceof OTLPAwsLogExporter && isAgentObservabilityEnabled()) {
         return new AwsCloudWatchOtlpBatchLogRecordProcessor(exporter);

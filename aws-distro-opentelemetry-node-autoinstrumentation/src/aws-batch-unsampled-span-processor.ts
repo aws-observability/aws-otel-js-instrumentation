@@ -9,7 +9,7 @@ import { BatchSpanProcessorBase } from '@opentelemetry/sdk-trace/build/src/expor
 
 /**
  * This class is a customized version of the `BatchSpanProcessorBase` from the
- * OpenTelemetry SDK (`@opentelemetry/sdk-trace-base/build/src/export/BatchSpanProcessorBase`).
+ * OpenTelemetry SDK (`@opentelemetry/sdk-trace/build/src/export/BatchSpanProcessorBase`).
  * It inherits much of the behavior of the `BatchSpanProcessorBase` while adding
  * specific logic to handle unsampled spans.
  *

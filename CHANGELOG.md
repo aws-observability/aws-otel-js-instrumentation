@@ -13,6 +13,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat(serviceevents): accept bare package tokens (e.g. `myapp`, `src/myapp`) in
+  `OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE`/`_EXCLUDE`, not just `**/…/**` globs
+  ([#507](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/507))
 - feat: support lite mode on ESM handlers and Node.js 24
   ([#502](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/502))
 - refactor(serviceevents): make the endpoint span processor framework-agnostic

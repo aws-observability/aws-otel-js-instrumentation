@@ -20,6 +20,7 @@
 
 import expect from 'expect';
 import { shouldTransformFile, SDK_SELF_EXCLUDE } from '../../src/serviceevents/ast-transformation';
+import { createServiceEventsConfigFromEnv } from '../../src/serviceevents/config';
 
 describe('shouldTransformFile (scope precedence)', function () {
   // --- Baseline rules 0–4 ---
@@ -185,6 +186,113 @@ describe('shouldTransformFile (scope precedence)', function () {
       expect(SDK_SELF_EXCLUDE).toContain('/node_modules/acorn/');
       expect(SDK_SELF_EXCLUDE).toContain('/node_modules/pirates/');
       expect(SDK_SELF_EXCLUDE).toContain('/node_modules/minimatch/');
+    });
+  });
+
+  // --- Bare-token ergonomic: parse tokens through the real env parser, then match ---
+  // This is the end-to-end proof that a bare `myapp` (not just a `**/myapp/**` glob)
+  // actually instruments the right files. Tokens go through createServiceEventsConfigFromEnv
+  // so the parse-time expansion (config.ts) and the matcher (this file) are exercised together.
+  describe('bare package tokens (parsed via env) instrument the intended files', function () {
+    let savedEnv: Record<string, string | undefined>;
+
+    beforeEach(function () {
+      savedEnv = { ...process.env };
+    });
+
+    afterEach(function () {
+      for (const key of Object.keys(process.env)) {
+        if (!(key in savedEnv)) {
+          delete process.env[key];
+        }
+      }
+      for (const [key, value] of Object.entries(savedEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    });
+
+    // Parse PACKAGES_INCLUDE/EXCLUDE from env exactly as production does.
+    function parseScope(include?: string, exclude?: string): { include: string[]; exclude: string[] } {
+      delete process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE;
+      delete process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_EXCLUDE;
+      if (include !== undefined) {
+        process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = include;
+      }
+      if (exclude !== undefined) {
+        process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_EXCLUDE = exclude;
+      }
+      const config = createServiceEventsConfigFromEnv();
+      return { include: config.packagesInclude, exclude: config.packagesExclude };
+    }
+
+    it('instruments the token dir subtree (bare myapp)', function () {
+      const { include } = parseScope('myapp');
+      expect(shouldTransformFile('/app/src/myapp/service.js', [], include)).toBe(true);
+      expect(shouldTransformFile('/app/src/myapp/sub/deep.js', [], include)).toBe(true);
+    });
+
+    it('instruments the single-file module (myapp.js) via the .* form', function () {
+      const { include } = parseScope('myapp');
+      // For an extensionless token, the `.*` form is what finds `myapp.js`.
+      expect(include).toContain('**/myapp.*');
+      expect(shouldTransformFile('/app/src/myapp.js', [], include)).toBe(true);
+    });
+
+    it('instruments a filename-with-extension token (server.js) via the bare-filename form', function () {
+      // Regression: a token that already carries an extension (`server.js`) is a real
+      // filename. The `.*` form looks for `server.js.<ext>` and misses it; the bare
+      // `**/<token>` form matches the file itself. Before that form existed, this
+      // silently instrumented nothing (and on the exclude side silently no-op'd).
+      const { include } = parseScope('server.js');
+      expect(include).toContain('**/server.js');
+      expect(shouldTransformFile('/app/src/server.js', [], include)).toBe(true);
+    });
+
+    it('a filename-with-extension EXCLUDE token actually subtracts the file', function () {
+      // The exclude side is the dangerous one: an explicit `secrets.js` exclusion must
+      // not be a silent no-op that leaves the file instrumented.
+      const { include, exclude } = parseScope('src', 'secrets.js');
+      expect(shouldTransformFile('/app/src/secrets.js', exclude, include)).toBe(false);
+      // A sibling file under the same include subtree still instruments.
+      expect(shouldTransformFile('/app/src/service.js', exclude, include)).toBe(true);
+    });
+
+    it('does NOT match a hyphen/underscore sibling (basename boundary)', function () {
+      const { include } = parseScope('myapp');
+      expect(shouldTransformFile('/app/src/myapp-utils/foo.js', [], include)).toBe(false);
+      expect(shouldTransformFile('/app/src/myapp-utils.js', [], include)).toBe(false);
+    });
+
+    it('DOES match dotted-sibling files (chosen .* behavior: user.model.js, user.test.js)', function () {
+      const { include } = parseScope('user');
+      expect(shouldTransformFile('/app/src/user.model.js', [], include)).toBe(true);
+      expect(shouldTransformFile('/app/src/user.test.js', [], include)).toBe(true);
+      // No dot boundary → not a sibling, must not match.
+      expect(shouldTransformFile('/app/src/users.js', [], include)).toBe(false);
+    });
+
+    it('instruments a real glob-metacharacter dir literally (Next.js [id] route)', function () {
+      const { include } = parseScope('[id]');
+      // The escaped token matches the literal `[id]/` dir …
+      expect(shouldTransformFile('/app/pages/[id]/page.js', [], include)).toBe(true);
+      // … and NOT the char-class interpretation that would match `/i/`.
+      expect(shouldTransformFile('/app/pages/i/page.js', [], include)).toBe(false);
+    });
+
+    it('drops files outside the token subtree', function () {
+      const { include } = parseScope('myapp');
+      expect(shouldTransformFile('/app/other/bar.js', [], include)).toBe(false);
+    });
+
+    it('bare-token exclude subtracts its subtree from a bare-token include', function () {
+      const { include, exclude } = parseScope('myapp', 'models');
+      expect(shouldTransformFile('/app/src/myapp/models/user.js', exclude, include)).toBe(false);
+      // A non-excluded file under the include subtree still instruments.
+      expect(shouldTransformFile('/app/src/myapp/service.js', exclude, include)).toBe(true);
     });
   });
 });

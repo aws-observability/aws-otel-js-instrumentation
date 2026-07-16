@@ -5,7 +5,7 @@
 import { Context, TraceFlags } from '@opentelemetry/api';
 import { ReadableSpan, BufferConfig, Span } from '@opentelemetry/sdk-trace-base';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
-import { BatchSpanProcessorBase } from '@opentelemetry/sdk-trace-base/build/src/export/BatchSpanProcessorBase';
+import { BatchSpanProcessorBase } from '@opentelemetry/sdk-trace/build/src/export/BatchSpanProcessorBase';
 
 /**
  * This class is a customized version of the `BatchSpanProcessorBase` from the

@@ -158,13 +158,16 @@ export class IncidentSnapshotCollector extends BaseCollector {
     }
 
     // Generate error hash for deduplication. The processor passes exception=null (like Java) and
-    // defers exception detail to the collector, so recover the error identity (type + message) from
-    // the investigation data — already seeded from the span's exception event for uninstrumented
-    // 5xx — BEFORE hashing. Without this the hash would collapse to route-only and two distinct
-    // errors on the same route would deduplicate together. Latency incidents have no exception →
-    // route-only hash, matching the pre-refactor behavior.
-    const { type: excType, message: excMessage } = this.recoverErrorIdentity(exception);
-    const errorHash = this.errorHash(route, excType, excMessage);
+    // defers exception detail to the collector, so recover the error identity (type + file-qualified
+    // throw-site origin) from the investigation data — already seeded from the span's exception event
+    // for uninstrumented 5xx — BEFORE hashing. Without this the hash would collapse to operation-only
+    // and two distinct errors on the same operation would deduplicate together. The origin (not the
+    // unbounded message) keeps the key bounded. The key uses the full operation (`<method> <route>`)
+    // so different methods on one route are distinct incidents, matching Java. Latency incidents have
+    // no exception → operation-only hash.
+    const operation = `${method} ${route}`;
+    const { type: excType, origin } = this.recoverErrorIdentity(exception);
+    const errorHash = this.errorHash(operation, excType, origin);
 
     // Check batch-level deduplication FIRST (one per error type per collection interval)
     if (this._currentBatchHashes.has(errorHash)) {
@@ -367,47 +370,126 @@ export class IncidentSnapshotCollector extends BaseCollector {
   // --- Deduplication ---
 
   /**
-   * Recover the {type, message} that keys the dedup hash.
+   * Recover the {type, origin} that keys the dedup hash.
    *
    * The endpoint span processor passes `exception=null` (like Java) and defers exception detail to
    * the collector, so the dedup key must be recovered from the same investigation data the snapshot
-   * body uses. Without this the hash would collapse to route-only and two distinct errors on the
-   * same route would deduplicate together (defeating per-error incident coverage).
+   * body uses. Without this the hash would collapse to operation-only and two distinct errors on the
+   * same operation would deduplicate together (defeating per-error incident coverage).
    *
-   * - When an explicit `exception` object is supplied (manual callers), use it directly.
+   * The second field is the *file-qualified throw-site origin* (`file.function`), not the exception
+   * message. The message is unbounded — it routinely embeds request-specific data (IDs, timestamps,
+   * values) — so keying on it lets a single recurring error spawn a distinct hash per occurrence,
+   * defeating dedup and churning the per-window hash map against its size cap. The origin is bounded
+   * and stable across deploys. It is file-qualified so two same-named functions in different modules
+   * don't collide into one incident, mirroring the composite name the AST monitor assigns
+   * instrumented frames (see `calculateFunctionName`) and Java's `class.method`.
+   *
+   * This value is used ONLY for the dedup hash. Customer-consumed telemetry (the endpoint error
+   * breakdown key and the snapshot body `function_name`) is left untouched — those still carry the
+   * bare/monitor-recorded name, so this change does not alter emitted data.
+   *
+   * - When an explicit `exception` object is supplied (manual callers), take the type from it and
+   *   the origin from the first frame of its stack (the throw site).
    * - Otherwise PEEK the per-request investigation data — the AST monitor's captured exception, or
-   *   the span's exception event seeded into it by the processor for uninstrumented 5xx.
-   * - A latency incident (no exception anywhere) returns {type: null} → route-only hash, matching
+   *   the span's exception event seeded into it by the processor for uninstrumented 5xx — and
+   *   qualify the origin from the captured `traceback` string.
+   * - A latency incident (no exception anywhere) returns {type: null} → operation-only hash, matching
    *   the pre-refactor behavior for slow requests.
    *
    * Best-effort and guarded: hashing must never crash the host, so any failure degrades to
-   * {type: null} (route-only), the safe default.
+   * {type: null} (operation-only), the safe default.
    */
-  private recoverErrorIdentity(exception: Error | null): { type: string | null; message: string } {
+  private recoverErrorIdentity(exception: Error | null): { type: string | null; origin: string } {
     try {
       if (exception !== null) {
-        return { type: exception.constructor?.name ?? 'Error', message: exception.message ?? String(exception) };
+        return {
+          type: exception.constructor?.name ?? 'Error',
+          origin: this.originFromStack(exception.stack, exception.message),
+        };
       }
       const invData = this._monitorState.peekInvestigationData();
       const excData = invData?.exception;
       if (excData && excData.name) {
-        return { type: excData.name, message: excData.message ?? '' };
+        return { type: excData.name, origin: this.originFromStack(excData.traceback, excData.message) };
       }
     } catch (err) {
       diag.debug(`Failed to recover error identity for dedup hash: ${err}`);
     }
-    return { type: null, message: '' };
+    return { type: null, origin: '' };
   }
 
   /**
-   * Hash the dedup key from route + recovered exception type/message.
+   * Build a file-qualified origin (`<basename>.<function>`) from the top frame of a V8 stack trace.
    *
-   * Keyed `route:<route>` for latency (no exception) or `route:<route>|exc:<type>:<message>` for
-   * errors, matching the documented per-SDK key (see SERVICE_EVENTS_INCIDENT_RATE_LIMITING.md) and
-   * the Python distro's `_error_hash`.
+   * Parses the SINGLE top `at` frame so the function name and file always come from the same frame —
+   * V8 frames read `    at functionName (/path/to/file.js:line:col)` or, for anonymous/top-level
+   * frames, the bare `    at /path/to/file.js:line:col`. The `async ` prefix and `[as alias]` suffix
+   * V8 attaches to some frames are stripped so they don't leak into the key, and the `:line:col`
+   * suffix is dropped (deploy-unstable). The basename (extension stripped) matches the AST monitor's
+   * `calculateFunctionName` shape. Used ONLY for the dedup hash; returns '' when the stack is
+   * absent/unparseable (→ operation-only key, the safe default). The line-anchored match tolerates
+   * Windows drive-letter paths (`C:\...`), which a colon-delimited scan would mis-split.
+   *
+   * `message` is the exception message: V8 renders the stack as `<Name>: <message>` followed by the
+   * frames, so the leading `1 + newlines(message)` lines are the header. Dropping them first means a
+   * MULTI-LINE message that itself embeds indented `at …` text cannot be mis-parsed as the top frame
+   * (which would inject a request-specific origin and reintroduce unbounded-key proliferation).
    */
-  private errorHash(route: string, excType: string | null, excMessage: string): string {
-    const hashInput = excType === null ? `route:${route}` : `route:${route}|exc:${excType}:${excMessage}`;
+  private originFromStack(stack: string | undefined, message: string | undefined): string {
+    if (!stack) {
+      return '';
+    }
+    // Drop the header lines (the `<Name>: <message>` block) so message text can't be read as a frame.
+    // Slice unconditionally: for a header-only stack (no real frames) this leaves nothing to parse
+    // and the regex below returns '' — NOT falling through to parse the message as a frame.
+    const lines = stack.split('\n');
+    const headerLines = 1 + (message ? message.match(/\n/g)?.length ?? 0 : 0);
+    const body = lines.slice(headerLines).join('\n');
+    // First "\tat …" frame line — the throw site (most-recent-call-first).
+    const frameLine = body.match(/^[ \t]+at[ \t]+(.+)$/m);
+    if (!frameLine) {
+      return '';
+    }
+    const frame = frameLine[1].trim();
+    // "functionName (location)" vs a bare "location" (anonymous/top-level) frame.
+    const parenMatch = frame.match(/^(.*?)\s+\((.*)\)$/);
+    let fn = parenMatch ? parenMatch[1] : '';
+    const location = parenMatch ? parenMatch[2] : frame;
+    // V8 decorates some frames with an `async ` prefix or an `[as alias]` suffix — neither is part
+    // of the stable identity, so strip both. Treat the explicit `<anonymous>` marker as no name.
+    fn = fn
+      .replace(/^async\s+/, '')
+      .replace(/\s+\[as .+\]$/, '')
+      .trim();
+    if (fn === '<anonymous>') {
+      fn = '';
+    }
+    // Strip the trailing `:line:col` (deploy-unstable) from the location to get the file path.
+    const locMatch = location.match(/^(.*):\d+:\d+$/);
+    const filePath = locMatch ? locMatch[1] : location;
+    const base = filePath.replace(/\\/g, '/').split('/').pop() ?? '';
+    const basename = base.replace(/\.(js|mjs|cjs|ts|tsx|mts|cts)$/i, '');
+    if (!basename) {
+      return fn; // no resolvable file → fall back to the bare function name (may be '')
+    }
+    return fn ? `${basename}.${fn}` : basename;
+  }
+
+  /**
+   * Hash the dedup key from operation + recovered exception type/origin.
+   *
+   * Keyed `op:<operation>` for latency (no exception) or `op:<operation>|exc:<type>:<origin>` for
+   * errors, following the same `op:`/`|exc:` scheme as the Python and Java distros. The operation is
+   * `<method> <route>`, so different HTTP methods on one route are distinct incidents. The
+   * file-qualified origin (not the message) keeps the key bounded — see `recoverErrorIdentity`.
+   *
+   * Hashes are compared only within a distro, never across them, so the strings need not be
+   * byte-identical between distros — and they are not: when the origin is unresolvable this distro
+   * emits a trailing `:` (empty origin), whereas Java omits the `:origin` segment entirely.
+   */
+  private errorHash(operation: string, excType: string | null, origin: string): string {
+    const hashInput = excType === null ? `op:${operation}` : `op:${operation}|exc:${excType}:${origin}`;
     return crypto.createHash('md5').update(hashInput, 'utf-8').digest('hex');
   }
 
@@ -696,11 +778,12 @@ export class IncidentSnapshotCollector extends BaseCollector {
       );
       // Preserve the original identity so the already-emitted endpoint exemplar pointer stays valid.
       replacement.snapshot_id = pending.snapshot_id;
-      // Preserve the original affected_endpoint too. The dedup hash keys on route (not method), so a
-      // GET and a POST to the same route with the same error share a hash and can upgrade each other.
-      // The endpoint exemplar is filed under the FIRST occurrence's operation key; rebuilding
-      // affected_endpoint from THIS occurrence's method would make the swapped snapshot's operation
-      // disagree with the endpoint summary that references its snapshot_id. Keep the first one.
+      // Preserve the original affected_endpoint too. The dedup hash keys on operation
+      // (`<method> <route>`), so only occurrences sharing an operation (e.g. two GET /api/x with the
+      // same error) share a hash and can upgrade each other. The endpoint exemplar is filed under the
+      // FIRST occurrence's operation key; rebuilding affected_endpoint from THIS occurrence would make
+      // the swapped snapshot's operation disagree with the endpoint summary that references its
+      // snapshot_id. Keep the first one.
       replacement.affected_endpoint = pending.affected_endpoint;
 
       const idx = this._pendingSnapshots.indexOf(pending);

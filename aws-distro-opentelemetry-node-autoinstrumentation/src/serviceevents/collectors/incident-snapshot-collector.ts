@@ -469,7 +469,7 @@ export class IncidentSnapshotCollector extends BaseCollector {
     const locMatch = location.match(/^(.*):\d+:\d+$/);
     const filePath = locMatch ? locMatch[1] : location;
     const base = filePath.replace(/\\/g, '/').split('/').pop() ?? '';
-    const basename = base.replace(/\.(js|mjs|cjs|ts|tsx|mts|cts)$/i, '');
+    const basename = base.replace(/\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$/i, '');
     if (!basename) {
       return fn; // no resolvable file → fall back to the bare function name (may be '')
     }

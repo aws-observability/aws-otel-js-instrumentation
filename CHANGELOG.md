@@ -13,6 +13,15 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat(serviceevents): accept bare package tokens (e.g. `myapp`, `src/myapp`) in
+  `OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE`/`_EXCLUDE`, not just `**/…/**` globs
+  ([#507](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/507))
+- feat: support lite mode on ESM handlers and Node.js 24
+  ([#502](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/502))
+- fix(serviceevents): key the incident-snapshot dedup hash on operation + bounded throw-site origin (`basename.function`)
+  ([#509](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/509))
+- refactor(serviceevents): make the endpoint span processor framework-agnostic
+- fix(serviceevents): gate incident trace correlation on the SAMPLED flag and harden incident dedup/rate-limiting
 - feat: feat: add OTel lite SDK for Lambda cold start optimization
   ([#493](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/493))
 

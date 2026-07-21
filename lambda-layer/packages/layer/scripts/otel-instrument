@@ -62,9 +62,27 @@ if [ "$OTEL_METRICS_EXPORTER" != "none" ] || [ "$OTEL_LOGS_EXPORTER" != "none" ]
 fi
 
 if [[ "${OTEL_AWS_LAMBDA_FAST_START}" == "true" ]]; then
-  # Lite mode bypasses register.ts and import-in-the-middle entirely.
-  # Instruments via require-in-the-middle and prototype patching only.
-  export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/lite-wrapper.js"
+  if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
+    # ESM handlers (and Node 24+, where the runtime loads modules as ESM) cannot
+    # be instrumented by require-in-the-middle alone. Use the ESM lite wrapper,
+    # which installs the import-in-the-middle hook before running configureLiteMode().
+    # This costs some of lite mode's cold-start savings but is required for
+    # instrumentation to work at all on ESM/Node 24+.
+    if [[ $NODE_VERSION -ge 20 ]]; then
+      # Node 20.6+ supports module.register() (selective interception, avoids the
+      # global --experimental-loader that breaks ESM live bindings).
+      export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/lite-wrapper.mjs"
+    else
+      # Node 18.x lacks module.register(); fall back to the global loader hook.
+      export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/lite-wrapper.js --experimental-loader=import-in-the-middle/hook.mjs"
+    fi
+    export HANDLER_IS_ESM=true
+  else
+    # CJS handler on Node < 24: the fast path. Lite mode bypasses register.ts and
+    # import-in-the-middle entirely, instrumenting via require-in-the-middle and
+    # prototype patching only.
+    export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/lite-wrapper.js"
+  fi
 elif _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
   if [[ $NODE_VERSION -ge 20 ]]; then
     # Node 20.6+ supports module.register() which allows selective module

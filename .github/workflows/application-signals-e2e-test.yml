@@ -125,13 +125,25 @@ jobs:
       caller-workflow-name: 'main-build'
 
   lambda:
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [ nodejs18.x, nodejs20.x, nodejs22.x, nodejs24.x ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-lambda-test.yml@main
+    secrets: inherit
+    with:
+      aws-region: us-east-1
+      runtime: ${{ matrix.runtime }}
+      caller-workflow-name: 'main-build'
+
+  lambda-lite-sdk:
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-lambda-lite-sdk-test.yml@main
     secrets: inherit
     with:
       aws-region: us-east-1
       caller-workflow-name: 'main-build'
 
-  
+
   adot-sigv4:
     needs: [ upload-main-build ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-adot-sigv4-test.yml@main

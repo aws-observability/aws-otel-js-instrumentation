@@ -102,11 +102,6 @@ export interface ServiceEventsConfig {
   // Format: "METHOD /route:threshold_ms,METHOD /route:threshold_ms,..."
   // Example: "POST /api/checkout:500,GET /api/health:50,GET /api/reports:5000"
   latencyThresholds: string[]; // OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS
-  // Framework Toggles (JS-only). Internal — no env override; all default true.
-  instrumentExpress: boolean;
-  instrumentFastify: boolean;
-  instrumentKoa: boolean;
-  instrumentNextJs: boolean;
   // Endpoint Filtering - glob patterns in format "METHOD /route" or "* /route" or "METHOD *"
   // If includePatterns is set, only track matching endpoints; then excludePatterns removes from that set
   // Example: "GET /api/*,POST /api/*" or "* /health,* /metrics"
@@ -167,10 +162,6 @@ const DEFAULTS: ServiceEventsConfig = {
   incidentSnapshotDurationThresholdMs: 5000,
   incidentSnapshotMaxSameError: 1,
   latencyThresholds: [],
-  instrumentExpress: true,
-  instrumentFastify: true,
-  instrumentKoa: true,
-  instrumentNextJs: true,
   endpointIncludePatterns: [],
   endpointExcludePatterns: [],
   functionInstrumentEnabled: true,
@@ -240,35 +231,62 @@ function getList(envVar: string, defaultValue: string[]): string[] {
 }
 
 /**
- * Parse a package-pattern list env var, rejecting bare match-everything sentinels.
+ * Backslash-escape glob metacharacters so a token matches literally.
+ * A real dir like Next.js `[id]` must not be read as a glob character class.
+ * `/` and `.` are left alone: `/` is a path separator, `.` is already literal.
+ */
+function escapeGlobToken(token: string): string {
+  return token.replace(/[?[\]{}()!+@|\\]/g, '\\$&');
+}
+
+/**
+ * Turn a plain package token into globs that match its files.
+ * `myapp` -> instruments the whole `myapp/` subtree, like Java `com.myapp` /
+ * Python `myapp`. A token with a `*` is already a glob and is left as-is.
  *
- * Bare `*` and `**` are rejected as too broad: under minimatch's `matchBase: true`
- * they match every path, defeating the point of an explicit allowlist. Strip these
- * entries and warn — `diag.warn` rather than `diag.info` because we're silently
- * altering user-provided configuration, and info-level diag is often suppressed in
- * production OTel setups.
+ * We emit three patterns because the matcher runs against full file paths:
+ *   `**\/myapp/**`  -> files inside the dir (`myapp/index.js`)
+ *   `**\/myapp.*`   -> a file named after the token (`myapp.js`)
+ *   `**\/myapp`     -> when the token already includes the extension (`server.js`)
+ */
+function expandBarePattern(entry: string): string[] {
+  if (entry.includes('*')) {
+    return [entry]; // already a glob — use it as written
+  }
+  const token = entry.replace(/^\/+|\/+$/g, ''); // drop leading/trailing slashes
+  if (token.length === 0) {
+    return [];
+  }
+  const esc = escapeGlobToken(token);
+  return [`**/${esc}/**`, `**/${esc}.*`, `**/${esc}`];
+}
+
+/**
+ * Read a package-list env var and turn each entry into match globs. Used for both
+ * PACKAGES_INCLUDE and PACKAGES_EXCLUDE.
  *
- * An empty list instruments nothing — there is no implicit default scope (see the
- * scope rule in ast-transformation.ts).
+ * A bare `*` or `**` is dropped (it would match everything, defeating the allowlist)
+ * and warned about. Everything else is expanded by expandBarePattern. An empty list
+ * instruments nothing — there is no default scope (see ast-transformation.ts).
  */
 function getPatternList(envVar: string, defaultValue: string[]): string[] {
   const raw = getList(envVar, defaultValue);
   const rejected: string[] = [];
-  const normalized: string[] = [];
+  const out: string[] = [];
   for (const item of raw) {
     if (item === '*' || item === '**') {
       rejected.push(item);
       continue;
     }
-    normalized.push(item);
+    out.push(...expandBarePattern(item));
   }
   if (rejected.length > 0) {
     diag.warn(
       `ServiceEvents: ignoring match-everything entries ${JSON.stringify(rejected)} in ${envVar}; ` +
-        'use specific package prefixes (e.g. src/myapp/**). An empty list instruments nothing.'
+        'use a package token (e.g. myapp) or a glob (e.g. **/myapp/**). An empty list instruments nothing.'
     );
   }
-  return normalized;
+  return out;
 }
 
 /**
@@ -325,6 +343,24 @@ function getEnvironment(): string | undefined {
  * Uses DEFAULTS as fallback when environment variables are not set.
  */
 export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
+  // Resolve maxSameError up front so the incident-snapshot flush interval can be derived from it.
+  const incidentMaxSameError = getIntClamped(
+    'OTEL_AWS_SERVICE_EVENTS_INCIDENT_SNAPSHOT_MAX_SAME_ERROR',
+    DEFAULTS.incidentSnapshotMaxSameError,
+    1,
+    100_000
+  );
+  // Derive the incident-snapshot flush interval from maxSameError rather than exposing it as an
+  // independent knob. Batch dedup keeps exactly one snapshot per error hash per flush cycle, and
+  // period dedup allows up to maxSameError (N) per fixed 60s window, so to emit all N the 60s
+  // window must be sliced into at least N flush cycles: flush <= 60s / N. We pick the *largest*
+  // such value, flush = 60s / N, because a wider cycle is a wider Point #2 window (more chances
+  // for a later SAMPLED occurrence to upgrade a pending UNSAMPLED snapshot), maximizing the odds
+  // each emitted snapshot carries a resolvable trace link. Floored at 10s to bound export latency
+  // and crash-loss; this caps the effective per-error rate at 60s/10s = 6/min. The test hook
+  // (applied to the returned object) can still override flush directly for fast test cycles.
+  const incidentFlushInterval = Math.max(10_000, Math.floor(60_000 / incidentMaxSameError));
+
   return applyTestConfigHook({
     // Enable/Disable
     enabled: getBool('OTEL_AWS_SERVICE_EVENTS_ENABLED', DEFAULTS.enabled),
@@ -333,11 +369,12 @@ export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
     // surface). sdkVersion is internal — always the ADOT package version, no env override.
     environment: getEnvironment(),
     sdkVersion: DEFAULTS.sdkVersion,
-    // Flush Intervals — internal (no env override); defaults stand. The first three are
-    // overridable via the test-config hook.
+    // Flush Intervals. functionCall_, endpoint_ and deploymentEvent_ are internal (no env
+    // override; defaults stand). incidentSnapshotFlushInterval is derived from maxSameError above
+    // (flush = 60s / N, floored at 10s). All are overridable via the test-config hook.
     functionCallFlushInterval: DEFAULTS.functionCallFlushInterval,
     endpointFlushInterval: DEFAULTS.endpointFlushInterval,
-    incidentSnapshotFlushInterval: DEFAULTS.incidentSnapshotFlushInterval,
+    incidentSnapshotFlushInterval: incidentFlushInterval,
     deploymentEventFlushInterval: DEFAULTS.deploymentEventFlushInterval,
     // Incident Snapshot Settings. Window fixed at 1 minute; only the per-minute
     // ceiling is configurable.
@@ -355,18 +392,8 @@ export function createServiceEventsConfigFromEnv(): ServiceEventsConfig {
       1,
       3_600_000 // 1 hour
     ),
-    incidentSnapshotMaxSameError: getIntClamped(
-      'OTEL_AWS_SERVICE_EVENTS_INCIDENT_SNAPSHOT_MAX_SAME_ERROR',
-      DEFAULTS.incidentSnapshotMaxSameError,
-      1,
-      100_000
-    ),
+    incidentSnapshotMaxSameError: incidentMaxSameError,
     latencyThresholds: getList('OTEL_AWS_SERVICE_EVENTS_LATENCY_THRESHOLDS', DEFAULTS.latencyThresholds),
-    // Framework Toggles — internal (no env override); all default true.
-    instrumentExpress: DEFAULTS.instrumentExpress,
-    instrumentFastify: DEFAULTS.instrumentFastify,
-    instrumentKoa: DEFAULTS.instrumentKoa,
-    instrumentNextJs: DEFAULTS.instrumentNextJs,
     // Endpoint Filtering
     endpointIncludePatterns: getList(
       'OTEL_AWS_SERVICE_EVENTS_ENDPOINT_INCLUDE_PATTERNS',

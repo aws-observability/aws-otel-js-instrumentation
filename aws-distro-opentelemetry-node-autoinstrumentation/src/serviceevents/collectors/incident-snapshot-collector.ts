@@ -14,7 +14,7 @@
 
 import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { diag, trace } from '@opentelemetry/api';
+import { diag } from '@opentelemetry/api';
 import { BaseCollector } from './base-collector';
 import { ServiceEventsMonitorState, InvestigationData } from '../serviceevents-monitor';
 import {
@@ -40,8 +40,17 @@ import { truncateString } from '../utils/data-sanitizer';
 const MAX_EXCEPTION_MESSAGE_CHARS = 2048;
 const MAX_STACK_TRACE_CHARS = 8192;
 
+/**
+ * Correlation the span processor hands the collector for one request.
+ *
+ * `trace_id`/`span_id` are the span processor's SAMPLED-gated correlation (fix #1): set iff the
+ * boundary span's trace was sampled, else undefined. They are the collector's ONLY source of trace
+ * correlation — it never re-derives ids from the active span or inbound headers, because those
+ * sources are not sampling-gated and would resurrect a link to a trace the backend never exported.
+ */
 export interface RequestData {
-  headers?: Record<string, string>;
+  trace_id?: string;
+  span_id?: string;
   [key: string]: unknown;
 }
 
@@ -80,6 +89,16 @@ export class IncidentSnapshotCollector extends BaseCollector {
 
   // Pending snapshots
   private _pendingSnapshots: IncidentSnapshot[] = [];
+  // Within a collection cycle, the single pending snapshot per error hash (batch dedup keeps
+  // exactly one). Lets a later SAMPLED occurrence of the same error upgrade an earlier UNSAMPLED
+  // pending snapshot's correlation before it flushes — see maybeUpgradePendingCorrelation. Cleared
+  // each collect().
+  private _pendingByHash: Map<string, IncidentSnapshot> = new Map();
+  // The endpoint exemplar object returned for each pending snapshot, keyed by error hash. The
+  // endpoint collector holds the SAME object reference, so mutating it on a Point #2 upgrade keeps
+  // the recorded exemplar's emitted fields (trigger_type/timestamp) coherent with the swapped
+  // snapshot (they share a snapshot_id). Cleared each collect().
+  private _pendingExemplarByHash: Map<string, IncidentExemplar> = new Map();
 
   // Monitor state
   private _monitorState: ServiceEventsMonitorState;
@@ -138,11 +157,34 @@ export class IncidentSnapshotCollector extends BaseCollector {
       return null;
     }
 
-    // Generate error hash for deduplication
-    const errorHash = this.generateErrorHash(route, exception);
+    // Generate error hash for deduplication. The processor passes exception=null (like Java) and
+    // defers exception detail to the collector, so recover the error identity (type + file-qualified
+    // throw-site origin) from the investigation data — already seeded from the span's exception event
+    // for uninstrumented 5xx — BEFORE hashing. Without this the hash would collapse to operation-only
+    // and two distinct errors on the same operation would deduplicate together. The origin (not the
+    // unbounded message) keeps the key bounded. The key uses the full operation (`<method> <route>`)
+    // so different methods on one route are distinct incidents, matching Java. Latency incidents have
+    // no exception → operation-only hash.
+    const operation = `${method} ${route}`;
+    const { type: excType, origin } = this.recoverErrorIdentity(exception);
+    const errorHash = this.errorHash(operation, excType, origin);
 
     // Check batch-level deduplication FIRST (one per error type per collection interval)
     if (this._currentBatchHashes.has(errorHash)) {
+      // A snapshot for this error is already pending this cycle. Batch dedup keeps that single
+      // snapshot, but if it was built from an UNSAMPLED occurrence (no resolvable trace link, see
+      // fix #1) and THIS occurrence is sampled, upgrade the pending snapshot in place so the one
+      // snapshot we emit per cycle carries a resolvable trace link.
+      this.maybeUpgradePendingCorrelation(
+        errorHash,
+        route,
+        method,
+        statusCode,
+        durationMs,
+        exception,
+        requestData,
+        triggerType
+      );
       diag.debug(`Incident snapshot batch-deduplicated (hash: ${errorHash})`);
       return null;
     }
@@ -185,19 +227,34 @@ export class IncidentSnapshotCollector extends BaseCollector {
         triggerType
       );
 
-      this._pendingSnapshots.push(snapshot);
-
-      diag.info(`Incident snapshot triggered: ${route} ${method} (status=${statusCode}, trigger=${triggerType})`);
-
-      // Return exemplar
-      return {
+      // Build the exemplar for endpoint telemetry correlation. Keep a reference indexed by error
+      // hash: the endpoint collector holds this SAME object, so a later Point #2 upgrade can mutate
+      // it in place to track the swapped snapshot's emitted fields (trigger_type/timestamp).
+      const exemplar: IncidentExemplar = {
         snapshot_id: snapshot.snapshot_id,
         trigger_type: snapshot.trigger_type,
         severity: snapshot.severity,
         timestamp: snapshot.timestamp,
       };
+
+      // Add to pending, and index by error hash so a later sampled occurrence of the same error
+      // can upgrade this snapshot's correlation in place before it flushes.
+      this._pendingSnapshots.push(snapshot);
+      this._pendingByHash.set(errorHash, snapshot);
+      this._pendingExemplarByHash.set(errorHash, exemplar);
+
+      diag.info(`Incident snapshot triggered: ${route} ${method} (status=${statusCode}, trigger=${triggerType})`);
+
+      return exemplar;
     } catch (err) {
       diag.error(`Error collecting incident snapshot data: ${err}`);
+      // Roll back the slots this attempt consumed. The batch/period-dedup/rate-limit slots were all
+      // committed together just above, only after every pure check passed. If collection then fails,
+      // leaving them committed would suppress a *later* identical error that could have produced a
+      // snapshot — for up to the 60s dedup/rate windows — and (with Point #2) would leave errorHash in
+      // the batch set with nothing in _pendingByHash, so a later sampled occurrence's upgrade finds no
+      // pending snapshot and is silently dropped.
+      this.rollbackReservation(errorHash);
       return null;
     }
   }
@@ -209,6 +266,9 @@ export class IncidentSnapshotCollector extends BaseCollector {
     // Swap pending snapshots
     const snapshots = this._pendingSnapshots;
     this._pendingSnapshots = [];
+    // Drop the per-hash indexes for the drained cycle; the upgrade window is one cycle.
+    this._pendingByHash = new Map();
+    this._pendingExemplarByHash = new Map();
 
     if (snapshots.length === 0) {
       diag.debug('No incident snapshots to export');
@@ -234,11 +294,9 @@ export class IncidentSnapshotCollector extends BaseCollector {
    * Java LatencyThresholdResolver (key = METHOD + ' ' + route; first glob match;
    * else global default).
    *
-   * Public so the framework instrumentation gates (which decide whether to bother
-   * building RequestData and calling processPotentialIncident) resolve the SAME
-   * per-endpoint threshold the collector uses. Gating on the global default instead
-   * made any per-endpoint threshold below the global silently dead — a slow request
-   * over its per-endpoint limit but under the global never reached the collector.
+   * The trigger decision uses this internally (see determineTriggerType). Kept public so it
+   * can be unit-tested directly against the configured glob patterns — mirrors the Python
+   * distro's get_latency_threshold, which is likewise public and exercised by its own tests.
    */
   resolveLatencyThresholdMs(method: string, route: string): number {
     if (this.latencyThresholdPatterns.length === 0) {
@@ -311,16 +369,127 @@ export class IncidentSnapshotCollector extends BaseCollector {
 
   // --- Deduplication ---
 
-  private generateErrorHash(route: string, exception: Error | null): string {
-    let hashInput: string;
-    if (exception === null) {
-      hashInput = `route:${route}`;
-    } else {
-      const excType = exception.constructor?.name ?? 'Error';
-      const excMessage = exception.message ?? String(exception);
-      hashInput = `route:${route}|exc:${excType}:${excMessage}`;
+  /**
+   * Recover the {type, origin} that keys the dedup hash.
+   *
+   * The endpoint span processor passes `exception=null` (like Java) and defers exception detail to
+   * the collector, so the dedup key must be recovered from the same investigation data the snapshot
+   * body uses. Without this the hash would collapse to operation-only and two distinct errors on the
+   * same operation would deduplicate together (defeating per-error incident coverage).
+   *
+   * The second field is the *file-qualified throw-site origin* (`file.function`), not the exception
+   * message. The message is unbounded — it routinely embeds request-specific data (IDs, timestamps,
+   * values) — so keying on it lets a single recurring error spawn a distinct hash per occurrence,
+   * defeating dedup and churning the per-window hash map against its size cap. The origin is bounded
+   * and stable across deploys. It is file-qualified so two same-named functions in different modules
+   * don't collide into one incident, mirroring the composite name the AST monitor assigns
+   * instrumented frames (see `calculateFunctionName`) and Java's `class.method`.
+   *
+   * This value is used ONLY for the dedup hash. Customer-consumed telemetry (the endpoint error
+   * breakdown key and the snapshot body `function_name`) is left untouched — those still carry the
+   * bare/monitor-recorded name, so this change does not alter emitted data.
+   *
+   * - When an explicit `exception` object is supplied (manual callers), take the type from it and
+   *   the origin from the first frame of its stack (the throw site).
+   * - Otherwise PEEK the per-request investigation data — the AST monitor's captured exception, or
+   *   the span's exception event seeded into it by the processor for uninstrumented 5xx — and
+   *   qualify the origin from the captured `traceback` string.
+   * - A latency incident (no exception anywhere) returns {type: null} → operation-only hash, matching
+   *   the pre-refactor behavior for slow requests.
+   *
+   * Best-effort and guarded: hashing must never crash the host, so any failure degrades to
+   * {type: null} (operation-only), the safe default.
+   */
+  private recoverErrorIdentity(exception: Error | null): { type: string | null; origin: string } {
+    try {
+      if (exception !== null) {
+        return {
+          type: exception.constructor?.name ?? 'Error',
+          origin: this.originFromStack(exception.stack, exception.message),
+        };
+      }
+      const invData = this._monitorState.peekInvestigationData();
+      const excData = invData?.exception;
+      if (excData && excData.name) {
+        return { type: excData.name, origin: this.originFromStack(excData.traceback, excData.message) };
+      }
+    } catch (err) {
+      diag.debug(`Failed to recover error identity for dedup hash: ${err}`);
     }
+    return { type: null, origin: '' };
+  }
 
+  /**
+   * Build a file-qualified origin (`<basename>.<function>`) from the top frame of a V8 stack trace.
+   *
+   * Parses the SINGLE top `at` frame so the function name and file always come from the same frame —
+   * V8 frames read `    at functionName (/path/to/file.js:line:col)` or, for anonymous/top-level
+   * frames, the bare `    at /path/to/file.js:line:col`. The `async ` prefix and `[as alias]` suffix
+   * V8 attaches to some frames are stripped so they don't leak into the key, and the `:line:col`
+   * suffix is dropped (deploy-unstable). The basename (extension stripped) matches the AST monitor's
+   * `calculateFunctionName` shape. Used ONLY for the dedup hash; returns '' when the stack is
+   * absent/unparseable (→ operation-only key, the safe default). The line-anchored match tolerates
+   * Windows drive-letter paths (`C:\...`), which a colon-delimited scan would mis-split.
+   *
+   * `message` is the exception message: V8 renders the stack as `<Name>: <message>` followed by the
+   * frames, so the leading `1 + newlines(message)` lines are the header. Dropping them first means a
+   * MULTI-LINE message that itself embeds indented `at …` text cannot be mis-parsed as the top frame
+   * (which would inject a request-specific origin and reintroduce unbounded-key proliferation).
+   */
+  private originFromStack(stack: string | undefined, message: string | undefined): string {
+    if (!stack) {
+      return '';
+    }
+    // Drop the header lines (the `<Name>: <message>` block) so message text can't be read as a frame.
+    // Slice unconditionally: for a header-only stack (no real frames) this leaves nothing to parse
+    // and the regex below returns '' — NOT falling through to parse the message as a frame.
+    const lines = stack.split('\n');
+    const headerLines = 1 + (message ? message.match(/\n/g)?.length ?? 0 : 0);
+    const body = lines.slice(headerLines).join('\n');
+    // First "\tat …" frame line — the throw site (most-recent-call-first).
+    const frameLine = body.match(/^[ \t]+at[ \t]+(.+)$/m);
+    if (!frameLine) {
+      return '';
+    }
+    const frame = frameLine[1].trim();
+    // "functionName (location)" vs a bare "location" (anonymous/top-level) frame.
+    const parenMatch = frame.match(/^(.*?)\s+\((.*)\)$/);
+    let fn = parenMatch ? parenMatch[1] : '';
+    const location = parenMatch ? parenMatch[2] : frame;
+    // V8 decorates some frames with an `async ` prefix or an `[as alias]` suffix — neither is part
+    // of the stable identity, so strip both. Treat the explicit `<anonymous>` marker as no name.
+    fn = fn
+      .replace(/^async\s+/, '')
+      .replace(/\s+\[as .+\]$/, '')
+      .trim();
+    if (fn === '<anonymous>') {
+      fn = '';
+    }
+    // Strip the trailing `:line:col` (deploy-unstable) from the location to get the file path.
+    const locMatch = location.match(/^(.*):\d+:\d+$/);
+    const filePath = locMatch ? locMatch[1] : location;
+    const base = filePath.replace(/\\/g, '/').split('/').pop() ?? '';
+    const basename = base.replace(/\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$/i, '');
+    if (!basename) {
+      return fn; // no resolvable file → fall back to the bare function name (may be '')
+    }
+    return fn ? `${basename}.${fn}` : basename;
+  }
+
+  /**
+   * Hash the dedup key from operation + recovered exception type/origin.
+   *
+   * Keyed `op:<operation>` for latency (no exception) or `op:<operation>|exc:<type>:<origin>` for
+   * errors, following the same `op:`/`|exc:` scheme as the Python and Java distros. The operation is
+   * `<method> <route>`, so different HTTP methods on one route are distinct incidents. The
+   * file-qualified origin (not the message) keeps the key bounded — see `recoverErrorIdentity`.
+   *
+   * Hashes are compared only within a distro, never across them, so the strings need not be
+   * byte-identical between distros — and they are not: when the origin is unresolvable this distro
+   * emits a trailing `:` (empty origin), whereas Java omits the `:origin` segment entirely.
+   */
+  private errorHash(operation: string, excType: string | null, origin: string): string {
+    const hashInput = excType === null ? `op:${operation}` : `op:${operation}|exc:${excType}:${origin}`;
     return crypto.createHash('md5').update(hashInput, 'utf-8').digest('hex');
   }
 
@@ -361,6 +530,37 @@ export class IncidentSnapshotCollector extends BaseCollector {
     }
   }
 
+  /**
+   * Undo the batch/period-dedup/rate-limit slots claimed for a failed collection.
+   *
+   * Best-effort and guarded: this runs on an error path, so it must not throw. Removes the batch
+   * hash, the most-recent period-dedup timestamp for this hash, and the most-recent rate-limit
+   * timestamp — the three slots claimed just before collection in processPotentialIncident for this
+   * attempt. Mirrors the Python distro's `_rollback_reservation`.
+   */
+  private rollbackReservation(errorHash: string): void {
+    try {
+      this._currentBatchHashes.delete(errorHash);
+      // No snapshot/exemplar was indexed for this failed attempt (indexing happens only after a
+      // successful collection), but drop any stale entries defensively so the batch set and the
+      // pending indexes stay consistent for a later sampled occurrence's upgrade.
+      this._pendingByHash.delete(errorHash);
+      this._pendingExemplarByHash.delete(errorHash);
+      const timestamps = this._errorHashes.get(errorHash);
+      if (timestamps && timestamps.length > 0) {
+        timestamps.pop(); // drop the timestamp this attempt added
+        if (timestamps.length === 0) {
+          this._errorHashes.delete(errorHash);
+        }
+      }
+      if (this._snapshotTimestamps.length > 0) {
+        this._snapshotTimestamps.pop(); // drop the slot this attempt added
+      }
+    } catch (err) {
+      diag.debug(`Failed to roll back incident reservation: ${err}`);
+    }
+  }
+
   // --- Snapshot collection ---
 
   private collectIncidentSnapshot(
@@ -395,11 +595,16 @@ export class IncidentSnapshotCollector extends BaseCollector {
       custom_context: {},
     };
 
-    // Build telemetry correlation (trace_id + span_id + correlation_ids only)
+    // Build telemetry correlation. trace_id/span_id come straight from requestData, where the span
+    // processor already gated them on the real SAMPLED flag (fix #1): set iff the trace was sampled,
+    // else undefined (an unsampled request emits a complete, self-contained snapshot with empty
+    // correlation). They are NOT re-derived from the active span or inbound headers — those sources
+    // are not sampling-gated and would resurrect a link to a trace the backend never exported. The
+    // span processor is the single, sampling-gated source of correlation truth.
     const telemetryCorrelation: TelemetryCorrelation = {
-      trace_id: this.extractTraceId(requestData) ?? undefined,
-      span_id: this.extractSpanId(requestData) ?? undefined,
-      correlation_ids: this.extractCorrelationIds(requestData),
+      trace_id: requestData.trace_id,
+      span_id: requestData.span_id,
+      correlation_ids: {},
     };
 
     return new IncidentSnapshot({
@@ -517,87 +722,91 @@ export class IncidentSnapshotCollector extends BaseCollector {
     return callPath;
   }
 
-  // --- Data sanitization ---
+  // --- In-batch sampled-preference upgrade ---
 
-  private extractTraceId(requestData: RequestData): string | null {
-    // Try OTel span first
+  /**
+   * Upgrade a pending UNSAMPLED snapshot to this SAMPLED occurrence (whole-snapshot swap).
+   *
+   * Trace correlation is sampling-conditional (fix #1): an unsampled request emits a snapshot with
+   * no trace_id. Because batch dedup keeps exactly one snapshot per error hash per cycle, that
+   * single snapshot inherits the FIRST occurrence's sampling state — so under reduced sampling it
+   * usually carries no resolvable trace link even if a sampled occurrence of the same error happens
+   * moments later in the same cycle.
+   *
+   * When this occurrence IS sampled (requestData carries a trace_id) and the pending snapshot is NOT
+   * (its trace_id is undefined), replace the pending snapshot WHOLESALE with a freshly collected one
+   * for this occurrence, preserving the original snapshot_id so the endpoint exemplar pointer stays
+   * valid. The replacement is whole-snapshot (not correlation-only) so the body — stack trace, call
+   * path, duration, timestamp — stays coherent with the trace it links to. First sampled occurrence
+   * wins; once upgraded, later occurrences are left alone. No-op (so the original is preserved) on
+   * any failure — telemetry must never crash the host.
+   */
+  private maybeUpgradePendingCorrelation(
+    errorHash: string,
+    route: string,
+    method: string,
+    statusCode: number,
+    durationMs: number,
+    exception: Error | null,
+    requestData: RequestData,
+    triggerType: string
+  ): void {
+    // Only sampled occurrences can upgrade — an unsampled one has nothing better to offer.
+    // requestData.trace_id is the span processor's SAMPLED-gated correlation (fix #1): present iff
+    // the trace was sampled, so it is the authoritative "is this sampled?" signal.
+    if (!requestData.trace_id) {
+      return;
+    }
     try {
-      const currentSpan = trace.getActiveSpan();
-      if (currentSpan) {
-        const spanContext = currentSpan.spanContext();
-        if (spanContext.traceId && spanContext.traceId !== '00000000000000000000000000000000') {
-          return spanContext.traceId;
-        }
+      const pending = this._pendingByHash.get(errorHash);
+      // Upgrade only an uncorrelated pending snapshot; if it already has a trace_id, the first
+      // sampled occurrence already won.
+      if (!pending || pending.telemetry_correlation.trace_id !== undefined) {
+        return;
       }
-    } catch {
-      // Ignore
-    }
 
-    // Fallback to headers. Node's HTTP layer normally lowercases inbound header
-    // names, but we don't rely on that being guaranteed for every caller — header
-    // lookups below accept the canonical casing too.
-    const headers = requestData.headers ?? {};
-    const traceparent = headers.traceparent;
-    if (traceparent) {
-      // W3C traceparent: version-traceid-spanid-flags. The spec mandates lowercase
-      // hex; validate the trace-id is a 32-hex, non-all-zero value before using it
-      // (an all-zero id is invalid and is explicitly rejected on the OTel-span path
-      // above). Match lowercase only — an uppercase id would be non-conformant and
-      // would not compare equal to OTel span-context trace ids, which are lowercase.
-      const parts = traceparent.split('-');
-      if (parts.length >= 2 && /^[0-9a-f]{32}$/.test(parts[1]) && parts[1] !== '00000000000000000000000000000000') {
-        return parts[1];
+      // triggerType is the caller's already-computed value for this same occurrence — reuse it
+      // rather than recomputing (this occurrence reached the batch-dedup branch, so it triggered).
+      const replacement = this.collectIncidentSnapshot(
+        route,
+        method,
+        statusCode,
+        durationMs,
+        exception,
+        requestData,
+        triggerType
+      );
+      // Preserve the original identity so the already-emitted endpoint exemplar pointer stays valid.
+      replacement.snapshot_id = pending.snapshot_id;
+      // Preserve the original affected_endpoint too. The dedup hash keys on operation
+      // (`<method> <route>`), so only occurrences sharing an operation (e.g. two GET /api/x with the
+      // same error) share a hash and can upgrade each other. The endpoint exemplar is filed under the
+      // FIRST occurrence's operation key; rebuilding affected_endpoint from THIS occurrence would make
+      // the swapped snapshot's operation disagree with the endpoint summary that references its
+      // snapshot_id. Keep the first one.
+      replacement.affected_endpoint = pending.affected_endpoint;
+
+      const idx = this._pendingSnapshots.indexOf(pending);
+      if (idx < 0) {
+        return;
       }
-    }
-
-    const xrayTrace = headers['X-Amzn-Trace-Id'] ?? headers['x-amzn-trace-id'];
-    if (xrayTrace) {
-      // X-Ray header is `Root=1-<8 hex>-<24 hex>;Parent=...;Sampled=...`. Return the
-      // parsed Root trace id, never the raw header string — a malformed header with
-      // no valid Root segment yields an unparseable id that cannot correlate
-      // downstream, so fall through to the other header schemes instead.
-      const rootMatch = /Root=(1-[0-9a-f]{8}-[0-9a-f]{24})\b/.exec(xrayTrace);
-      if (rootMatch) {
-        return rootMatch[1];
+      this._pendingSnapshots[idx] = replacement;
+      this._pendingByHash.set(errorHash, replacement);
+      // The whole-snapshot swap can change trigger_type/timestamp (a later occurrence may have a
+      // different status or fire later). The endpoint exemplar was already recorded pointing at this
+      // snapshot_id, so update the SAME object in place — the endpoint collector holds this reference
+      // — to keep the emitted fields coherent with the snapshot they link to. Only trigger_type and
+      // timestamp are serialized onto the wire (the emitter drops severity), so those are what we sync.
+      const exemplar = this._pendingExemplarByHash.get(errorHash);
+      if (exemplar) {
+        exemplar.trigger_type = replacement.trigger_type;
+        exemplar.timestamp = replacement.timestamp;
       }
+      diag.debug(`Upgraded pending incident snapshot to a sampled occurrence (hash: ${errorHash})`);
+    } catch (err) {
+      // Match the primary collection path's visibility (processPotentialIncident logs at error);
+      // a failure here silently keeps the stale uncorrelated snapshot, which must not go unseen.
+      diag.error(`Failed to upgrade pending incident correlation: ${err}`);
     }
-
-    const ddTraceId = headers['x-datadog-trace-id'];
-    if (ddTraceId) {
-      return ddTraceId;
-    }
-
-    return null;
-  }
-
-  private extractSpanId(requestData: RequestData): string | null {
-    // Try OTel span first
-    try {
-      const currentSpan = trace.getActiveSpan();
-      if (currentSpan) {
-        const spanContext = currentSpan.spanContext();
-        if (spanContext.spanId && spanContext.spanId !== '0000000000000000') {
-          return spanContext.spanId;
-        }
-      }
-    } catch {
-      // Ignore
-    }
-
-    // Fallback to headers
-    const headers = requestData.headers ?? {};
-    const traceparent = headers.traceparent;
-    if (traceparent) {
-      const parts = traceparent.split('-');
-      if (parts.length >= 3) {
-        return parts[2];
-      }
-    }
-
-    return null;
-  }
-
-  private extractCorrelationIds(_requestData: RequestData): Record<string, string> {
-    return {};
   }
 }

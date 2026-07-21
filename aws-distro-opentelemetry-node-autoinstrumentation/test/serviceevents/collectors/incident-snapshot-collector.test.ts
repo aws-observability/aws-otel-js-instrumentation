@@ -3,7 +3,6 @@
 
 import expect from 'expect';
 import * as sinon from 'sinon';
-import { trace } from '@opentelemetry/api';
 import {
   IncidentSnapshotCollector,
   RequestData,
@@ -24,8 +23,10 @@ class CaptureEmitter extends ServiceEventsOtlpEmitter {
 }
 
 function makeRequestData(overrides?: Partial<RequestData>): RequestData {
+  // Empty by default — the collector's only correlation source is trace_id/span_id (set by tests
+  // that need it). `headers` is not part of RequestData and is ignored; the "headers are ignored"
+  // test still passes one via override through the index signature to prove exactly that.
   return {
-    headers: { 'content-type': 'application/json' },
     ...overrides,
   };
 }
@@ -63,6 +64,13 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
 
   it('skips snapshot for 2xx success', function () {
     const exemplar = collector.processPotentialIncident('/api/x', 'GET', 200, 50, null, makeRequestData());
+    expect(exemplar).toBeNull();
+  });
+
+  it('skips snapshot for a plain 4xx under the latency threshold', function () {
+    // A 4xx is a client error, not a service incident. Only 5xx / exception / slow requests
+    // trigger. The processor no longer pre-filters status, so this contract lives entirely here.
+    const exemplar = collector.processPotentialIncident('/api/x', 'GET', 404, 50, null, makeRequestData());
     expect(exemplar).toBeNull();
   });
 
@@ -278,6 +286,92 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
         clock.restore();
       }
     });
+
+    it('rolls back the batch/dedup/rate-limit slots when collection throws', function () {
+      // maxPerPeriod=1, maxSameError=1: a failed collection that leaves its slots claimed would
+      // suppress every later occurrence of the same error for the window. Rollback must free them.
+      const rbEmitter = new CaptureEmitter();
+      const rbCollector = new IncidentSnapshotCollector(
+        600_000,
+        5000,
+        1, // maxPerPeriod
+        'test-env',
+        'test-svc',
+        '0.0.1',
+        1, // maxSameError
+        rbEmitter,
+        null
+      );
+      // Force the FIRST collection to throw; subsequent calls collect normally.
+      const collectStub = sinon
+        .stub(rbCollector as unknown as { collectIncidentSnapshot: () => unknown }, 'collectIncidentSnapshot')
+        .onFirstCall()
+        .throws(new Error('collect boom'))
+        .callThrough();
+      try {
+        const err = new Error('boom');
+        // First occurrence passes all gates, claims slots, then collection throws → null, rollback.
+        expect(rbCollector.processPotentialIncident('/x', 'GET', 500, 10, err, makeRequestData())).toBeNull();
+        expect(rbEmitter.snapshots.length).toBe(0);
+        // Second occurrence of the SAME error must still emit — the slots were freed. Under the bug
+        // the batch/dedup/rate-limit slots stayed claimed and this was dropped.
+        expect(rbCollector.processPotentialIncident('/x', 'GET', 500, 10, err, makeRequestData())).not.toBeNull();
+        rbCollector.collect();
+        expect(rbEmitter.snapshots.length).toBe(1);
+      } finally {
+        collectStub.restore();
+        rbCollector.stop();
+      }
+    });
+
+    it('a failed first collection does not strand the batch hash so Point #2 can still upgrade', function () {
+      // With Point #2, a failed first collection that left errorHash in _currentBatchHashes with no
+      // _pendingByHash entry would send a later sampled occurrence down the batch-dedup branch,
+      // where the upgrade finds nothing pending and silently drops it. Rollback must clear the batch
+      // hash so the later sampled occurrence is treated as fresh and emits its own correlated snapshot.
+      const sampledTraceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+      const sampledSpanId = '00f067aa0ba902b7';
+      const p2Emitter = new CaptureEmitter();
+      const p2Collector = new IncidentSnapshotCollector(
+        600_000,
+        5000,
+        30,
+        'test-env',
+        'test-svc',
+        '0.0.1',
+        30,
+        p2Emitter,
+        null
+      );
+      const collectStub = sinon
+        .stub(p2Collector as unknown as { collectIncidentSnapshot: () => unknown }, 'collectIncidentSnapshot')
+        .onFirstCall()
+        .throws(new Error('collect boom'))
+        .callThrough();
+      try {
+        const err = new Error('boom');
+        // First (unsampled) occurrence: gates pass, slots claimed, collection throws → rolled back.
+        expect(p2Collector.processPotentialIncident('/x', 'GET', 500, 10, err, makeRequestData())).toBeNull();
+        // Later sampled occurrence of the same error: because the batch hash was rolled back, this is
+        // a fresh snapshot (not a no-op upgrade of a non-existent pending), so it emits correlated.
+        expect(
+          p2Collector.processPotentialIncident(
+            '/x',
+            'GET',
+            500,
+            10,
+            err,
+            makeRequestData({ trace_id: sampledTraceId, span_id: sampledSpanId })
+          )
+        ).not.toBeNull();
+        p2Collector.collect();
+        expect(p2Emitter.snapshots.length).toBe(1);
+        expect(p2Emitter.snapshots[0].telemetry_correlation.trace_id).toBe(sampledTraceId);
+      } finally {
+        collectStub.restore();
+        p2Collector.stop();
+      }
+    });
   });
 
   describe('exception info from monitor investigation', function () {
@@ -340,6 +434,367 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
     });
   });
 
+  describe('dedup keys on the recovered error identity (not operation-only)', function () {
+    // Regression: the span processor passes exception=null and defers exception detail to the
+    // collector. The dedup hash must recover the error type+message from investigation data so two
+    // DISTINCT errors on the same operation do NOT collapse to one snapshot under maxSameError=1.
+    // The hash derives its origin from the traceback (a V8 stack string), NOT from functionName —
+    // functionName is the customer-consumed value the hash leaves untouched. So vary the stack's
+    // top frame (file + function) to drive distinct-vs-same dedup behavior.
+    function seedException(
+      name: string,
+      message: string,
+      file: string = '/app/handler.js',
+      func: string = 'handle'
+    ): void {
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation(true);
+      const inv = state.peekInvestigationData();
+      const traceback = `${name}: ${message}\n    at ${func} (${file}:10:5)\n    at caller (/app/main.js:3:1)`;
+      inv!.exception = { name, message, traceback, functionName: func };
+    }
+
+    it('two distinct error TYPES on the same route both emit (maxSameError=1)', function () {
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('TypeError', 'x');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect(); // clears the per-batch set so the next call reaches period dedup
+        seedException('RangeError', 'y');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('two distinct MESSAGES of the same type+function on one route deduplicate (maxSameError=1)', function () {
+      // The unbounded-key fix: the message is no longer part of the dedup key, so two occurrences of
+      // the same error that differ only in request-specific message text now collide.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('DbError', 'timeout on shard A', '/app/db.js', 'queryOrders');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedException('DbError', 'timeout on shard B', '/app/db.js', 'queryOrders');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('the same type+function name in distinct MODULES on one route both emit (maxSameError=1)', function () {
+      // The file-qualified origin keeps same-named functions in different files apart — the
+      // collision the qualification fixes.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('DbError', 'timeout', '/app/orders.js', 'handle');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedException('DbError', 'timeout', '/app/users.js', 'handle');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('the same error type from distinct FUNCTIONS on one route both emit (maxSameError=1)', function () {
+      // The origin function keeps two same-type errors apart now that the message is gone.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('DbError', 'timeout', '/app/db.js', 'queryOrders');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedException('DbError', 'timeout', '/app/db.js', 'writeOrders');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('the SAME error (type+function) on one route deduplicates (maxSameError=1)', function () {
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('DbError', 'timeout', '/app/db.js', 'queryOrders');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedException('DbError', 'timeout', '/app/db.js', 'queryOrders');
+        // Same recovered identity → same hash → period-deduplicated.
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('a latency incident (no exception) still keys operation-only', function () {
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        // No investigation exception; two slow 2xx on the same operation dedup together.
+        expect(c.processPotentialIncident('/slow', 'GET', 200, 6000, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(c.processPotentialIncident('/slow', 'GET', 200, 6000, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('the same error on distinct METHODS of one route both emit (maxSameError=1)', function () {
+      // The key is `<method> <route>`, so GET and POST on the same route are distinct incidents even
+      // for the identical recovered error — matching the Java and Python distros.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('DbError', 'timeout', '/app/db.js', 'queryOrders');
+        expect(c.processPotentialIncident('/orders', 'GET', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedException('DbError', 'timeout', '/app/db.js', 'queryOrders');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+
+    // originFromStack frame-shape parsing: the top frame's function AND file must come from the SAME
+    // frame, with V8 decorations (async prefix, [as alias]), anonymous frames, and Windows paths all
+    // handled so the origin stays bounded and deploy-stable. These seed a raw traceback directly.
+    function seedRawTraceback(name: string, traceback: string, message: string = 'x'): void {
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation(true);
+      const inv = state.peekInvestigationData();
+      inv!.exception = { name, message, traceback, functionName: 'ignored' };
+    }
+
+    it('a shifted line number in the top frame does not change the dedup key', function () {
+      // The `:line:col` suffix is deploy-unstable (an edit above the throw site shifts it), so it must
+      // be excluded — otherwise a recurring bug re-fires as a new incident after every deploy.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedRawTraceback('DbError', 'DbError: x\n    at queryOrders (/app/db.js:10:5)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback('DbError', 'DbError: x\n    at queryOrders (/app/db.js:99:12)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('a multi-line message embedding a fake frame cannot hijack the origin', function () {
+      // V8 renders the (multi-line) message BEFORE the frames, so a message containing indented
+      // `at pwn (/req/<id>.js:..)` text must NOT be parsed as the top frame — otherwise the
+      // request-specific id would key the hash per request (the unbounded-key bug). Two requests
+      // that differ ONLY in that injected message text must dedup to one incident.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        const realFrames = '\n    at queryOrders (/app/db.js:5:2)\n    at handler (/app/main.js:9:1)';
+        seedRawTraceback(
+          'DbError',
+          'DbError: boom\n    at pwn (/req/111.js:1:1)' + realFrames,
+          'boom\n    at pwn (/req/111.js:1:1)'
+        );
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback(
+          'DbError',
+          'DbError: boom\n    at pwn (/req/222.js:1:1)' + realFrames,
+          'boom\n    at pwn (/req/222.js:1:1)'
+        );
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('a header-only stack (no real frames) with an injected message frame does not proliferate', function () {
+      // Frameless stack (e.g. Error.stackTraceLimit=0, or a synthetic span-event stacktrace): after
+      // dropping the header there are NO frames, so the origin degrades to '' (operation-only). Two
+      // requests differing only in the injected per-request message text must still dedup to one.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedRawTraceback(
+          'DbError',
+          'DbError: boom\n    at pwn (/req/111.js:1:1)',
+          'boom\n    at pwn (/req/111.js:1:1)'
+        );
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback(
+          'DbError',
+          'DbError: boom\n    at pwn (/req/222.js:1:1)',
+          'boom\n    at pwn (/req/222.js:1:1)'
+        );
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('the async prefix and [as alias] decoration do not leak into the origin', function () {
+      // `at async queryOrders (...)` and `at Server.handle [as _handle] (...)` must key the same as
+      // the undecorated frame — the decorations are not part of the stable throw-site identity.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedRawTraceback('DbError', 'DbError: x\n    at queryOrders (/app/db.js:10:5)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback('DbError', 'DbError: x\n    at async queryOrders (/app/db.js:10:5)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('same-named anonymous-frame files in distinct modules stay apart (file-qualified)', function () {
+      // Anonymous top frames (`at /path/file.js:line:col`) still qualify by file, so a recurring
+      // anonymous throw in db.js and one in users.js are distinct incidents rather than both keying
+      // on the raw `file:line:col`.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedRawTraceback('DbError', 'DbError: x\n    at /app/db.js:10:5');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback('DbError', 'DbError: x\n    at /app/users.js:10:5');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('a Windows drive-letter path in the top frame still qualifies distinct modules', function () {
+      // `C:\app\db.js` must not be mis-split on its drive-letter colon — same-named functions in
+      // different Windows-path modules must stay apart.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedRawTraceback('DbError', 'DbError: x\n    at handle (C:\\app\\orders.js:10:5)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback('DbError', 'DbError: x\n    at handle (C:\\app\\users.js:10:5)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+  });
+
+  describe('rate-limited request does not poison dedup (pure-check/commit)', function () {
+    it('a rate-limited error does not consume a dedup slot for the same error', function () {
+      // maxPerMinute=1, maxSameError=1. Two DISTINCT errors: the first emits (consuming the single
+      // rate slot); the second is rate-limited. That rate-limited attempt must NOT record a dedup
+      // occurrence — otherwise a later retry of it (after the rate window frees) would be dropped as
+      // a duplicate even though it never produced a snapshot.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 1, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        // Two DISTINCT errors: same type, but thrown from differently-named functions so their
+        // stacks yield different origin frames → different hashes (the message is not in the key).
+        const throwA = (): Error => new Error('A');
+        const throwB = (): Error => new Error('B');
+        const errA = throwA();
+        const errB = throwB();
+        expect(c.processPotentialIncident('/x', 'GET', 500, 10, errA, makeRequestData())).not.toBeNull();
+        // Second distinct error: gates would pass dedup but the rate window (1) is full → rejected.
+        expect(c.processPotentialIncident('/x', 'GET', 500, 10, errB, makeRequestData())).toBeNull();
+        // errB left NO dedup timestamp and NO batch entry behind. Free the rate window and retry it
+        // in a fresh cycle: it must now emit (it was never actually recorded).
+        (c as unknown as { _snapshotTimestamps: number[] })._snapshotTimestamps = [];
+        c.collect();
+        expect(c.processPotentialIncident('/x', 'GET', 500, 10, errB, makeRequestData())).not.toBeNull();
+      } finally {
+        c.stop();
+      }
+    });
+  });
+
+  describe('endpoint exemplar tracks a Point #2 upgrade', function () {
+    const sampledTraceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+    const sampledSpanId = '00f067aa0ba902b7';
+
+    it('re-syncs the returned exemplar (snapshot_id + timestamp) to the upgraded snapshot', function () {
+      // Advance the clock between the two occurrences so the upgraded snapshot gets a DIFFERENT
+      // timestamp than the first. This is what makes the in-place exemplar.timestamp sync observable:
+      // if the mutation were dropped, the exemplar would keep the first occurrence's timestamp while
+      // the emitted snapshot carries the later one.
+      const clock = sinon.useFakeTimers({ now: 1_000_000 });
+      try {
+        const err = new Error('boom');
+        // First (unsampled) occurrence. This is the exemplar the endpoint collector records.
+        const exemplar = collector.processPotentialIncident('/api/x', 'POST', 500, 50, err, makeRequestData());
+        expect(exemplar).not.toBeNull();
+        const firstTimestamp = exemplar!.timestamp;
+        // Advance 5s, then a SAMPLED occurrence of the same error upgrades the pending snapshot
+        // wholesale. The already-returned exemplar object (held by reference by the endpoint
+        // collector) must track the swap.
+        clock.tick(5_000);
+        collector.processPotentialIncident(
+          '/api/x',
+          'POST',
+          500,
+          50,
+          err,
+          makeRequestData({ trace_id: sampledTraceId, span_id: sampledSpanId })
+        );
+        collector.collect();
+        expect(emitter.snapshots.length).toBe(1);
+        // The emitter serializes snapshot_id/trigger_type/timestamp for the exemplar (severity is NOT
+        // on the wire), so those must stay coherent with the emitted (upgraded) snapshot.
+        expect(exemplar!.snapshot_id).toBe(emitter.snapshots[0].snapshot_id);
+        expect(exemplar!.trigger_type).toBe(emitter.snapshots[0].trigger_type);
+        // The exemplar timestamp moved to the upgraded snapshot's (later) timestamp, not the first.
+        expect(emitter.snapshots[0].timestamp).toBeGreaterThan(firstTimestamp);
+        expect(exemplar!.timestamp).toBe(emitter.snapshots[0].timestamp);
+        // The upgraded snapshot now carries the sampled trace correlation.
+        expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe(sampledTraceId);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('preserves the first occurrence exemplar when a later sampled occurrence upgrades', function () {
+      // The dedup hash keys on operation (`<method> <route>`), so a later sampled occurrence upgrades
+      // the pending (unsampled) snapshot only when it shares the same operation. The exemplar is filed
+      // under the FIRST occurrence, so the swapped snapshot must keep the first occurrence's identity.
+      const err = new Error('boom');
+      const exemplar = collector.processPotentialIncident('/api/x', 'GET', 500, 50, err, makeRequestData());
+      expect(exemplar).not.toBeNull();
+      // Sampled GET occurrence of the same error upgrades the pending (unsampled) GET snapshot.
+      collector.processPotentialIncident(
+        '/api/x',
+        'GET',
+        500,
+        50,
+        err,
+        makeRequestData({ trace_id: sampledTraceId, span_id: sampledSpanId })
+      );
+      collector.collect();
+      expect(emitter.snapshots.length).toBe(1);
+      expect(emitter.snapshots[0].affected_endpoint).toBe('GET /api/x');
+      expect(emitter.snapshots[0].snapshot_id).toBe(exemplar!.snapshot_id);
+    });
+  });
+
   describe('buildCallPath function registry enrichment', function () {
     afterEach(function () {
       clearFunctionRegistry();
@@ -359,122 +814,18 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
     });
   });
 
-  describe('custom context and correlation extraction', function () {
-    // The full suite registers a global tracer provider, so trace.getActiveSpan()
-    // may return a live span and short-circuit the header-fallback paths under
-    // test. Stub it to undefined so the header-extraction branches are exercised
-    // deterministically regardless of test ordering.
-    beforeEach(function () {
-      sinon.stub(trace, 'getActiveSpan').returns(undefined);
-    });
-
-    afterEach(function () {
-      sinon.restore();
-    });
-
-    it('extracts trace_id and span_id from traceparent header', function () {
-      collector.processPotentialIncident(
-        '/api/x',
-        'POST',
-        500,
-        50,
-        new Error('boom'),
-        makeRequestData({
-          headers: { traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' },
-        })
-      );
-      collector.collect();
-      const corr = emitter.snapshots[0].telemetry_correlation;
-      expect(corr.trace_id).toBe('0af7651916cd43dd8448eb211c80319c');
-      expect(corr.span_id).toBe('b7ad6b7169203331');
-    });
-
-    it('ignores a malformed X-Ray Root id and falls through', function () {
-      // `Root=1-abc` is not a valid X-Ray trace id (8-hex-4-byte epoch + 24-hex
-      // unique segment), so it must NOT be returned raw. With no other usable
-      // header and no active span, trace_id is left undefined.
-      collector.processPotentialIncident(
-        '/api/x',
-        'POST',
-        500,
-        50,
-        new Error('boom'),
-        makeRequestData({ headers: { 'x-amzn-trace-id': 'Root=1-abc' } })
-      );
-      collector.collect();
-      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBeUndefined();
-    });
-
-    it('falls back to x-datadog-trace-id header for trace_id', function () {
-      collector.processPotentialIncident(
-        '/api/x',
-        'POST',
-        500,
-        50,
-        new Error('boom'),
-        makeRequestData({ headers: { 'x-datadog-trace-id': '1234567890' } })
-      );
-      collector.collect();
-      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe('1234567890');
-    });
-
-    it('leaves trace_id and span_id undefined when no headers or span present', function () {
-      collector.processPotentialIncident(
-        '/api/x',
-        'POST',
-        500,
-        50,
-        new Error('boom'),
-        makeRequestData({ headers: {} })
-      );
-      collector.collect();
-      const corr = emitter.snapshots[0].telemetry_correlation;
-      expect(corr.trace_id).toBeUndefined();
-      expect(corr.span_id).toBeUndefined();
-    });
-
-    it('does not set span_id when traceparent has fewer than 3 parts', function () {
-      collector.processPotentialIncident(
-        '/api/x',
-        'POST',
-        500,
-        50,
-        new Error('boom'),
-        makeRequestData({ headers: { traceparent: '00-0af7651916cd43dd8448eb211c80319c' } })
-      );
-      collector.collect();
-      const corr = emitter.snapshots[0].telemetry_correlation;
-      expect(corr.trace_id).toBe('0af7651916cd43dd8448eb211c80319c');
-      expect(corr.span_id).toBeUndefined();
-    });
-
-    it('correlation_ids is always an empty object', function () {
-      collector.processPotentialIncident('/api/x', 'POST', 500, 50, new Error('boom'), makeRequestData());
-      collector.collect();
-      expect(emitter.snapshots[0].telemetry_correlation.correlation_ids).toEqual({});
-    });
-  });
-
-  describe('trace/span extraction from the active OTel span', function () {
+  describe('trace correlation is sampling-gated (fix #1)', function () {
     const validTraceId = '4bf92f3577b34da6a3ce929d0e0e4736';
     const validSpanId = '00f067aa0ba902b7';
 
-    afterEach(function () {
-      sinon.restore();
-    });
-
-    it('prefers the active span trace_id and span_id over headers', function () {
-      sinon.stub(trace, 'getActiveSpan').returns({
-        spanContext: () => ({ traceId: validTraceId, spanId: validSpanId, traceFlags: 1 }),
-      } as never);
+    it('uses the span processor supplied (SAMPLED-gated) trace_id and span_id verbatim', function () {
       collector.processPotentialIncident(
         '/api/x',
         'POST',
         500,
         50,
         new Error('boom'),
-        // Headers also present, but the active span wins.
-        makeRequestData({ headers: { traceparent: '00-ffffffffffffffffffffffffffffffff-aaaaaaaaaaaaaaaa-01' } })
+        makeRequestData({ trace_id: validTraceId, span_id: validSpanId })
       );
       collector.collect();
       const corr = emitter.snapshots[0].telemetry_correlation;
@@ -482,14 +833,27 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       expect(corr.span_id).toBe(validSpanId);
     });
 
-    it('ignores all-zero span context and falls back to headers', function () {
-      sinon.stub(trace, 'getActiveSpan').returns({
-        spanContext: () => ({
-          traceId: '00000000000000000000000000000000',
-          spanId: '0000000000000000',
-          traceFlags: 0,
-        }),
-      } as never);
+    it('leaves trace_id and span_id undefined for an unsampled request (no supplied ids)', function () {
+      // The span processor sets trace_id/span_id only when the trace was sampled (fix #1). An
+      // unsampled request supplies neither, so the snapshot is complete but uncorrelated.
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        new Error('boom'),
+        makeRequestData() // no trace_id/span_id
+      );
+      collector.collect();
+      const corr = emitter.snapshots[0].telemetry_correlation;
+      expect(corr.trace_id).toBeUndefined();
+      expect(corr.span_id).toBeUndefined();
+    });
+
+    it('never re-derives correlation from inbound trace headers (headers are ignored)', function () {
+      // Even with a well-formed W3C traceparent present, an unsampled request (no supplied
+      // trace_id) must emit no trace link — the collector never consults headers or the active
+      // span, so the header cannot resurrect a link fix #1 gated out.
       collector.processPotentialIncident(
         '/api/x',
         'POST',
@@ -500,8 +864,129 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       );
       collector.collect();
       const corr = emitter.snapshots[0].telemetry_correlation;
-      expect(corr.trace_id).toBe(validTraceId);
-      expect(corr.span_id).toBe(validSpanId);
+      expect(corr.trace_id).toBeUndefined();
+      expect(corr.span_id).toBeUndefined();
+    });
+
+    it('correlation_ids is always an empty object', function () {
+      collector.processPotentialIncident('/api/x', 'POST', 500, 50, new Error('boom'), makeRequestData());
+      collector.collect();
+      expect(emitter.snapshots[0].telemetry_correlation.correlation_ids).toEqual({});
+    });
+  });
+
+  describe('in-batch sampled-preference upgrade (Point #2)', function () {
+    const sampledTraceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+    const sampledSpanId = '00f067aa0ba902b7';
+
+    it('a later sampled occurrence upgrades an earlier unsampled pending snapshot', function () {
+      const err = new Error('boom');
+      // First occurrence is unsampled → snapshot pends with no trace link.
+      const first = collector.processPotentialIncident('/api/x', 'POST', 500, 50, err, makeRequestData());
+      expect(first).not.toBeNull();
+      // Second occurrence (same error hash) is sampled → batch-deduped, but upgrades the pending one.
+      const second = collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        err,
+        makeRequestData({ trace_id: sampledTraceId, span_id: sampledSpanId })
+      );
+      expect(second).toBeNull(); // batch-deduplicated
+      collector.collect();
+      // Exactly one snapshot emits, and it carries the sampled occurrence's trace link.
+      expect(emitter.snapshots.length).toBe(1);
+      const corr = emitter.snapshots[0].telemetry_correlation;
+      expect(corr.trace_id).toBe(sampledTraceId);
+      expect(corr.span_id).toBe(sampledSpanId);
+      // Identity is preserved so the already-emitted endpoint exemplar pointer stays valid.
+      expect(emitter.snapshots[0].snapshot_id).toBe(first!.snapshot_id);
+    });
+
+    it('the upgraded snapshot body stays coherent with the trace it links to', function () {
+      // The swap is whole-snapshot, not correlation-only: the emitted body must be the SAMPLED
+      // occurrence's, so its duration matches the trace it now points at.
+      const err = new Error('boom');
+      collector.processPotentialIncident('/api/x', 'POST', 500, 50, err, makeRequestData());
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        999, // distinct duration for the sampled occurrence
+        err,
+        makeRequestData({ trace_id: sampledTraceId, span_id: sampledSpanId })
+      );
+      collector.collect();
+      expect(emitter.snapshots.length).toBe(1);
+      expect(emitter.snapshots[0].duration_ms).toBe(999);
+      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe(sampledTraceId);
+    });
+
+    it('does not upgrade when the pending snapshot is already sampled (first sampled wins)', function () {
+      const err = new Error('boom');
+      const otherTraceId = 'ffffffffffffffffffffffffffffffff';
+      // First occurrence is already sampled.
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        err,
+        makeRequestData({ trace_id: sampledTraceId, span_id: sampledSpanId })
+      );
+      // Second sampled occurrence must NOT overwrite it.
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        err,
+        makeRequestData({ trace_id: otherTraceId, span_id: '1111111111111111' })
+      );
+      collector.collect();
+      expect(emitter.snapshots.length).toBe(1);
+      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe(sampledTraceId);
+    });
+
+    it('an unsampled later occurrence never downgrades or replaces the pending snapshot', function () {
+      const err = new Error('boom');
+      // First occurrence sampled.
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        err,
+        makeRequestData({ trace_id: sampledTraceId, span_id: sampledSpanId })
+      );
+      // Second occurrence unsampled → no trace_id, so it cannot upgrade; leave the sampled one.
+      collector.processPotentialIncident('/api/x', 'POST', 500, 50, err, makeRequestData());
+      collector.collect();
+      expect(emitter.snapshots.length).toBe(1);
+      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBe(sampledTraceId);
+    });
+
+    it('the per-hash upgrade index does not survive a collect() cycle', function () {
+      const err = new Error('boom');
+      // Cycle 1: unsampled snapshot pends and flushes.
+      collector.processPotentialIncident('/api/x', 'POST', 500, 50, err, makeRequestData());
+      collector.collect();
+      expect(emitter.snapshots.length).toBe(1);
+      expect(emitter.snapshots[0].telemetry_correlation.trace_id).toBeUndefined();
+      // Cycle 2: a sampled occurrence of the same error is a fresh snapshot (not an upgrade of the
+      // already-flushed one), so it emits with its own trace link.
+      collector.processPotentialIncident(
+        '/api/x',
+        'POST',
+        500,
+        50,
+        err,
+        makeRequestData({ trace_id: sampledTraceId, span_id: sampledSpanId })
+      );
+      collector.collect();
+      expect(emitter.snapshots.length).toBe(2);
+      expect(emitter.snapshots[1].telemetry_correlation.trace_id).toBe(sampledTraceId);
     });
   });
 });
@@ -575,12 +1060,10 @@ describe('IncidentSnapshotCollector per-endpoint latency thresholds', function (
     expect(collector.processPotentialIncident('/api/x', 'GET', 200, 6000, null, makeRequestData())).not.toBeNull();
   });
 
-  // resolveLatencyThresholdMs is public so the framework instrumentation gates can
-  // resolve the SAME per-endpoint threshold the collector uses. Previously the gates
-  // hard-coded the global default, so any sub-global per-endpoint threshold was dead
-  // (a slow request over its endpoint limit but under the global never reached the
-  // collector). These assert the resolver the gates now call.
-  it('resolveLatencyThresholdMs returns the per-endpoint threshold for the gate', function () {
+  // resolveLatencyThresholdMs is public so it can be unit-tested directly against the
+  // configured glob patterns. The trigger decision (determineTriggerType) uses it
+  // internally; these assert the resolution itself.
+  it('resolveLatencyThresholdMs returns the per-endpoint threshold', function () {
     const collector = makeCollector([
       ['POST /api/checkout', 200],
       ['GET /api/*', 1000],

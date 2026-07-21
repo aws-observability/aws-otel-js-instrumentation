@@ -162,26 +162,6 @@ jobs:
         with:
           registry: public.ecr.aws
 
-      - name: Build and push amd64 image to private ECR
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
-        with:
-          push: true
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
-          tags: |
-            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}-amd64
-
-      - name: Build and push arm64 image to private ECR
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
-        with:
-          push: true
-          context: .
-          file: ./Dockerfile
-          platforms: linux/arm64
-          tags: |
-            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}-arm64
-
       - name: Build and push multi-arch image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
         with:
@@ -192,6 +172,85 @@ jobs:
           tags: |
             ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}
             ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}
+
+      - name: Tag platform images in private ECR
+        env:
+          REPO_NAME: adot-autoinstrumentation-node
+          VERSION: ${{ env.VERSION }}
+          REGION: ${{ env.AWS_PRIVATE_ECR_REGION }}
+        run: |
+          set -euo pipefail
+
+          # Read the manifest index for the multi-arch tag we just pushed
+          MANIFEST_INDEX=$(aws ecr batch-get-image \
+            --repository-name "${REPO_NAME}" \
+            --image-ids imageTag="v${VERSION}" \
+            --region "${REGION}" \
+            --query 'images[0].imageManifest' \
+            --output text)
+
+          # Validate the response is a non-empty manifest index. An empty or non-JSON
+          # response would otherwise cause silent no-ops in the loops below.
+          if [ -z "$MANIFEST_INDEX" ] || [ "$MANIFEST_INDEX" = "None" ]; then
+            echo "ERROR: aws ecr batch-get-image returned an empty manifest for v${VERSION}"
+            exit 1
+          fi
+          if ! echo "$MANIFEST_INDEX" | jq -e '.manifests | type == "array" and length > 0' > /dev/null; then
+            echo "ERROR: manifest for v${VERSION} is not a non-empty image index"
+            echo "$MANIFEST_INDEX"
+            exit 1
+          fi
+
+          # Tag platform images (amd64, arm64) with v$VERSION-$arch
+          for arch in amd64 arm64; do
+            DIGEST=$(echo "$MANIFEST_INDEX" | jq -r --arg a "$arch" '.manifests[] | select(.platform.architecture == $a) | .digest')
+            if [ -z "$DIGEST" ] || [ "$DIGEST" = "null" ]; then
+              echo "ERROR: no ${arch} image found in manifest index for v${VERSION}"
+              exit 1
+            fi
+            MANIFEST=$(aws ecr batch-get-image \
+              --repository-name "${REPO_NAME}" \
+              --image-ids imageDigest="${DIGEST}" \
+              --region "${REGION}" \
+              --query 'images[0].imageManifest' \
+              --output text)
+            if [ -z "$MANIFEST" ] || [ "$MANIFEST" = "None" ]; then
+              echo "ERROR: failed to fetch ${arch} platform manifest at ${DIGEST}"
+              exit 1
+            fi
+            aws ecr put-image \
+              --repository-name "${REPO_NAME}" \
+              --image-tag "v${VERSION}-${arch}" \
+              --image-manifest "$MANIFEST" \
+              --region "${REGION}" > /dev/null
+            echo "Tagged ${DIGEST} as v${VERSION}-${arch}"
+          done
+
+          # Tag attestation manifests (architecture=unknown) with their sha hex.
+          # Zero attestations is a valid state for some buildkit configurations,
+          # so the loop running zero times is not an error.
+          for DIGEST in $(echo "$MANIFEST_INDEX" | jq -r '.manifests[] | select(.platform.architecture=="unknown") | .digest'); do
+            if [ -z "$DIGEST" ] || [ "$DIGEST" = "null" ]; then
+              continue
+            fi
+            MANIFEST=$(aws ecr batch-get-image \
+              --repository-name "${REPO_NAME}" \
+              --image-ids imageDigest="${DIGEST}" \
+              --region "${REGION}" \
+              --query 'images[0].imageManifest' \
+              --output text)
+            if [ -z "$MANIFEST" ] || [ "$MANIFEST" = "None" ]; then
+              echo "ERROR: failed to fetch attestation manifest at ${DIGEST}"
+              exit 1
+            fi
+            SHA_HEX="${DIGEST#sha256:}"
+            aws ecr put-image \
+              --repository-name "${REPO_NAME}" \
+              --image-tag "${SHA_HEX}" \
+              --image-manifest "$MANIFEST" \
+              --region "${REGION}" > /dev/null
+            echo "Tagged ${DIGEST} as ${SHA_HEX} (attestation)"
+          done
 
   publish-layer-prod:
     runs-on: ubuntu-latest

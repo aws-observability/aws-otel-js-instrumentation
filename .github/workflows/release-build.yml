@@ -292,10 +292,29 @@ jobs:
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
           name: layer.zip
-      - name: publish
+      - name: Upload to S3 and Sign
+        continue-on-error: true
         run: |
           aws s3 mb s3://${{ env.BUCKET_NAME }}
           aws s3 cp layer.zip s3://${{ env.BUCKET_NAME }}
+
+          # Sign the layer
+          PROFILE=$(aws signer list-signing-profiles --query "profiles[?profileName=='ADOTLambdaLayerSigningProfile'].arn" --output text 2>/dev/null)
+          [ -z "$PROFILE" ] && echo "No signing profile found, skipping" && exit 0
+
+          JOB_ID=$(aws signer start-signing-job \
+            --source "s3={bucketName=${{ env.BUCKET_NAME }},key=layer.zip,version=null}" \
+            --destination "s3={bucketName=${{ env.BUCKET_NAME }},prefix=signed-}" \
+            --profile-name ADOTLambdaLayerSigningProfile \
+            --query 'jobId' --output text)
+
+          aws signer wait successful-signing-job --job-id "$JOB_ID"
+
+          SIGNED=$(aws signer describe-signing-job --job-id "$JOB_ID" --query 'signedObject.s3.key' --output text)
+          aws s3 rm "s3://${{ env.BUCKET_NAME }}/layer.zip"
+          aws s3 mv "s3://${{ env.BUCKET_NAME }}/$SIGNED" "s3://${{ env.BUCKET_NAME }}/layer.zip"
+      - name: publish
+        run: |
           layerARN=$(
             aws lambda publish-layer-version \
               --layer-name ${{ env.LAYER_NAME }} \
@@ -487,3 +506,66 @@ jobs:
              ${{ env.ARTIFACT_NAME }}.sha256 \
              layer.zip \
              layer.zip.sha256
+
+  sign-public-ecr-image:
+    runs-on: ubuntu-latest
+    needs: publish-github
+    steps:
+      - name: Configure AWS Credentials for public ECR
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_ECR_RELEASE }}
+          aws-region: ${{ env.AWS_PUBLIC_ECR_REGION }}
+
+      # Install notation CLI with AWS Signer plugin
+      - name: Install notation CLI with AWS Signer plugin
+        continue-on-error: true
+        run: |
+          curl -Lo aws-signer-notation-cli_amd64.deb https://d2hvyiie56hcat.cloudfront.net/linux/amd64/installer/deb/latest/aws-signer-notation-cli_amd64.deb
+          sudo dpkg -i aws-signer-notation-cli_amd64.deb
+          notation version
+          notation plugin ls
+
+      # Query ECR signing profile ARN
+      - name: Query ECR Signing Profile ARN
+        id: ecr-signing-profile
+        continue-on-error: true
+        run: |
+          PROFILE_ARN=$(aws signer get-signing-profile --region ${{ env.AWS_PUBLIC_ECR_REGION }} --profile-name ADOTECRSigningProfile --query "arn" --output text) || PROFILE_ARN=""
+          if [ -n "$PROFILE_ARN" ] && [ "$PROFILE_ARN" != "None" ]; then
+            echo "profile_arn=$PROFILE_ARN" >> $GITHUB_OUTPUT
+            echo "Found ECR signing profile: $PROFILE_ARN"
+          else
+            echo "ECR signing profile 'ADOTECRSigningProfile' not found or lookup failed; skipping image signing."
+            exit 0
+          fi
+
+      # Login to Public ECR
+      - name: Log in to AWS public ECR
+        if: steps.ecr-signing-profile.outputs.profile_arn != ''
+        continue-on-error: true
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 #v3.5.0
+        with:
+          registry: public.ecr.aws
+
+      # Sign Public ECR Image
+      - name: Sign Public ECR Image
+        if: steps.ecr-signing-profile.outputs.profile_arn != ''
+        continue-on-error: true
+        run: |
+          # notation needs a digest ref to store the signature via the Referrers API,
+          # which avoids publishing the extra "sha256-<digest>" fallback tag.
+          DIGEST=$(aws ecr-public describe-image-tags \
+            --repository-name adot-autoinstrumentation-node \
+            --region ${{ env.AWS_PUBLIC_ECR_REGION }} \
+            --query "imageTagDetails[?imageTag=='v${{ env.VERSION }}'].imageDetail.imageDigest | [0]" \
+            --output text)
+          if [ -z "$DIGEST" ] || [ "$DIGEST" = "None" ]; then
+            echo "Could not resolve a digest for v${{ env.VERSION }}; skipping image signing."
+            exit 0
+          fi
+          notation sign ${{ env.RELEASE_PUBLIC_REPOSITORY }}@${DIGEST} \
+            --force-referrers-tag=false \
+            --plugin com.amazonaws.signer.notation.plugin \
+            --id ${{ steps.ecr-signing-profile.outputs.profile_arn }}

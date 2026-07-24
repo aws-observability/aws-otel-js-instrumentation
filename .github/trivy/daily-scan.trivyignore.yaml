@@ -22,3 +22,11 @@ vulnerabilities:
   - id: CVE-2026-44902
     statement: "Prometheus exporter process crash via malformed HTTP request. Will be fixed in #425 and released in next scheduled release."
     expired_at: 2026-06-22
+
+  - id: CVE-2026-59892
+    statement: "@opentelemetry/propagator-jaeger DoS via malformed HTTP header decoding. Fix: bump to 2.9.0. https://avd.aquasec.com/nvd/cve-2026-59892"
+    expired_at: 2026-08-07
+
+  - id: CVE-2026-13149
+    statement: "brace-expansion DoS via exponential-time complexity. Fix: bump to 2.1.2. https://avd.aquasec.com/nvd/cve-2026-13149"
+    expired_at: 2026-08-07

@@ -123,9 +123,13 @@ describe('S3PresignedUrlAttributorTest', () => {
     // method, path, extra query params, expected operation
     const cases: [string, string, string, string][] = [
       ['GET', '/example-bucket', '&list-type=2', 'ListObjectsV2'],
+      // Trailing slash after the bucket is bucket-level, not an object key.
+      ['GET', '/example-bucket/', '&list-type=2', 'ListObjectsV2'],
+      ['GET', '/example-bucket/', '', 'UnknownRemoteOperation'],
       ['GET', '/example-bucket/object', '', 'GetObject'],
       ['DELETE', '/example-bucket/object', '', 'DeleteObject'],
       ['GET', '/example-bucket', '&acl', 'GetBucketAcl'],
+      ['GET', '/example-bucket/', '&acl', 'GetBucketAcl'],
       ['GET', '/example-bucket/object', '&acl', 'GetObjectAcl'],
     ];
     for (const [method, path, extraQuery, expectedOperation] of cases) {

@@ -192,6 +192,10 @@ describe('PresignedUrlMetricAttributeGeneratorTest', () => {
     const attributes = dependencyAttributes();
     expect(attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE]).toEqual('PeerService');
     expect(attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_OPERATION]).toEqual('PutObject');
+    // peer.service overrides the remote service but not the resource, mirroring the SDK path: the
+    // S3 bucket resource stays attached even though the service is now the peer value.
+    expect(attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_TYPE]).toEqual('AWS::S3::Bucket');
+    expect(attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_RESOURCE_IDENTIFIER]).toEqual('example-bucket');
   });
 
   it('nonS3PresignedEndpointIsUnchanged', () => {

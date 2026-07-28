@@ -13,7 +13,12 @@ import {
   checkDigits,
   isAccountId,
   OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS,
+  REDACTED_QUERY_PARAMS,
 } from '../src/utils';
+// Upstream default list that `redactedQueryParams` REPLACES (does not extend). Imported here so
+// the test fails if a dependency bump adds/removes an upstream default we no longer re-include.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { DEFAULT_QUERY_STRINGS_TO_REDACT } = require('@opentelemetry/instrumentation-http/build/src/internal-types');
 
 describe('Utils', function () {
   beforeEach(() => {
@@ -156,5 +161,34 @@ describe('Utils', function () {
     expect(isAccountId('123456789012')).toBeTruthy();
     expect(isAccountId('abc')).toBeFalsy();
     expect(isAccountId('')).toBeFalsy();
+  });
+
+  describe('REDACTED_QUERY_PARAMS', () => {
+    it('re-includes every upstream default (config replaces, does not extend)', () => {
+      // The HTTP instrumentation applies redactedQueryParams verbatim in place of its built-in
+      // defaults, so omitting any default would silently stop redacting it.
+      for (const param of DEFAULT_QUERY_STRINGS_TO_REDACT) {
+        expect(REDACTED_QUERY_PARAMS).toContain(param);
+      }
+    });
+
+    it('adds the AWS SigV4 credential query parameters', () => {
+      expect(REDACTED_QUERY_PARAMS).toContain('X-Amz-Signature');
+      expect(REDACTED_QUERY_PARAMS).toContain('X-Amz-Credential');
+      expect(REDACTED_QUERY_PARAMS).toContain('X-Amz-Security-Token');
+    });
+
+    it('does not redact the non-sensitive SigV4 parameters needed for presigned-URL detection', () => {
+      // Blanking these would break presigned-URL attribution, which reads them to recognize the
+      // request. They must NOT appear in the redaction list.
+      expect(REDACTED_QUERY_PARAMS).not.toContain('X-Amz-Algorithm');
+      expect(REDACTED_QUERY_PARAMS).not.toContain('X-Amz-Date');
+      expect(REDACTED_QUERY_PARAMS).not.toContain('X-Amz-Expires');
+      expect(REDACTED_QUERY_PARAMS).not.toContain('X-Amz-SignedHeaders');
+    });
+
+    it('contains no duplicate entries', () => {
+      expect(new Set(REDACTED_QUERY_PARAMS).size).toBe(REDACTED_QUERY_PARAMS.length);
+    });
   });
 });

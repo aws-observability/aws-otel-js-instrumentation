@@ -1578,6 +1578,16 @@ describe('LiteSdk - buildInstrumentations', () => {
     expect(names).toContain('AwsInstrumentation');
     expect(names).not.toContain('HttpInstrumentation');
   });
+
+  it('configures instrumentation-http to redact the AWS SigV4 credential params', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { REDACTED_QUERY_PARAMS } = require('../src/utils');
+    process.env[ENABLED] = 'http';
+    const instrs = buildInstrumentations();
+    const http = instrs.find(i => i.constructor.name === 'HttpInstrumentation');
+    expect(http).toBeDefined();
+    expect(http.getConfig().redactedQueryParams).toEqual(REDACTED_QUERY_PARAMS);
+  });
 });
 
 // ─── Parity Check: Lite SDK vs Full SDK ───────────────────────────────────────

@@ -1004,6 +1004,12 @@ function instrumentationConfigFor(name: string): Record<string, unknown> {
   if (name === '@opentelemetry/instrumentation-aws-lambda') {
     return { eventContextExtractor: liteEventContextExtractor };
   }
+  if (name === '@opentelemetry/instrumentation-http') {
+    // Redact AWS SigV4 credentials (and the upstream defaults) from captured URLs. See
+    // REDACTED_QUERY_PARAMS for why the full list must be provided here.
+    const { REDACTED_QUERY_PARAMS } = require('./utils');
+    return { redactedQueryParams: REDACTED_QUERY_PARAMS };
+  }
   return {};
 }
 

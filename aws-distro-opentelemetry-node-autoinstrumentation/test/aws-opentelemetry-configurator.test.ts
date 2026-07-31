@@ -17,6 +17,7 @@ import {
   AlwaysOffSampler,
   AlwaysOnSampler,
   BatchSpanProcessor,
+  InMemorySpanExporter,
   ParentBasedSampler,
   ReadableSpan,
   SpanProcessor,
@@ -441,6 +442,50 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(customizedSampler).toBeInstanceOf(AlwaysRecordSampler);
     expect(mockSampler).toEqual((customizedSampler as any).rootSampler);
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+  });
+
+  it('CustomizeSamplerWithAgentObservabilityTest', () => {
+    const mockSampler: Sampler = sinon.createStubInstance(AlwaysOnSampler);
+
+    try {
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      const customizedSampler: Sampler = AwsOpentelemetryConfigurator.customizeSampler(mockSampler);
+      expect(customizedSampler).toBeInstanceOf(AlwaysRecordSampler);
+      expect(mockSampler).toEqual((customizedSampler as any).rootSampler);
+
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'false';
+      expect(mockSampler).toEqual(AwsOpentelemetryConfigurator.customizeSampler(mockSampler));
+    } finally {
+      delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    }
+  });
+
+  it('UnsampledSpanIsRecordedAndExportedWithAgentObservabilityTest', async () => {
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+
+    const exporter: InMemorySpanExporter = new InMemorySpanExporter();
+    const processor: AwsBatchUnsampledSpanProcessor = new AwsBatchUnsampledSpanProcessor(exporter);
+    const tracerProvider: NodeTracerProvider = new NodeTracerProvider({
+      sampler: AwsOpentelemetryConfigurator.customizeSampler(new AlwaysOffSampler()),
+      spanProcessors: [processor],
+    });
+
+    try {
+      const span: Span = tracerProvider.getTracer('test').startSpan('unsampled-span');
+      expect(span.isRecording()).toBeTruthy();
+      expect(span.spanContext().traceFlags).toEqual(TraceFlags.NONE);
+      span.end();
+
+      await processor.forceFlush();
+
+      const exportedSpans: ReadableSpan[] = exporter.getFinishedSpans();
+      expect(exportedSpans.length).toEqual(1);
+      expect(exportedSpans[0].name).toEqual('unsampled-span');
+      expect(exportedSpans[0].attributes[AWS_ATTRIBUTE_KEYS.AWS_TRACE_FLAG_SAMPLED]).toEqual(false);
+    } finally {
+      await tracerProvider.shutdown();
+      delete process.env.AGENT_OBSERVABILITY_ENABLED;
+    }
   });
 
   it('CustomizeExporterTest', () => {

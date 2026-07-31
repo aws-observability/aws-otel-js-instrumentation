@@ -395,7 +395,7 @@ export class AwsOpentelemetryConfigurator {
   }
 
   static customizeSampler(sampler: Sampler): Sampler {
-    if (AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
+    if (AwsOpentelemetryConfigurator.isApplicationSignalsEnabled() || isAgentObservabilityEnabled()) {
       return AlwaysRecordSampler.create(sampler);
     }
     return sampler;

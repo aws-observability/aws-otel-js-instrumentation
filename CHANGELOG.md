@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat: wire `AlwaysRecordSampler` when agent observability is enabled so unsampled spans are still recorded and exported
+  ([#516](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/516))
 - fix: redact AWS presigned URL credentials from span attributes
   ([#514](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/514))
 - feat(serviceevents): accept bare package tokens (e.g. `myapp`, `src/myapp`) in

@@ -226,6 +226,6 @@ function getPathSegments(path: string): string[] {
     return [];
   }
   // Drop empty segments so a trailing slash (e.g. path-style "/bucket/") is not misread as an
-  // object key. Java's String.split already discards trailing empties; JS's String.split does not.
+  // object key.
   return normalizedPath.split('/').filter(segment => segment !== '');
 }

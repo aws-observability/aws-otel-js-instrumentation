@@ -3,6 +3,10 @@
 import * as dgram from 'dgram';
 import * as crypto from 'crypto';
 
+import { PresignedAwsUrlParser } from './presigned-aws-url-parser';
+import { PresignedUrlAttribution } from './presigned-url-attributor';
+import { S3PresignedUrlAttributor } from './s3-presigned-url-attributor';
+
 import {
   context as contextApi,
   trace as traceApi,
@@ -485,6 +489,28 @@ export class TracerProvider implements TracerProviderAPI {
   }
 }
 
+const PRESIGNED_URL_ATTRIBUTION_ENABLED_CONFIG = 'OTEL_AWS_APPLICATION_SIGNALS_PRESIGNED_URL_ATTRIBUTION_ENABLED';
+
+// Attributes an S3 presigned URL when the opt-in flag is set and the span is not an AWS SDK span
+// (those are already attributed by the SDK's own instrumentation). Returns undefined when the span
+// is not a recognizable presigned S3 request, letting the generic HTTP fallback run.
+function resolvePresignedAttribution(attributes: Record<string, AttributeValue>): PresignedUrlAttribution | undefined {
+  if (process.env[PRESIGNED_URL_ATTRIBUTION_ENABLED_CONFIG]?.trim().toLowerCase() !== 'true') {
+    return undefined;
+  }
+  // AWS SDK spans set rpc.system to 'aws-api'; they are attributed by the SDK, not the presigned path.
+  if (attributes['rpc.system'] === 'aws-api') {
+    return undefined;
+  }
+  const url = attrStr(attributes, 'url.full', 'http.url');
+  const httpMethod = attrStr(attributes, 'http.request.method', 'http.method');
+  const presignedAwsUrl = PresignedAwsUrlParser.parse(url || undefined, httpMethod || undefined);
+  if (presignedAwsUrl === undefined) {
+    return undefined;
+  }
+  return S3PresignedUrlAttributor.attribute(presignedAwsUrl);
+}
+
 function resolveRemoteService(attributes: Record<string, AttributeValue>): string {
   const rpcService = attributes['rpc.service'];
   if (rpcService) {
@@ -866,8 +892,21 @@ export class UdpSpanExporter {
     }
 
     if (span.kind === SpanKind.CLIENT || span.kind === SpanKind.PRODUCER) {
-      span.attributes['aws.remote.service'] = resolveRemoteService(span.attributes);
-      span.attributes['aws.remote.operation'] = resolveRemoteOperation(span.attributes);
+      // Presigned AWS URL attribution takes precedence over the generic HTTP fallback below, which
+      // would otherwise produce a high-cardinality "<METHOD> /<object-key>" operation. Only consulted
+      // for non-AWS-SDK spans, matching the full SDK's ordering.
+      const presigned = resolvePresignedAttribution(span.attributes);
+      if (presigned !== undefined) {
+        span.attributes['aws.remote.service'] = presigned.remoteService;
+        span.attributes['aws.remote.operation'] = presigned.remoteOperation;
+        if (presigned.remoteResource !== undefined) {
+          span.attributes['aws.remote.resource.type'] = presigned.remoteResource.type;
+          span.attributes['aws.remote.resource.identifier'] = presigned.remoteResource.identifier;
+        }
+      } else {
+        span.attributes['aws.remote.service'] = resolveRemoteService(span.attributes);
+        span.attributes['aws.remote.operation'] = resolveRemoteOperation(span.attributes);
+      }
     }
   }
 

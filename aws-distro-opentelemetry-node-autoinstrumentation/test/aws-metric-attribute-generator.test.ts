@@ -492,6 +492,37 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute('url.path', undefined);
   });
 
+  // Verifies the end-to-end effect of OTEL_AWS_HTTP_OPERATION_PATHS on aws.local.operation.
+  // The metrics processor applies the override to the span name before the generator runs, so we
+  // replicate that ordering here: applyOperationPathSpanName() then the generator. The expected
+  // value is a multi-segment, wildcarded path that neither the raw span name nor URL truncation
+  // ('GET /api') could produce, so the assertion can only pass if the configured path won.
+  it('testServerSpanLocalOperationUsesConfiguredOperationPath', () => {
+    updateResourceWithServiceName();
+    (spanDataMock as any).name = 'GET';
+    mockAttribute('http.request.method', 'GET');
+    mockAttribute('url.path', '/api/contests/123/leaderboard');
+
+    process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] =
+      '/api/contests/{id}/leaderboard,/api/contests/{id}';
+    AwsSpanProcessingUtil.resetOperationPaths();
+    try {
+      AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+
+      const expectedAttributes: Attributes = {
+        [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
+        [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: SERVICE_NAME_VALUE,
+        [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'GET /api/contests/{id}/leaderboard',
+      };
+      validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
+    } finally {
+      delete process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG];
+      AwsSpanProcessingUtil.resetOperationPaths();
+    }
+    mockAttribute('http.request.method', undefined);
+    mockAttribute('url.path', undefined);
+  });
+
   // New semconv: url.full for ingress operation (fallback when url.path not present)
   it('testServerSpanWithNewSemconvUrlFull', () => {
     updateResourceWithServiceName();

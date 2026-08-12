@@ -51,8 +51,6 @@ export async function startPostgres(): Promise<StartedBackend & { database: stri
 // advertised-listener mapping so a host-side client (kafkajs) can connect on the mapped port.
 export async function startKafka(): Promise<StartedBackend> {
   const { KafkaContainer } = await import('@testcontainers/kafka');
-  const container = await new KafkaContainer('confluentinc/cp-kafka:7.7.1')
-    .withStartupTimeout(180000)
-    .start();
+  const container = await new KafkaContainer('confluentinc/cp-kafka:7.7.1').withStartupTimeout(180000).start();
   return { host: container.getHost(), port: container.getMappedPort(9093), container };
 }

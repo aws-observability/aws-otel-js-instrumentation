@@ -1,0 +1,72 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+import { MeterProvider, diag } from '@opentelemetry/api';
+import { BatchSpanProcessor, Sampler, SpanExporter, SpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { AlwaysRecordSampler } from './always-record-sampler';
+import { SpanMetricsProcessor } from './span-metrics-processor';
+import * as holder from './internal/open-telemetry-holder';
+
+// Subset of the NodeSDK configuration this module reads/transforms. Declared structurally so the
+// module does not take a hard dependency on @opentelemetry/sdk-node (only Mode 2 users have it).
+interface NodeSdkConfigLike {
+  sampler?: Sampler;
+  spanProcessors?: SpanProcessor[];
+  // Deprecated singular option (see withSpanMetrics); present only for detection.
+  spanProcessor?: SpanProcessor;
+  traceExporter?: SpanExporter;
+  [key: string]: unknown;
+}
+
+/**
+ * Mode 3 (manual SDK setup): after building the OpenTelemetry MeterProvider, call bind() so
+ * {@link SpanMetricsProcessor} can obtain a Meter. Mode 1 (register) and Mode 2 (withSpanMetrics)
+ * call this internally and do not require the user to.
+ */
+export function bind(meterProvider: MeterProvider): void {
+  holder.set(meterProvider);
+}
+
+/**
+ * Mode 2 (programmatic NodeSDK): transform a NodeSDK config so the extension is wired in. Wraps the
+ * configured sampler (if set) to force-record, and ensures our span processor is in the config's
+ * spanProcessors list.
+ *
+ * NodeSDK treats spanProcessors and traceExporter as mutually exclusive: when spanProcessors is set,
+ * traceExporter is ignored. So a config that used ONLY traceExporter must have that exporter
+ * converted into a BatchSpanProcessor here, otherwise appending our processor would silently drop
+ * the user's span export. We mirror the SDK's own default wrapping (new BatchSpanProcessor(exporter))
+ * and remove traceExporter so the SDK does not see both.
+ *
+ * The deprecated singular spanProcessor option is not supported: it is warned about and skipped.
+ *
+ * Pure transform on public config fields; no patching. The caller still binds the MeterProvider
+ * after start via {@link bind} (the SDK owns it).
+ */
+export function withSpanMetrics<T extends NodeSdkConfigLike>(config: T): T {
+  if (config.sampler) {
+    config.sampler = AlwaysRecordSampler.create(config.sampler);
+  }
+
+  if (config.spanProcessor) {
+    diag.warn(
+      "[span-metrics] the deprecated 'spanProcessor' (singular) NodeSDK option is not supported by " +
+        "withSpanMetrics and will be ignored; use 'spanProcessors' instead."
+    );
+  }
+
+  let processors: SpanProcessor[];
+  if (config.spanProcessors) {
+    processors = [...config.spanProcessors];
+  } else if (config.traceExporter) {
+    // Convert the lone traceExporter to a processor (mirrors NodeSDK's default) and drop it, so the
+    // SDK does not ignore it once spanProcessors is set below.
+    processors = [new BatchSpanProcessor(config.traceExporter)];
+    delete config.traceExporter;
+  } else {
+    processors = [];
+  }
+  processors.push(new SpanMetricsProcessor());
+  config.spanProcessors = processors;
+  return config;
+}

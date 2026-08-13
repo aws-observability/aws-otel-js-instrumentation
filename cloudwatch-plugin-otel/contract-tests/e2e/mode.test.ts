@@ -19,7 +19,10 @@ const UPSTREAM_REGISTER = '@opentelemetry/auto-instrumentations-node/register';
 
 const SAMPLING_ENV = {
   OTEL_TRACES_SAMPLER: 'parentbased_traceidratio',
-  OTEL_TRACES_SAMPLER_ARG: '0.05',
+  // 50% (not 5%) so the exported-span count has a deterministic floor: across REQUEST_COUNT spans,
+  // getting exactly zero exported is astronomically unlikely, letting the test assert both that
+  // sampling still drops spans (< REQUEST_COUNT) and that export is not lost entirely (> 0).
+  OTEL_TRACES_SAMPLER_ARG: '0.5',
   OTEL_METRICS_EXPORTER: 'otlp',
   OTEL_TRACES_EXPORTER: 'otlp',
   OTEL_LOGS_EXPORTER: 'none',
@@ -45,7 +48,14 @@ interface Mode {
 const MODES: Mode[] = [
   { name: 'manual', app: 'manual-app', env: {}, port: 8110 },
   { name: 'programmatic', app: 'programmatic-app', env: {}, port: 8120 },
-  { name: 'programmatic (traceExporter-only)', app: 'programmatic-traceexporter-app', env: {}, port: 8150 },
+  {
+    name: 'programmatic (traceExporter-only)',
+    app: 'programmatic-traceexporter-app',
+    // withSpanMetrics builds the batch processor from traceExporter with the default 5s flush; shorten
+    // it so spans flush within the app's pre-exit window (otherwise export appears as 0).
+    env: { OTEL_BSP_SCHEDULE_DELAY: '500' },
+    port: 8150,
+  },
   {
     name: 'zero-code',
     app: 'zerocode-app',
@@ -88,9 +98,13 @@ describe('Contract: mode wiring', function () {
           REQUEST_COUNT,
           `calls for ${SERVER_SPAN_NAME} should equal ${REQUEST_COUNT}`
         );
+        // Two-sided bound: below the full count proves sampling still drops spans; above zero proves
+        // the extension did not silently drop the user's span export (guards the B3-class regression,
+        // which a one-sided `< REQUEST_COUNT` would have passed at zero).
+        const exported = collector.countExportedSpans(SERVER_SPAN_NAME);
         assert.ok(
-          collector.countExportedSpans(SERVER_SPAN_NAME) < REQUEST_COUNT,
-          'exported spans should be sampled below the full request count'
+          exported > 0 && exported < REQUEST_COUNT,
+          `exported spans should be sampled: 0 < ${exported} < ${REQUEST_COUNT}`
         );
       });
 

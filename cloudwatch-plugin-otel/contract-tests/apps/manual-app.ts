@@ -28,7 +28,7 @@ bind(meterProvider);
 
 const tracerProvider = new NodeTracerProvider({
   resource,
-  sampler: AlwaysRecordSampler.create(new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(0.05) })),
+  sampler: AlwaysRecordSampler.create(new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(0.5) })),
   spanProcessors: [
     new SpanMetricsProcessor(),
     new BatchSpanProcessor(new OTLPTraceExporter({ url: `${endpoint}/v1/traces` }), {

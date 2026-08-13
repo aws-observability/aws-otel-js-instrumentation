@@ -32,7 +32,7 @@ bind(meterProvider);
 const sdk = new NodeSDK(
   withSpanMetrics({
     resource,
-    sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(0.05) }),
+    sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(0.5) }),
     traceExporter: new OTLPTraceExporter({ url: `${endpoint}/v1/traces` }),
     instrumentations: [getNodeAutoInstrumentations()],
   })

@@ -18,6 +18,7 @@ import { AlwaysRecordSampler } from './always-record-sampler';
 import { SpanMetricsProcessor } from './span-metrics-processor';
 import * as holder from './internal/open-telemetry-holder';
 import { detectShape } from './internal/detect-shape';
+import { normalizeSpanProcessors } from './internal/normalize-span-processors';
 
 // Resolve the sampler the SDK would build from OTEL_TRACES_SAMPLER(+_ARG), using the same
 // sdk-trace-base copy the SDK uses, so our wrapper delegates to the user's configured sampler.
@@ -121,6 +122,14 @@ function patch(): void {
     }
   }
 
+  // Wrap a traceExporter in a BatchSpanProcessor from the SAME sdk-trace-base copy the SDK uses,
+  // mirroring how NodeSDK itself would wrap a lone traceExporter.
+  function batchProcessorFor(exporter: unknown): any {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const base = require(require.resolve('@opentelemetry/sdk-trace-base', { paths: [sdkNodePath] }));
+    return new base.BatchSpanProcessor(exporter);
+  }
+
   class SpanMetricsNodeSDK extends OriginalNodeSDK {
     constructor(config: Record<string, any> = {}) {
       // Wrap the sampler before super() so the wrapped one is what the SDK builds with. Programmatic
@@ -154,23 +163,14 @@ function patch(): void {
       try {
         const self = this as Record<string, any>;
         if (isConfigShape) {
-          // Config shape (>= 0.220): start() derives spanProcessors from this._configuration
-          // (spanProcessors ?? [spanProcessor] ?? [batch(traceExporter)] ?? env). Normalize that to
-          // an explicit spanProcessors list with ours appended, so exporting is preserved.
+          // Config shape (>= 0.220): start() derives spanProcessors from this._configuration.
+          // Normalize that to an explicit spanProcessors list with ours appended, preserving export.
           const cfg = self._configuration ?? (self._configuration = {});
-          let processors: any[];
-          if (cfg.spanProcessors) {
-            processors = [...cfg.spanProcessors];
-          } else if (cfg.spanProcessor) {
-            processors = [cfg.spanProcessor];
-            delete cfg.spanProcessor;
-          } else {
-            // traceExporter / env: let the SDK's own env resolution stand, then add ours. (A lone
-            // traceExporter is rare for register users, who are env-driven; env is the common path.)
-            processors = envSpanProcessors();
-          }
-          processors.push(new SpanMetricsProcessor());
-          cfg.spanProcessors = processors;
+          normalizeSpanProcessors(cfg, {
+            makeSpanMetricsProcessor: () => new SpanMetricsProcessor(),
+            wrapExporter: batchProcessorFor,
+            envSpanProcessors,
+          });
         } else if (!self._tracerProviderConfig) {
           // Field shape, env-driven (zero-code): constructor built no _tracerProviderConfig. Build one
           // carrying env processors + ours so start()'s field-or-env branch includes it.

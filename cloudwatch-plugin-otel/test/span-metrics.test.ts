@@ -53,10 +53,33 @@ describe('withSpanMetrics', () => {
     assert.ok(out.spanProcessors![1] instanceof SpanMetricsProcessor);
   });
 
-  it('leaves the sampler unset when none was configured (NodeSDK resolves from env)', () => {
-    const out = withSpanMetrics<{ sampler?: Sampler; spanProcessors?: any[] }>({});
-    assert.strictEqual(out.sampler, undefined);
-    assert.ok(out.spanProcessors![0] instanceof SpanMetricsProcessor);
+  it('wraps the SDK default sampler when neither config.sampler nor OTEL_TRACES_SAMPLER is set', () => {
+    const prev = process.env.OTEL_TRACES_SAMPLER;
+    delete process.env.OTEL_TRACES_SAMPLER;
+    try {
+      const out = withSpanMetrics<{ sampler?: Sampler; spanProcessors?: any[] }>({});
+      // Nothing configured, so we resolve the SDK default (ParentBased(AlwaysOn)) and force-record it,
+      // matching zero-code behavior instead of relying on the SDK default happening to be AlwaysOn.
+      assert.ok(out.sampler instanceof AlwaysRecordSampler);
+      assert.ok(out.spanProcessors![0] instanceof SpanMetricsProcessor);
+    } finally {
+      if (prev === undefined) delete process.env.OTEL_TRACES_SAMPLER;
+      else process.env.OTEL_TRACES_SAMPLER = prev;
+    }
+  });
+
+  it('B1: wraps the env-configured sampler when config.sampler is unset', () => {
+    // Mode 2 users often configure sampling via OTEL_TRACES_SAMPLER instead of an explicit sampler.
+    // withSpanMetrics must still force-record it, otherwise (e.g. always_off) it produces 0 metrics.
+    const prev = process.env.OTEL_TRACES_SAMPLER;
+    process.env.OTEL_TRACES_SAMPLER = 'always_off';
+    try {
+      const out = withSpanMetrics<{ sampler?: Sampler; spanProcessors?: any[] }>({});
+      assert.ok(out.sampler instanceof AlwaysRecordSampler, 'env sampler must be force-record wrapped');
+    } finally {
+      if (prev === undefined) delete process.env.OTEL_TRACES_SAMPLER;
+      else process.env.OTEL_TRACES_SAMPLER = prev;
+    }
   });
 
   it('converts a lone traceExporter into a BatchSpanProcessor and removes traceExporter', () => {

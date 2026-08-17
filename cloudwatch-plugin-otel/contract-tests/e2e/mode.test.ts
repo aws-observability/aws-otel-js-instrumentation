@@ -117,4 +117,36 @@ describe('Contract: mode wiring', function () {
       });
     });
   }
+
+  // B5/B1 end-to-end: a user who configures OTEL_TRACES_SAMPLER=always_off should still get 100%
+  // metrics (record-forcing wraps the env sampler) while exporting zero spans. This is the real
+  // user config that a broken env-sampler resolver would turn into zero metrics.
+  describe('zero-code with OTEL_TRACES_SAMPLER=always_off', () => {
+    before(async function () {
+      this.timeout(60000);
+      collector.reset();
+      await runApp({
+        app: 'zerocode-app',
+        requires: [OUR_REGISTER, UPSTREAM_REGISTER],
+        env: { ...SAMPLING_ENV, OTEL_TRACES_SAMPLER: 'always_off', OTEL_TRACES_SAMPLER_ARG: '' },
+        appPort: 8131,
+        collectorEndpoint: COLLECTOR_ENDPOINT,
+        drivePath: '/items/42',
+        builtJs: true,
+      });
+    });
+
+    it('meters 100% of spans while exporting none', () => {
+      assert.strictEqual(
+        collector.callsValue(SERVER_SPAN_NAME),
+        REQUEST_COUNT,
+        'record-forcing must meter every span even when the user samples nothing'
+      );
+      assert.strictEqual(
+        collector.countExportedSpans(SERVER_SPAN_NAME),
+        0,
+        'always_off must still export zero spans (record-forcing does not change export)'
+      );
+    });
+  });
 });

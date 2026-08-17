@@ -19,33 +19,7 @@ import { SpanMetricsProcessor } from './span-metrics-processor';
 import * as holder from './internal/open-telemetry-holder';
 import { detectShape } from './internal/detect-shape';
 import { normalizeSpanProcessors } from './internal/normalize-span-processors';
-
-// Resolve the sampler the SDK would build from OTEL_TRACES_SAMPLER(+_ARG), using the same
-// sdk-trace-base copy the SDK uses, so our wrapper delegates to the user's configured sampler.
-// Mirrors the OTel env sampler mapping; defaults to ParentBased(AlwaysOn) like the SDK.
-function resolveEnvSampler(sdkNodePath: string): any {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const base = require(require.resolve('@opentelemetry/sdk-trace-base', { paths: [sdkNodePath] }));
-  const { ParentBasedSampler, AlwaysOnSampler, AlwaysOffSampler, TraceIdRatioBasedSampler } = base;
-  const name = process.env.OTEL_TRACES_SAMPLER;
-  const argRaw = process.env.OTEL_TRACES_SAMPLER_ARG;
-  const ratio = argRaw !== undefined && argRaw !== '' ? Number(argRaw) : 1;
-  switch (name) {
-    case 'always_on':
-      return new AlwaysOnSampler();
-    case 'always_off':
-      return new AlwaysOffSampler();
-    case 'traceidratio':
-      return new TraceIdRatioBasedSampler(ratio);
-    case 'parentbased_always_off':
-      return new ParentBasedSampler({ root: new AlwaysOffSampler() });
-    case 'parentbased_traceidratio':
-      return new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(ratio) });
-    case 'parentbased_always_on':
-    default:
-      return new ParentBasedSampler({ root: new AlwaysOnSampler() });
-  }
-}
+import { resolveEnvSamplerOrDefault } from './internal/env-sampler';
 
 function safeVersion(pkgPath: string): string {
   try {
@@ -134,10 +108,11 @@ function patch(): void {
     constructor(config: Record<string, any> = {}) {
       // Wrap the sampler before super() so the wrapped one is what the SDK builds with. Programmatic
       // users pass config.sampler; zero-code register users configure it via OTEL_TRACES_SAMPLER
-      // (+_ARG), which we resolve and wrap here, so record-forcing applies in all cases. If neither
-      // is set, the delegate is the SDK's own default (ParentBased(AlwaysOn)).
+      // (+_ARG). Resolve the env sampler when neither is set, falling back to the SDK's own default
+      // (ParentBased(AlwaysOn)) so record-forcing applies in all cases — never leaving spans
+      // un-forced (which would undercount metrics).
       try {
-        const base = config.sampler ?? resolveEnvSampler(sdkNodePath);
+        const base = config.sampler ?? resolveEnvSamplerOrDefault();
         config.sampler = AlwaysRecordSampler.create(base);
       } catch (e) {
         diag.error('[span-metrics] failed to wrap sampler; continuing without record-forcing', e);

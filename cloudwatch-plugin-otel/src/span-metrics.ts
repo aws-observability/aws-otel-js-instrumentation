@@ -6,6 +6,7 @@ import { BatchSpanProcessor, Sampler, SpanExporter, SpanProcessor } from '@opent
 import { AlwaysRecordSampler } from './always-record-sampler';
 import { SpanMetricsProcessor } from './span-metrics-processor';
 import * as holder from './internal/open-telemetry-holder';
+import { resolveEnvSamplerOrDefault } from './internal/env-sampler';
 
 // Subset of the NodeSDK configuration this module reads/transforms. Declared structurally so the
 // module does not take a hard dependency on @opentelemetry/sdk-node (only Mode 2 users have it).
@@ -44,9 +45,13 @@ export function bind(meterProvider: MeterProvider): void {
  * after start via {@link bind} (the SDK owns it).
  */
 export function withSpanMetrics<T extends NodeSdkConfigLike>(config: T): T {
-  if (config.sampler) {
-    config.sampler = AlwaysRecordSampler.create(config.sampler);
-  }
+  // Force-record the configured sampler. The base is the explicit config.sampler, or — when the user
+  // configures sampling through OTEL_TRACES_SAMPLER(+_ARG) and leaves config.sampler unset — the env
+  // sampler, or the SDK's own default when neither is set. We always resolve a concrete sampler and
+  // wrap it (rather than leaving it unset for the SDK to build) so this mode force-records in exactly
+  // the same cases as zero-code, instead of relying on the SDK default happening to be AlwaysOn.
+  const base = config.sampler ?? resolveEnvSamplerOrDefault();
+  config.sampler = AlwaysRecordSampler.create(base);
 
   if (config.spanProcessor) {
     diag.warn(

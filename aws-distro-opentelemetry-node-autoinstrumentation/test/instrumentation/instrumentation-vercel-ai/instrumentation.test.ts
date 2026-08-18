@@ -250,7 +250,7 @@ describe('generateText content capture', function () {
 
   it('normalizes image and tool content with the Vercel adapter', function () {
     expect(
-      (VercelAISpanProcessor as any).contentToParts([
+      (VercelAISpanProcessor as any)._contentToParts([
         { type: 'text', text: 'describe' },
         { type: 'file', data: 'AAAA', mediaType: 'image/png' },
         { type: 'tool-call', toolCallId: 'call_1', toolName: 'lookup', args: '{"city":"Tokyo"}' },

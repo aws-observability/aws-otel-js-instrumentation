@@ -270,7 +270,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
       const messages = typeof value === 'string' ? JSON.parse(value) : value;
       if (!Array.isArray(messages)) return value;
       const formatted = messages.map((msg: any) => {
-        return { role: msg.role, parts: VercelAISpanProcessor.contentToParts(msg.content) };
+        return { role: msg.role, parts: VercelAISpanProcessor._contentToParts(msg.content) };
       });
       return serializeToJson(formatted);
     } catch {
@@ -286,13 +286,13 @@ export class VercelAISpanProcessor implements SpanProcessor {
     return serializeToJson([
       {
         role: 'assistant',
-        parts: VercelAISpanProcessor.contentToParts(value),
+        parts: VercelAISpanProcessor._contentToParts(value),
         finish_reason: finishReason,
       },
     ]);
   }
 
-  private static contentToParts(content: unknown): Array<Record<string, unknown>> {
+  private static _contentToParts(content: unknown): Array<Record<string, unknown>> {
     const blocks = Array.isArray(content) ? content : [content];
     return blocks.flatMap(block => {
       if (!block || typeof block !== 'object') return contentToParts(block);

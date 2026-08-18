@@ -103,22 +103,22 @@ export class VercelAISpanProcessor implements SpanProcessor {
     {
       from: 'ai.response.text',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
-      transform: (_: unknown, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
+      transform: (_: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
     },
     {
       from: 'ai.response.object',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
-      transform: (_: unknown, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
+      transform: (_: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
     },
     {
       from: 'ai.response.reasoning',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
-      transform: (_: unknown, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
+      transform: (_: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
     },
     {
       from: 'ai.response.toolCalls',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
-      transform: (_: unknown, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
+      transform: (_: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
     },
     {
       from: 'ai.prompt.tools',

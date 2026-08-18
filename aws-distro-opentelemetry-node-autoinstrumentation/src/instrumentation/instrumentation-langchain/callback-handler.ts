@@ -576,12 +576,12 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         const isToolMessage = role === 'tool' && 'tool_call_id' in message && message.tool_call_id;
 
         if (role === 'system') {
-          systemInstructions.push(...OpenTelemetryCallbackHandler._messageContentParts(message));
+          systemInstructions.push(...OpenTelemetryCallbackHandler._toOtelMessageParts(message));
           continue;
         }
 
         if (!isToolMessage) {
-          parts.push(...OpenTelemetryCallbackHandler._messageContentParts(message));
+          parts.push(...OpenTelemetryCallbackHandler._toOtelMessageParts(message));
         }
 
         if (isToolMessage) {
@@ -631,7 +631,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
         if ('message' in generation) {
           const message = (generation as ChatGeneration).message;
-          parts.push(...OpenTelemetryCallbackHandler._messageContentParts(message));
+          parts.push(...OpenTelemetryCallbackHandler._toOtelMessageParts(message));
 
           finishReason = OpenTelemetryCallbackHandler._extractFinishReason(generation);
         } else {
@@ -695,7 +695,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     }
   }
 
-  private static _messageContentParts(message: BaseMessage): Array<Record<string, unknown>> {
+  private static _toOtelMessageParts(message: BaseMessage): Array<Record<string, unknown>> {
     // Provider translators, notably Bedrock Converse, can omit normalized
     // tool_calls from contentBlocks, while other providers expose them in both.
     // Convert both sources through the shared helper and collapse duplicates.

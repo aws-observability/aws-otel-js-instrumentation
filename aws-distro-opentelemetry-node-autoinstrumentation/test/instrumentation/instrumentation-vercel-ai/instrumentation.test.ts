@@ -6,6 +6,7 @@
 import { SpanKind } from '@opentelemetry/api';
 import { instrumentation, ensureSpanProcessor } from './load-instrumentation';
 import { VercelAIInstrumentation } from '../../../src/instrumentation/instrumentation-vercel-ai/instrumentation';
+import { VercelAISpanProcessor } from '../../../src/instrumentation/instrumentation-vercel-ai/span-processor';
 import * as sinon from 'sinon';
 import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-utils';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
@@ -105,6 +106,21 @@ function mockMultiStepFetch(pc: ProviderTestCase): typeof globalThis.fetch {
       headers: { 'content-type': 'application/json' },
     });
   }) as typeof fetch;
+}
+
+function createVercelSpan(attributes: Record<string, unknown>): ReadableSpan {
+  return {
+    name: 'ai.test',
+    kind: SpanKind.INTERNAL,
+    instrumentationScope: { name: 'ai' },
+    attributes,
+    parentSpanContext: undefined,
+    spanContext: () => ({
+      traceId: '0'.repeat(32),
+      spanId: '1'.repeat(16),
+      traceFlags: 1,
+    }),
+  } as unknown as ReadableSpan;
 }
 
 before(() => {
@@ -231,6 +247,127 @@ describe('generateText content capture', function () {
     expect(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeUndefined();
     expect(chatSpans[0].attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeUndefined();
   });
+
+  it('normalizes multimodal and tool content through shared helpers', async () => {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.model.provider': 'openai',
+      'ai.model.id': OPENAI_MODEL,
+      'ai.prompt.messages': [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'describe' },
+            {
+              type: 'file',
+              data: 'https://base64-by-contract.example',
+              mediaType: 'image/png',
+              filename: 'generated.png',
+            },
+            {
+              type: 'file',
+              data: new URL('https://example.com/report.pdf'),
+              mediaType: 'application/pdf',
+            },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: [{ type: 'tool-call', toolCallId: 'call_1', toolName: 'lookup', args: '{"city":"Tokyo"}' }],
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'tool-result', toolCallId: 'call_1', result: { forecast: 'sunny' } }],
+        },
+      ],
+      'ai.response.text': 'The answer is blue.',
+      'ai.response.reasoning': 'Reasoning summary.',
+      'ai.response.toolCalls': JSON.stringify([
+        { toolCallId: 'call_2', toolName: 'lookup', input: { city: 'Seattle' } },
+      ]),
+      'ai.response.finishReason': 'stop',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    const inputMessages = JSON.parse(attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+    expect(inputMessages[0].parts).toEqual([
+      { type: 'text', content: 'describe' },
+      {
+        type: 'blob',
+        modality: 'document',
+        content: 'https://base64-by-contract.example',
+        mime_type: 'image/png',
+        filename: 'generated.png',
+      },
+      {
+        type: 'uri',
+        modality: 'document',
+        uri: 'https://example.com/report.pdf',
+        mime_type: 'application/pdf',
+      },
+    ]);
+    expect(inputMessages[1].parts[0]).toEqual({
+      type: 'tool_call',
+      id: 'call_1',
+      name: 'lookup',
+      arguments: { city: 'Tokyo' },
+    });
+    expect(inputMessages[2].parts[0]).toEqual({
+      type: 'tool_call_response',
+      id: 'call_1',
+      response: { forecast: 'sunny' },
+    });
+
+    const outputMessages = JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+    expect(outputMessages).toEqual([
+      {
+        role: 'assistant',
+        parts: [
+          { type: 'text', content: 'The answer is blue.' },
+          { type: 'reasoning', content: 'Reasoning summary.' },
+          {
+            type: 'tool_call',
+            id: 'call_2',
+            name: 'lookup',
+            arguments: { city: 'Seattle' },
+          },
+        ],
+        finish_reason: 'stop',
+      },
+    ]);
+  });
+
+  it('emits a tool-call-only output message with a canonical finish reason', async () => {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.response.toolCalls': JSON.stringify([
+        { toolCallId: 'call_only', toolName: 'lookup', input: '{"city":"Tokyo"}' },
+      ]),
+      'ai.response.finishReason': 'tool-calls',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    const outputMessages = JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+    expect(outputMessages).toEqual([
+      {
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool_call',
+            id: 'call_only',
+            name: 'lookup',
+            arguments: { city: 'Tokyo' },
+          },
+        ],
+        finish_reason: 'tool_call',
+      },
+    ]);
+  });
 });
 
 describe('generateText tool calls', function () {
@@ -293,6 +430,32 @@ describe('generateText tool calls', function () {
       resetMemoryExporter();
     });
   }
+
+  it('preserves structured tool arguments and results through shared serialization', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.toolCall',
+      'ai.toolCall.name': 'structured_add',
+      'ai.toolCall.args': '{"a":1,"b":2}',
+      'ai.toolCall.result': '{"content":{"sum":3},"artifact":{"id":"artifact-1"}}',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_TOOL_CALL_ARGUMENTS]).toBe('{"a":1,"b":2}');
+    expect(attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('{"content":{"sum":3},"artifact":{"id":"artifact-1"}}');
+  });
+
+  it('preserves an explicitly present empty telemetry value', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.toolCall',
+      'ai.toolCall.name': 'empty_result',
+      'ai.toolCall.result': '',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('');
+  });
 
   for (const pc of providerCases) {
     it(`${pc.name} maps tool_calls finish reason correctly`, async () => {

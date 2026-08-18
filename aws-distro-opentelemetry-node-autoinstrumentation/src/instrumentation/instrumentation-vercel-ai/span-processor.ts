@@ -78,7 +78,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     {
       from: 'ai.response.finishReason',
       to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
-      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
+      transform: (v: string) => [normalizeFinishReason(v)],
     },
     { from: 'ai.response.id', to: ATTR_GEN_AI_RESPONSE_ID },
     { from: 'ai.response.model', to: ATTR_GEN_AI_RESPONSE_MODEL },
@@ -307,7 +307,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     if (parts.length === 0) return undefined;
     const finishReason =
       typeof attrs['ai.response.finishReason'] === 'string'
-        ? VercelAISpanProcessor.mapFinishReason(attrs['ai.response.finishReason'])
+        ? normalizeFinishReason(attrs['ai.response.finishReason'])
         : parts.some(part => part.type === 'tool_call')
         ? 'tool_call'
         : 'stop';
@@ -358,10 +358,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
 
     const model = attrs[ATTR_GEN_AI_REQUEST_MODEL] as string | undefined;
     return model ? `${op} ${model}` : op;
-  }
-
-  private static mapFinishReason(reason: string): string {
-    return normalizeFinishReason(reason);
   }
 
   private static mapProviderName(provider: string): string {

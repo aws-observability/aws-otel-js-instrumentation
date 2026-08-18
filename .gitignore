@@ -7,3 +7,9 @@ aws-distro-opentelemetry-node-autoinstrumentation/src/version.ts
 # Other
 .git/
 *.nyc_output/
+.omni/
+.claude/
+.github/
+.cursor/
+.kiro/
+.agents/

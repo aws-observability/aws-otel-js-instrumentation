@@ -662,41 +662,6 @@ describe('tool spans', function () {
     expect(span.attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('3');
   });
 
-  it('serializes semantic ToolMessage fields for content_and_artifact results', async () => {
-    contentCaptureInstrumentation.enable();
-
-    const structuredTool = tool(
-      async (input: { a: number; b: number }) => [String(input.a + input.b), { bytes: Buffer.from('ok') }],
-      {
-        name: 'structured_add',
-        description: 'Add two numbers with an artifact',
-        schema: z.object({ a: z.number(), b: z.number() }),
-        responseFormat: 'content_and_artifact',
-      }
-    );
-
-    const result = (await structuredTool.invoke({
-      type: 'tool_call',
-      id: 'call_structured',
-      name: 'structured_add',
-      args: { a: 1, b: 2 },
-    })) as ToolMessage;
-
-    const spans = getTestSpans();
-    const toolSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'execute_tool');
-    expect(toolSpans.length).toBe(1);
-
-    const span = toolSpans[0];
-    expect(JSON.parse(span.attributes[ATTR_GEN_AI_TOOL_CALL_RESULT] as string)).toEqual({
-      content: '3',
-      tool_call_id: 'call_structured',
-      artifact: { bytes: 'b2s=' },
-      status: 'success',
-      name: 'structured_add',
-      metadata: result.metadata,
-    });
-  });
-
   it('retains LangChain empty-string omission for tool results', async () => {
     contentCaptureInstrumentation.enable();
 
@@ -1146,15 +1111,23 @@ describe('message formatting edge cases', function () {
     expect(textParts.length).toBe(0);
   });
 
-  it('deduplicates Anthropic tool_use content against normalized tool calls', async () => {
+  it('uses canonical tool_calls without dropping distinct calls', async () => {
     contentCaptureInstrumentation.enable();
 
     const llm = new FakeListChatModel({ responses: ['Done.'] });
     await llm.invoke([
-      new HumanMessage('Look this up'),
+      new HumanMessage('Run these'),
       new AIMessage({
         content: [{ type: 'tool_use', id: 'call_123', name: 'lookup', input: { query: 'otel' } }] as any,
-        tool_calls: [{ name: 'lookup', args: { query: 'otel' }, id: 'call_123', type: 'tool_call' }],
+        tool_calls: [
+          { name: 'lookup', args: { query: 'otel' }, id: 'call_123', type: 'tool_call' },
+          { name: 'lookup', args: { q: 'first' }, id: 'call_a' },
+          { name: 'lookup', args: { q: 'second' }, id: 'call_b' },
+          { name: 'c', args: { q: 1 }, id: 'a:b', type: 'tool_call' },
+          { name: 'b:c', args: { q: 2 }, id: 'a', type: 'tool_call' },
+          { name: 'lookup', args: { q: 'first' } },
+          { name: 'lookup', args: { q: 'second' } },
+        ] as any,
       }),
     ]);
 
@@ -1166,14 +1139,18 @@ describe('message formatting edge cases', function () {
     expect(chatSpan).toBeDefined();
     const inputMessages = JSON.parse(chatSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
     const assistant = inputMessages.find((message: any) => message.role === 'assistant');
-    expect(assistant.parts).toEqual([
-      {
-        type: 'tool_call',
-        id: 'call_123',
-        name: 'lookup',
-        arguments: { query: 'otel' },
-      },
+    const toolCallParts = assistant.parts.filter((p: any) => p.type === 'tool_call');
+    expect(assistant.parts.every((part: any) => part.type === 'tool_call')).toBe(true);
+    expect(toolCallParts.map((part: any) => `${part.id}/${part.name}`)).toEqual([
+      'call_123/lookup',
+      'call_a/lookup',
+      'call_b/lookup',
+      'a:b/c',
+      'a/b:c',
+      '/lookup',
+      '/lookup',
     ]);
+    expect(toolCallParts.slice(-2).map((part: any) => part.arguments)).toEqual([{ q: 'first' }, { q: 'second' }]);
   });
 
   it('handles AI messages with array content blocks', async () => {
@@ -1237,7 +1214,7 @@ describe('message formatting edge cases', function () {
             { type: 'text', text: 'describe' },
             { type: 'image_url', image_url: { url: 'https://example.com/cat.png' } },
             { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
-            { type: 'image', data: 'BBBB', mimeType: 'image/webp' },
+            { type: 'image', data: 'BBBB', media_type: 'image/webp' },
           ] as any,
         }),
       ]);
@@ -1486,18 +1463,6 @@ describe('finish reason normalization', function () {
   afterEach(() => {
     contentCaptureInstrumentation.disable();
     nock.cleanAll();
-  });
-
-  it('reads camelCase finishReason and non-chat generation metadata', function () {
-    const extractFinishReason = (OpenTelemetryCallbackHandler as any)._extractFinishReason;
-    expect(
-      extractFinishReason({
-        message: new AIMessage('done'),
-        text: 'done',
-        generationInfo: { finishReason: 'TOOL_CALL' },
-      })
-    ).toBe('tool_call');
-    expect(extractFinishReason({ text: 'done', generationInfo: { finishReason: 'MAX_TOKENS' } })).toBe('length');
   });
 
   for (const pc of providerCases) {

@@ -49,7 +49,6 @@ import {
 import {
   AttributeMapping,
   contentToParts,
-  normalizeFinishReason,
   serializeToJson,
   toToolAttributeValue,
   tryParseJson,
@@ -309,7 +308,9 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
 
   private _getFinishReasons(response: Record<string, any>): string[] {
     const incompleteReason = response.incomplete_details?.reason;
-    if (typeof incompleteReason === 'string') return [normalizeFinishReason(incompleteReason)];
+    if (typeof incompleteReason === 'string') {
+      return [incompleteReason === 'max_output_tokens' ? 'length' : incompleteReason];
+    }
     if (response.status === 'failed') return ['error'];
     if (!response.output || !Array.isArray(response.output)) return [];
 
@@ -328,7 +329,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       if (item.type === 'message' || ('role' in item && 'content' in item)) {
         return {
           role: item.role ?? 'user',
-          parts: contentToParts(item.content),
+          parts: this._contentToParts(item.content),
         };
       }
       if (item.type === 'function_call') {
@@ -368,12 +369,14 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     const parts: any[] = [];
     for (const item of output) {
       if (item.type === 'message' && item.content) {
-        parts.push(...contentToParts(item.content));
+        parts.push(...this._contentToParts(item.content));
       } else if (item.type === 'reasoning') {
-        const summary = contentToParts(item.summary).filter(part => part.type === 'reasoning');
+        const summary = this._contentToParts(item.summary).filter(part => part.type === 'reasoning');
         // Raw reasoning content is only a fallback when no provider-supplied summary exists.
         parts.push(
-          ...(summary.length > 0 ? summary : contentToParts(item.content).filter(part => part.type === 'reasoning'))
+          ...(summary.length > 0
+            ? summary
+            : this._contentToParts(item.content).filter(part => part.type === 'reasoning'))
         );
       } else if (item.type === 'function_call') {
         parts.push({
@@ -394,6 +397,24 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
         finish_reason: finishReasons[0] ?? 'stop',
       },
     ]);
+  }
+
+  private _contentToParts(content: unknown): Array<Record<string, unknown>> {
+    const blocks = Array.isArray(content) ? content : [content];
+    return blocks.flatMap(block => {
+      if (!block || typeof block !== 'object') return contentToParts(block);
+      const value = block as Record<string, unknown>;
+      if (value.type === 'input_text' || value.type === 'output_text') {
+        return contentToParts({ type: 'text', text: value.text });
+      }
+      if (value.type === 'reasoning_text' || value.type === 'summary_text') {
+        return contentToParts({ type: 'reasoning', reasoning: value.text });
+      }
+      if (value.type === 'input_image' && typeof value.image === 'string') {
+        return contentToParts({ type: 'image_url', image_url: { url: value.image } });
+      }
+      return contentToParts(value);
+    });
   }
 
   private _propagateModelToAgent(parentId: string | null, model: string): void {

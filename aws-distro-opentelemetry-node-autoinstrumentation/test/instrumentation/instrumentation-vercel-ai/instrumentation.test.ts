@@ -248,124 +248,29 @@ describe('generateText content capture', function () {
     expect(chatSpans[0].attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeUndefined();
   });
 
-  it('normalizes multimodal and tool content through shared helpers', async () => {
-    const attributes: Record<string, unknown> = {
-      'ai.operationId': 'ai.generateText.doGenerate',
-      'ai.model.provider': 'openai',
-      'ai.model.id': OPENAI_MODEL,
-      'ai.prompt.messages': [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'describe' },
-            {
-              type: 'file',
-              data: 'https://base64-by-contract.example',
-              mediaType: 'image/png',
-              filename: 'generated.png',
-            },
-            {
-              type: 'file',
-              data: new URL('https://example.com/report.pdf'),
-              mediaType: 'application/pdf',
-            },
-          ],
-        },
-        {
-          role: 'assistant',
-          content: [{ type: 'tool-call', toolCallId: 'call_1', toolName: 'lookup', args: '{"city":"Tokyo"}' }],
-        },
-        {
-          role: 'tool',
-          content: [{ type: 'tool-result', toolCallId: 'call_1', result: { forecast: 'sunny' } }],
-        },
-      ],
-      'ai.response.text': 'The answer is blue.',
-      'ai.response.reasoning': 'Reasoning summary.',
-      'ai.response.toolCalls': JSON.stringify([
-        { toolCallId: 'call_2', toolName: 'lookup', input: { city: 'Seattle' } },
-      ]),
-      'ai.response.finishReason': 'stop',
-    };
-
-    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
-
-    const inputMessages = JSON.parse(attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
-    expect(inputMessages[0].parts).toEqual([
+  it('normalizes image and tool content with the Vercel adapter', function () {
+    expect(
+      (VercelAISpanProcessor as any).contentToParts([
+        { type: 'text', text: 'describe' },
+        { type: 'file', data: 'AAAA', mediaType: 'image/png' },
+        { type: 'tool-call', toolCallId: 'call_1', toolName: 'lookup', args: '{"city":"Tokyo"}' },
+        { type: 'tool-result', toolCallId: 'call_1', result: { forecast: 'sunny' } },
+      ])
+    ).toEqual([
       { type: 'text', content: 'describe' },
       {
         type: 'blob',
-        modality: 'document',
-        content: 'https://base64-by-contract.example',
+        modality: 'image',
         mime_type: 'image/png',
-        filename: 'generated.png',
+        content: 'AAAA',
       },
       {
-        type: 'uri',
-        modality: 'document',
-        uri: 'https://example.com/report.pdf',
-        mime_type: 'application/pdf',
+        type: 'tool_call',
+        id: 'call_1',
+        name: 'lookup',
+        arguments: { city: 'Tokyo' },
       },
-    ]);
-    expect(inputMessages[1].parts[0]).toEqual({
-      type: 'tool_call',
-      id: 'call_1',
-      name: 'lookup',
-      arguments: { city: 'Tokyo' },
-    });
-    expect(inputMessages[2].parts[0]).toEqual({
-      type: 'tool_call_response',
-      id: 'call_1',
-      response: { forecast: 'sunny' },
-    });
-
-    const outputMessages = JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
-    expect(outputMessages).toEqual([
-      {
-        role: 'assistant',
-        parts: [
-          { type: 'text', content: 'The answer is blue.' },
-          { type: 'reasoning', content: 'Reasoning summary.' },
-          {
-            type: 'tool_call',
-            id: 'call_2',
-            name: 'lookup',
-            arguments: { city: 'Seattle' },
-          },
-        ],
-        finish_reason: 'stop',
-      },
-    ]);
-  });
-
-  it('emits a tool-call-only output message with a canonical finish reason', async () => {
-    const attributes: Record<string, unknown> = {
-      'ai.operationId': 'ai.generateText.doGenerate',
-      'ai.response.toolCalls': JSON.stringify([
-        { toolCallId: 'call_only', toolName: 'lookup', input: '{"city":"Tokyo"}' },
-      ]),
-      'ai.response.finishReason': 'tool-calls',
-    };
-
-    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
-
-    const outputMessages = JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
-    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
-    expect(outputMessages).toEqual([
-      {
-        role: 'assistant',
-        parts: [
-          {
-            type: 'tool_call',
-            id: 'call_only',
-            name: 'lookup',
-            arguments: { city: 'Tokyo' },
-          },
-        ],
-        finish_reason: 'tool_call',
-      },
+      { type: 'tool_call_response', id: 'call_1', response: { forecast: 'sunny' } },
     ]);
   });
 });

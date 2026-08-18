@@ -33,19 +33,14 @@ import {
   GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
   GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION,
 } from '../common/semconv';
-import {
-  contentToParts,
-  normalizeFinishReason,
-  PROVIDER_MAP,
-  serializeToJson,
-  toToolAttributeValue,
-} from '../common/instrumentation-utils';
+import { contentToParts, PROVIDER_MAP, serializeToJson, toToolAttributeValue } from '../common/instrumentation-utils';
 import type { Serialized } from '@langchain/core/load/serializable';
 import type { ChatGeneration, Generation, LLMResult } from '@langchain/core/outputs';
 import type { ChainValues } from '@langchain/core/utils/types';
 import type { BaseMessage } from '@langchain/core/messages';
+import type { ToolCall } from '@langchain/core/messages/tool';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
-import { isAIMessage, ToolMessage } from '@langchain/core/messages';
+import { isAIMessage } from '@langchain/core/messages';
 
 const LANGGRAPH_STEP_SPAN_ATTR = 'langgraph.step';
 const LANGGRAPH_NODE_SPAN_ATTR = 'langgraph.node';
@@ -290,11 +285,8 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     if (this.captureMessageContent) {
       const entry = this.runIdToSpanMap.get(runId);
       if (entry?.span) {
-        this._setAttribute(
-          entry.span,
-          ATTR_GEN_AI_TOOL_CALL_RESULT,
-          toToolAttributeValue(OpenTelemetryCallbackHandler._extractToolResult(output))
-        );
+        const content = output && typeof output === 'object' && 'content' in output ? output.content : output;
+        this._setAttribute(entry.span, ATTR_GEN_AI_TOOL_CALL_RESULT, toToolAttributeValue(content));
       }
     }
     this._endSpan(runId);
@@ -666,16 +658,16 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   }
 
   private static _extractFinishReason(generation: Generation): string | undefined {
-    const message = 'message' in generation ? (generation as ChatGeneration).message : undefined;
-    const metadata = (message?.response_metadata ?? {}) as Record<string, unknown>;
+    if (!('message' in generation)) return undefined;
+    const message = (generation as ChatGeneration).message;
+    const metadata = (message.response_metadata ?? {}) as Record<string, unknown>;
     const rawReason =
       generation.generationInfo?.finish_reason ??
-      generation.generationInfo?.finishReason ??
       metadata.finish_reason ??
       metadata.stop_reason ??
       metadata.stopReason ??
       metadata.finishReason;
-    return typeof rawReason === 'string' ? normalizeFinishReason(rawReason) : undefined;
+    return typeof rawReason === 'string' ? OpenTelemetryCallbackHandler._normalizeFinishReason(rawReason) : undefined;
   }
 
   private static _normalizeRole(messageType: string): string {
@@ -696,32 +688,54 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   }
 
   private static _toOtelMessageParts(message: BaseMessage): Array<Record<string, unknown>> {
-    // Provider translators, notably Bedrock Converse, can omit normalized
-    // tool_calls from contentBlocks, while other providers expose them in both.
-    // Convert both sources through the shared helper and collapse duplicates.
-    const parts = contentToParts([...message.contentBlocks, ...(isAIMessage(message) ? message.tool_calls ?? [] : [])]);
-    const seen = new Set<string>();
-    return parts.filter(part => {
-      if (part.type !== 'tool_call') return true;
-      const key = `${String(part.id ?? '')}:${String(part.name ?? '')}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
+    const contentBlocks = message.contentBlocks.map(block => {
+      if (block.type !== 'image') return block;
+      if ('url' in block && typeof block.url === 'string') {
+        return { type: 'image_url', image_url: { url: block.url } };
+      }
+      return { ...block, mime_type: block.mime_type ?? block.mimeType };
     });
+    const contentParts = contentToParts(contentBlocks).filter(
+      part => part.type !== 'tool_call' && part.type !== 'tool-call' && part.type !== 'tool_use'
+    );
+    const toolCallParts = isAIMessage(message)
+      ? (message.tool_calls ?? []).map((toolCall: ToolCall) => ({
+          type: 'tool_call',
+          id: toolCall.id ?? '',
+          name: toolCall.name,
+          arguments: toolCall.args,
+        }))
+      : [];
+    return [...contentParts, ...toolCallParts];
   }
 
-  private static _extractToolResult(output: unknown): unknown {
-    if (!ToolMessage.isInstance(output)) return output;
-    const semantic: Record<string, unknown> = {
-      content: output.content,
-      tool_call_id: output.tool_call_id,
-    };
-    for (const field of ['artifact', 'status', 'name', 'metadata'] as const) {
-      if (output[field] !== undefined) {
-        semantic[field] = output[field];
-      }
+  private static _normalizeFinishReason(raw: string): string {
+    switch (raw) {
+      case 'stop':
+      case 'end_turn':
+      case 'STOP':
+      case 'COMPLETE':
+        return 'stop';
+      case 'length':
+      case 'max_tokens':
+      case 'MAX_TOKENS':
+      case 'ERROR_LIMIT':
+        return 'length';
+      case 'content_filter':
+      case 'SAFETY':
+      case 'RECITATION':
+      case 'ERROR_TOXIC':
+        return 'content_filter';
+      case 'tool_use':
+      case 'tool_calls':
+      case 'function_call':
+        return 'tool_call';
+      case 'error':
+      case 'ERROR':
+        return 'error';
+      default:
+        return raw;
     }
-    return semantic;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

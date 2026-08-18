@@ -44,7 +44,6 @@ import {
 import {
   AttributeMapping,
   contentToParts,
-  normalizeFinishReason,
   PROVIDER_MAP,
   serializeToJson,
   toToolAttributeValue,
@@ -78,7 +77,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     {
       from: 'ai.response.finishReason',
       to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
-      transform: (v: string) => [normalizeFinishReason(v)],
+      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
     },
     { from: 'ai.response.id', to: ATTR_GEN_AI_RESPONSE_ID },
     { from: 'ai.response.model', to: ATTR_GEN_AI_RESPONSE_MODEL },
@@ -103,22 +102,12 @@ export class VercelAISpanProcessor implements SpanProcessor {
     {
       from: 'ai.response.text',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
-      transform: (_: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
+      transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
     },
     {
       from: 'ai.response.object',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
-      transform: (_: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
-    },
-    {
-      from: 'ai.response.reasoning',
-      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
-      transform: (_: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
-    },
-    {
-      from: 'ai.response.toolCalls',
-      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
-      transform: (_: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
+      transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
     },
     {
       from: 'ai.prompt.tools',
@@ -281,7 +270,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
       const messages = typeof value === 'string' ? JSON.parse(value) : value;
       if (!Array.isArray(messages)) return value;
       const formatted = messages.map((msg: any) => {
-        return { role: msg.role, parts: contentToParts(msg.content) };
+        return { role: msg.role, parts: VercelAISpanProcessor.contentToParts(msg.content) };
       });
       return serializeToJson(formatted);
     } catch {
@@ -289,48 +278,59 @@ export class VercelAISpanProcessor implements SpanProcessor {
     }
   }
 
-  private static formatOutputMessages(attrs: Record<string, unknown>): string | undefined {
-    const parts: Array<Record<string, unknown>> = [];
-    const text = attrs['ai.response.text'] ?? attrs['ai.response.object'];
-    if (text !== undefined && text !== null) {
-      parts.push(...contentToParts(text));
-    }
-
-    const reasoning = attrs['ai.response.reasoning'];
-    if (reasoning !== undefined && reasoning !== null && reasoning !== '') {
-      parts.push({ type: 'reasoning', content: String(reasoning) });
-    }
-
-    const rawToolCalls = attrs['ai.response.toolCalls'];
-    const toolCalls = typeof rawToolCalls === 'string' ? tryParseJson(rawToolCalls) : rawToolCalls;
-    if (Array.isArray(toolCalls)) {
-      for (const toolCall of toolCalls) {
-        if (!toolCall || typeof toolCall !== 'object') continue;
-        const call = toolCall as Record<string, unknown>;
-        const args = call.input ?? call.args ?? call.arguments ?? {};
-        parts.push({
-          type: 'tool_call',
-          id: call.toolCallId ?? call.id ?? null,
-          name: call.toolName ?? call.name ?? '',
-          arguments: typeof args === 'string' ? tryParseJson(args) : args,
-        });
-      }
-    }
-
-    if (parts.length === 0) return undefined;
+  private static formatOutputMessages(value: unknown, attrs: Record<string, unknown>): string {
     const finishReason =
       typeof attrs['ai.response.finishReason'] === 'string'
-        ? normalizeFinishReason(attrs['ai.response.finishReason'])
-        : parts.some(part => part.type === 'tool_call')
-        ? 'tool_call'
+        ? VercelAISpanProcessor.mapFinishReason(attrs['ai.response.finishReason'])
         : 'stop';
     return serializeToJson([
       {
         role: 'assistant',
-        parts,
+        parts: VercelAISpanProcessor.contentToParts(value),
         finish_reason: finishReason,
       },
     ]);
+  }
+
+  private static contentToParts(content: unknown): Array<Record<string, unknown>> {
+    const blocks = Array.isArray(content) ? content : [content];
+    return blocks.flatMap(block => {
+      if (!block || typeof block !== 'object') return contentToParts(block);
+      const value = block as Record<string, unknown>;
+      if (value.type === 'tool-call' || value.type === 'tool_call') {
+        const args = value.args ?? value.arguments ?? {};
+        return [
+          {
+            type: 'tool_call',
+            id: value.toolCallId ?? value.id ?? null,
+            name: value.toolName ?? value.name ?? '',
+            arguments: typeof args === 'string' ? tryParseJson(args) : args,
+          },
+        ];
+      }
+      if (value.type === 'tool-result' || value.type === 'tool_call_response') {
+        return [
+          {
+            type: 'tool_call_response',
+            id: value.toolCallId ?? value.id ?? null,
+            response: value.result ?? value.response ?? '',
+          },
+        ];
+      }
+      if (
+        value.type === 'file' &&
+        typeof value.mediaType === 'string' &&
+        value.mediaType.startsWith('image/') &&
+        typeof value.data === 'string'
+      ) {
+        return contentToParts(
+          value.data.startsWith('data:') || value.data.includes('://')
+            ? { type: 'image_url', image_url: { url: value.data } }
+            : { type: 'image', media_type: value.mediaType, data: value.data }
+        );
+      }
+      return contentToParts(value);
+    });
   }
 
   private static formatToolDefinitions(tools: any): string | undefined {
@@ -371,6 +371,26 @@ export class VercelAISpanProcessor implements SpanProcessor {
 
     const model = attrs[ATTR_GEN_AI_REQUEST_MODEL] as string | undefined;
     return model ? `${op} ${model}` : op;
+  }
+
+  private static mapFinishReason(reason: string): string {
+    switch (reason) {
+      case 'stop':
+        return 'stop';
+      case 'length':
+        return 'length';
+      case 'content-filter':
+        return 'content_filter';
+      case 'tool-calls':
+        return 'tool_call';
+      case 'error':
+        return 'error';
+      case 'other':
+      case 'unknown':
+        return 'stop';
+      default:
+        return reason;
+    }
   }
 
   private static mapProviderName(provider: string): string {

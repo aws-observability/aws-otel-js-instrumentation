@@ -4,11 +4,9 @@
 import { expect } from 'expect';
 import {
   contentToParts,
-  normalizeFinishReason,
   serializeToJson,
   toToolAttributeValue,
 } from '../../../src/instrumentation/common/instrumentation-utils';
-import { validateOtelGenaiSchema } from '../otel-schema-validator';
 
 describe('serializeToJson', function () {
   it('handles circular references', function () {
@@ -31,8 +29,7 @@ describe('serializeToJson', function () {
 
   it('handles null and undefined', function () {
     expect(serializeToJson(null)).toBe('null');
-    expect(serializeToJson(undefined)).toBe('"undefined"');
-    expect(serializeToJson(undefined)).not.toBe(serializeToJson(null));
+    expect(serializeToJson(undefined)).toBe(undefined as unknown as string);
   });
 
   it('handles arrays with circular references', function () {
@@ -92,68 +89,6 @@ describe('serializeToJson', function () {
       bytes: 'AQID',
     });
   });
-
-  it('sanitizes Date, Error, Map, and Set values', function () {
-    const error = new TypeError('bad input');
-    const result = JSON.parse(
-      serializeToJson({
-        date: new Date('2026-08-18T12:00:00.000Z'),
-        error,
-        map: new Map([
-          ['one', 1],
-          ['two', 2],
-        ]),
-        set: new Set(['a', 'b']),
-      })
-    );
-    expect(result).toEqual({
-      date: '2026-08-18T12:00:00.000Z',
-      error: {
-        name: 'TypeError',
-        message: 'bad input',
-        stack: error.stack,
-      },
-      map: [
-        ['one', 1],
-        ['two', 2],
-      ],
-      set: ['a', 'b'],
-    });
-  });
-
-  it('serializes shared aliases without marking them circular', function () {
-    const shared = { value: 1 };
-    expect(JSON.parse(serializeToJson({ first: shared, second: shared }))).toEqual({
-      first: { value: 1 },
-      second: { value: 1 },
-    });
-  });
-
-  it('uses a constant terminal fallback without coercing the user object', function () {
-    let primitiveCalled = false;
-    let toStringCalled = false;
-    const value = new Proxy(
-      {
-        [Symbol.toPrimitive]: () => {
-          primitiveCalled = true;
-          throw new Error('do not coerce');
-        },
-        toString: () => {
-          toStringCalled = true;
-          throw new Error('do not stringify');
-        },
-      },
-      {
-        ownKeys: () => {
-          throw new Error('cannot inspect');
-        },
-      }
-    );
-
-    expect(serializeToJson(value)).toBe('"[Unserializable]"');
-    expect(primitiveCalled).toBe(false);
-    expect(toStringCalled).toBe(false);
-  });
 });
 
 describe('toToolAttributeValue', function () {
@@ -162,7 +97,7 @@ describe('toToolAttributeValue', function () {
     expect(toToolAttributeValue('result')).toBe('result');
     expect(toToolAttributeValue(42)).toBe(42);
     expect(toToolAttributeValue(true)).toBe(true);
-    expect(toToolAttributeValue(null)).toBe('null');
+    expect(toToolAttributeValue(null)).toBeUndefined();
     expect(toToolAttributeValue(undefined)).toBeUndefined();
   });
 
@@ -174,25 +109,23 @@ describe('toToolAttributeValue', function () {
   it('omits values that cannot be serialized', function () {
     const revoked = Proxy.revocable({}, {});
     revoked.revoke();
-
     expect(toToolAttributeValue(revoked.proxy)).toBeUndefined();
   });
 });
 
 describe('contentToParts', function () {
-  it('maps refusal and typeless blocks to generic parts without losing fields', async function () {
+  it('preserves unrecognized and typeless blocks', function () {
     const parts = contentToParts([
       { type: 'refusal', refusal: 'I cannot do that.' },
       { payload: { answer: 42 }, label: 'structured' },
     ]);
     expect(parts).toEqual([
       { type: 'refusal', refusal: 'I cannot do that.' },
-      { type: 'unknown', payload: { answer: 42 }, label: 'structured' },
+      { type: 'text', payload: { answer: 42 }, label: 'structured' },
     ]);
-    await validateOtelGenaiSchema([{ role: 'assistant', parts, finish_reason: 'stop' }], 'gen-ai-output-messages');
   });
 
-  it('maps multimodal and reasoning blocks to exact typed parts', async function () {
+  it('maps multimodal and reasoning blocks to typed parts', function () {
     const parts = contentToParts([
       { type: 'text', text: 'describe' },
       { type: 'thinking', thinking: 'reasoning' },
@@ -205,172 +138,12 @@ describe('contentToParts', function () {
       { type: 'uri', modality: 'image', uri: 'https://example.com/cat.png' },
       { type: 'blob', modality: 'image', mime_type: 'image/png', content: 'AAAA' },
     ]);
-    await validateOtelGenaiSchema([{ role: 'user', parts }], 'gen-ai-input-messages');
   });
 
-  it('converts percent-encoded and case-insensitive base64 data URLs to canonical blobs', function () {
-    expect(
-      contentToParts([
-        { type: 'image', image: 'data:image/svg+xml,%3Csvg%3E' },
-        { type: 'image', image: 'data:application/octet-stream,%FF' },
-        { type: 'image', image: 'data:image/png;BASE64,AAAA' },
-      ])
-    ).toEqual([
-      { type: 'blob', modality: 'image', mime_type: 'image/svg+xml', content: 'PHN2Zz4=' },
-      { type: 'blob', modality: 'image', mime_type: 'application/octet-stream', content: '/w==' },
-      { type: 'blob', modality: 'image', mime_type: 'image/png', content: 'AAAA' },
-    ]);
-  });
-
-  it('uses field contracts for base64, URLs, binary data, and file IDs', function () {
-    expect(
-      contentToParts([
-        { type: 'file', data: 'https://base64-by-contract.example', mediaType: 'application/pdf' },
-        { type: 'file', data: new URL('https://example.com/report.pdf'), mediaType: 'application/pdf' },
-        { type: 'image', image: { id: 'image-file' } },
-        { type: 'input_file', file: { id: 'document-file' }, filename: 'report.pdf' },
-        { type: 'audio', audio: { id: 'audio-file' }, format: 'mp3' },
-        { type: 'image', source_type: 'id', id: 'legacy-file' },
-        { type: 'image', id: 'block-id', data: Buffer.from('image'), mimeType: 'image/png' },
-      ])
-    ).toEqual([
-      {
-        type: 'blob',
-        modality: 'document',
-        content: 'https://base64-by-contract.example',
-        mime_type: 'application/pdf',
-      },
-      {
-        type: 'uri',
-        modality: 'document',
-        uri: 'https://example.com/report.pdf',
-        mime_type: 'application/pdf',
-      },
-      { type: 'file', modality: 'image', file_id: 'image-file' },
-      { type: 'file', modality: 'document', file_id: 'document-file', filename: 'report.pdf' },
-      { type: 'file', modality: 'audio', file_id: 'audio-file', mime_type: 'audio/mp3', format: 'mp3' },
-      { type: 'file', modality: 'image', file_id: 'legacy-file' },
-      { type: 'blob', modality: 'image', content: 'aW1hZ2U=', mime_type: 'image/png' },
-    ]);
-  });
-
-  it('normalizes audio, file, video, text, and camelCase MIME metadata', function () {
-    expect(
-      contentToParts([
-        {
-          type: 'input_audio',
-          input_audio: { data: 'AAAA', format: 'wav' },
-          transcript: 'hello',
-          providerData: { request: 'audio' },
-        },
-        { type: 'input_file', file_data: 'BBBB', filename: 'notes.txt', mimeType: 'text/plain' },
-        { type: 'video', data: new Uint8Array([1, 2, 3]), mimeType: 'video/mp4' },
-        {
-          type: 'text-plain',
-          text: 'inline text',
-          title: 'Title',
-          context: 'Context',
-          providerMetadata: { provider: { id: 'text-1' } },
-        },
-        { type: 'text-plain', data: 'dGV4dA==', mimeType: 'text/plain' },
-      ])
-    ).toEqual([
-      {
-        type: 'blob',
-        modality: 'audio',
-        content: 'AAAA',
-        mime_type: 'audio/wav',
-        transcript: 'hello',
-        format: 'wav',
-        providerData: { request: 'audio' },
-      },
-      {
-        type: 'blob',
-        modality: 'document',
-        content: 'BBBB',
-        mime_type: 'text/plain',
-        filename: 'notes.txt',
-      },
-      { type: 'blob', modality: 'video', content: 'AQID', mime_type: 'video/mp4' },
-      {
-        type: 'text',
-        content: 'inline text',
-        title: 'Title',
-        context: 'Context',
-        providerMetadata: { provider: { id: 'text-1' } },
-      },
-      { type: 'blob', modality: 'text', content: 'dGV4dA==', mime_type: 'text/plain' },
-    ]);
-  });
-
-  it('returns the exact safe fallback for exceptional content', function () {
-    const revoked = Proxy.revocable({}, {});
-    revoked.revoke();
-    const throwingType = Object.defineProperty({}, 'type', {
-      get() {
-        throw new Error('cannot read type');
-      },
-    });
-
-    expect(contentToParts(revoked.proxy)).toEqual([{ type: 'text', content: '[Unserializable]' }]);
-    expect(contentToParts(throwingType)).toEqual([{ type: 'text', content: '[Unserializable]' }]);
-  });
-});
-
-describe('normalizeFinishReason', function () {
-  it('canonicalizes known reasons and preserves ambiguous values', function () {
-    expect(
-      [
-        'stop',
-        'end_turn',
-        'stop_sequence',
-        'STOP_SEQUENCE',
-        'COMPLETE',
-        'length',
-        'max_tokens',
-        'MAX_TOKENS',
-        'ERROR_LIMIT',
-        'content_filter',
-        'content_filtered',
-        'SAFETY',
-        'RECITATION',
-        'ERROR_TOXIC',
-        'refusal',
-        'tool_use',
-        'tool_calls',
-        'function_call',
-        'TOOL_CALL',
-        'error',
-        'ERROR',
-        'TIMEOUT',
-        'pause_turn',
-        'USER_CANCEL',
-      ].map(normalizeFinishReason)
-    ).toEqual([
-      'stop',
-      'stop',
-      'stop',
-      'stop',
-      'stop',
-      'length',
-      'length',
-      'length',
-      'length',
-      'content_filter',
-      'content_filter',
-      'content_filter',
-      'content_filter',
-      'content_filter',
-      'content_filter',
-      'tool_call',
-      'tool_call',
-      'tool_call',
-      'tool_call',
-      'error',
-      'error',
-      'error',
-      'pause_turn',
-      'USER_CANCEL',
+  it('keeps binary image data for JSON base64 serialization', function () {
+    const parts = contentToParts([{ type: 'image', media_type: 'image/png', data: Buffer.from('image') }]);
+    expect(JSON.parse(serializeToJson(parts))).toEqual([
+      { type: 'blob', modality: 'image', mime_type: 'image/png', content: 'aW1hZ2U=' },
     ]);
   });
 });

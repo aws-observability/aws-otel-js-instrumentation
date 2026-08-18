@@ -323,89 +323,38 @@ describe('OpenAI Agents Instrumentation', function () {
       expect(parsedOutput[0].parts[0].content).toBe('The answer is 4');
     });
 
-    it('normalizes real Responses API multimodal, refusal, and reasoning items', async () => {
-      const processor = new OpenTelemetryTracingProcessor(trace.getTracer('openai-agents-content-test'), true);
-      const sdkSpan = {
-        spanId: 'multimodal-response-span',
-        parentId: null,
-        spanData: {
-          type: 'response',
-          response_id: 'resp_multimodal',
-          _input: [
+    it('normalizes Responses API text, image, refusal, and reasoning blocks', function () {
+      const processor = new OpenTelemetryTracingProcessor(trace.getTracer('openai-agents-content-test'), true) as any;
+      expect(
+        processor._contentToParts([
+          { type: 'input_text', text: 'describe' },
+          { type: 'input_image', image: 'data:image/png;base64,AAAA' },
+        ])
+      ).toEqual([
+        { type: 'text', content: 'describe' },
+        { type: 'blob', modality: 'image', content: 'AAAA', mime_type: 'image/png' },
+      ]);
+
+      const outputMessages = JSON.parse(
+        processor._formatOutputMessages(
+          [
             {
-              role: 'user',
+              type: 'reasoning',
+              summary: [{ type: 'summary_text', text: 'A concise reasoning summary.' }],
+            },
+            {
+              type: 'message',
               content: [
-                { type: 'input_text', text: 'describe' },
-                { type: 'input_image', image: { id: 'image-file' } },
-                { type: 'input_image', image: 'data:image/png;base64,AAAA' },
-                { type: 'input_file', file: { id: 'document-file' }, filename: 'report.pdf' },
-                { type: 'audio', audio: { id: 'audio-file' }, format: 'mp3' },
-                {
-                  type: 'input_audio',
-                  input_audio: { data: 'AAAA', format: 'wav' },
-                  transcript: 'hello',
-                },
+                { type: 'output_text', text: 'The answer is blue.' },
+                { type: 'refusal', refusal: 'I cannot provide another detail.' },
               ],
             },
           ],
-          _response: {
-            model: OPENAI_MODEL,
-            output: [
-              {
-                type: 'reasoning',
-                id: 'reasoning_summary',
-                summary: [{ type: 'summary_text', text: 'A concise reasoning summary.' }],
-                content: [{ type: 'reasoning_text', text: 'Raw reasoning that should not be captured.' }],
-              },
-              {
-                type: 'reasoning',
-                id: 'reasoning_content',
-                summary: [],
-                content: [{ type: 'reasoning_text', text: 'Fallback reasoning content.' }],
-              },
-              {
-                type: 'message',
-                role: 'assistant',
-                content: [
-                  { type: 'output_text', text: 'The answer is blue.' },
-                  { type: 'refusal', refusal: 'I cannot provide another detail.' },
-                ],
-              },
-            ],
-          },
-        },
-        error: null,
-      };
-
-      await processor.onSpanStart(sdkSpan as any);
-      await processor.onSpanEnd(sdkSpan as any);
-
-      const chatSpan = getTestSpans().find((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-      expect(chatSpan).toBeDefined();
-
-      const inputMessages = JSON.parse(chatSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
-      await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
-      expect(inputMessages[0].parts).toEqual([
-        { type: 'text', content: 'describe' },
-        { type: 'file', modality: 'image', file_id: 'image-file' },
-        { type: 'blob', modality: 'image', content: 'AAAA', mime_type: 'image/png' },
-        { type: 'file', modality: 'document', file_id: 'document-file', filename: 'report.pdf' },
-        { type: 'file', modality: 'audio', file_id: 'audio-file', mime_type: 'audio/mp3', format: 'mp3' },
-        {
-          type: 'blob',
-          modality: 'audio',
-          content: 'AAAA',
-          mime_type: 'audio/wav',
-          transcript: 'hello',
-          format: 'wav',
-        },
-      ]);
-
-      const outputMessages = JSON.parse(chatSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
-      await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+          ['stop']
+        )
+      );
       expect(outputMessages[0].parts).toEqual([
         { type: 'reasoning', content: 'A concise reasoning summary.' },
-        { type: 'reasoning', content: 'Fallback reasoning content.' },
         { type: 'text', content: 'The answer is blue.' },
         { type: 'refusal', refusal: 'I cannot provide another detail.' },
       ]);

@@ -293,7 +293,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         this._setAttribute(
           entry.span,
           ATTR_GEN_AI_TOOL_CALL_RESULT,
-          toToolAttributeValue(OpenTelemetryCallbackHandler._semanticToolOutput(output))
+          toToolAttributeValue(OpenTelemetryCallbackHandler._extractToolResult(output))
         );
       }
     }
@@ -696,8 +696,8 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   }
 
   private static _messageContentParts(message: BaseMessage): Array<Record<string, unknown>> {
-    // Provider translators can omit normalized tool_calls from contentBlocks
-    // (notably Bedrock Converse), while other providers expose them in both.
+    // Provider translators, notably Bedrock Converse, can omit normalized
+    // tool_calls from contentBlocks, while other providers expose them in both.
     // Convert both sources through the shared helper and collapse duplicates.
     const parts = contentToParts([...message.contentBlocks, ...(isAIMessage(message) ? message.tool_calls ?? [] : [])]);
     const seen = new Set<string>();
@@ -710,7 +710,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     });
   }
 
-  private static _semanticToolOutput(output: unknown): unknown {
+  private static _extractToolResult(output: unknown): unknown {
     if (!ToolMessage.isInstance(output)) return output;
     const semantic: Record<string, unknown> = {
       content: output.content,

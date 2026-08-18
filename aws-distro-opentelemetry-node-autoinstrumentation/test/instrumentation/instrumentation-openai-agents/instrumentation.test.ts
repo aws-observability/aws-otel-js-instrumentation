@@ -335,6 +335,10 @@ describe('OpenAI Agents Instrumentation', function () {
         { type: 'blob', modality: 'image', content: 'AAAA', mime_type: 'image/png' },
       ]);
 
+      const revoked = Proxy.revocable({}, {});
+      revoked.revoke();
+      expect(processor._formatMessageParts(revoked.proxy)).toEqual([]);
+
       const outputMessages = JSON.parse(
         processor._formatOutputMessages(
           [

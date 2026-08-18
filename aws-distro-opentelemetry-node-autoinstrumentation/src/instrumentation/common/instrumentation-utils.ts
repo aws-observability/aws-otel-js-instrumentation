@@ -103,6 +103,14 @@ export function toToolAttributeValue(value: unknown): string | number | boolean 
 }
 
 export function contentToParts(content: unknown): Array<Record<string, unknown>> {
+  try {
+    return convertContentToParts(content);
+  } catch {
+    return [];
+  }
+}
+
+function convertContentToParts(content: unknown): Array<Record<string, unknown>> {
   if (typeof content === 'string') {
     return content ? [{ type: 'text', content }] : [];
   }

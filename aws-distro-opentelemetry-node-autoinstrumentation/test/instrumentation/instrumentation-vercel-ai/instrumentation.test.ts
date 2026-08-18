@@ -272,6 +272,10 @@ describe('generateText content capture', function () {
       },
       { type: 'tool_call_response', id: 'call_1', response: { forecast: 'sunny' } },
     ]);
+
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    expect((VercelAISpanProcessor as any)._formatMessageParts(revoked.proxy)).toEqual([]);
   });
 });
 

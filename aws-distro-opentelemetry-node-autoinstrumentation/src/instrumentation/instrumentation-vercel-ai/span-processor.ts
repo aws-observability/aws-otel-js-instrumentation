@@ -293,44 +293,48 @@ export class VercelAISpanProcessor implements SpanProcessor {
   }
 
   private static _formatMessageParts(content: unknown): Array<Record<string, unknown>> {
-    const blocks = Array.isArray(content) ? content : [content];
-    return blocks.flatMap(block => {
-      if (!block || typeof block !== 'object') return contentToParts(block);
-      const value = block as Record<string, unknown>;
-      if (value.type === 'tool-call' || value.type === 'tool_call') {
-        const args = value.args ?? value.arguments ?? {};
-        return [
-          {
-            type: 'tool_call',
-            id: value.toolCallId ?? value.id ?? null,
-            name: value.toolName ?? value.name ?? '',
-            arguments: typeof args === 'string' ? tryParseJson(args) : args,
-          },
-        ];
-      }
-      if (value.type === 'tool-result' || value.type === 'tool_call_response') {
-        return [
-          {
-            type: 'tool_call_response',
-            id: value.toolCallId ?? value.id ?? null,
-            response: value.result ?? value.response ?? '',
-          },
-        ];
-      }
-      if (
-        value.type === 'file' &&
-        typeof value.mediaType === 'string' &&
-        value.mediaType.startsWith('image/') &&
-        typeof value.data === 'string'
-      ) {
-        return contentToParts(
-          value.data.startsWith('data:') || value.data.includes('://')
-            ? { type: 'image_url', image_url: { url: value.data } }
-            : { type: 'image', media_type: value.mediaType, data: value.data }
-        );
-      }
-      return contentToParts(value);
-    });
+    try {
+      const blocks = Array.isArray(content) ? content : [content];
+      return blocks.flatMap(block => {
+        if (!block || typeof block !== 'object') return contentToParts(block);
+        const value = block as Record<string, unknown>;
+        if (value.type === 'tool-call' || value.type === 'tool_call') {
+          const args = value.args ?? value.arguments ?? {};
+          return [
+            {
+              type: 'tool_call',
+              id: value.toolCallId ?? value.id ?? null,
+              name: value.toolName ?? value.name ?? '',
+              arguments: typeof args === 'string' ? tryParseJson(args) : args,
+            },
+          ];
+        }
+        if (value.type === 'tool-result' || value.type === 'tool_call_response') {
+          return [
+            {
+              type: 'tool_call_response',
+              id: value.toolCallId ?? value.id ?? null,
+              response: value.result ?? value.response ?? '',
+            },
+          ];
+        }
+        if (
+          value.type === 'file' &&
+          typeof value.mediaType === 'string' &&
+          value.mediaType.startsWith('image/') &&
+          typeof value.data === 'string'
+        ) {
+          return contentToParts(
+            value.data.startsWith('data:') || value.data.includes('://')
+              ? { type: 'image_url', image_url: { url: value.data } }
+              : { type: 'image', media_type: value.mediaType, data: value.data }
+          );
+        }
+        return contentToParts(value);
+      });
+    } catch {
+      return [];
+    }
   }
 
   private static formatToolDefinitions(tools: any): string | undefined {

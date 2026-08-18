@@ -146,4 +146,10 @@ describe('contentToParts', function () {
       { type: 'blob', modality: 'image', mime_type: 'image/png', content: 'aW1hZ2U=' },
     ]);
   });
+
+  it('does not throw for hostile content objects', function () {
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    expect(contentToParts(revoked.proxy)).toEqual([]);
+  });
 });

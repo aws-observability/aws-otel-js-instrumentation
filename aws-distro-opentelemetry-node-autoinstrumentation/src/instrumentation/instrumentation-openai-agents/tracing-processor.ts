@@ -400,21 +400,25 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   }
 
   private _formatMessageParts(content: unknown): Array<Record<string, unknown>> {
-    const blocks = Array.isArray(content) ? content : [content];
-    return blocks.flatMap(block => {
-      if (!block || typeof block !== 'object') return contentToParts(block);
-      const value = block as Record<string, unknown>;
-      if (value.type === 'input_text' || value.type === 'output_text') {
-        return contentToParts({ type: 'text', text: value.text });
-      }
-      if (value.type === 'reasoning_text' || value.type === 'summary_text') {
-        return contentToParts({ type: 'reasoning', reasoning: value.text });
-      }
-      if (value.type === 'input_image' && typeof value.image === 'string') {
-        return contentToParts({ type: 'image_url', image_url: { url: value.image } });
-      }
-      return contentToParts(value);
-    });
+    try {
+      const blocks = Array.isArray(content) ? content : [content];
+      return blocks.flatMap(block => {
+        if (!block || typeof block !== 'object') return contentToParts(block);
+        const value = block as Record<string, unknown>;
+        if (value.type === 'input_text' || value.type === 'output_text') {
+          return contentToParts({ type: 'text', text: value.text });
+        }
+        if (value.type === 'reasoning_text' || value.type === 'summary_text') {
+          return contentToParts({ type: 'reasoning', reasoning: value.text });
+        }
+        if (value.type === 'input_image' && typeof value.image === 'string') {
+          return contentToParts({ type: 'image_url', image_url: { url: value.image } });
+        }
+        return contentToParts(value);
+      });
+    } catch {
+      return [];
+    }
   }
 
   private _propagateModelToAgent(parentId: string | null, model: string): void {

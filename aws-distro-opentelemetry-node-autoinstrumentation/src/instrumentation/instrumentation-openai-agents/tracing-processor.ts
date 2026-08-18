@@ -329,7 +329,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       if (item.type === 'message' || ('role' in item && 'content' in item)) {
         return {
           role: item.role ?? 'user',
-          parts: this._contentToParts(item.content),
+          parts: this._formatMessageParts(item.content),
         };
       }
       if (item.type === 'function_call') {
@@ -369,14 +369,14 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     const parts: any[] = [];
     for (const item of output) {
       if (item.type === 'message' && item.content) {
-        parts.push(...this._contentToParts(item.content));
+        parts.push(...this._formatMessageParts(item.content));
       } else if (item.type === 'reasoning') {
-        const summary = this._contentToParts(item.summary).filter(part => part.type === 'reasoning');
+        const summary = this._formatMessageParts(item.summary).filter(part => part.type === 'reasoning');
         // Raw reasoning content is only a fallback when no provider-supplied summary exists.
         parts.push(
           ...(summary.length > 0
             ? summary
-            : this._contentToParts(item.content).filter(part => part.type === 'reasoning'))
+            : this._formatMessageParts(item.content).filter(part => part.type === 'reasoning'))
         );
       } else if (item.type === 'function_call') {
         parts.push({
@@ -399,7 +399,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     ]);
   }
 
-  private _contentToParts(content: unknown): Array<Record<string, unknown>> {
+  private _formatMessageParts(content: unknown): Array<Record<string, unknown>> {
     const blocks = Array.isArray(content) ? content : [content];
     return blocks.flatMap(block => {
       if (!block || typeof block !== 'object') return contentToParts(block);

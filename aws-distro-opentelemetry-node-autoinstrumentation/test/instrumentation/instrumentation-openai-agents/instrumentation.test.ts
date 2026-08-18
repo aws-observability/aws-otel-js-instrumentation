@@ -326,7 +326,7 @@ describe('OpenAI Agents Instrumentation', function () {
     it('normalizes Responses API text, image, refusal, and reasoning blocks', function () {
       const processor = new OpenTelemetryTracingProcessor(trace.getTracer('openai-agents-content-test'), true) as any;
       expect(
-        processor._contentToParts([
+        processor._formatMessageParts([
           { type: 'input_text', text: 'describe' },
           { type: 'input_image', image: 'data:image/png;base64,AAAA' },
         ])

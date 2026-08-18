@@ -64,7 +64,7 @@ export function tryParseJson(value: string): unknown {
   }
 }
 
-export function serializeToJson(value: unknown, maxDepth: number = 10): string {
+function trySerializeToJson(value: unknown, maxDepth: number = 10): string | undefined {
   const ancestors = new WeakSet<object>();
   const sanitize = (obj: unknown, depth: number): unknown => {
     if (depth <= 0) return '...';
@@ -108,16 +108,24 @@ export function serializeToJson(value: unknown, maxDepth: number = 10): string {
     const serialized = JSON.stringify(sanitize(value, maxDepth));
     return serialized === undefined ? JSON.stringify('undefined') : serialized;
   } catch {
-    return JSON.stringify('[Unserializable]');
+    return undefined;
   }
 }
 
+export function serializeToJson(value: unknown, maxDepth: number = 10): string {
+  return trySerializeToJson(value, maxDepth) ?? JSON.stringify('[Unserializable]');
+}
+
 export function toToolAttributeValue(value: unknown): string | number | boolean | undefined {
-  if (value === undefined) return undefined;
-  if (value === null) return 'null';
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
-  const encodedBinary = binaryToBase64(value);
-  return encodedBinary ?? serializeToJson(value);
+  try {
+    if (value === undefined) return undefined;
+    if (value === null) return 'null';
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+    const encodedBinary = binaryToBase64(value);
+    return encodedBinary ?? trySerializeToJson(value);
+  } catch {
+    return undefined;
+  }
 }
 
 export function contentToParts(content: unknown): Array<Record<string, unknown>> {

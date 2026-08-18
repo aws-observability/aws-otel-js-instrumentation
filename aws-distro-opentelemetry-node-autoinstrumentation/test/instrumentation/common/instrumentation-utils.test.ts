@@ -170,6 +170,13 @@ describe('toToolAttributeValue', function () {
     expect(toToolAttributeValue({ result: 3 })).toBe('{"result":3}');
     expect(toToolAttributeValue(Buffer.from('hello'))).toBe('aGVsbG8=');
   });
+
+  it('omits values that cannot be serialized', function () {
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+
+    expect(toToolAttributeValue(revoked.proxy)).toBeUndefined();
+  });
 });
 
 describe('contentToParts', function () {

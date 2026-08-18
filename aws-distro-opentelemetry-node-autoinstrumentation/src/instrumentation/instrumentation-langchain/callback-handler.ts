@@ -568,12 +568,12 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         const isToolMessage = role === 'tool' && 'tool_call_id' in message && message.tool_call_id;
 
         if (role === 'system') {
-          systemInstructions.push(...OpenTelemetryCallbackHandler._toOtelMessageParts(message));
+          systemInstructions.push(...OpenTelemetryCallbackHandler._contentToParts(message));
           continue;
         }
 
         if (!isToolMessage) {
-          parts.push(...OpenTelemetryCallbackHandler._toOtelMessageParts(message));
+          parts.push(...OpenTelemetryCallbackHandler._contentToParts(message));
         }
 
         if (isToolMessage) {
@@ -623,7 +623,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
         if ('message' in generation) {
           const message = (generation as ChatGeneration).message;
-          parts.push(...OpenTelemetryCallbackHandler._toOtelMessageParts(message));
+          parts.push(...OpenTelemetryCallbackHandler._contentToParts(message));
 
           finishReason = OpenTelemetryCallbackHandler._extractFinishReason(generation);
         } else {
@@ -687,7 +687,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     }
   }
 
-  private static _toOtelMessageParts(message: BaseMessage): Array<Record<string, unknown>> {
+  private static _contentToParts(message: BaseMessage): Array<Record<string, unknown>> {
     const contentBlocks = message.contentBlocks.map(block => {
       if (block.type !== 'image') return block;
       if ('url' in block && typeof block.url === 'string') {

@@ -25,6 +25,13 @@ export function get(): MeterProvider | undefined {
   return instance;
 }
 
+// True once a MeterProvider has been bound. Used to decide whether metrics can be generated at all;
+// callers must not stamp the dedup marker on a span before this is true, or the backend would skip a
+// span the extension never metered.
+export function hasProvider(): boolean {
+  return instance !== undefined;
+}
+
 // Test-only reset so suites can rebind a fresh provider.
 export function resetForTest(): void {
   instance = undefined;

@@ -92,12 +92,22 @@ describe('SpanMetricsProcessor', () => {
     processor.onEnd(bad); // must not throw
   });
 
-  it('onStart stamps schema and lib-version on the span', () => {
+  it('onStart stamps schema and lib-version on the span when a MeterProvider is bound', () => {
     const setAttribute = sinon.spy();
     const span = { setAttribute } as unknown as Span;
     processor.onStart(span, {} as Context);
     assert.ok(setAttribute.calledWith('aws.otel.span.metrics.schema', 'v1'));
     assert.ok(setAttribute.calledWith('aws.otel.extension.lib.version', LIB_VERSION));
+  });
+
+  it('onStart does NOT stamp the dedup marker when no MeterProvider is bound', () => {
+    // B2: onEnd cannot generate a metric without a provider (e.g. OTEL_METRICS_EXPORTER=none), so
+    // marking the span would make the backend skip a span nobody metered — losing the metric.
+    holder.resetForTest();
+    const setAttribute = sinon.spy();
+    const span = { setAttribute } as unknown as Span;
+    new SpanMetricsProcessor().onStart(span, {} as Context);
+    assert.ok(setAttribute.notCalled, 'must not stamp any attribute without a bound provider');
   });
 
   it('onStart swallows exceptions', () => {

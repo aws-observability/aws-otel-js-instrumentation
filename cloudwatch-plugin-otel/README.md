@@ -39,18 +39,17 @@ Two pieces:
 ```js
 const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
-const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
 const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
-const { withSpanMetrics, bind } = require('@aws/cloudwatch-plugin-otel');
+const { withSpanMetrics } = require('@aws/cloudwatch-plugin-otel');
 
-// The extension records into a MeterProvider you own; construct and bind it.
-const meterProvider = new MeterProvider({
-  readers: [new PeriodicExportingMetricReader({ exporter: new OTLPMetricExporter() })],
-});
-bind(meterProvider);
-
+// Set OTEL_SERVICE_NAME (or `serviceName` / `resource` below) so metrics and traces share one
+// resource. NodeSDK builds a MeterProvider from the metric reader and registers it globally; the
+// extension records into that same provider automatically — no bind() call is needed in this mode.
 const sdk = new NodeSDK(withSpanMetrics({
   traceExporter: new OTLPTraceExporter(),
+  metricReader: new PeriodicExportingMetricReader({ exporter: new OTLPMetricExporter() }),
   instrumentations: [getNodeAutoInstrumentations()],
 }));
 sdk.start();
@@ -61,17 +60,38 @@ configured only `traceExporter` — converts it into a `BatchSpanProcessor` so y
 preserved (NodeSDK ignores `traceExporter` once `spanProcessors` is set). The deprecated singular
 `spanProcessor` option is not supported (a warning is logged and it is ignored).
 
+The extension records into the global `MeterProvider` that NodeSDK builds and registers. As long as
+you configure a metric reader (via the config above or `OTEL_METRICS_EXPORTER`), no explicit `bind()`
+is required — the metrics inherit the SDK's resource (your `service.name`). Call `bind(provider)`
+only if you keep a `MeterProvider` you do **not** register globally.
+
 ### Manual
 
 ```js
-const { TracerProvider, BatchSpanProcessor } = require('@opentelemetry/sdk-trace-node');
+const { NodeTracerProvider, BatchSpanProcessor } = require('@opentelemetry/sdk-trace-node');
+const { ParentBasedSampler, TraceIdRatioBasedSampler } = require('@opentelemetry/sdk-trace-base');
+const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
+const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
+const { resourceFromAttributes } = require('@opentelemetry/resources');
+const { ATTR_SERVICE_NAME } = require('@opentelemetry/semantic-conventions');
 const { SpanMetricsProcessor, AlwaysRecordSampler, bind } = require('@aws/cloudwatch-plugin-otel');
 
-bind(meterProvider); // your MeterProvider
+// One resource shared by metrics and traces so both carry the same service.name.
+const resource = resourceFromAttributes({ [ATTR_SERVICE_NAME]: 'my-service' });
 
-const tracerProvider = new TracerProvider({
-  sampler: AlwaysRecordSampler.create(mySampler),
-  spanProcessors: [new SpanMetricsProcessor(), new BatchSpanProcessor(myExporter)],
+// Build and bind the MeterProvider the extension records into.
+const meterProvider = new MeterProvider({
+  resource,
+  readers: [new PeriodicExportingMetricReader({ exporter: new OTLPMetricExporter() })],
+});
+bind(meterProvider);
+
+// Wrap your sampler so unsampled spans are still recorded (and therefore metered), then register.
+const tracerProvider = new NodeTracerProvider({
+  resource,
+  sampler: AlwaysRecordSampler.create(new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(0.05) })),
+  spanProcessors: [new SpanMetricsProcessor(), new BatchSpanProcessor(new OTLPTraceExporter())],
 });
 tracerProvider.register();
 ```
@@ -95,19 +115,18 @@ The extension records only into your existing metrics pipeline (it adds a metric
 new exporter or route) and keeps your sampling configuration unchanged.
 
 The table below reflects results **verified by the extension's unit + contract suites run
-end-to-end** (all modes, real instrumentation → OTLP → collector). A nightly
-`Span Metrics Extension - Compatibility` workflow re-runs them against the latest published
-OpenTelemetry packages so drift shows up as a red run.
+end-to-end** (all modes, real instrumentation → OTLP → collector).
 
 All three modes are verified end-to-end across the full range **`@opentelemetry/sdk-node` 0.203 →
-0.221** (with matching `auto-instrumentations-node` 0.60 → 0.79, `sdk-trace-base`/`sdk-metrics`
-2.7 → 2.10, `api` ^1.9). This spans both NodeSDK internal layouts (the pre-0.220 instance-field shape
-and the 0.220+ `start()`-local shape).
+0.221** (with matching `sdk-trace-base`/`sdk-metrics` 2.0 → 2.10 and `api` ^1.9). This spans both
+NodeSDK internal layouts (the pre-0.220 instance-field shape and the 0.220+ `start()`-local shape).
 
-| OpenTelemetry packages | Programmatic & Manual | Zero-code (`/register`) |
-|---|---|---|
-| `sdk-node` 0.203–0.219 (+ matching `auto-instrumentations-node`, `sdk-trace-base`/`sdk-metrics` 2.7–2.9) | ✅ Verified | ✅ Verified |
-| `sdk-node` 0.220–0.221 (+ `auto-instrumentations-node` 0.78–0.79, `sdk-trace-base`/`sdk-metrics` 2.10) | ✅ Verified | ✅ Verified |
+| `@opentelemetry/sdk-node` | matching `sdk-trace-base` / `sdk-metrics` | Programmatic & Manual | Zero-code (`/register`) |
+|---|---|---|---|
+| 0.203 (FIELD-layout floor) | 2.0.1 | ✅ Verified | ✅ Verified |
+| 0.219 (FIELD-layout ceiling) | 2.8.0 | ✅ Verified | ✅ Verified |
+| 0.220 (CONFIG-layout floor) | 2.9.0 | ✅ Verified | ✅ Verified |
+| 0.221 (CONFIG-layout ceiling) | 2.10.0 | ✅ Verified | ✅ Verified |
 
 **Guidance:**
 
@@ -119,8 +138,7 @@ and the 0.220+ `start()`-local shape).
   MeterProvider bound). If it encounters an unrecognized layout, or the self-check shows the extension
   is inert, it **fails safe** — it disables itself and logs a warning rather than mis-wiring your
   pipeline; traces and metrics continue with upstream behavior. This self-adapts to new `sdk-node`
-  releases that keep a known shape, without a version-allowlist bump. The nightly
-  compatibility workflow re-verifies against the latest release so any genuine drift surfaces early.
+  releases that keep a known shape, without a version-allowlist bump.
 
 ## Development
 

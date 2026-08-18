@@ -64,7 +64,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        channel: [pinned, latest] # pinned = the versions the module declares; latest = newest release
+        # pinned    = the versions the module declares (currently sdk-node 0.220+, the CONFIG layout)
+        # latest    = newest published release (CONFIG-layout ceiling)
+        # field-floor = the oldest supported sdk-node (0.203), which uses the pre-0.220 FIELD layout.
+        #   Without this leg CI would only ever exercise the CONFIG injection path; FIELD (most versions
+        #   released in the past year, and what many live deployments still run) would be untested.
+        channel: [pinned, latest, field-floor]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -84,6 +89,19 @@ jobs:
             @opentelemetry/sdk-trace-node@latest \
             @opentelemetry/sdk-metrics@latest \
             @opentelemetry/resources@latest
+      - name: Pin FIELD-layout floor (field-floor channel only)
+        if: matrix.channel == 'field-floor'
+        # sdk-node 0.203.0 is the FIELD-layout floor; the 2.0.1 SDK packages and
+        # auto-instrumentations-node 0.62.0 are the set that pairs with it (0.62.0 declares sdk-node
+        # ^0.203.0). api stays at the module's declared ^1.9 (a single shared copy is required).
+        run: |
+          npm install --no-audit --no-fund --save-dev \
+            @opentelemetry/sdk-node@0.203.0 \
+            @opentelemetry/auto-instrumentations-node@0.62.0 \
+            @opentelemetry/sdk-trace-base@2.0.1 \
+            @opentelemetry/sdk-trace-node@2.0.1 \
+            @opentelemetry/sdk-metrics@2.0.1 \
+            @opentelemetry/resources@2.0.1
       - name: Build (src + contract apps)
         run: |
           npx tsc -p .

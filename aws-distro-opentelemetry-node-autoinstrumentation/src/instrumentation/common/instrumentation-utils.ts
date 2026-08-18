@@ -102,7 +102,6 @@ export function toToolAttributeValue(value: unknown): string | number | boolean 
   }
 }
 
-// Keep this aligned with AWS OTel Python's content_to_parts contract.
 export function contentToParts(content: unknown): Array<Record<string, unknown>> {
   if (typeof content === 'string') {
     return content ? [{ type: 'text', content }] : [];
@@ -141,9 +140,11 @@ export function contentToParts(content: unknown): Array<Record<string, unknown>>
       const imageUrl = isRecord(block.image_url) ? block.image_url.url : undefined;
       if (typeof imageUrl !== 'string' || !imageUrl) continue;
       if (imageUrl.startsWith('data:')) {
-        const commaIndex = imageUrl.indexOf(',');
-        const header = commaIndex >= 0 ? imageUrl.slice(5, commaIndex) : imageUrl.slice(5);
-        const data = commaIndex >= 0 ? imageUrl.slice(commaIndex + 1) : '';
+        // https://www.rfc-editor.org/rfc/rfc2397#section-3
+        const payload = imageUrl.slice('data:'.length);
+        const commaIndex = payload.indexOf(',');
+        const header = commaIndex >= 0 ? payload.slice(0, commaIndex) : payload;
+        const data = commaIndex >= 0 ? payload.slice(commaIndex + 1) : '';
         parts.push({
           type: 'blob',
           modality: 'image',

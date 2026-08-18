@@ -1180,12 +1180,6 @@ describe('message formatting edge cases', function () {
     ]);
   });
 
-  it('does not throw when message content cannot be read', function () {
-    const revoked = Proxy.revocable({}, {});
-    revoked.revoke();
-    expect((OpenTelemetryCallbackHandler as any)._formatMessageParts(revoked.proxy)).toEqual([]);
-  });
-
   it('serializes multimodal and reasoning content as typed parts', async () => {
     contentCaptureInstrumentation.enable();
 

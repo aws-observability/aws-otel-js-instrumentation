@@ -688,29 +688,25 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   }
 
   private static _formatMessageParts(message: BaseMessage): Array<Record<string, unknown>> {
-    try {
-      const contentBlocks = message.contentBlocks.map(block => {
-        if (block.type !== 'image') return block;
-        if ('url' in block && typeof block.url === 'string') {
-          return { type: 'image_url', image_url: { url: block.url } };
-        }
-        return { ...block, mime_type: block.mime_type ?? block.mimeType };
-      });
-      const contentParts = contentToParts(contentBlocks).filter(
-        part => part.type !== 'tool_call' && part.type !== 'tool-call' && part.type !== 'tool_use'
-      );
-      const toolCallParts = isAIMessage(message)
-        ? (message.tool_calls ?? []).map((toolCall: ToolCall) => ({
-            type: 'tool_call',
-            id: toolCall.id ?? '',
-            name: toolCall.name,
-            arguments: toolCall.args,
-          }))
-        : [];
-      return [...contentParts, ...toolCallParts];
-    } catch {
-      return [];
-    }
+    const contentBlocks = message.contentBlocks.map(block => {
+      if (block.type !== 'image') return block;
+      if ('url' in block && typeof block.url === 'string') {
+        return { type: 'image_url', image_url: { url: block.url } };
+      }
+      return { ...block, mime_type: block.mime_type ?? block.mimeType };
+    });
+    const contentParts = contentToParts(contentBlocks).filter(
+      part => part.type !== 'tool_call' && part.type !== 'tool-call' && part.type !== 'tool_use'
+    );
+    const toolCallParts = isAIMessage(message)
+      ? (message.tool_calls ?? []).map((toolCall: ToolCall) => ({
+          type: 'tool_call',
+          id: toolCall.id ?? '',
+          name: toolCall.name,
+          arguments: toolCall.args,
+        }))
+      : [];
+    return [...contentParts, ...toolCallParts];
   }
 
   private static _normalizeFinishReason(raw: string): string {

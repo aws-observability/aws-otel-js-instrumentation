@@ -101,6 +101,26 @@ export class VercelAISpanProcessor implements SpanProcessor {
       transform: (v: string) => VercelAISpanProcessor.formatInputMessages(v),
     },
     {
+      from: 'ai.response.text',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (_: unknown, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
+    },
+    {
+      from: 'ai.response.object',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (_: unknown, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
+    },
+    {
+      from: 'ai.response.reasoning',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (_: unknown, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
+    },
+    {
+      from: 'ai.response.toolCalls',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (_: unknown, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(attrs),
+    },
+    {
       from: 'ai.prompt.tools',
       to: ATTR_GEN_AI_TOOL_DEFINITIONS,
       transform: (v: any) => VercelAISpanProcessor.formatToolDefinitions(v),
@@ -194,13 +214,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
       }
     }
 
-    if (!Object.prototype.hasOwnProperty.call(mutableAttrs, ATTR_GEN_AI_OUTPUT_MESSAGES)) {
-      const outputMessages = VercelAISpanProcessor.formatOutputMessages(mutableAttrs);
-      if (outputMessages !== undefined) {
-        mutableAttrs[ATTR_GEN_AI_OUTPUT_MESSAGES] = outputMessages;
-      }
-    }
-
     if (operationId === 'ai.generateText' || operationId === 'ai.streamText') {
       mutableAttrs[ATTR_GEN_AI_OPERATION_NAME] = this.isAgentSpan(span)
         ? GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT
@@ -276,7 +289,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     }
   }
 
-  private static formatOutputMessages(attrs: Record<string, any>): string | undefined {
+  private static formatOutputMessages(attrs: Record<string, unknown>): string | undefined {
     const parts: Array<Record<string, unknown>> = [];
     const text = attrs['ai.response.text'] ?? attrs['ai.response.object'];
     if (text !== undefined && text !== null) {

@@ -696,24 +696,10 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   }
 
   private static _messageContentParts(message: BaseMessage): Array<Record<string, unknown>> {
-    const blocks = [...message.contentBlocks];
-    if (isAIMessage(message) && message.tool_calls) {
-      for (const toolCall of message.tool_calls) {
-        const alreadyPresent = blocks.some(block => block.id === toolCall.id && block.name === toolCall.name);
-        if (!alreadyPresent) {
-          blocks.push({
-            type: 'tool_call',
-            id: toolCall.id,
-            name: toolCall.name,
-            args: toolCall.args,
-          });
-        }
-      }
-    }
-    return OpenTelemetryCallbackHandler._dedupeToolCalls(contentToParts(blocks));
-  }
-
-  private static _dedupeToolCalls(parts: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+    // Provider translators can omit normalized tool_calls from contentBlocks
+    // (notably Bedrock Converse), while other providers expose them in both.
+    // Convert both sources through the shared helper and collapse duplicates.
+    const parts = contentToParts([...message.contentBlocks, ...(isAIMessage(message) ? message.tool_calls ?? [] : [])]);
     const seen = new Set<string>();
     return parts.filter(part => {
       if (part.type !== 'tool_call') return true;

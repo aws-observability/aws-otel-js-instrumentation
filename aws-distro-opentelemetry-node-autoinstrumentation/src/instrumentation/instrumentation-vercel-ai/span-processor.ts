@@ -57,7 +57,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     {
       from: 'ai.model.provider',
       to: ATTR_GEN_AI_PROVIDER_NAME,
-      transform: (v: string) => VercelAISpanProcessor.mapProviderName(v),
+      transform: (v: string) => resolveProviderName(v),
     },
     { from: 'ai.model.id', to: ATTR_GEN_AI_REQUEST_MODEL },
     { from: 'ai.telemetry.functionId', to: ATTR_GEN_AI_AGENT_NAME },
@@ -370,10 +370,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
       default:
         return reason;
     }
-  }
-
-  private static mapProviderName(provider: string): string {
-    return resolveProviderName(provider);
   }
 
   private static inferOutputType(operationId: string): string | undefined {

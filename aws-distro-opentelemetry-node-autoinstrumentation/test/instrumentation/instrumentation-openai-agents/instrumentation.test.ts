@@ -128,10 +128,6 @@ function setCaptureContent(enabled: boolean): void {
   }
 }
 
-function expectNoOpenAiAttributes(span: ReadableSpan): void {
-  expect(Object.keys(span.attributes).filter(key => key.startsWith('open_ai.'))).toEqual([]);
-}
-
 describe('OpenAI Agents Instrumentation', function () {
   this.timeout(15000);
 
@@ -159,7 +155,6 @@ describe('OpenAI Agents Instrumentation', function () {
       expect(agentSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(GEN_AI_PROVIDER_NAME_VALUE_OPENAI);
       expect(agentSpan!.attributes[ATTR_GEN_AI_AGENT_NAME]).toBe('TestAgent');
       expect(agentSpan!.attributes[ATTR_GEN_AI_OUTPUT_TYPE]).toBe('text');
-      expectNoOpenAiAttributes(agentSpan!);
     });
 
     it('propagates model from child response to parent agent', async () => {
@@ -357,8 +352,22 @@ describe('OpenAI Agents Instrumentation', function () {
         },
       ]);
 
+      expect(exportedAgentSpan!.attributes['open_ai.agent.handoffs']).toEqual(['ReturnsAgent']);
+      expect(exportedAgentSpan!.attributes['open_ai.agent.tools']).toEqual(['get_order']);
+      expect(exportedAgentSpan!.attributes['open_ai.agent.name']).toBeUndefined();
+      expect(exportedAgentSpan!.attributes['open_ai.agent.output_type']).toBeUndefined();
+
+      expect(exportedTurnSpan!.attributes['open_ai.turn.turn']).toBe(1);
+      expect(JSON.parse(exportedTurnSpan!.attributes['open_ai.turn.usage'] as string)).toEqual(turnSpan.spanData.usage);
+      expect(exportedTurnSpan!.attributes['open_ai.turn.agent_name']).toBeUndefined();
+
+      expect(exportedTaskSpan!.attributes['open_ai.task.name']).toBe('Order workflow');
+      expect(JSON.parse(exportedTaskSpan!.attributes['open_ai.task.usage'] as string)).toEqual(taskSpan.spanData.usage);
+
       for (const span of spans) {
-        expectNoOpenAiAttributes(span);
+        expect(Object.keys(span.attributes).some(key => key.startsWith('open_ai.') && key.endsWith('.type'))).toBe(
+          false
+        );
       }
     });
   });
@@ -520,7 +529,6 @@ describe('OpenAI Agents Instrumentation', function () {
       );
       expect(agentSpan).toBeDefined();
       expect(agentSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK);
-      expectNoOpenAiAttributes(agentSpan!);
       const agentInput = JSON.parse(agentSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
       expect(agentInput).toEqual([
         {

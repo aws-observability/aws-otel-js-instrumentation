@@ -235,7 +235,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
 
     const spanType = spanData.type as string;
     if (spanType === 'task' || spanType === 'turn') {
-      this._setRunnerSpanEndAttributes(otelSpan, spanData);
+      this._setUsageAttributes(otelSpan, (spanData as Record<string, any>).usage);
     }
     this._mapSdkFieldsToAttributes(otelSpan, spanData);
   }
@@ -256,14 +256,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       this._propagateModelToAgent(parentId, model, GEN_AI_PROVIDER_NAME_VALUE_OPENAI);
     }
 
-    if (response.usage) {
-      if (response.usage.input_tokens != null) {
-        otelSpan.setAttribute(ATTR_GEN_AI_USAGE_INPUT_TOKENS, response.usage.input_tokens);
-      }
-      if (response.usage.output_tokens != null) {
-        otelSpan.setAttribute(ATTR_GEN_AI_USAGE_OUTPUT_TOKENS, response.usage.output_tokens);
-      }
-    }
+    this._setUsageAttributes(otelSpan, response.usage);
 
     if (response.temperature != null) {
       otelSpan.setAttribute(ATTR_GEN_AI_REQUEST_TEMPERATURE, response.temperature);
@@ -319,15 +312,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       this._propagateModelToAgent(parentId, model, resolvedProvider);
     }
 
-    const usage = spanData.usage as Record<string, any> | undefined;
-    const inputTokens = usage?.input_tokens ?? usage?.prompt_tokens;
-    const outputTokens = usage?.output_tokens ?? usage?.completion_tokens;
-    if (inputTokens != null) {
-      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_INPUT_TOKENS, inputTokens);
-    }
-    if (outputTokens != null) {
-      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_OUTPUT_TOKENS, outputTokens);
-    }
+    this._setUsageAttributes(otelSpan, spanData.usage as Record<string, any> | undefined);
 
     const finishReasons = this._getFinishReasons({ output: spanData.output });
     if (finishReasons.length > 0) {
@@ -369,15 +354,16 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     }
   }
 
-  private _setRunnerSpanEndAttributes(otelSpan: OtelSpan, spanData: SpanData): void {
-    const usage = (spanData as Record<string, any>).usage;
+  private _setUsageAttributes(otelSpan: OtelSpan, usage?: Record<string, any>): void {
     if (!usage || typeof usage !== 'object') return;
 
-    if (usage.input_tokens != null) {
-      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_INPUT_TOKENS, usage.input_tokens);
+    const inputTokens = usage.input_tokens ?? usage.prompt_tokens;
+    const outputTokens = usage.output_tokens ?? usage.completion_tokens;
+    if (inputTokens != null) {
+      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_INPUT_TOKENS, inputTokens);
     }
-    if (usage.output_tokens != null) {
-      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_OUTPUT_TOKENS, usage.output_tokens);
+    if (outputTokens != null) {
+      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_OUTPUT_TOKENS, outputTokens);
     }
     if (usage.cached_input_tokens != null) {
       otelSpan.setAttribute(ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS, usage.cached_input_tokens);
@@ -399,10 +385,12 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       const mapping = OpenTelemetryTracingProcessor.ATTRIBUTE_MAP.find(
         m => m.from === mapKey || m.from === `*.${field}`
       );
-      if (!mapping?.to) continue;
+      if (mapping && !mapping.to) continue;
 
       const attrValue = mapping?.transform ? mapping.transform(value, data) : value;
-      const attrName = mapping.to;
+      // For attributes without an equivalent OTel mapping, prepend open_ai to the attribute
+      // name to avoid dropping the data.
+      const attrName = mapping?.to ?? `open_ai.${mapKey}`;
 
       if (typeof attrValue === 'string' || typeof attrValue === 'number' || typeof attrValue === 'boolean') {
         otelSpan.setAttribute(attrName, attrValue);

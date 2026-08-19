@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix(agent-observability): preserve structured tool values, binary content, and typed multimodal/reasoning
+  message parts in native GenAI instrumentation
 - feat: attribute presigned S3 URLs as `AWS::S3` dependencies in Application Signals, opt-in via
   `OTEL_AWS_APPLICATION_SIGNALS_PRESIGNED_URL_ATTRIBUTION_ENABLED`
   ([#515](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/515))

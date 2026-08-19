@@ -46,7 +46,13 @@ import {
   GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
   GEN_AI_PROVIDER_NAME_VALUE_OPENAI,
 } from '../common/semconv';
-import { AttributeMapping, serializeToJson, tryParseJson } from '../common/instrumentation-utils';
+import {
+  AttributeMapping,
+  contentToParts,
+  serializeToJson,
+  toToolAttributeValue,
+  tryParseJson,
+} from '../common/instrumentation-utils';
 
 interface SpanEntry {
   otelSpan: OtelSpan;
@@ -243,10 +249,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
 
     if (this._captureMessageContent) {
       if (response.instructions) {
-        otelSpan.setAttribute(
-          ATTR_GEN_AI_SYSTEM_INSTRUCTIONS,
-          serializeToJson([{ type: 'text', content: response.instructions }])
-        );
+        otelSpan.setAttribute(ATTR_GEN_AI_SYSTEM_INSTRUCTIONS, serializeToJson(contentToParts(response.instructions)));
       }
 
       const inputMessages = this._formatInputMessages(spanData._input);
@@ -263,11 +266,13 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
 
   private _setFunctionEndAttributes(otelSpan: OtelSpan, spanData: FunctionSpanData): void {
     if (this._captureMessageContent) {
-      if (spanData.input) {
-        otelSpan.setAttribute(ATTR_GEN_AI_TOOL_CALL_ARGUMENTS, spanData.input);
+      const input = toToolAttributeValue(spanData.input);
+      if (input !== undefined && input !== '') {
+        otelSpan.setAttribute(ATTR_GEN_AI_TOOL_CALL_ARGUMENTS, input);
       }
-      if (spanData.output) {
-        otelSpan.setAttribute(ATTR_GEN_AI_TOOL_CALL_RESULT, spanData.output);
+      const output = toToolAttributeValue(spanData.output);
+      if (output !== undefined && output !== '') {
+        otelSpan.setAttribute(ATTR_GEN_AI_TOOL_CALL_RESULT, output);
       }
     }
   }
@@ -302,12 +307,17 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   }
 
   private _getFinishReasons(response: Record<string, any>): string[] {
+    const incompleteReason = response.incomplete_details?.reason;
+    if (typeof incompleteReason === 'string') {
+      return [incompleteReason === 'max_output_tokens' ? 'length' : incompleteReason];
+    }
+    if (response.status === 'failed') return ['error'];
     if (!response.output || !Array.isArray(response.output)) return [];
 
     const hasToolCalls = response.output.some((item: any) => item.type === 'function_call');
     const hasMessages = response.output.some((item: any) => item.type === 'message');
 
-    if (hasToolCalls) return ['tool_calls'];
+    if (hasToolCalls) return ['tool_call'];
     if (hasMessages) return ['stop'];
     return [];
   }
@@ -316,10 +326,10 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     if (!input || !Array.isArray(input)) return undefined;
 
     const formatted = input.map((item: Record<string, any>) => {
-      if (item.type === 'message') {
+      if (item.type === 'message' || ('role' in item && 'content' in item)) {
         return {
           role: item.role ?? 'user',
-          parts: [{ type: 'text', content: item.content ?? '' }],
+          parts: this._formatMessageParts(item.content),
         };
       }
       if (item.type === 'function_call') {
@@ -347,7 +357,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
           ],
         };
       }
-      return { role: 'user', parts: [{ type: 'text', content: JSON.stringify(item) }] };
+      return { role: 'user', parts: contentToParts(serializeToJson(item)) };
     });
 
     return serializeToJson(formatted);
@@ -359,11 +369,15 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     const parts: any[] = [];
     for (const item of output) {
       if (item.type === 'message' && item.content) {
-        for (const content of item.content) {
-          if (content.type === 'output_text') {
-            parts.push({ type: 'text', content: content.text ?? '' });
-          }
-        }
+        parts.push(...this._formatMessageParts(item.content));
+      } else if (item.type === 'reasoning') {
+        const summary = this._formatMessageParts(item.summary).filter(part => part.type === 'reasoning');
+        // Raw reasoning content is only a fallback when no provider-supplied summary exists.
+        parts.push(
+          ...(summary.length > 0
+            ? summary
+            : this._formatMessageParts(item.content).filter(part => part.type === 'reasoning'))
+        );
       } else if (item.type === 'function_call') {
         parts.push({
           type: 'tool_call',
@@ -383,6 +397,24 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
         finish_reason: finishReasons[0] ?? 'stop',
       },
     ]);
+  }
+
+  private _formatMessageParts(content: unknown): Array<Record<string, unknown>> {
+    const blocks = Array.isArray(content) ? content : [content];
+    return blocks.flatMap(block => {
+      if (!block || typeof block !== 'object') return contentToParts(block);
+      const value = block as Record<string, unknown>;
+      if (value.type === 'input_text' || value.type === 'output_text') {
+        return contentToParts({ type: 'text', text: value.text });
+      }
+      if (value.type === 'reasoning_text' || value.type === 'summary_text') {
+        return contentToParts({ type: 'reasoning', reasoning: value.text });
+      }
+      if (value.type === 'input_image' && typeof value.image === 'string') {
+        return contentToParts({ type: 'image_url', image_url: { url: value.image } });
+      }
+      return contentToParts(value);
+    });
   }
 
   private _propagateModelToAgent(parentId: string | null, model: string): void {

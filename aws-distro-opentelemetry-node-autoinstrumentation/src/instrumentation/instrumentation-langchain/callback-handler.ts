@@ -33,7 +33,7 @@ import {
   GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
   GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION,
 } from '../common/semconv';
-import { PROVIDER_MAP, serializeToJson } from '../common/instrumentation-utils';
+import { contentToParts, PROVIDER_MAP, serializeToJson, toToolAttributeValue } from '../common/instrumentation-utils';
 import type { Serialized } from '@langchain/core/load/serializable';
 import type { ChatGeneration, Generation, LLMResult } from '@langchain/core/outputs';
 import type { ChainValues } from '@langchain/core/utils/types';
@@ -277,7 +277,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this._setAttribute(span, ATTR_GEN_AI_TOOL_TYPE, 'function');
     this._setAttribute(span, ATTR_GEN_AI_TOOL_CALL_ID, toolCallId);
     if (this.captureMessageContent) {
-      this._setAttribute(span, ATTR_GEN_AI_TOOL_CALL_ARGUMENTS, input);
+      this._setAttribute(span, ATTR_GEN_AI_TOOL_CALL_ARGUMENTS, toToolAttributeValue(input));
     }
   }
 
@@ -286,8 +286,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       const entry = this.runIdToSpanMap.get(runId);
       if (entry?.span) {
         const content = output && typeof output === 'object' && 'content' in output ? output.content : output;
-        const outputStr = typeof content === 'string' ? content : serializeToJson(content);
-        this._setAttribute(entry.span, ATTR_GEN_AI_TOOL_CALL_RESULT, outputStr);
+        this._setAttribute(entry.span, ATTR_GEN_AI_TOOL_CALL_RESULT, toToolAttributeValue(content));
       }
     }
     this._endSpan(runId);
@@ -555,10 +554,10 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   //       ] },
   //     ]
   private static _formatMessages(messages: BaseMessage[][]): {
-    systemInstructions: Array<{ type: string; content: string }>;
+    systemInstructions: Array<Record<string, unknown>>;
     conversation: Array<{ role: string; parts: Array<Record<string, unknown>> }>;
   } {
-    const systemInstructions: Array<{ type: string; content: string }> = [];
+    const systemInstructions: Array<Record<string, unknown>> = [];
     const conversation: Array<{ role: string; parts: Array<Record<string, unknown>> }> = [];
 
     for (const messageGroup of messages) {
@@ -566,37 +565,26 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         const messageType = message.getType();
         const role = OpenTelemetryCallbackHandler._normalizeRole(messageType);
         const parts: Array<Record<string, unknown>> = [];
-
-        const textContent = OpenTelemetryCallbackHandler._extractTextContent(message.content);
-
         const isToolMessage = role === 'tool' && 'tool_call_id' in message && message.tool_call_id;
 
-        if (textContent && !isToolMessage) {
-          parts.push({ type: 'text', content: textContent });
+        if (role === 'system') {
+          systemInstructions.push(...OpenTelemetryCallbackHandler._formatMessageParts(message));
+          continue;
         }
 
-        if (isAIMessage(message) && message.tool_calls) {
-          for (const toolCall of message.tool_calls as ToolCall[]) {
-            parts.push({
-              type: 'tool_call',
-              id: toolCall.id ?? '',
-              name: toolCall.name,
-              arguments: toolCall.args,
-            });
-          }
+        if (!isToolMessage) {
+          parts.push(...OpenTelemetryCallbackHandler._formatMessageParts(message));
         }
 
         if (isToolMessage) {
           parts.push({
             type: 'tool_call_response',
             id: message.tool_call_id,
-            response: textContent,
+            response: message.content ?? '',
           });
         }
 
-        if (role === 'system') {
-          systemInstructions.push({ type: 'text', content: textContent });
-        } else if (parts.length > 0) {
+        if (parts.length > 0) {
           conversation.push({ role, parts });
         }
       }
@@ -635,29 +623,14 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
         if ('message' in generation) {
           const message = (generation as ChatGeneration).message;
-
-          const textContent = OpenTelemetryCallbackHandler._extractTextContent(message.content);
-
-          if (textContent) {
-            parts.push({ type: 'text', content: textContent });
-          }
-
-          if (isAIMessage(message) && message.tool_calls) {
-            for (const toolCall of message.tool_calls as ToolCall[]) {
-              parts.push({
-                type: 'tool_call',
-                id: toolCall.id ?? '',
-                name: toolCall.name,
-                arguments: toolCall.args,
-              });
-            }
-          }
+          parts.push(...OpenTelemetryCallbackHandler._formatMessageParts(message));
 
           finishReason = OpenTelemetryCallbackHandler._extractFinishReason(generation);
         } else {
           if (generation.text) {
             parts.push({ type: 'text', content: generation.text });
           }
+          finishReason = OpenTelemetryCallbackHandler._extractFinishReason(generation);
         }
 
         if (parts.length > 0) {
@@ -671,20 +644,6 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     }
 
     return outputMessages;
-  }
-
-  private static _extractTextContent(content: BaseMessage['content']): string {
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-      return content
-        .filter(
-          (block): block is { type: 'text'; text: string } =>
-            typeof block === 'object' && block !== null && 'type' in block && block.type === 'text'
-        )
-        .map(block => block.text)
-        .join('');
-    }
-    return '';
   }
 
   private static _extractFinishReasons(response: LLMResult): string[] {
@@ -726,6 +685,28 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       default:
         return messageType;
     }
+  }
+
+  private static _formatMessageParts(message: BaseMessage): Array<Record<string, unknown>> {
+    const contentBlocks = message.contentBlocks.map(block => {
+      if (block.type !== 'image') return block;
+      if ('url' in block && typeof block.url === 'string') {
+        return { type: 'image_url', image_url: { url: block.url } };
+      }
+      return { ...block, mime_type: block.mime_type ?? block.mimeType };
+    });
+    const contentParts = contentToParts(contentBlocks).filter(
+      part => part.type !== 'tool_call' && part.type !== 'tool-call' && part.type !== 'tool_use'
+    );
+    const toolCallParts = isAIMessage(message)
+      ? (message.tool_calls ?? []).map((toolCall: ToolCall) => ({
+          type: 'tool_call',
+          id: toolCall.id ?? '',
+          name: toolCall.name,
+          arguments: toolCall.args,
+        }))
+      : [];
+    return [...contentParts, ...toolCallParts];
   }
 
   private static _normalizeFinishReason(raw: string): string {

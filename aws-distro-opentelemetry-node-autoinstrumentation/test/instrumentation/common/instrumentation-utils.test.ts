@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { expect } from 'expect';
-import { serializeToJson } from '../../../src/instrumentation/common/instrumentation-utils';
+import {
+  contentToParts,
+  serializeToJson,
+  toToolAttributeValue,
+} from '../../../src/instrumentation/common/instrumentation-utils';
 
 describe('serializeToJson', function () {
   it('handles circular references', function () {
@@ -73,5 +77,79 @@ describe('serializeToJson', function () {
   it('truncates at maxDepth=0', function () {
     const result = serializeToJson({ a: 1 }, 0);
     expect(result).toBe('"..."');
+  });
+
+  it('base64-encodes binary values', function () {
+    const result = serializeToJson({
+      buffer: Buffer.from('hello'),
+      bytes: new Uint8Array([1, 2, 3]),
+    });
+    expect(JSON.parse(result)).toEqual({
+      buffer: 'aGVsbG8=',
+      bytes: 'AQID',
+    });
+  });
+});
+
+describe('toToolAttributeValue', function () {
+  it('keeps primitive values native', function () {
+    expect(toToolAttributeValue('')).toBe('');
+    expect(toToolAttributeValue('result')).toBe('result');
+    expect(toToolAttributeValue(42)).toBe(42);
+    expect(toToolAttributeValue(true)).toBe(true);
+    expect(toToolAttributeValue(null)).toBeUndefined();
+    expect(toToolAttributeValue(undefined)).toBeUndefined();
+  });
+
+  it('serializes structured and binary values', function () {
+    expect(toToolAttributeValue({ result: 3 })).toBe('{"result":3}');
+    expect(toToolAttributeValue(Buffer.from('hello'))).toBe('aGVsbG8=');
+  });
+
+  it('omits values that cannot be serialized', function () {
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    expect(toToolAttributeValue(revoked.proxy)).toBeUndefined();
+  });
+});
+
+describe('contentToParts', function () {
+  it('preserves unrecognized and typeless blocks', function () {
+    const parts = contentToParts([
+      { type: 'refusal', refusal: 'I cannot do that.' },
+      { payload: { answer: 42 }, label: 'structured' },
+    ]);
+    expect(parts).toEqual([
+      { type: 'refusal', refusal: 'I cannot do that.' },
+      { type: 'text', payload: { answer: 42 }, label: 'structured' },
+    ]);
+  });
+
+  it('maps multimodal and reasoning blocks to typed parts', function () {
+    const parts = contentToParts([
+      { type: 'text', text: 'describe' },
+      { type: 'thinking', thinking: 'reasoning' },
+      { type: 'image_url', image_url: { url: 'https://example.com/cat.png' } },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+    ]);
+    expect(parts).toEqual([
+      { type: 'text', content: 'describe' },
+      { type: 'reasoning', content: 'reasoning' },
+      { type: 'uri', modality: 'image', uri: 'https://example.com/cat.png' },
+      { type: 'blob', modality: 'image', mime_type: 'image/png', content: 'AAAA' },
+    ]);
+  });
+
+  it('keeps binary image data for JSON base64 serialization', function () {
+    const parts = contentToParts([{ type: 'image', media_type: 'image/png', data: Buffer.from('image') }]);
+    expect(JSON.parse(serializeToJson(parts))).toEqual([
+      { type: 'blob', modality: 'image', mime_type: 'image/png', content: 'aW1hZ2U=' },
+    ]);
+  });
+
+  it('does not throw for hostile content objects', function () {
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    expect(contentToParts(revoked.proxy)).toEqual([]);
   });
 });

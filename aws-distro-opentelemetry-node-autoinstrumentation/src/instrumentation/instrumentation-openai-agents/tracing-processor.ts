@@ -17,6 +17,7 @@ import type {
   Span as SdkSpan,
   Trace as SdkTrace,
   SpanData,
+  AgentSpanData,
   GenerationSpanData,
   ResponseSpanData,
   FunctionSpanData,
@@ -56,10 +57,15 @@ import {
   tryParseJson,
 } from '../common/instrumentation-utils';
 
+const AGENT_SPAN_TYPE: AgentSpanData['type'] = 'agent';
+
 interface SpanEntry {
   otelSpan: OtelSpan;
   otelContext: OtelContext;
-  hasInputMessages: boolean;
+  isAgentSpan: boolean;
+  // For agent spans, tracks whether the initial user input has been captured
+  // so later messages do not overwrite it.
+  hasCapturedFirstUserMessage: boolean;
 }
 
 export class OpenTelemetryTracingProcessor implements TracingProcessor {
@@ -131,7 +137,12 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     this._setStartAttributes(otelSpan, spanData);
 
     const otelContext = trace.setSpan(parentContext, otelSpan);
-    this._spanMap.set(sdkSpan.spanId, { otelSpan, otelContext, hasInputMessages: false });
+    this._spanMap.set(sdkSpan.spanId, {
+      otelSpan,
+      otelContext,
+      isAgentSpan: spanData.type === AGENT_SPAN_TYPE,
+      hasCapturedFirstUserMessage: false,
+    });
   }
 
   async onSpanEnd(span: SdkSpan<SpanData>): Promise<void> {
@@ -165,7 +176,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   private _getSpanNameAndKind(spanData: SpanData): { name: string; kind: SpanKind } {
     const data = spanData as Record<string, any>;
     switch (spanData.type) {
-      case 'agent':
+      case AGENT_SPAN_TYPE:
         return { name: `${GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT} ${data.name}`, kind: SpanKind.INTERNAL };
       case 'response': {
         const model = ((spanData as ResponseSpanData)._response as Record<string, any> | undefined)?.model;
@@ -522,26 +533,26 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   }
 
   private _propagateModelToAgent(parentId: string | null, model: string): void {
-    if (!parentId) return;
-    const parentEntry = this._spanMap.get(parentId);
-    if (!parentEntry?.otelSpan.isRecording()) return;
+    const parentEntry = this._getParentAgentEntry(parentId);
+    if (!parentEntry) return;
     parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_RESPONSE_MODEL, model);
   }
 
+  // Propagates the first user input and final assistant output to the parent agent span.
+  // Later assistant outputs replace earlier ones so the agent span retains the final response.
   private _propagateMessagesToAgent(
     parentId: string | null,
     inputMessages: string | undefined,
     outputMessages: string | undefined
   ): void {
-    if (!parentId) return;
-    const parentEntry = this._spanMap.get(parentId);
-    if (!parentEntry?.otelSpan.isRecording()) return;
+    const parentEntry = this._getParentAgentEntry(parentId);
+    if (!parentEntry) return;
 
-    if (!parentEntry.hasInputMessages && inputMessages) {
+    if (!parentEntry.hasCapturedFirstUserMessage && inputMessages) {
       const firstUserMessage = this._findMessageByRole(inputMessages, 'user');
       if (firstUserMessage) {
         parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson([firstUserMessage]));
-        parentEntry.hasInputMessages = true;
+        parentEntry.hasCapturedFirstUserMessage = true;
       }
     }
 
@@ -551,6 +562,13 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
         parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_OUTPUT_MESSAGES, serializeToJson([lastAssistantMessage]));
       }
     }
+  }
+
+  private _getParentAgentEntry(parentId: string | null): SpanEntry | undefined {
+    if (!parentId) return undefined;
+    const parentEntry = this._spanMap.get(parentId);
+    if (!parentEntry?.isAgentSpan || !parentEntry.otelSpan.isRecording()) return undefined;
+    return parentEntry;
   }
 
   private _findMessageByRole(

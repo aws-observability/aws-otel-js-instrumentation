@@ -212,6 +212,29 @@ describe('OpenAI Agents Instrumentation', function () {
         },
       ]);
     });
+
+    it('does not propagate model or messages to a non-agent parent', function () {
+      const processor = new OpenTelemetryTracingProcessor(
+        trace.getTracer('openai-agents-parent-type-test'),
+        true
+      ) as any;
+      const setAttribute = sinon.spy();
+      processor._spanMap.set('response-parent', {
+        otelSpan: { isRecording: () => true, setAttribute },
+        otelContext: undefined,
+        isAgentSpan: false,
+        hasCapturedFirstUserMessage: false,
+      });
+
+      processor._propagateModelToAgent('response-parent', OPENAI_MODEL);
+      processor._propagateMessagesToAgent(
+        'response-parent',
+        JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: 'Hello' }] }]),
+        JSON.stringify([{ role: 'assistant', parts: [{ type: 'text', content: 'Hi' }], finish_reason: 'stop' }])
+      );
+
+      expect(setAttribute.called).toBe(false);
+    });
   });
 
   describe('response spans', function () {

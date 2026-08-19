@@ -50,6 +50,21 @@ export const PROVIDER_MAP: Record<string, string> = {
   langchain_xai: GEN_AI_PROVIDER_NAME_VALUE_X_AI,
 };
 
+export function resolveProviderName(provider: string): string {
+  if (!provider) return provider;
+  const lower = provider.toLowerCase();
+
+  if (PROVIDER_MAP[lower]) return PROVIDER_MAP[lower];
+
+  for (const [prefix, mapped] of Object.entries(PROVIDER_MAP)) {
+    if (lower.startsWith(prefix + '.') || lower.startsWith(prefix + '-')) {
+      return mapped;
+    }
+  }
+
+  return provider;
+}
+
 export interface AttributeMapping {
   from: string;
   to?: string;

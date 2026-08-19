@@ -2,7 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { expect } from 'expect';
-import { serializeToJson } from '../../../src/instrumentation/common/instrumentation-utils';
+import { resolveProviderName, serializeToJson } from '../../../src/instrumentation/common/instrumentation-utils';
+
+describe('resolveProviderName', function () {
+  it('resolves exact and compound provider names', function () {
+    expect(resolveProviderName('amazon-bedrock')).toBe('aws.bedrock');
+    expect(resolveProviderName('openai.chat')).toBe('openai');
+    expect(resolveProviderName('anthropic.messages')).toBe('anthropic');
+    expect(resolveProviderName('google-generative-ai')).toBe('gcp.gen_ai');
+  });
+
+  it('preserves unknown and empty provider names', function () {
+    expect(resolveProviderName('custom.provider')).toBe('custom.provider');
+    expect(resolveProviderName('')).toBe('');
+  });
+});
 
 describe('serializeToJson', function () {
   it('handles circular references', function () {

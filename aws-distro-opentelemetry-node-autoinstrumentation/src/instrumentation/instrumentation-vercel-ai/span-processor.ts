@@ -41,7 +41,7 @@ import {
   GEN_AI_OUTPUT_TYPE_VALUE_JSON,
   GEN_AI_OUTPUT_TYPE_VALUE_TEXT,
 } from '../common/semconv';
-import { PROVIDER_MAP, serializeToJson } from '../common/instrumentation-utils';
+import { resolveProviderName, serializeToJson } from '../common/instrumentation-utils';
 import { LIB_VERSION } from '../../version';
 import { INSTRUMENTATION_NAME } from './instrumentation';
 import { AttributeMapping } from '../common/instrumentation-utils';
@@ -373,18 +373,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
   }
 
   private static mapProviderName(provider: string): string {
-    if (!provider) return provider;
-    const lower = provider.toLowerCase();
-
-    if (PROVIDER_MAP[lower]) return PROVIDER_MAP[lower];
-
-    for (const [prefix, mapped] of Object.entries(PROVIDER_MAP)) {
-      if (lower.startsWith(prefix + '.') || lower.startsWith(prefix + '-')) {
-        return mapped;
-      }
-    }
-
-    return provider;
+    return resolveProviderName(provider);
   }
 
   private static inferOutputType(operationId: string): string | undefined {

@@ -547,23 +547,18 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     const parentEntry = this._spanMap.get(parentId);
     if (!parentEntry?.isAgentSpan || !parentEntry.otelSpan.isRecording()) return;
 
-    const findMessageByRole = (
-      serializedMessages: string,
-      role: string,
-      fromEnd: boolean = false
-    ): Record<string, unknown> | undefined => {
+    const findFirstUserMessage = (serializedMessages: string): Record<string, unknown> | undefined => {
       const messages = tryParseJson(serializedMessages);
       if (!Array.isArray(messages)) return undefined;
 
-      const orderedMessages = fromEnd ? [...messages].reverse() : messages;
-      return orderedMessages.find(
+      return messages.find(
         (message): message is Record<string, unknown> =>
-          typeof message === 'object' && message !== null && !Array.isArray(message) && message.role === role
+          typeof message === 'object' && message !== null && !Array.isArray(message) && message.role === 'user'
       );
     };
 
     if (!parentEntry.hasCapturedFirstUserMessage && inputMessages) {
-      const firstUserMessage = findMessageByRole(inputMessages, 'user');
+      const firstUserMessage = findFirstUserMessage(inputMessages);
       if (firstUserMessage) {
         parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson([firstUserMessage]));
         parentEntry.hasCapturedFirstUserMessage = true;
@@ -571,10 +566,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     }
 
     if (outputMessages) {
-      const lastAssistantMessage = findMessageByRole(outputMessages, 'assistant', true);
-      if (lastAssistantMessage) {
-        parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_OUTPUT_MESSAGES, serializeToJson([lastAssistantMessage]));
-      }
+      parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_OUTPUT_MESSAGES, outputMessages);
     }
   }
 }

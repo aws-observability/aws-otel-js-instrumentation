@@ -28,8 +28,16 @@ import {
   ATTR_GEN_AI_OUTPUT_MESSAGES,
   ATTR_GEN_AI_OUTPUT_TYPE,
   ATTR_GEN_AI_PROVIDER_NAME,
+  ATTR_GEN_AI_REQUEST_CHOICE_COUNT,
+  ATTR_GEN_AI_REQUEST_ENCODING_FORMATS,
+  ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY,
+  ATTR_GEN_AI_REQUEST_MAX_TOKENS,
   ATTR_GEN_AI_REQUEST_MODEL,
+  ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY,
+  ATTR_GEN_AI_REQUEST_SEED,
+  ATTR_GEN_AI_REQUEST_STOP_SEQUENCES,
   ATTR_GEN_AI_REQUEST_TEMPERATURE,
+  ATTR_GEN_AI_REQUEST_TOP_K,
   ATTR_GEN_AI_REQUEST_TOP_P,
   ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
   ATTR_GEN_AI_RESPONSE_ID,
@@ -58,7 +66,7 @@ import {
   tryParseJson,
 } from '../common/instrumentation-utils';
 
-interface AgentSpanState {
+interface AgentSpanCaptureState {
   otelSpan: OtelSpan;
   // Tracks whether this agent span has already captured its initial user input
   // so later model calls do not overwrite it.
@@ -69,7 +77,7 @@ interface SpanEntry {
   otelSpan: OtelSpan;
   otelContext: OtelContext;
   // The nearest ancestor agent span, or this span itself when it is an agent.
-  agentSpan?: AgentSpanState;
+  agentSpan?: AgentSpanCaptureState;
 }
 
 export class OpenTelemetryTracingProcessor implements TracingProcessor {
@@ -79,6 +87,12 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   private static readonly ATTRIBUTE_MAP: AttributeMapping[] = [
     { from: 'agent.name', to: ATTR_GEN_AI_AGENT_NAME },
     { from: 'agent.output_type', to: ATTR_GEN_AI_OUTPUT_TYPE },
+    // AgentSpanData only exposes tool names, not their concrete SDK tool types.
+    {
+      from: 'agent.tools',
+      to: ATTR_GEN_AI_TOOL_DEFINITIONS,
+      transform: (tools: string[]) => tools.map(name => ({ type: 'tool', name })),
+    },
     { from: 'turn.agent_name', to: ATTR_GEN_AI_AGENT_NAME },
     { from: 'function.name', to: ATTR_GEN_AI_TOOL_NAME },
     { from: 'transcription.model', to: ATTR_GEN_AI_REQUEST_MODEL },
@@ -312,18 +326,12 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       this._propagateModelToAgent(parentId, model, resolvedProvider);
     }
 
+    this._setModelConfigAttributes(otelSpan, modelConfig);
     this._setUsageAttributes(otelSpan, spanData.usage as Record<string, any> | undefined);
 
     const finishReasons = this._getFinishReasons({ output: spanData.output });
     if (finishReasons.length > 0) {
       otelSpan.setAttribute(ATTR_GEN_AI_RESPONSE_FINISH_REASONS, finishReasons);
-    }
-
-    if (modelConfig?.temperature != null) {
-      otelSpan.setAttribute(ATTR_GEN_AI_REQUEST_TEMPERATURE, modelConfig.temperature);
-    }
-    if (modelConfig?.top_p != null) {
-      otelSpan.setAttribute(ATTR_GEN_AI_REQUEST_TOP_P, modelConfig.top_p);
     }
 
     if (this._captureMessageContent) {
@@ -370,6 +378,37 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     }
     if (usage.cache_write_input_tokens != null) {
       otelSpan.setAttribute(ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS, usage.cache_write_input_tokens);
+    }
+  }
+
+  private _setModelConfigAttributes(otelSpan: OtelSpan, modelConfig?: Record<string, any>): void {
+    if (!modelConfig) return;
+
+    const stopSequences = modelConfig.stop ?? modelConfig.stopSequences;
+    const encodingFormats = modelConfig.encoding_formats ?? modelConfig.encodingFormats;
+    const choiceCount = modelConfig.n ?? modelConfig.choiceCount;
+    const attributes: Array<[string, any]> = [
+      [ATTR_GEN_AI_REQUEST_TEMPERATURE, modelConfig.temperature],
+      [ATTR_GEN_AI_REQUEST_TOP_P, modelConfig.top_p ?? modelConfig.topP],
+      [ATTR_GEN_AI_REQUEST_TOP_K, modelConfig.top_k ?? modelConfig.topK],
+      [
+        ATTR_GEN_AI_REQUEST_MAX_TOKENS,
+        modelConfig.max_tokens ?? modelConfig.maxTokens ?? modelConfig.max_output_tokens ?? modelConfig.maxOutputTokens,
+      ],
+      [ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY, modelConfig.frequency_penalty ?? modelConfig.frequencyPenalty],
+      [ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY, modelConfig.presence_penalty ?? modelConfig.presencePenalty],
+      [ATTR_GEN_AI_REQUEST_SEED, modelConfig.seed],
+      [ATTR_GEN_AI_REQUEST_STOP_SEQUENCES, typeof stopSequences === 'string' ? [stopSequences] : stopSequences],
+      [ATTR_GEN_AI_REQUEST_ENCODING_FORMATS, typeof encodingFormats === 'string' ? [encodingFormats] : encodingFormats],
+    ];
+    if (choiceCount !== 1) {
+      attributes.push([ATTR_GEN_AI_REQUEST_CHOICE_COUNT, choiceCount]);
+    }
+
+    for (const [attribute, value] of attributes) {
+      if (value != null) {
+        otelSpan.setAttribute(attribute, value);
+      }
     }
   }
 

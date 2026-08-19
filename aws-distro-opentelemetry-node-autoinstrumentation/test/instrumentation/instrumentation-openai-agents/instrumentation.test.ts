@@ -17,7 +17,14 @@ import {
   ATTR_GEN_AI_OUTPUT_MESSAGES,
   ATTR_GEN_AI_OUTPUT_TYPE,
   ATTR_GEN_AI_PROVIDER_NAME,
+  ATTR_GEN_AI_REQUEST_CHOICE_COUNT,
+  ATTR_GEN_AI_REQUEST_ENCODING_FORMATS,
+  ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY,
+  ATTR_GEN_AI_REQUEST_MAX_TOKENS,
   ATTR_GEN_AI_REQUEST_MODEL,
+  ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY,
+  ATTR_GEN_AI_REQUEST_SEED,
+  ATTR_GEN_AI_REQUEST_STOP_SEQUENCES,
   ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
   ATTR_GEN_AI_RESPONSE_ID,
   ATTR_GEN_AI_RESPONSE_MODEL,
@@ -27,6 +34,7 @@ import {
   ATTR_GEN_AI_TOOL_NAME,
   ATTR_GEN_AI_TOOL_TYPE,
   ATTR_GEN_AI_REQUEST_TEMPERATURE,
+  ATTR_GEN_AI_REQUEST_TOP_K,
   ATTR_GEN_AI_REQUEST_TOP_P,
   ATTR_GEN_AI_TOOL_DEFINITIONS,
   ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
@@ -292,7 +300,19 @@ describe('OpenAI Agents Instrumentation', function () {
         spanData: {
           type: 'generation',
           model: 'amazon-bedrock:test-model',
-          model_config: { provider: 'amazon-bedrock' },
+          model_config: {
+            provider: 'amazon-bedrock',
+            temperature: 0.2,
+            top_p: 0.8,
+            top_k: 40,
+            max_tokens: 128,
+            frequency_penalty: 0.1,
+            presence_penalty: 0.3,
+            seed: 7,
+            n: 2,
+            stop: 'END',
+            encoding_formats: 'float',
+          },
           input: [{ role: 'user', content: [{ type: 'input_text', text: 'Where is my order?' }] }],
           output: [
             {
@@ -317,9 +337,11 @@ describe('OpenAI Agents Instrumentation', function () {
 
       const spans = getTestSpans();
       const exportedAgentSpan = spans.find(span => span.name === 'invoke_agent OrderAgent');
+      const exportedGenerationSpan = spans.find(span => span.name === 'chat test-model');
       const exportedTurnSpan = spans.find(span => span.name === 'turn');
       const exportedTaskSpan = spans.find(span => span.name === 'task Order workflow');
       expect(exportedAgentSpan).toBeDefined();
+      expect(exportedGenerationSpan).toBeDefined();
       expect(exportedTurnSpan).toBeDefined();
       expect(exportedTaskSpan).toBeDefined();
 
@@ -352,10 +374,25 @@ describe('OpenAI Agents Instrumentation', function () {
         },
       ]);
 
+      const toolDefinitions = JSON.parse(exportedAgentSpan!.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string);
+      await validateOtelGenaiSchema(toolDefinitions, 'gen-ai-tool-definitions');
+      expect(toolDefinitions).toEqual([{ type: 'tool', name: 'get_order' }]);
+
       expect(exportedAgentSpan!.attributes['open_ai.agent.handoffs']).toEqual(['ReturnsAgent']);
-      expect(exportedAgentSpan!.attributes['open_ai.agent.tools']).toEqual(['get_order']);
+      expect(exportedAgentSpan!.attributes['open_ai.agent.tools']).toBeUndefined();
       expect(exportedAgentSpan!.attributes['open_ai.agent.name']).toBeUndefined();
       expect(exportedAgentSpan!.attributes['open_ai.agent.output_type']).toBeUndefined();
+
+      expect(exportedGenerationSpan!.attributes[ATTR_GEN_AI_REQUEST_TEMPERATURE]).toBe(0.2);
+      expect(exportedGenerationSpan!.attributes[ATTR_GEN_AI_REQUEST_TOP_P]).toBe(0.8);
+      expect(exportedGenerationSpan!.attributes[ATTR_GEN_AI_REQUEST_TOP_K]).toBe(40);
+      expect(exportedGenerationSpan!.attributes[ATTR_GEN_AI_REQUEST_MAX_TOKENS]).toBe(128);
+      expect(exportedGenerationSpan!.attributes[ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY]).toBe(0.1);
+      expect(exportedGenerationSpan!.attributes[ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY]).toBe(0.3);
+      expect(exportedGenerationSpan!.attributes[ATTR_GEN_AI_REQUEST_SEED]).toBe(7);
+      expect(exportedGenerationSpan!.attributes[ATTR_GEN_AI_REQUEST_CHOICE_COUNT]).toBe(2);
+      expect(exportedGenerationSpan!.attributes[ATTR_GEN_AI_REQUEST_STOP_SEQUENCES]).toEqual(['END']);
+      expect(exportedGenerationSpan!.attributes[ATTR_GEN_AI_REQUEST_ENCODING_FORMATS]).toEqual(['float']);
 
       expect(exportedTurnSpan!.attributes['open_ai.turn.turn']).toBe(1);
       expect(JSON.parse(exportedTurnSpan!.attributes['open_ai.turn.usage'] as string)).toEqual(turnSpan.spanData.usage);

@@ -59,6 +59,7 @@ import {
 interface SpanEntry {
   otelSpan: OtelSpan;
   otelContext: OtelContext;
+  hasInputMessages: boolean;
 }
 
 export class OpenTelemetryTracingProcessor implements TracingProcessor {
@@ -130,7 +131,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     this._setStartAttributes(otelSpan, spanData);
 
     const otelContext = trace.setSpan(parentContext, otelSpan);
-    this._spanMap.set(sdkSpan.spanId, { otelSpan, otelContext });
+    this._spanMap.set(sdkSpan.spanId, { otelSpan, otelContext, hasInputMessages: false });
   }
 
   async onSpanEnd(span: SdkSpan<SpanData>): Promise<void> {
@@ -274,6 +275,8 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       if (outputMessages) {
         otelSpan.setAttribute(ATTR_GEN_AI_OUTPUT_MESSAGES, outputMessages);
       }
+
+      this._propagateMessagesToAgent(parentId, inputMessages, outputMessages);
     }
   }
 
@@ -327,6 +330,8 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       if (outputMessages) {
         otelSpan.setAttribute(ATTR_GEN_AI_OUTPUT_MESSAGES, outputMessages);
       }
+
+      this._propagateMessagesToAgent(parentId, inputMessages, outputMessages);
     }
   }
 
@@ -521,5 +526,45 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     const parentEntry = this._spanMap.get(parentId);
     if (!parentEntry?.otelSpan.isRecording()) return;
     parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_RESPONSE_MODEL, model);
+  }
+
+  private _propagateMessagesToAgent(
+    parentId: string | null,
+    inputMessages: string | undefined,
+    outputMessages: string | undefined
+  ): void {
+    if (!parentId) return;
+    const parentEntry = this._spanMap.get(parentId);
+    if (!parentEntry?.otelSpan.isRecording()) return;
+
+    if (!parentEntry.hasInputMessages && inputMessages) {
+      const firstUserMessage = this._findMessageByRole(inputMessages, 'user');
+      if (firstUserMessage) {
+        parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson([firstUserMessage]));
+        parentEntry.hasInputMessages = true;
+      }
+    }
+
+    if (outputMessages) {
+      const lastAssistantMessage = this._findMessageByRole(outputMessages, 'assistant', true);
+      if (lastAssistantMessage) {
+        parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_OUTPUT_MESSAGES, serializeToJson([lastAssistantMessage]));
+      }
+    }
+  }
+
+  private _findMessageByRole(
+    serializedMessages: string,
+    role: string,
+    fromEnd: boolean = false
+  ): Record<string, unknown> | undefined {
+    const messages = tryParseJson(serializedMessages);
+    if (!Array.isArray(messages)) return undefined;
+
+    const orderedMessages = fromEnd ? [...messages].reverse() : messages;
+    return orderedMessages.find(
+      (message): message is Record<string, unknown> =>
+        typeof message === 'object' && message !== null && !Array.isArray(message) && message.role === role
+    );
   }
 }

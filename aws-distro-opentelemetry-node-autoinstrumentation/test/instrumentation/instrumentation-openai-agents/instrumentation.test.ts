@@ -170,6 +170,48 @@ describe('OpenAI Agents Instrumentation', function () {
       expect(agentSpan).toBeDefined();
       expect(agentSpan!.attributes[ATTR_GEN_AI_RESPONSE_MODEL]).toBe('gpt-4o-mini-2024-07-18');
     });
+
+    it('captures the first user message and final response on the parent agent', async () => {
+      const getWeather = tool({
+        name: 'get_weather',
+        description: 'Get weather for a city',
+        parameters: z.object({ city: z.string() }),
+        execute: async ({ city }) => `Sunny in ${city}`,
+      });
+      const agent = new Agent({
+        name: 'ConversationAgent',
+        instructions: 'Use tools when needed.',
+        model: OPENAI_MODEL,
+        tools: [getWeather],
+      });
+
+      const runner = createRunner([OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE, OPENAI_RESPONSES_API_CHAT_RESPONSE]);
+      await runner.run(agent, 'Weather in Tokyo?');
+
+      const agentSpan = getTestSpans().find(
+        (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent'
+      );
+      expect(agentSpan).toBeDefined();
+
+      const inputMessages = JSON.parse(agentSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+      await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+      expect(inputMessages).toEqual([
+        {
+          role: 'user',
+          parts: [{ type: 'text', content: 'Weather in Tokyo?' }],
+        },
+      ]);
+
+      const outputMessages = JSON.parse(agentSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+      await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+      expect(outputMessages).toEqual([
+        {
+          role: 'assistant',
+          parts: [{ type: 'text', content: 'Paris is the capital of France.' }],
+          finish_reason: 'stop',
+        },
+      ]);
+    });
   });
 
   describe('response spans', function () {
@@ -323,6 +365,29 @@ describe('OpenAI Agents Instrumentation', function () {
           expect.objectContaining({ type: 'tool_call_response', id: 'call_bedrock_001' }),
         ])
       );
+
+      const agentSpan = getTestSpans().find(
+        (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent'
+      );
+      expect(agentSpan).toBeDefined();
+      const agentInput = JSON.parse(agentSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+      expect(agentInput).toEqual([
+        {
+          role: 'user',
+          parts: [{ type: 'text', content: 'What is the weather in Tokyo?' }],
+        },
+      ]);
+      const agentOutput = JSON.parse(agentSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+      expect(agentOutput[0]).toEqual(
+        expect.objectContaining({
+          role: 'assistant',
+          finish_reason: 'stop',
+        })
+      );
+      expect(agentOutput[0].parts).toContainEqual({
+        type: 'text',
+        content: 'Paris is the capital of France.',
+      });
     });
 
     for (const { name, rawProvider } of compoundProviderCases) {
@@ -646,10 +711,14 @@ describe('OpenAI Agents Instrumentation', function () {
 
       const spans = getTestSpans();
       const chatSpan = spans.find((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+      const agentSpan = spans.find((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent');
       expect(chatSpan).toBeDefined();
+      expect(agentSpan).toBeDefined();
       expect(chatSpan!.attributes[ATTR_GEN_AI_SYSTEM_INSTRUCTIONS]).toBeUndefined();
       expect(chatSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeUndefined();
       expect(chatSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeUndefined();
+      expect(agentSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeUndefined();
+      expect(agentSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeUndefined();
     });
   });
 

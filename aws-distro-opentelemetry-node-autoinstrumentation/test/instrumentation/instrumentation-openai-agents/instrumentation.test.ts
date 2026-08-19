@@ -41,6 +41,9 @@ import {
   ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_TOTAL_TOKENS,
+  ATTR_GEN_AI_WORKFLOW_NAME,
+  GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW,
   GEN_AI_PROVIDER_NAME_VALUE_AZURE_AI_OPENAI,
   GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,
   GEN_AI_PROVIDER_NAME_VALUE_OPENAI,
@@ -339,7 +342,7 @@ describe('OpenAI Agents Instrumentation', function () {
       const exportedAgentSpan = spans.find(span => span.name === 'invoke_agent OrderAgent');
       const exportedGenerationSpan = spans.find(span => span.name === 'chat test-model');
       const exportedTurnSpan = spans.find(span => span.name === 'turn');
-      const exportedTaskSpan = spans.find(span => span.name === 'task Order workflow');
+      const exportedTaskSpan = spans.find(span => span.name === 'invoke_workflow Order workflow');
       expect(exportedAgentSpan).toBeDefined();
       expect(exportedGenerationSpan).toBeDefined();
       expect(exportedTurnSpan).toBeDefined();
@@ -354,6 +357,7 @@ describe('OpenAI Agents Instrumentation', function () {
         expect(span.attributes[ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS]).toBe(7);
         expect(span.attributes[ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS]).toBe(3);
       }
+      expect(exportedTaskSpan!.attributes[ATTR_GEN_AI_USAGE_TOTAL_TOKENS]).toBe(51);
 
       const inputMessages = JSON.parse(exportedAgentSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
       await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
@@ -398,8 +402,12 @@ describe('OpenAI Agents Instrumentation', function () {
       expect(JSON.parse(exportedTurnSpan!.attributes['open_ai.turn.usage'] as string)).toEqual(turnSpan.spanData.usage);
       expect(exportedTurnSpan!.attributes['open_ai.turn.agent_name']).toBeUndefined();
 
-      expect(exportedTaskSpan!.attributes['open_ai.task.name']).toBe('Order workflow');
-      expect(JSON.parse(exportedTaskSpan!.attributes['open_ai.task.usage'] as string)).toEqual(taskSpan.spanData.usage);
+      expect(exportedTaskSpan!.attributes[ATTR_GEN_AI_OPERATION_NAME]).toBe(
+        GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW
+      );
+      expect(exportedTaskSpan!.attributes[ATTR_GEN_AI_WORKFLOW_NAME]).toBe('Order workflow');
+      expect(exportedTaskSpan!.attributes['open_ai.task.name']).toBeUndefined();
+      expect(exportedTaskSpan!.attributes['open_ai.task.usage']).toBeUndefined();
 
       for (const span of spans) {
         expect(Object.keys(span.attributes).some(key => key.startsWith('open_ai.') && key.endsWith('.type'))).toBe(

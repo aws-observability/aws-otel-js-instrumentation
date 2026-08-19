@@ -39,6 +39,8 @@ export const ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS = 'gen_ai.usage.cache
 export const ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS = 'gen_ai.usage.cache_read_input_tokens';
 export const ATTR_GEN_AI_USAGE_INPUT_TOKENS = 'gen_ai.usage.input_tokens';
 export const ATTR_GEN_AI_USAGE_OUTPUT_TOKENS = 'gen_ai.usage.output_tokens';
+export const ATTR_GEN_AI_USAGE_TOTAL_TOKENS = 'gen_ai.usage.total_tokens';
+export const ATTR_GEN_AI_WORKFLOW_NAME = 'gen_ai.workflow.name';
 export const ATTR_GEN_AI_OUTPUT_TYPE = 'gen_ai.output.type';
 
 export const GEN_AI_OPERATION_NAME_VALUE_CHAT = 'chat';
@@ -46,6 +48,7 @@ export const GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS = 'embeddings';
 export const GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL = 'execute_tool';
 export const GEN_AI_OPERATION_NAME_VALUE_GENERATE_CONTENT = 'generate_content';
 export const GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT = 'invoke_agent';
+export const GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW = 'invoke_workflow';
 export const GEN_AI_OPERATION_NAME_VALUE_RETRIEVAL = 'retrieval';
 export const GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION = 'text_completion';
 

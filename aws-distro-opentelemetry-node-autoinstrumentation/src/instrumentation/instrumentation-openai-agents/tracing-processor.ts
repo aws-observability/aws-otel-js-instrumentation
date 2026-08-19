@@ -52,9 +52,12 @@ import {
   ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_TOTAL_TOKENS,
+  ATTR_GEN_AI_WORKFLOW_NAME,
   GEN_AI_OPERATION_NAME_VALUE_CHAT,
   GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL,
   GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
+  GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW,
   GEN_AI_PROVIDER_NAME_VALUE_OPENAI,
 } from '../common/semconv';
 import {
@@ -93,6 +96,8 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       to: ATTR_GEN_AI_TOOL_DEFINITIONS,
       transform: (tools: string[]) => tools.map(name => ({ type: 'tool', name })),
     },
+    { from: 'task.name', to: ATTR_GEN_AI_WORKFLOW_NAME },
+    { from: 'task.usage' },
     { from: 'turn.agent_name', to: ATTR_GEN_AI_AGENT_NAME },
     { from: 'function.name', to: ATTR_GEN_AI_TOOL_NAME },
     { from: 'transcription.model', to: ATTR_GEN_AI_REQUEST_MODEL },
@@ -194,9 +199,15 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
 
   private _getSpanNameAndKind(spanData: SpanData): { name: string; kind: SpanKind } {
     const data = spanData as Record<string, any>;
-    switch (spanData.type) {
+    switch (spanData.type as string) {
       case 'agent':
-        return { name: `${GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT} ${spanData.name}`, kind: SpanKind.INTERNAL };
+        return { name: `${GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT} ${data.name}`, kind: SpanKind.INTERNAL };
+      case 'task': {
+        const name = data.name
+          ? `${GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW} ${data.name}`
+          : GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW;
+        return { name, kind: SpanKind.INTERNAL };
+      }
       case 'response': {
         const model = ((spanData as ResponseSpanData)._response as Record<string, any> | undefined)?.model;
         const name = model ? `${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${model}` : GEN_AI_OPERATION_NAME_VALUE_CHAT;
@@ -217,9 +228,12 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   private _setStartAttributes(otelSpan: OtelSpan, spanData: SpanData): void {
     otelSpan.setAttribute(ATTR_GEN_AI_PROVIDER_NAME, GEN_AI_PROVIDER_NAME_VALUE_OPENAI);
 
-    switch (spanData.type) {
+    switch (spanData.type as string) {
       case 'agent':
         otelSpan.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT);
+        break;
+      case 'task':
+        otelSpan.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW);
         break;
       case 'response':
       case 'generation':
@@ -372,6 +386,9 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     }
     if (outputTokens != null) {
       otelSpan.setAttribute(ATTR_GEN_AI_USAGE_OUTPUT_TOKENS, outputTokens);
+    }
+    if (usage.total_tokens != null) {
+      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_TOTAL_TOKENS, usage.total_tokens);
     }
     if (usage.cached_input_tokens != null) {
       otelSpan.setAttribute(ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS, usage.cached_input_tokens);

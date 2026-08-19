@@ -530,8 +530,9 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   }
 
   private _propagateModelToAgent(parentId: string | null, model: string): void {
-    const parentEntry = this._getParentAgentEntry(parentId);
-    if (!parentEntry) return;
+    if (!parentId) return;
+    const parentEntry = this._spanMap.get(parentId);
+    if (!parentEntry?.isAgentSpan || !parentEntry.otelSpan.isRecording()) return;
     parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_RESPONSE_MODEL, model);
   }
 
@@ -542,11 +543,27 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     inputMessages: string | undefined,
     outputMessages: string | undefined
   ): void {
-    const parentEntry = this._getParentAgentEntry(parentId);
-    if (!parentEntry) return;
+    if (!parentId) return;
+    const parentEntry = this._spanMap.get(parentId);
+    if (!parentEntry?.isAgentSpan || !parentEntry.otelSpan.isRecording()) return;
+
+    const findMessageByRole = (
+      serializedMessages: string,
+      role: string,
+      fromEnd: boolean = false
+    ): Record<string, unknown> | undefined => {
+      const messages = tryParseJson(serializedMessages);
+      if (!Array.isArray(messages)) return undefined;
+
+      const orderedMessages = fromEnd ? [...messages].reverse() : messages;
+      return orderedMessages.find(
+        (message): message is Record<string, unknown> =>
+          typeof message === 'object' && message !== null && !Array.isArray(message) && message.role === role
+      );
+    };
 
     if (!parentEntry.hasCapturedFirstUserMessage && inputMessages) {
-      const firstUserMessage = this._findMessageByRole(inputMessages, 'user');
+      const firstUserMessage = findMessageByRole(inputMessages, 'user');
       if (firstUserMessage) {
         parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson([firstUserMessage]));
         parentEntry.hasCapturedFirstUserMessage = true;
@@ -554,32 +571,10 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     }
 
     if (outputMessages) {
-      const lastAssistantMessage = this._findMessageByRole(outputMessages, 'assistant', true);
+      const lastAssistantMessage = findMessageByRole(outputMessages, 'assistant', true);
       if (lastAssistantMessage) {
         parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_OUTPUT_MESSAGES, serializeToJson([lastAssistantMessage]));
       }
     }
-  }
-
-  private _getParentAgentEntry(parentId: string | null): SpanEntry | undefined {
-    if (!parentId) return undefined;
-    const parentEntry = this._spanMap.get(parentId);
-    if (!parentEntry?.isAgentSpan || !parentEntry.otelSpan.isRecording()) return undefined;
-    return parentEntry;
-  }
-
-  private _findMessageByRole(
-    serializedMessages: string,
-    role: string,
-    fromEnd: boolean = false
-  ): Record<string, unknown> | undefined {
-    const messages = tryParseJson(serializedMessages);
-    if (!Array.isArray(messages)) return undefined;
-
-    const orderedMessages = fromEnd ? [...messages].reverse() : messages;
-    return orderedMessages.find(
-      (message): message is Record<string, unknown> =>
-        typeof message === 'object' && message !== null && !Array.isArray(message) && message.role === role
-    );
   }
 }

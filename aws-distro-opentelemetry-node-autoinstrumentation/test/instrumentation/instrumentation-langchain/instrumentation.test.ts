@@ -1688,7 +1688,7 @@ describe('invoke_agent spans', function () {
     ]);
   });
 
-  it('captures input/output fallbacks and honors the content-capture setting', function () {
+  it('captures input/output fallbacks and honors the content-capture setting', async function () {
     resetMemoryExporter();
     const serialized = {
       lc: 1,
@@ -1714,13 +1714,18 @@ describe('invoke_agent spans', function () {
     );
     const capturingSpan = agentSpans.find(span => span.name === 'invoke_agent AgentExecutor');
     expect(capturingSpan).toBeDefined();
-    expect(JSON.parse(capturingSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string)).toEqual([
+    const inputMessages = JSON.parse(capturingSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+    expect(inputMessages).toEqual([
       {
         role: 'user',
         parts: [{ type: 'text', content: 'Initial question' }],
       },
     ]);
-    expect(JSON.parse(capturingSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string)).toEqual([
+
+    const outputMessages = JSON.parse(capturingSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+    expect(outputMessages).toEqual([
       {
         role: 'assistant',
         parts: [{ type: 'text', content: 'Final answer' }],

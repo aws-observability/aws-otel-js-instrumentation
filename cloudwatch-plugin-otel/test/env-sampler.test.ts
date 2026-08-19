@@ -8,7 +8,26 @@ import {
   ParentBasedSampler,
   TraceIdRatioBasedSampler,
 } from '@opentelemetry/sdk-trace-base';
-import { defaultSampler, resolveEnvSampler, resolveEnvSamplerOrDefault } from '../src/internal/env-sampler';
+import {
+  defaultSampler,
+  envNumber,
+  envString,
+  resolveEnvSampler,
+  resolveEnvSamplerOrDefault,
+} from '../src/internal/env-sampler';
+
+// Sets an arbitrary env var (or unsets it when value is undefined), runs fn, and restores.
+function withVar(name: string, value: string | undefined, fn: () => void): void {
+  const prev = process.env[name];
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+  try {
+    fn();
+  } finally {
+    if (prev === undefined) delete process.env[name];
+    else process.env[name] = prev;
+  }
+}
 
 // Sets OTEL_TRACES_SAMPLER(+_ARG) the way a user would, resolves, and restores env afterward.
 function withEnv(sampler: string | undefined, arg: string | undefined, fn: () => void): void {
@@ -110,5 +129,52 @@ describe('resolveEnvSamplerOrDefault', () => {
 
   it('returns the configured env sampler when one is set', () => {
     withEnv('always_off', undefined, () => assert.ok(resolveEnvSamplerOrDefault() instanceof AlwaysOffSampler));
+  });
+});
+
+// These parsers are inlined (not imported from @opentelemetry/core, which is not a declared
+// dependency). Pin their behavior to core's getStringFromEnv/getNumberFromEnv contract so the
+// inlined copies cannot silently drift.
+describe('envString (inlined getStringFromEnv equivalent)', () => {
+  const VAR = 'SPAN_METRICS_TEST_STR';
+
+  it('returns undefined when unset', () => {
+    withVar(VAR, undefined, () => assert.strictEqual(envString(VAR), undefined));
+  });
+
+  it('treats an empty string as unset', () => {
+    withVar(VAR, '', () => assert.strictEqual(envString(VAR), undefined));
+  });
+
+  it('treats a whitespace-only string as unset', () => {
+    withVar(VAR, '   ', () => assert.strictEqual(envString(VAR), undefined));
+  });
+
+  it('returns a non-empty value verbatim (not trimmed)', () => {
+    withVar(VAR, 'abc', () => assert.strictEqual(envString(VAR), 'abc'));
+    withVar(VAR, ' x ', () => assert.strictEqual(envString(VAR), ' x '));
+  });
+});
+
+describe('envNumber (inlined getNumberFromEnv equivalent)', () => {
+  const VAR = 'SPAN_METRICS_TEST_NUM';
+
+  it('returns undefined when unset, blank, or whitespace', () => {
+    withVar(VAR, undefined, () => assert.strictEqual(envNumber(VAR), undefined));
+    withVar(VAR, '', () => assert.strictEqual(envNumber(VAR), undefined));
+    withVar(VAR, '   ', () => assert.strictEqual(envNumber(VAR), undefined));
+  });
+
+  it('returns undefined for a non-numeric value (NaN -> undefined)', () => {
+    withVar(VAR, 'abc', () => assert.strictEqual(envNumber(VAR), undefined));
+  });
+
+  it('parses valid numbers, including 0, negatives, >1, and scientific notation', () => {
+    withVar(VAR, '0', () => assert.strictEqual(envNumber(VAR), 0));
+    withVar(VAR, '0.5', () => assert.strictEqual(envNumber(VAR), 0.5));
+    withVar(VAR, '-1', () => assert.strictEqual(envNumber(VAR), -1));
+    withVar(VAR, '2', () => assert.strictEqual(envNumber(VAR), 2));
+    withVar(VAR, ' 3 ', () => assert.strictEqual(envNumber(VAR), 3));
+    withVar(VAR, '1e2', () => assert.strictEqual(envNumber(VAR), 100));
   });
 });

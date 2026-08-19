@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { diag } from '@opentelemetry/api';
-import { getNumberFromEnv, getStringFromEnv } from '@opentelemetry/core';
 import {
   AlwaysOffSampler,
   AlwaysOnSampler,
@@ -29,20 +28,47 @@ import {
  *      creation and post-construction replacement races with instrumentation that creates tracers
  *      during SDK start.
  *
- * So we mirror the OpenTelemetry env-sampler mapping using only PUBLIC sampler classes and core's
- * public env parsers (getStringFromEnv/getNumberFromEnv — identical numeric parsing to the SDK). The
- * mapping and the DEFAULT_RATIO/out-of-range fallback below are frozen by the OTel specification, so
- * drift risk is low; the nightly latest-version CI would surface any divergence.
+ * So we mirror the OpenTelemetry env-sampler mapping using only PUBLIC sampler classes. The env
+ * parsing (envString/envNumber below) is inlined rather than imported from `@opentelemetry/core`'s
+ * getStringFromEnv/getNumberFromEnv: core is not a declared dependency of this package (it is only
+ * present transitively via sdk-trace-base, at a version whose helper signatures we cannot pin), so
+ * importing it would break a standalone install. The parsing here matches core's behavior — blank or
+ * whitespace-only is treated as unset; a numeric value is Number()-parsed, with NaN treated as unset.
+ * The mapping and the DEFAULT_RATIO/out-of-range fallback below are frozen by the OTel specification.
  *
  * CRITICAL (this is the bug this file fixes): a blank, non-numeric, negative, or >1 ARG must fall
  * back to ratio 1 (record everything) exactly as the SDK does — NEVER to ratio 0, which would
  * silently drop all trace export while our 100% metrics masked the failure.
  */
 
+// Read an env var, treating unset OR blank/whitespace-only as absent (undefined). Mirrors core's
+// getStringFromEnv: emptiness is checked after trimming, but the original (untrimmed) value returns.
+// Exported for unit testing (the inlined parsers replace @opentelemetry/core; keep them verified).
+export function envString(name: string): string | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') {
+    return undefined;
+  }
+  return raw;
+}
+
+// Read an env var as a number, returning undefined when unset/blank/non-numeric. Mirrors core's
+// getNumberFromEnv (Number() parse; NaN -> undefined). Number() trims and accepts negatives, values
+// > 1, and scientific notation — the range check in ratioFromEnv handles out-of-range values.
+// Exported for unit testing.
+export function envNumber(name: string): number | undefined {
+  const raw = envString(name);
+  if (raw === undefined) {
+    return undefined;
+  }
+  const n = Number(raw);
+  return Number.isNaN(n) ? undefined : n;
+}
+
 const DEFAULT_RATIO = 1;
 
 function ratioFromEnv(): number {
-  const ratio = getNumberFromEnv('OTEL_TRACES_SAMPLER_ARG');
+  const ratio = envNumber('OTEL_TRACES_SAMPLER_ARG');
   if (ratio == null) {
     diag.warn(`[span-metrics] OTEL_TRACES_SAMPLER_ARG is blank or invalid; defaulting to ${DEFAULT_RATIO}.`);
     return DEFAULT_RATIO;
@@ -69,7 +95,7 @@ export function defaultSampler(): Sampler {
  * always wrap a sampler should use {@link resolveEnvSamplerOrDefault} instead.
  */
 export function resolveEnvSampler(): Sampler | undefined {
-  const name = getStringFromEnv('OTEL_TRACES_SAMPLER');
+  const name = envString('OTEL_TRACES_SAMPLER');
   if (name === undefined) {
     return undefined;
   }

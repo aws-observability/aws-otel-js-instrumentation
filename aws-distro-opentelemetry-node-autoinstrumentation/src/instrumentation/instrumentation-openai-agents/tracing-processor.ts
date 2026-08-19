@@ -40,6 +40,8 @@ import {
   ATTR_GEN_AI_TOOL_DEFINITIONS,
   ATTR_GEN_AI_TOOL_NAME,
   ATTR_GEN_AI_TOOL_TYPE,
+  ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
   GEN_AI_OPERATION_NAME_VALUE_CHAT,
@@ -56,13 +58,18 @@ import {
   tryParseJson,
 } from '../common/instrumentation-utils';
 
+interface AgentSpanState {
+  otelSpan: OtelSpan;
+  // Tracks whether this agent span has already captured its initial user input
+  // so later model calls do not overwrite it.
+  hasCapturedFirstUserMessage: boolean;
+}
+
 interface SpanEntry {
   otelSpan: OtelSpan;
   otelContext: OtelContext;
-  isAgentSpan: boolean;
-  // For agent spans, tracks whether the initial user input has been captured
-  // so later messages do not overwrite it.
-  hasCapturedFirstUserMessage: boolean;
+  // The nearest ancestor agent span, or this span itself when it is an agent.
+  agentSpan?: AgentSpanState;
 }
 
 export class OpenTelemetryTracingProcessor implements TracingProcessor {
@@ -72,6 +79,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   private static readonly ATTRIBUTE_MAP: AttributeMapping[] = [
     { from: 'agent.name', to: ATTR_GEN_AI_AGENT_NAME },
     { from: 'agent.output_type', to: ATTR_GEN_AI_OUTPUT_TYPE },
+    { from: 'turn.agent_name', to: ATTR_GEN_AI_AGENT_NAME },
     { from: 'function.name', to: ATTR_GEN_AI_TOOL_NAME },
     { from: 'transcription.model', to: ATTR_GEN_AI_REQUEST_MODEL },
     { from: 'speech.model', to: ATTR_GEN_AI_REQUEST_MODEL },
@@ -127,7 +135,8 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     const spanData = sdkSpan.spanData;
     if (!spanData?.type) return;
 
-    const parentContext = (sdkSpan.parentId && this._spanMap.get(sdkSpan.parentId)?.otelContext) || context.active();
+    const parentEntry = sdkSpan.parentId ? this._spanMap.get(sdkSpan.parentId) : undefined;
+    const parentContext = parentEntry?.otelContext || context.active();
     const { name, kind } = this._getSpanNameAndKind(spanData);
 
     const otelSpan = this._tracer.startSpan(name, { kind }, parentContext);
@@ -137,8 +146,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     this._spanMap.set(sdkSpan.spanId, {
       otelSpan,
       otelContext,
-      isAgentSpan: spanData.type === 'agent',
-      hasCapturedFirstUserMessage: false,
+      agentSpan: spanData.type === 'agent' ? { otelSpan, hasCapturedFirstUserMessage: false } : parentEntry?.agentSpan,
     });
   }
 
@@ -225,6 +233,10 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
         break;
     }
 
+    const spanType = spanData.type as string;
+    if (spanType === 'task' || spanType === 'turn') {
+      this._setRunnerSpanEndAttributes(otelSpan, spanData);
+    }
     this._mapSdkFieldsToAttributes(otelSpan, spanData);
   }
 
@@ -241,7 +253,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     if (model) {
       otelSpan.setAttribute(ATTR_GEN_AI_RESPONSE_MODEL, model);
       (otelSpan as any).name = `${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${model}`;
-      this._propagateModelToAgent(parentId, model);
+      this._propagateModelToAgent(parentId, model, GEN_AI_PROVIDER_NAME_VALUE_OPENAI);
     }
 
     if (response.usage) {
@@ -291,8 +303,9 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   private _setGenerationEndAttributes(otelSpan: OtelSpan, spanData: GenerationSpanData, parentId: string | null): void {
     const modelConfig = spanData.model_config;
     const provider = typeof modelConfig?.provider === 'string' ? modelConfig.provider : undefined;
-    if (provider) {
-      otelSpan.setAttribute(ATTR_GEN_AI_PROVIDER_NAME, resolveProviderName(provider));
+    const resolvedProvider = provider ? resolveProviderName(provider) : undefined;
+    if (resolvedProvider) {
+      otelSpan.setAttribute(ATTR_GEN_AI_PROVIDER_NAME, resolvedProvider);
     }
 
     let model = spanData.model;
@@ -303,7 +316,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       }
       otelSpan.setAttribute(ATTR_GEN_AI_REQUEST_MODEL, model);
       (otelSpan as any).name = `${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${model}`;
-      this._propagateModelToAgent(parentId, model);
+      this._propagateModelToAgent(parentId, model, resolvedProvider);
     }
 
     const usage = spanData.usage as Record<string, any> | undefined;
@@ -356,6 +369,24 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     }
   }
 
+  private _setRunnerSpanEndAttributes(otelSpan: OtelSpan, spanData: SpanData): void {
+    const usage = (spanData as Record<string, any>).usage;
+    if (!usage || typeof usage !== 'object') return;
+
+    if (usage.input_tokens != null) {
+      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_INPUT_TOKENS, usage.input_tokens);
+    }
+    if (usage.output_tokens != null) {
+      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_OUTPUT_TOKENS, usage.output_tokens);
+    }
+    if (usage.cached_input_tokens != null) {
+      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS, usage.cached_input_tokens);
+    }
+    if (usage.cache_write_input_tokens != null) {
+      otelSpan.setAttribute(ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS, usage.cache_write_input_tokens);
+    }
+  }
+
   private _mapSdkFieldsToAttributes(otelSpan: OtelSpan, spanData: SpanData): void {
     const type = spanData.type;
     const data = spanData as Record<string, any>;
@@ -368,12 +399,10 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       const mapping = OpenTelemetryTracingProcessor.ATTRIBUTE_MAP.find(
         m => m.from === mapKey || m.from === `*.${field}`
       );
-      if (mapping && !mapping.to) continue;
+      if (!mapping?.to) continue;
 
       const attrValue = mapping?.transform ? mapping.transform(value, data) : value;
-      // for attributes we don't have a equivalent OTel mapping to, prepend open_ai to the attribute
-      // name to avoid dropping the data
-      const attrName = mapping?.to ?? `open_ai.${mapKey}`;
+      const attrName = mapping.to;
 
       if (typeof attrValue === 'string' || typeof attrValue === 'number' || typeof attrValue === 'boolean') {
         otelSpan.setAttribute(attrName, attrValue);
@@ -529,11 +558,14 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     });
   }
 
-  private _propagateModelToAgent(parentId: string | null, model: string): void {
+  private _propagateModelToAgent(parentId: string | null, model: string, provider?: string): void {
     if (!parentId) return;
-    const parentEntry = this._spanMap.get(parentId);
-    if (!parentEntry?.isAgentSpan || !parentEntry.otelSpan.isRecording()) return;
-    parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_RESPONSE_MODEL, model);
+    const agentSpan = this._spanMap.get(parentId)?.agentSpan?.otelSpan;
+    if (!agentSpan?.isRecording()) return;
+    if (provider) {
+      agentSpan.setAttribute(ATTR_GEN_AI_PROVIDER_NAME, provider);
+    }
+    agentSpan.setAttribute(ATTR_GEN_AI_RESPONSE_MODEL, model);
   }
 
   // Propagates the first user input and final assistant output to the parent agent span.
@@ -544,8 +576,8 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     outputMessages: string | undefined
   ): void {
     if (!parentId) return;
-    const parentEntry = this._spanMap.get(parentId);
-    if (!parentEntry?.isAgentSpan || !parentEntry.otelSpan.isRecording()) return;
+    const agentSpan = this._spanMap.get(parentId)?.agentSpan;
+    if (!agentSpan?.otelSpan.isRecording()) return;
 
     const findFirstUserMessage = (serializedMessages: string): Record<string, unknown> | undefined => {
       const messages = tryParseJson(serializedMessages);
@@ -557,16 +589,16 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       );
     };
 
-    if (!parentEntry.hasCapturedFirstUserMessage && inputMessages) {
+    if (!agentSpan.hasCapturedFirstUserMessage && inputMessages) {
       const firstUserMessage = findFirstUserMessage(inputMessages);
       if (firstUserMessage) {
-        parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson([firstUserMessage]));
-        parentEntry.hasCapturedFirstUserMessage = true;
+        agentSpan.otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson([firstUserMessage]));
+        agentSpan.hasCapturedFirstUserMessage = true;
       }
     }
 
     if (outputMessages) {
-      parentEntry.otelSpan.setAttribute(ATTR_GEN_AI_OUTPUT_MESSAGES, outputMessages);
+      agentSpan.otelSpan.setAttribute(ATTR_GEN_AI_OUTPUT_MESSAGES, outputMessages);
     }
   }
 }

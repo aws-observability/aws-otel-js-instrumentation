@@ -29,6 +29,8 @@ import {
   ATTR_GEN_AI_REQUEST_TEMPERATURE,
   ATTR_GEN_AI_REQUEST_TOP_P,
   ATTR_GEN_AI_TOOL_DEFINITIONS,
+  ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
   GEN_AI_PROVIDER_NAME_VALUE_AZURE_AI_OPENAI,
@@ -126,6 +128,10 @@ function setCaptureContent(enabled: boolean): void {
   }
 }
 
+function expectNoOpenAiAttributes(span: ReadableSpan): void {
+  expect(Object.keys(span.attributes).filter(key => key.startsWith('open_ai.'))).toEqual([]);
+}
+
 describe('OpenAI Agents Instrumentation', function () {
   this.timeout(15000);
 
@@ -153,6 +159,7 @@ describe('OpenAI Agents Instrumentation', function () {
       expect(agentSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(GEN_AI_PROVIDER_NAME_VALUE_OPENAI);
       expect(agentSpan!.attributes[ATTR_GEN_AI_AGENT_NAME]).toBe('TestAgent');
       expect(agentSpan!.attributes[ATTR_GEN_AI_OUTPUT_TYPE]).toBe('text');
+      expectNoOpenAiAttributes(agentSpan!);
     });
 
     it('propagates model from child response to parent agent', async () => {
@@ -222,8 +229,6 @@ describe('OpenAI Agents Instrumentation', function () {
       processor._spanMap.set('response-parent', {
         otelSpan: { isRecording: () => true, setAttribute },
         otelContext: undefined,
-        isAgentSpan: false,
-        hasCapturedFirstUserMessage: false,
       });
 
       processor._propagateModelToAgent('response-parent', OPENAI_MODEL);
@@ -234,6 +239,127 @@ describe('OpenAI Agents Instrumentation', function () {
       );
 
       expect(setAttribute.called).toBe(false);
+    });
+
+    it('supports task and turn spans from newer OpenAI Agents SDK versions', async () => {
+      const processor = new OpenTelemetryTracingProcessor(
+        trace.getTracer('openai-agents-task-turn-compatibility-test'),
+        true
+      );
+      const taskSpan = {
+        spanId: 'task-span',
+        parentId: null,
+        spanData: {
+          type: 'task',
+          name: 'Order workflow',
+          usage: {
+            input_tokens: 42,
+            output_tokens: 9,
+            cached_input_tokens: 7,
+            cache_write_input_tokens: 3,
+            requests: 1,
+            total_tokens: 51,
+          },
+        },
+        error: null,
+      };
+      const agentSpan = {
+        spanId: 'agent-span',
+        parentId: taskSpan.spanId,
+        spanData: {
+          type: 'agent',
+          name: 'OrderAgent',
+          handoffs: ['ReturnsAgent'],
+          tools: ['get_order'],
+          output_type: 'text',
+        },
+        error: null,
+      };
+      const turnSpan = {
+        spanId: 'turn-span',
+        parentId: agentSpan.spanId,
+        spanData: {
+          type: 'turn',
+          turn: 1,
+          agent_name: 'OrderAgent',
+          usage: {
+            input_tokens: 42,
+            output_tokens: 9,
+            cached_input_tokens: 7,
+            cache_write_input_tokens: 3,
+          },
+        },
+        error: null,
+      };
+      const generationSpan = {
+        spanId: 'generation-span',
+        parentId: turnSpan.spanId,
+        spanData: {
+          type: 'generation',
+          model: 'amazon-bedrock:test-model',
+          model_config: { provider: 'amazon-bedrock' },
+          input: [{ role: 'user', content: [{ type: 'input_text', text: 'Where is my order?' }] }],
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'Your order has shipped.' }],
+            },
+          ],
+          usage: { input_tokens: 42, output_tokens: 9 },
+        },
+        error: null,
+      };
+
+      await processor.onSpanStart(taskSpan as any);
+      await processor.onSpanStart(agentSpan as any);
+      await processor.onSpanStart(turnSpan as any);
+      await processor.onSpanStart(generationSpan as any);
+      await processor.onSpanEnd(generationSpan as any);
+      await processor.onSpanEnd(turnSpan as any);
+      await processor.onSpanEnd(agentSpan as any);
+      await processor.onSpanEnd(taskSpan as any);
+
+      const spans = getTestSpans();
+      const exportedAgentSpan = spans.find(span => span.name === 'invoke_agent OrderAgent');
+      const exportedTurnSpan = spans.find(span => span.name === 'turn');
+      const exportedTaskSpan = spans.find(span => span.name === 'task Order workflow');
+      expect(exportedAgentSpan).toBeDefined();
+      expect(exportedTurnSpan).toBeDefined();
+      expect(exportedTaskSpan).toBeDefined();
+
+      expect(exportedAgentSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK);
+      expect(exportedAgentSpan!.attributes[ATTR_GEN_AI_RESPONSE_MODEL]).toBe('test-model');
+      expect(exportedTurnSpan!.attributes[ATTR_GEN_AI_AGENT_NAME]).toBe('OrderAgent');
+      for (const span of [exportedTurnSpan!, exportedTaskSpan!]) {
+        expect(span.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(42);
+        expect(span.attributes[ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]).toBe(9);
+        expect(span.attributes[ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS]).toBe(7);
+        expect(span.attributes[ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS]).toBe(3);
+      }
+
+      const inputMessages = JSON.parse(exportedAgentSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+      await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+      expect(inputMessages).toEqual([
+        {
+          role: 'user',
+          parts: [{ type: 'text', content: 'Where is my order?' }],
+        },
+      ]);
+
+      const outputMessages = JSON.parse(exportedAgentSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+      await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+      expect(outputMessages).toEqual([
+        {
+          role: 'assistant',
+          parts: [{ type: 'text', content: 'Your order has shipped.' }],
+          finish_reason: 'stop',
+        },
+      ]);
+
+      for (const span of spans) {
+        expectNoOpenAiAttributes(span);
+      }
     });
   });
 
@@ -393,6 +519,8 @@ describe('OpenAI Agents Instrumentation', function () {
         (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent'
       );
       expect(agentSpan).toBeDefined();
+      expect(agentSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK);
+      expectNoOpenAiAttributes(agentSpan!);
       const agentInput = JSON.parse(agentSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
       expect(agentInput).toEqual([
         {
@@ -434,6 +562,12 @@ describe('OpenAI Agents Instrumentation', function () {
         expect(generationSpan!.kind).toBe(SpanKind.CLIENT);
         expect(generationSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(providerCase.expectedProvider);
         expect(generationSpan!.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(providerCase.expectedModel);
+
+        const agentSpan = getTestSpans().find(
+          (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent'
+        );
+        expect(agentSpan).toBeDefined();
+        expect(agentSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(providerCase.expectedProvider);
       });
     }
 
@@ -461,6 +595,12 @@ describe('OpenAI Agents Instrumentation', function () {
       expect(generationSpan!.kind).toBe(SpanKind.CLIENT);
       expect(generationSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(GEN_AI_PROVIDER_NAME_VALUE_AZURE_AI_OPENAI);
       expect(generationSpan!.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(openaiCase.expectedModel);
+
+      const agentSpan = getTestSpans().find(
+        (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent'
+      );
+      expect(agentSpan).toBeDefined();
+      expect(agentSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(GEN_AI_PROVIDER_NAME_VALUE_AZURE_AI_OPENAI);
     });
 
     it('keeps OpenAI defaults for a native Chat Completions generation span', async () => {

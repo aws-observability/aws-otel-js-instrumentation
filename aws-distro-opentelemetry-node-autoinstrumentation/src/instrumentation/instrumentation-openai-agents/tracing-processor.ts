@@ -17,7 +17,6 @@ import type {
   Span as SdkSpan,
   Trace as SdkTrace,
   SpanData,
-  AgentSpanData,
   GenerationSpanData,
   ResponseSpanData,
   FunctionSpanData,
@@ -56,8 +55,6 @@ import {
   toToolAttributeValue,
   tryParseJson,
 } from '../common/instrumentation-utils';
-
-const AGENT_SPAN_TYPE: AgentSpanData['type'] = 'agent';
 
 interface SpanEntry {
   otelSpan: OtelSpan;
@@ -140,7 +137,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     this._spanMap.set(sdkSpan.spanId, {
       otelSpan,
       otelContext,
-      isAgentSpan: spanData.type === AGENT_SPAN_TYPE,
+      isAgentSpan: spanData.type === 'agent',
       hasCapturedFirstUserMessage: false,
     });
   }
@@ -176,8 +173,8 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   private _getSpanNameAndKind(spanData: SpanData): { name: string; kind: SpanKind } {
     const data = spanData as Record<string, any>;
     switch (spanData.type) {
-      case AGENT_SPAN_TYPE:
-        return { name: `${GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT} ${data.name}`, kind: SpanKind.INTERNAL };
+      case 'agent':
+        return { name: `${GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT} ${spanData.name}`, kind: SpanKind.INTERNAL };
       case 'response': {
         const model = ((spanData as ResponseSpanData)._response as Record<string, any> | undefined)?.model;
         const name = model ? `${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${model}` : GEN_AI_OPERATION_NAME_VALUE_CHAT;

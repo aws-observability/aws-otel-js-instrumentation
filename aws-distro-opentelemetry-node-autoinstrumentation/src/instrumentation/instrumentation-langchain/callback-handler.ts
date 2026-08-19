@@ -243,7 +243,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       if (this.captureMessageContent) {
         const payload = inputs.messages || inputs.input;
         if (payload) {
-          const messages = OpenTelemetryCallbackHandler._coerceMessages(payload);
+          const messages = OpenTelemetryCallbackHandler._normalizeChainMessages(payload);
           const { conversation } = OpenTelemetryCallbackHandler._formatMessages([messages]);
           if (conversation.length > 0) {
             this._setAttribute(span, ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson(conversation));
@@ -259,7 +259,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     if (this.captureMessageContent && entry?.span && entry.agentSpan === entry.span) {
       const payload = outputs.messages || outputs.output;
       if (payload) {
-        const messages = OpenTelemetryCallbackHandler._coerceMessages(payload);
+        const messages = OpenTelemetryCallbackHandler._normalizeChainMessages(payload);
         const { conversation } = OpenTelemetryCallbackHandler._formatMessages([messages]);
         if (conversation.length > 0) {
           const finalMessage = {
@@ -545,6 +545,17 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     return 'kwargs' in serialized ? serialized.kwargs : undefined;
   }
 
+  // Chain callbacks accept untyped values, unlike chat callbacks, so normalize
+  // message-like values before passing them to the shared formatter.
+  private static _normalizeChainMessages(payload: unknown): BaseMessage[] {
+    try {
+      const messageLikes = Array.isArray(payload) ? payload : [payload];
+      return messageLikes.map(message => coerceMessageLikeToMessage(message as BaseMessageLike));
+    } catch {
+      return [];
+    }
+  }
+
   // Converts LangChain messages to OTel format conversation and system instructions format based on
   // the following schemas:
   // https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-input-messages.json
@@ -701,15 +712,6 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       metadata.stopReason ??
       metadata.finishReason;
     return typeof rawReason === 'string' ? OpenTelemetryCallbackHandler._normalizeFinishReason(rawReason) : 'stop';
-  }
-
-  private static _coerceMessages(payload: unknown): BaseMessage[] {
-    try {
-      const messageLikes = Array.isArray(payload) ? payload : [payload];
-      return messageLikes.map(message => coerceMessageLikeToMessage(message as BaseMessageLike));
-    } catch {
-      return [];
-    }
   }
 
   private static _normalizeRole(messageType: string): string {

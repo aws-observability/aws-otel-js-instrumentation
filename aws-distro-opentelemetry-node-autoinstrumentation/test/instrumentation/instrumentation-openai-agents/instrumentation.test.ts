@@ -31,6 +31,7 @@ import {
   ATTR_GEN_AI_TOOL_DEFINITIONS,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+  GEN_AI_PROVIDER_NAME_VALUE_AZURE_AI_OPENAI,
   GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,
   GEN_AI_PROVIDER_NAME_VALUE_OPENAI,
 } from '../../../src/instrumentation/common/semconv';
@@ -40,9 +41,12 @@ import {
   FAKE_ANTHROPIC_KEY,
   FAKE_AWS_ACCESS_KEY_ID,
   FAKE_AWS_SECRET_ACCESS_KEY,
+  FAKE_COHERE_KEY,
   FAKE_GOOGLE_KEY,
+  FAKE_GROQ_KEY,
   FAKE_MISTRAL_KEY,
   FAKE_OPENAI_KEY,
+  FAKE_XAI_KEY,
   OPENAI_MODEL,
   OPENAI_RESPONSES_API_CHAT_RESPONSE,
   OPENAI_RESPONSES_API_CHAT_RESPONSE_WITH_TOOLS,
@@ -58,9 +62,13 @@ import { validateOtelGenaiSchema } from '../otel-schema-validator';
 import { Agent, Runner, tool, OpenAIProvider } from '@openai/agents';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
+import { createAzure } from '@ai-sdk/azure';
+import { createCohere } from '@ai-sdk/cohere';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createGroq } from '@ai-sdk/groq';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createXai } from '@ai-sdk/xai';
 import OpenAI from 'openai';
 import { z } from 'zod';
 
@@ -77,8 +85,14 @@ function createAiSdkLanguageModel(pc: ProviderTestCase): any {
       return createAnthropic({ apiKey: FAKE_ANTHROPIC_KEY, fetch })(pc.expectedModel);
     case ProviderName.GOOGLE:
       return createGoogleGenerativeAI({ apiKey: FAKE_GOOGLE_KEY, fetch })(pc.expectedModel);
+    case ProviderName.GROQ:
+      return createGroq({ apiKey: FAKE_GROQ_KEY, fetch })(pc.expectedModel);
     case ProviderName.MISTRAL:
       return createMistral({ apiKey: FAKE_MISTRAL_KEY, fetch }).chat(pc.expectedModel);
+    case ProviderName.COHERE:
+      return createCohere({ apiKey: FAKE_COHERE_KEY, fetch })(pc.expectedModel);
+    case ProviderName.XAI:
+      return createXai({ apiKey: FAKE_XAI_KEY, fetch }).chat(pc.expectedModel);
     default:
       throw new Error(`Unsupported AI-SDK provider test case: ${pc.name}`);
   }
@@ -225,10 +239,13 @@ describe('OpenAI Agents Instrumentation', function () {
 
   describe('generation spans', function () {
     const compoundProviderCases = [
-      { name: ProviderName.OPENAI, rawProvider: 'openai.chat', expectedProvider: 'openai' },
-      { name: ProviderName.ANTHROPIC, rawProvider: 'anthropic.messages', expectedProvider: 'anthropic' },
-      { name: ProviderName.GOOGLE, rawProvider: 'google.generative-ai', expectedProvider: 'gcp.gen_ai' },
-      { name: ProviderName.MISTRAL, rawProvider: 'mistral.chat', expectedProvider: 'mistral_ai' },
+      { name: ProviderName.OPENAI, rawProvider: 'openai.chat' },
+      { name: ProviderName.ANTHROPIC, rawProvider: 'anthropic.messages' },
+      { name: ProviderName.GOOGLE, rawProvider: 'google.generative-ai' },
+      { name: ProviderName.GROQ, rawProvider: 'groq.chat' },
+      { name: ProviderName.MISTRAL, rawProvider: 'mistral.chat' },
+      { name: ProviderName.COHERE, rawProvider: 'cohere.chat' },
+      { name: ProviderName.XAI, rawProvider: 'xai.chat' },
     ];
 
     it('translates Bedrock AI-SDK generation spans to GenAI attributes', async () => {
@@ -308,7 +325,7 @@ describe('OpenAI Agents Instrumentation', function () {
       );
     });
 
-    for (const { name, rawProvider, expectedProvider } of compoundProviderCases) {
+    for (const { name, rawProvider } of compoundProviderCases) {
       it(`resolves ${rawProvider} generation spans`, async () => {
         const providerCase = getProviderCases().find(pc => pc.name === name)!;
         const languageModel = createAiSdkLanguageModel(providerCase);
@@ -327,10 +344,36 @@ describe('OpenAI Agents Instrumentation', function () {
         expect(generationSpan).toBeDefined();
         expect(generationSpan!.name).toBe(`chat ${providerCase.expectedModel}`);
         expect(generationSpan!.kind).toBe(SpanKind.CLIENT);
-        expect(generationSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(expectedProvider);
+        expect(generationSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(providerCase.expectedProvider);
         expect(generationSpan!.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(providerCase.expectedModel);
       });
     }
+
+    it('resolves azure.chat generation spans', async () => {
+      const openaiCase = getProviderCases().find(pc => pc.name === ProviderName.OPENAI)!;
+      const languageModel = createAzure({
+        apiKey: FAKE_OPENAI_KEY,
+        resourceName: 'test-resource',
+        fetch: mockFetchJson(openaiCase.chatResponse),
+      }).chat(openaiCase.expectedModel);
+      expect(languageModel.provider).toBe('azure.chat');
+
+      const agent = new Agent({
+        name: 'AzureAgent',
+        instructions: 'Be helpful.',
+        model: aisdk(languageModel),
+      });
+      await new Runner({ tracingDisabled: false }).run(agent, 'What is the capital of France?');
+
+      const generationSpan = getTestSpans().find(
+        (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat'
+      );
+      expect(generationSpan).toBeDefined();
+      expect(generationSpan!.name).toBe(`chat ${openaiCase.expectedModel}`);
+      expect(generationSpan!.kind).toBe(SpanKind.CLIENT);
+      expect(generationSpan!.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(GEN_AI_PROVIDER_NAME_VALUE_AZURE_AI_OPENAI);
+      expect(generationSpan!.attributes[ATTR_GEN_AI_REQUEST_MODEL]).toBe(openaiCase.expectedModel);
+    });
 
     it('keeps OpenAI defaults for a native Chat Completions generation span', async () => {
       const openaiCase = getProviderCases().find(pc => pc.name === ProviderName.OPENAI)!;

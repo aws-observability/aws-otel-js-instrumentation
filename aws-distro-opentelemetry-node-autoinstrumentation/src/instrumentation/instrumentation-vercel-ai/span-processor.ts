@@ -44,7 +44,7 @@ import {
 import {
   AttributeMapping,
   contentToParts,
-  PROVIDER_MAP,
+  resolveProviderName,
   serializeToJson,
   toToolAttributeValue,
   tryParseJson,
@@ -63,7 +63,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     {
       from: 'ai.model.provider',
       to: ATTR_GEN_AI_PROVIDER_NAME,
-      transform: (v: string) => VercelAISpanProcessor.mapProviderName(v),
+      transform: (v: string) => resolveProviderName(v),
     },
     { from: 'ai.model.id', to: ATTR_GEN_AI_REQUEST_MODEL },
     { from: 'ai.telemetry.functionId', to: ATTR_GEN_AI_AGENT_NAME },
@@ -391,21 +391,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
       default:
         return reason;
     }
-  }
-
-  private static mapProviderName(provider: string): string {
-    if (!provider) return provider;
-    const lower = provider.toLowerCase();
-
-    if (PROVIDER_MAP[lower]) return PROVIDER_MAP[lower];
-
-    for (const [prefix, mapped] of Object.entries(PROVIDER_MAP)) {
-      if (lower.startsWith(prefix + '.') || lower.startsWith(prefix + '-')) {
-        return mapped;
-      }
-    }
-
-    return provider;
   }
 
   private static inferOutputType(operationId: string): string | undefined {

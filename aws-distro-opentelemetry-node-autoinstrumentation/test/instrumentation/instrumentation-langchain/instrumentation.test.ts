@@ -1667,6 +1667,74 @@ describe('invoke_agent spans', function () {
     expect(agentSpan.name).toBe('invoke_agent research-analyst');
     expect(agentSpan.attributes[ATTR_GEN_AI_OPERATION_NAME]).toBe('invoke_agent');
     expect(agentSpan.attributes[ATTR_GEN_AI_AGENT_NAME]).toBe('research-analyst');
+
+    const inputMessages = JSON.parse(agentSpan.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+    expect(inputMessages).toEqual([
+      {
+        role: 'user',
+        parts: [{ type: 'text', content: 'What is the weather?' }],
+      },
+    ]);
+
+    const outputMessages = JSON.parse(agentSpan.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+    expect(outputMessages).toEqual([
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'ok' }],
+        finish_reason: 'stop',
+      },
+    ]);
+  });
+
+  it('captures input/output fallbacks and honors the content-capture setting', function () {
+    resetMemoryExporter();
+    const serialized = {
+      lc: 1,
+      type: 'not_implemented' as const,
+      name: 'AgentExecutor',
+      id: ['langchain', 'agents', 'AgentExecutor'],
+    };
+    const output = new AIMessage({
+      content: 'Final answer',
+      response_metadata: { stop_reason: 'end_turn' },
+    });
+
+    const capturingHandler = new OpenTelemetryCallbackHandler(trace.getTracer('agent-content-test'), true);
+    capturingHandler.handleChainStart(serialized, { input: 'Initial question' }, 'capturing-agent');
+    capturingHandler.handleChainEnd({ output }, 'capturing-agent');
+
+    const disabledHandler = new OpenTelemetryCallbackHandler(trace.getTracer('agent-no-content-test'), false);
+    disabledHandler.handleChainStart(serialized, { input: 'Hidden question' }, 'disabled-agent');
+    disabledHandler.handleChainEnd({ output }, 'disabled-agent');
+
+    const agentSpans = getTestSpans().filter(
+      (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent'
+    );
+    const capturingSpan = agentSpans.find(span => span.name === 'invoke_agent AgentExecutor');
+    expect(capturingSpan).toBeDefined();
+    expect(JSON.parse(capturingSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string)).toEqual([
+      {
+        role: 'user',
+        parts: [{ type: 'text', content: 'Initial question' }],
+      },
+    ]);
+    expect(JSON.parse(capturingSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string)).toEqual([
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'Final answer' }],
+        finish_reason: 'stop',
+      },
+    ]);
+
+    const disabledSpan = agentSpans.find(
+      span =>
+        span.name === 'invoke_agent AgentExecutor' &&
+        span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] === undefined &&
+        span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] === undefined
+    );
+    expect(disabledSpan).toBeDefined();
   });
 });
 

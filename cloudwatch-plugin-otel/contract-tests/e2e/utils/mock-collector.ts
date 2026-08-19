@@ -18,6 +18,8 @@ export class MockCollector {
   private callsByName: Map<string, MetricDataPoint[]> = new Map<string, MetricDataPoint[]>();
   private durationSpanNames: Set<string> = new Set<string>();
   private durationUnit: string | undefined;
+  private callsUnit: string | undefined;
+  private metricResource: Record<string, string | number | boolean> | undefined;
 
   async start(port: number): Promise<void> {
     this.server = http.createServer((req, res) => {
@@ -53,6 +55,8 @@ export class MockCollector {
     this.callsByName.clear();
     this.durationSpanNames.clear();
     this.durationUnit = undefined;
+    this.callsUnit = undefined;
+    this.metricResource = undefined;
   }
 
   countExportedSpans(name: string): number {
@@ -78,6 +82,16 @@ export class MockCollector {
     return this.durationUnit;
   }
 
+  callsUnitSeen(): string | undefined {
+    return this.callsUnit;
+  }
+
+  // Resource attributes of the ResourceMetrics that carried the span metrics (service.name lives
+  // here, not on datapoints).
+  metricResourceAttributes(): Record<string, string | number | boolean> | undefined {
+    return this.metricResource;
+  }
+
   private ingestTraces(json: any): void {
     for (const rs of json.resourceSpans ?? []) {
       for (const ss of rs.scopeSpans ?? []) {
@@ -93,6 +107,8 @@ export class MockCollector {
       for (const sm of rm.scopeMetrics ?? []) {
         for (const m of sm.metrics ?? []) {
           if (m.name === 'traces.span.metrics.calls') {
+            this.callsUnit = m.unit;
+            this.metricResource = decodeAttributes(rm.resource?.attributes ?? []);
             for (const dp of m.sum?.dataPoints ?? []) {
               const attributes = decodeAttributes(dp.attributes ?? []);
               const value = Number(dp.asInt ?? dp.asDouble ?? 0);

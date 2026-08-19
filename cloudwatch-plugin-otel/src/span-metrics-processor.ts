@@ -88,8 +88,10 @@ export class SpanMetricsProcessor implements SpanProcessor {
       unit: 's',
       advice: { explicitBucketBoundaries: DURATION_BUCKETS_SECONDS },
     });
-    // calls counter is emitted with an unset (empty) unit for connector parity (spec §1).
-    this.calls = meter.createCounter(CALLS_METRIC);
+    // {call} is the UCUM annotation for counted things, matching OTel semconv counter conventions
+    // (cf. {request}, {operation}). The collector spanmetrics connector leaves the unit unset; the
+    // annotation is preferred because it states what is being counted.
+    this.calls = meter.createCounter(CALLS_METRIC, { unit: '{call}' });
     return true;
   }
 }

@@ -74,7 +74,7 @@ describe('Contract: DB attributes family (Postgres + pg)', function () {
     const attrs = collector.callsAttributes(SELECT_SPAN_NAME);
     assert.ok(attrs, `calls datapoint for "${SELECT_SPAN_NAME}" present`);
     assert.strictEqual(attrs!['span.kind'], 'CLIENT');
-    assert.strictEqual(attrs!['service.name'], 'contract-db');
+    assert.ok(!('service.name' in attrs!), 'service.name lives on the metric resource, not the datapoint');
 
     // The DB system attribute is copied. Accept either the current key (db.system.name) or, on older
     // instrumentation, the legacy key passed through unchanged (db.system) — the spec's DB legacy

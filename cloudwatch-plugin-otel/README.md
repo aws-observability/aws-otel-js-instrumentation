@@ -10,11 +10,12 @@ extension reflects all of it.
 
 It produces two metrics matching the SpanMetricsConnector schema:
 
-- `traces.span.metrics.calls` — Counter (monotonic sum), unit unset
+- `traces.span.metrics.calls` — Counter (monotonic sum), unit `{call}`
 - `traces.span.metrics.duration` — Histogram, unit `s` (seconds), SpanMetricsConnector default buckets
 
-with base dimensions `service.name`, `span.name`, `span.kind` (short form), `status.code` (short
-form), plus an allowlisted subset of semantic-convention attributes per span.
+with base dimensions `span.name`, `span.kind` (short form), `status.code` (short form), plus an
+allowlisted subset of semantic-convention attributes per span. `service.name` is carried by the
+metric's **resource** (the host SDK's resource), not duplicated on each datapoint.
 
 ## How it works
 

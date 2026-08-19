@@ -40,7 +40,7 @@ describe('SpanMetricsProcessor', () => {
     return result.resourceMetrics.scopeMetrics.flatMap(sm => sm.metrics);
   }
 
-  it('emits calls (empty unit, monotonic sum) and duration (seconds, connector buckets)', async () => {
+  it('emits calls ({call} unit, monotonic sum) and duration (seconds, connector buckets)', async () => {
     processor.onEnd(fakeSpan({ kind: SpanKind.SERVER, statusCode: SpanStatusCode.UNSET, durationSeconds: 0.005 }));
 
     const metrics = await collect();
@@ -49,8 +49,8 @@ describe('SpanMetricsProcessor', () => {
     assert.ok(calls, 'calls metric missing');
     assert.ok(duration, 'duration metric missing');
 
-    // calls: empty unit, sum = 1, short-form + marker attributes.
-    assert.strictEqual(calls!.descriptor.unit, '');
+    // calls: {call} unit (UCUM annotation), sum = 1, short-form + marker attributes.
+    assert.strictEqual(calls!.descriptor.unit, '{call}');
     assert.strictEqual(calls!.dataPointType, DataPointType.SUM);
     const callsDp = calls!.dataPoints[0];
     assert.strictEqual(callsDp.value, 1);

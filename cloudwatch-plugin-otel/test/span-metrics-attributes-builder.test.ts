@@ -8,14 +8,13 @@ import { LIB_VERSION } from '../src/identity';
 import { fakeSpan } from './test-utils';
 
 describe('SpanMetricsAttributesBuilder', () => {
-  it('emits the four base dimensions in short form plus schema/lib markers', () => {
+  it('emits the base dimensions in short form plus schema/lib markers', () => {
     const attrs = buildAttributes(
       fakeSpan({ name: 'GET /x', kind: SpanKind.CLIENT, statusCode: SpanStatusCode.ERROR })
     );
     assert.strictEqual(attrs['span.name'], 'GET /x');
     assert.strictEqual(attrs['span.kind'], 'CLIENT');
     assert.strictEqual(attrs['status.code'], 'ERROR');
-    assert.strictEqual(attrs['service.name'], 'svc');
     assert.strictEqual(attrs['aws.otel.span.metrics.schema'], 'v1');
     assert.strictEqual(attrs['aws.otel.extension.lib.version'], LIB_VERSION);
   });
@@ -41,9 +40,13 @@ describe('SpanMetricsAttributesBuilder', () => {
     }
   });
 
-  it('omits service.name when the resource has none', () => {
-    const attrs = buildAttributes(fakeSpan({ resourceAttributes: {} }));
-    assert.ok(!('service.name' in attrs));
+  it('never emits service.name as a datapoint attribute (it lives on the metric resource)', () => {
+    // Even when the span's resource carries service.name, the datapoint must not duplicate it: the
+    // metrics are recorded into the host MeterProvider, whose resource already has service.name.
+    const withResource = buildAttributes(fakeSpan({ resourceAttributes: { 'service.name': 'svc' } }));
+    assert.ok(!('service.name' in withResource));
+    const withoutResource = buildAttributes(fakeSpan({ resourceAttributes: {} }));
+    assert.ok(!('service.name' in withoutResource));
   });
 
   it('copies each allowlisted attribute only when present', () => {

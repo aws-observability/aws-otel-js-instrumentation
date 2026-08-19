@@ -5,8 +5,6 @@ import { Attributes, SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { LIB_VERSION, LIB_VERSION_ATTR, SCHEMA_ATTR, SCHEMA_VERSION } from './identity';
 
-const SERVICE_NAME = 'service.name';
-
 // Copied when present, regardless of span family (a span only carries the keys of its own family,
 // so no family branching is needed). Value TYPES are preserved as the span carries them:
 // http.response.status_code stays a number per semconv; everything else is a string.
@@ -52,23 +50,20 @@ const STATUS_CODE_NAMES: Record<SpanStatusCode, string> = {
   [SpanStatusCode.ERROR]: 'ERROR',
 };
 
-// Builds the metric attribute set: four base dimensions, any allowlisted semconv attribute present
-// on the span, and the identity/schema markers.
+// Builds the metric attribute set: the base dimensions, any allowlisted semconv attribute present
+// on the span, and the identity/schema markers. service.name is deliberately NOT a datapoint
+// attribute: the metric's resource already carries it (the extension records into the host SDK's
+// MeterProvider, whose resource includes service.name), so duplicating it per-datapoint would add a
+// redundant dimension. Consumers read service.name from the resource.
 export function buildAttributes(span: ReadableSpan): Attributes {
   const attributes: Attributes = {
     'span.name': span.name,
     'span.kind': SPAN_KIND_NAMES[span.kind] ?? 'INTERNAL',
     'status.code': STATUS_CODE_NAMES[span.status.code] ?? 'UNSET',
-    // Schema + library-version markers appear on both spans and metrics (spec §6).
+    // Schema + library-version markers appear on both spans and metrics.
     [SCHEMA_ATTR]: SCHEMA_VERSION,
     [LIB_VERSION_ATTR]: LIB_VERSION,
   };
-
-  // service.name: copied verbatim from the resource, no fallback (spec Q2). Omitted if absent.
-  const serviceName = span.resource.attributes[SERVICE_NAME];
-  if (serviceName !== undefined) {
-    attributes[SERVICE_NAME] = serviceName;
-  }
 
   const spanAttributes = span.attributes;
   for (const key of ALLOWLIST) {

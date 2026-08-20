@@ -658,8 +658,26 @@ describe('tool spans', function () {
     expect(span.name).toContain('execute_tool');
     expect(span.attributes[ATTR_GEN_AI_TOOL_NAME]).toBe('add_numbers');
     expect(span.attributes[ATTR_GEN_AI_TOOL_TYPE]).toBe('function');
-    expect(span.attributes[ATTR_GEN_AI_TOOL_CALL_ARGUMENTS]).toBeDefined();
+    expect(span.attributes[ATTR_GEN_AI_TOOL_CALL_ARGUMENTS]).toBe('{"a":1,"b":2}');
     expect(span.attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('3');
+  });
+
+  it('retains LangChain empty-string omission for tool results', async () => {
+    contentCaptureInstrumentation.enable();
+
+    const emptyTool = tool(async () => '', {
+      name: 'empty_tool',
+      description: 'Return an empty result',
+      schema: z.object({}),
+    });
+
+    await emptyTool.invoke({});
+
+    const toolSpan = getTestSpans().find(
+      (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_TOOL_NAME] === 'empty_tool'
+    );
+    expect(toolSpan).toBeDefined();
+    expect(toolSpan!.attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBeUndefined();
   });
 
   it('records error status on tool failure', async () => {
@@ -1093,6 +1111,48 @@ describe('message formatting edge cases', function () {
     expect(textParts.length).toBe(0);
   });
 
+  it('uses canonical tool_calls without dropping distinct calls', async () => {
+    contentCaptureInstrumentation.enable();
+
+    const llm = new FakeListChatModel({ responses: ['Done.'] });
+    await llm.invoke([
+      new HumanMessage('Run these'),
+      new AIMessage({
+        content: [{ type: 'tool_use', id: 'call_123', name: 'lookup', input: { query: 'otel' } }] as any,
+        tool_calls: [
+          { name: 'lookup', args: { query: 'otel' }, id: 'call_123', type: 'tool_call' },
+          { name: 'lookup', args: { q: 'first' }, id: 'call_a' },
+          { name: 'lookup', args: { q: 'second' }, id: 'call_b' },
+          { name: 'c', args: { q: 1 }, id: 'a:b', type: 'tool_call' },
+          { name: 'b:c', args: { q: 2 }, id: 'a', type: 'tool_call' },
+          { name: 'lookup', args: { q: 'first' } },
+          { name: 'lookup', args: { q: 'second' } },
+        ] as any,
+      }),
+    ]);
+
+    const chatSpan = getTestSpans().find(
+      (span: ReadableSpan) =>
+        span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' &&
+        span.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
+    expect(chatSpan).toBeDefined();
+    const inputMessages = JSON.parse(chatSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    const assistant = inputMessages.find((message: any) => message.role === 'assistant');
+    const toolCallParts = assistant.parts.filter((p: any) => p.type === 'tool_call');
+    expect(assistant.parts.every((part: any) => part.type === 'tool_call')).toBe(true);
+    expect(toolCallParts.map((part: any) => `${part.id}/${part.name}`)).toEqual([
+      'call_123/lookup',
+      'call_a/lookup',
+      'call_b/lookup',
+      'a:b/c',
+      'a/b:c',
+      '/lookup',
+      '/lookup',
+    ]);
+    expect(toolCallParts.slice(-2).map((part: any) => part.arguments)).toEqual([{ q: 'first' }, { q: 'second' }]);
+  });
+
   it('handles AI messages with array content blocks', async () => {
     contentCaptureInstrumentation.enable();
 
@@ -1114,8 +1174,78 @@ describe('message formatting edge cases', function () {
     expect(chatSpans.length).toBe(1);
 
     const inputMessages = JSON.parse(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
-    expect(inputMessages[0].parts[0].content).toContain('First part.');
-    expect(inputMessages[0].parts[0].content).toContain('Second part.');
+    expect(inputMessages[0].parts).toEqual([
+      { type: 'text', content: 'First part.' },
+      { type: 'text', content: ' Second part.' },
+    ]);
+  });
+
+  it('serializes multimodal and reasoning content as typed parts', async () => {
+    contentCaptureInstrumentation.enable();
+
+    const llm = new FakeListChatModel({ responses: ['ok'] });
+    const proto = Object.getPrototypeOf(llm);
+    const original = proto._generate;
+    proto._generate = async function (): Promise<ChatResult> {
+      return {
+        generations: [
+          {
+            message: new AIMessage({
+              content: [
+                { type: 'text', text: 'The answer is blue.' },
+                { type: 'thinking', thinking: 'Let me reason about this.' },
+                { type: 'image_url', image_url: { url: 'https://example.com/cat.png' } },
+                { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+              ] as any,
+              response_metadata: { finish_reason: 'stop' },
+            }),
+            text: 'The answer is blue.',
+            generationInfo: { finish_reason: 'stop' },
+          },
+        ],
+        llmOutput: { model_name: 'test' },
+      };
+    };
+
+    try {
+      await llm.invoke([
+        new HumanMessage({
+          content: [
+            { type: 'text', text: 'describe' },
+            { type: 'image_url', image_url: { url: 'https://example.com/cat.png' } },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+            { type: 'image', data: 'BBBB', media_type: 'image/webp' },
+          ] as any,
+        }),
+      ]);
+    } finally {
+      proto._generate = original;
+    }
+
+    const spans = getTestSpans();
+    const chatSpans = spans.filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
+    expect(chatSpans.length).toBe(1);
+
+    const inputMessages = JSON.parse(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+    expect(inputMessages[0].parts).toEqual([
+      { type: 'text', content: 'describe' },
+      { type: 'uri', modality: 'image', uri: 'https://example.com/cat.png' },
+      { type: 'blob', modality: 'image', mime_type: 'image/png', content: 'AAAA' },
+      { type: 'blob', modality: 'image', content: 'BBBB', mime_type: 'image/webp' },
+    ]);
+
+    const outputMessages = JSON.parse(chatSpans[0].attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+    expect(outputMessages[0].parts).toEqual([
+      { type: 'text', content: 'The answer is blue.' },
+      { type: 'reasoning', content: 'Let me reason about this.' },
+      { type: 'uri', modality: 'image', uri: 'https://example.com/cat.png' },
+      { type: 'blob', modality: 'image', mime_type: 'image/png', content: 'AAAA' },
+    ]);
   });
 
   it('suppresses chains with langgraph metadata', async () => {

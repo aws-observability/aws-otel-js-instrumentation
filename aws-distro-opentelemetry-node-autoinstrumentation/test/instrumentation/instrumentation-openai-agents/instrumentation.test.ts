@@ -5,10 +5,11 @@
 
 import { instrumentation } from './load-instrumentation';
 import { OpenAIAgentsInstrumentation } from '../../../src/instrumentation/instrumentation-openai-agents/instrumentation';
+import { OpenTelemetryTracingProcessor } from '../../../src/instrumentation/instrumentation-openai-agents/tracing-processor';
 import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-utils';
 import * as sinon from 'sinon';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
-import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
+import { SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   ATTR_GEN_AI_AGENT_NAME,
   ATTR_GEN_AI_INPUT_MESSAGES,
@@ -174,7 +175,7 @@ describe('OpenAI Agents Instrumentation', function () {
       const spans = getTestSpans();
       const chatSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
       const toolCallSpan = chatSpans.find((s: ReadableSpan) =>
-        (s.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS] as string[] | undefined)?.includes('tool_calls')
+        (s.attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS] as string[] | undefined)?.includes('tool_call')
       );
       expect(toolCallSpan).toBeDefined();
     });
@@ -208,6 +209,43 @@ describe('OpenAI Agents Instrumentation', function () {
       expect(toolSpan!.attributes[ATTR_GEN_AI_TOOL_TYPE]).toBe('function');
       expect(toolSpan!.attributes[ATTR_GEN_AI_TOOL_CALL_ARGUMENTS]).toBe('{"city":"Tokyo"}');
       expect(toolSpan!.attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('Sunny in Tokyo');
+    });
+
+    it('omits an empty SDK placeholder result from a real Runner tool span', async () => {
+      const emptyTool = tool({
+        name: 'empty_tool',
+        description: 'Return an empty result',
+        parameters: z.object({}),
+        execute: async () => '',
+      });
+      const agent = new Agent({
+        name: 'EmptyToolAgent',
+        instructions: 'Use the empty tool.',
+        model: OPENAI_MODEL,
+        tools: [emptyTool],
+      });
+      const toolCallResponse = {
+        ...OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE,
+        output: [
+          {
+            type: 'function_call',
+            id: 'fc_empty',
+            call_id: 'call_empty',
+            name: 'empty_tool',
+            arguments: '{}',
+            status: 'completed',
+          },
+        ],
+      };
+
+      await createRunner([toolCallResponse, OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(agent, 'Run the empty tool');
+
+      const toolSpan = getTestSpans().find(
+        (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_TOOL_NAME] === 'empty_tool'
+      );
+      expect(toolSpan).toBeDefined();
+      expect(toolSpan!.attributes[ATTR_GEN_AI_TOOL_CALL_ARGUMENTS]).toBe('{}');
+      expect(toolSpan!.attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBeUndefined();
     });
 
     it('does not capture tool arguments/result when captureMessageContent is false', async () => {
@@ -283,6 +321,52 @@ describe('OpenAI Agents Instrumentation', function () {
       await validateOtelGenaiSchema(parsedOutput, 'gen-ai-output-messages');
       expect(parsedOutput[0].role).toBe('assistant');
       expect(parsedOutput[0].parts[0].content).toBe('The answer is 4');
+    });
+
+    it('normalizes Responses API text, image, refusal, and reasoning blocks', function () {
+      const processor = new OpenTelemetryTracingProcessor(trace.getTracer('openai-agents-content-test'), true) as any;
+      expect(
+        processor._formatMessageParts([
+          { type: 'input_text', text: 'describe' },
+          { type: 'input_image', image: 'data:image/png;base64,AAAA' },
+        ])
+      ).toEqual([
+        { type: 'text', content: 'describe' },
+        { type: 'blob', modality: 'image', content: 'AAAA', mime_type: 'image/png' },
+      ]);
+
+      const outputMessages = JSON.parse(
+        processor._formatOutputMessages(
+          [
+            {
+              type: 'reasoning',
+              summary: [{ type: 'summary_text', text: 'A concise reasoning summary.' }],
+            },
+            {
+              type: 'message',
+              content: [
+                { type: 'output_text', text: 'The answer is blue.' },
+                { type: 'refusal', refusal: 'I cannot provide another detail.' },
+              ],
+            },
+          ],
+          ['stop']
+        )
+      );
+      expect(outputMessages[0].parts).toEqual([
+        { type: 'reasoning', content: 'A concise reasoning summary.' },
+        { type: 'text', content: 'The answer is blue.' },
+        { type: 'refusal', refusal: 'I cannot provide another detail.' },
+      ]);
+    });
+
+    it('maps incomplete response details to canonical finish reasons', function () {
+      const processor = new OpenTelemetryTracingProcessor(trace.getTracer('openai-agents-finish-test'), true) as any;
+      expect(processor._getFinishReasons({ incomplete_details: { reason: 'max_output_tokens' } })).toEqual(['length']);
+      expect(processor._getFinishReasons({ incomplete_details: { reason: 'content_filter' } })).toEqual([
+        'content_filter',
+      ]);
+      expect(processor._getFinishReasons({ status: 'failed' })).toEqual(['error']);
     });
 
     it('does not capture messages when disabled', async () => {

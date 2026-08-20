@@ -93,17 +93,30 @@ describe('withSpanMetrics', () => {
     assert.ok(out.spanProcessors![1] instanceof SpanMetricsProcessor);
   });
 
-  it('warns about and skips the deprecated singular spanProcessor', () => {
+  it('converts the deprecated singular spanProcessor into spanProcessors (with a warning)', () => {
+    // NodeSDK still honors the singular option (deprecated since 0.51.0); ignoring it here would
+    // silently drop the user's span export once we set spanProcessors (plural wins in NodeSDK).
     const warn = sinon.stub(diag, 'warn');
     try {
       const existing = { onStart() {}, onEnd() {}, forceFlush: async () => {}, shutdown: async () => {} };
       const out = withSpanMetrics({ spanProcessor: existing } as any);
-      // Not carried into spanProcessors — only ours is added.
-      assert.strictEqual(out.spanProcessors!.length, 1);
-      assert.ok(out.spanProcessors![0] instanceof SpanMetricsProcessor);
+      assert.strictEqual(out.spanProcessors!.length, 2);
+      assert.strictEqual(out.spanProcessors![0], existing, "the user's processor must be carried over first");
+      assert.ok(out.spanProcessors![1] instanceof SpanMetricsProcessor);
+      assert.strictEqual(out.spanProcessor, undefined, 'singular option must be removed, not left dangling');
       assert.ok(warn.calledOnce, 'a deprecation warning is logged');
     } finally {
       warn.restore();
     }
+  });
+
+  it('lets spanProcessors win over the singular spanProcessor (NodeSDK precedence)', () => {
+    const plural = { onStart() {}, onEnd() {}, forceFlush: async () => {}, shutdown: async () => {} };
+    const singular = { onStart() {}, onEnd() {}, forceFlush: async () => {}, shutdown: async () => {} };
+    const out = withSpanMetrics({ spanProcessors: [plural], spanProcessor: singular } as any);
+    assert.strictEqual(out.spanProcessors!.length, 2);
+    assert.strictEqual(out.spanProcessors![0], plural);
+    assert.ok(out.spanProcessors![1] instanceof SpanMetricsProcessor);
+    assert.ok(!out.spanProcessors!.includes(singular), 'singular loses to plural, as in NodeSDK');
   });
 });

@@ -59,7 +59,8 @@ sdk.start();
 `withSpanMetrics(config)` wraps your sampler (if set), appends the span processor, and — if you
 configured only `traceExporter` — converts it into a `BatchSpanProcessor` so your span export is
 preserved (NodeSDK ignores `traceExporter` once `spanProcessors` is set). The deprecated singular
-`spanProcessor` option is not supported (a warning is logged and it is ignored).
+`spanProcessor` option is honored with NodeSDK's own precedence (converted into `spanProcessors`,
+with a deprecation warning) — please migrate to `spanProcessors`.
 
 The extension records into the global `MeterProvider` that NodeSDK builds and registers. As long as
 you configure a metric reader (via the config above or `OTEL_METRICS_EXPORTER`), no explicit `bind()`

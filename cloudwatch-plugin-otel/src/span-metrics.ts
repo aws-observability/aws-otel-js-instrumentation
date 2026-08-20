@@ -39,7 +39,9 @@ export function bind(meterProvider: MeterProvider): void {
  * the user's span export. We mirror the SDK's own default wrapping (new BatchSpanProcessor(exporter))
  * and remove traceExporter so the SDK does not see both.
  *
- * The deprecated singular spanProcessor option is not supported: it is warned about and skipped.
+ * The deprecated singular spanProcessor option is honored with NodeSDK's own precedence
+ * (spanProcessors > spanProcessor > traceExporter) and converted into the spanProcessors list, with
+ * a deprecation warning.
  *
  * Pure transform on public config fields; no patching. The caller still binds the MeterProvider
  * after start via {@link bind} (the SDK owns it).
@@ -53,16 +55,20 @@ export function withSpanMetrics<T extends NodeSdkConfigLike>(config: T): T {
   const base = config.sampler ?? resolveEnvSamplerOrDefault();
   config.sampler = AlwaysRecordSampler.create(base);
 
-  if (config.spanProcessor) {
-    diag.warn(
-      "[span-metrics] the deprecated 'spanProcessor' (singular) NodeSDK option is not supported by " +
-        "withSpanMetrics and will be ignored; use 'spanProcessors' instead."
-    );
-  }
-
   let processors: SpanProcessor[];
   if (config.spanProcessors) {
     processors = [...config.spanProcessors];
+  } else if (config.spanProcessor) {
+    // Deprecated singular option (sdk-node 0.51.0, 2024-04): honored exactly as NodeSDK still does
+    // (plural > singular > traceExporter precedence), then removed so it cannot dangle beside the
+    // spanProcessors list we set below. Ignoring it would silently drop the user's span export while
+    // our 100% metrics masked the loss. Remove this branch when upstream NodeSDK removes the option.
+    diag.warn(
+      "[span-metrics] the 'spanProcessor' (singular) NodeSDK option is deprecated; it was converted " +
+        "to 'spanProcessors'. Please migrate to 'spanProcessors'."
+    );
+    processors = [config.spanProcessor];
+    delete config.spanProcessor;
   } else if (config.traceExporter) {
     // Convert the lone traceExporter to a processor (mirrors NodeSDK's default) and drop it, so the
     // SDK does not ignore it once spanProcessors is set below.

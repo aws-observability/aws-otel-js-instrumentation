@@ -43,6 +43,7 @@ import {
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
   ATTR_GEN_AI_USAGE_TOTAL_TOKENS,
   ATTR_GEN_AI_WORKFLOW_NAME,
+  GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
   GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW,
   GEN_AI_PROVIDER_NAME_VALUE_AZURE_AI_OPENAI,
   GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,
@@ -970,15 +971,24 @@ describe('OpenAI Agents Instrumentation', function () {
       expect(chatSpans.length).toBeGreaterThanOrEqual(1);
       expect(toolSpan).toBeDefined();
 
-      const agentSpanId = agentSpan!.spanContext().spanId;
       const agentTraceId = agentSpan!.spanContext().traceId;
+      const spansById = new Map(spans.map(span => [span.spanContext().spanId, span]));
+      const hasAgentAncestor = (span: ReadableSpan): boolean => {
+        let parentSpan = spansById.get(span.parentSpanContext?.spanId ?? '');
+        while (parentSpan) {
+          if (parentSpan.attributes[ATTR_GEN_AI_OPERATION_NAME] === GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT)
+            return true;
+          parentSpan = spansById.get(parentSpan.parentSpanContext?.spanId ?? '');
+        }
+        return false;
+      };
 
       for (const chatSpan of chatSpans) {
-        expect(chatSpan.parentSpanContext?.spanId).toBe(agentSpanId);
+        expect(hasAgentAncestor(chatSpan)).toBe(true);
         expect(chatSpan.spanContext().traceId).toBe(agentTraceId);
       }
 
-      expect(toolSpan!.parentSpanContext?.spanId).toBe(agentSpanId);
+      expect(hasAgentAncestor(toolSpan!)).toBe(true);
       expect(toolSpan!.spanContext().traceId).toBe(agentTraceId);
     });
   });

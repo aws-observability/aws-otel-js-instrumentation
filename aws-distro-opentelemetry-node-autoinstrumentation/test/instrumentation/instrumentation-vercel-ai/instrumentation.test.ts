@@ -52,7 +52,8 @@ import {
   FAKE_AWS_SECRET_ACCESS_KEY,
   AWS_REGION,
 } from '../test-fixtures';
-import { generateText, streamText, tool, stepCountIs } from 'ai';
+import { generateText, streamText, tool } from 'ai';
+import * as ai from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
@@ -64,6 +65,13 @@ import { createXai } from '@ai-sdk/xai';
 import { z } from 'zod';
 
 const providerCases = getProviderCases();
+
+function stepLimit(steps: number) {
+  if ('stepCountIs' in ai && typeof ai.stepCountIs === 'function') {
+    return { stopWhen: ai.stepCountIs(steps) };
+  }
+  return { maxSteps: steps };
+}
 
 function createProvider(pc: ProviderTestCase, fetch: typeof globalThis.fetch = mockFetchJson(pc.chatResponse)): any {
   switch (pc.name) {
@@ -302,7 +310,7 @@ describe('generateText tool calls', function () {
         model,
         prompt: 'What is the weather in Tokyo?',
         tools: { get_weather: weatherTool },
-        stopWhen: stepCountIs(3),
+        ...stepLimit(3),
       } as any);
 
       const spans = getTestSpans();
@@ -376,7 +384,7 @@ describe('generateText tool calls', function () {
         model,
         prompt: 'What is the weather in Tokyo?',
         tools: { get_weather: weatherTool },
-        stopWhen: stepCountIs(1),
+        ...stepLimit(1),
       } as any);
 
       const spans = getTestSpans();
@@ -421,7 +429,7 @@ describe('generateText agent detection', function () {
         model,
         prompt: 'What is the weather in Tokyo?',
         tools: { get_weather: weatherTool },
-        stopWhen: stepCountIs(5),
+        ...stepLimit(5),
       } as any);
 
       const spans = getTestSpans();

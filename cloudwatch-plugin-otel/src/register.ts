@@ -194,4 +194,19 @@ function patch(): void {
   diag.info('[span-metrics] NodeSDK patched');
 }
 
-patch();
+// A telemetry add-on must never crash the host. This module is loaded via --require (often set
+// process-wide through NODE_OPTIONS), so an escaping exception here — e.g. MODULE_NOT_FOUND when
+// @opentelemetry/sdk-node is absent, which is a devDependency of this package, not a transitive
+// one — would abort EVERY Node process on the box at startup, including ones unrelated to
+// telemetry. Degrade to a no-op instead: skip the patch, warn, and leave upstream behavior intact.
+try {
+  patch();
+} catch (e) {
+  const message =
+    '[span-metrics] initialization failed (is @opentelemetry/sdk-node installed?); ' +
+    'span metrics are DISABLED. Traces/metrics continue with upstream behavior.';
+  diag.warn(message, e);
+  // Also write to stderr: at --require time no DiagLogger is installed yet (upstream register has
+  // not run), so diag.warn alone is invisible. stderr is the only channel guaranteed to surface.
+  process.stderr.write(`${message} ${e instanceof Error ? e.message : String(e)}\n`);
+}

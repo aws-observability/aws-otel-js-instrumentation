@@ -79,7 +79,7 @@ export class DynamicInstrumentationManager {
       // as the DI request's Environment lookup key. This makes DI self-sufficient (no
       // dependency on the agent proxy injecting the environment). An explicit
       // deployment.environment[.name] still wins via the resolver's precedence.
-      const resolvedEnv = resolveLocalEnvironment({ attributes: this.config.resourceAttributes });
+      const resolvedEnv = resolveLocalEnvironment(this.config.resourceAttributes);
       if (resolvedEnv) {
         this.config.environment = resolvedEnv;
       }

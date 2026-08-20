@@ -25,18 +25,12 @@
 
 const AWS_LOCAL_ENVIRONMENT_KEY = 'aws.local.environment';
 
-export interface EnvironmentResolverInput {
-  /** All resource attributes as a flat key→value record (from Resource.attributes). */
-  attributes: Record<string, unknown>;
-}
-
 /**
- * Resolve `aws.local.environment` from the given resource attributes.
- * Returns the resolved value, or undefined if insufficient inputs are available.
+ * Resolve `aws.local.environment` from the given resource attributes (a flat key→value
+ * record, e.g. from `Resource.attributes`). Always returns a non-empty value — a platform
+ * scope, an explicit env, or the `generic:default` fallback.
  */
-export function resolveLocalEnvironment(input: EnvironmentResolverInput): string {
-  const attrs = input.attributes;
-
+export function resolveLocalEnvironment(attrs: Record<string, unknown>): string {
   // 1. Explicit deployment.environment[.name] wins outright.
   const explicitEnv = asString(attrs['deployment.environment.name']) || asString(attrs['deployment.environment']);
   if (explicitEnv) {
@@ -91,7 +85,7 @@ export function stampLocalEnvironment(attrs: Record<string, string>): void {
   }
   // The resolver always yields a non-empty value (a platform scope, an explicit env, or the
   // "generic:default" fallback), matching the CloudWatch agent, which always sets Environment.
-  const resolved = resolveLocalEnvironment({ attributes: attrs });
+  const resolved = resolveLocalEnvironment(attrs);
   if (resolved) {
     attrs[AWS_LOCAL_ENVIRONMENT_KEY] = resolved;
   }

@@ -1449,12 +1449,12 @@ describe('provider detection (all providers)', function () {
 describe('finish reason normalization', function () {
   this.timeout(10000);
 
-  it('does not invent a span finish reason when provider metadata is absent', function () {
+  it('defaults the finish reason to stop when provider metadata is absent', function () {
     const response = {
       generations: [[{ text: 'Done.', message: new AIMessage('Done.') }]],
     } as any;
 
-    expect((OpenTelemetryCallbackHandler as any)._extractFinishReasons(response)).toEqual([]);
+    expect((OpenTelemetryCallbackHandler as any)._extractFinishReasons(response)).toEqual(['stop']);
     expect((OpenTelemetryCallbackHandler as any)._formatOutputMessages(response)).toEqual([
       {
         role: 'assistant',

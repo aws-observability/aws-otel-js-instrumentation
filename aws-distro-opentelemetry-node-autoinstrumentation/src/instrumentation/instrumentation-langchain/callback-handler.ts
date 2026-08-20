@@ -267,7 +267,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
             role: 'assistant',
             finish_reason:
               messages.length > 0
-                ? OpenTelemetryCallbackHandler._extractMessageFinishReason(messages[messages.length - 1]) ?? 'stop'
+                ? OpenTelemetryCallbackHandler._extractMessageFinishReason(messages[messages.length - 1])
                 : 'stop',
           };
           this._setAttribute(entry.span, ATTR_GEN_AI_OUTPUT_MESSAGES, serializeToJson([finalMessage]));
@@ -703,10 +703,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     return OpenTelemetryCallbackHandler._extractMessageFinishReason(message, generation.generationInfo);
   }
 
-  private static _extractMessageFinishReason(
-    message: BaseMessage,
-    generationInfo?: Record<string, unknown>
-  ): string | undefined {
+  private static _extractMessageFinishReason(message: BaseMessage, generationInfo?: Record<string, unknown>): string {
     const metadata = (message.response_metadata ?? {}) as Record<string, unknown>;
     const rawReason =
       generationInfo?.finish_reason ??
@@ -714,7 +711,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       metadata.stop_reason ??
       metadata.stopReason ??
       metadata.finishReason;
-    return typeof rawReason === 'string' ? OpenTelemetryCallbackHandler._normalizeFinishReason(rawReason) : undefined;
+    return typeof rawReason === 'string' ? OpenTelemetryCallbackHandler._normalizeFinishReason(rawReason) : 'stop';
   }
 
   private static _normalizeRole(messageType: string): string {

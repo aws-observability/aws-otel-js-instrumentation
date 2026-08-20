@@ -31,11 +31,11 @@ Two pieces:
 
 | Mode | For | How |
 |---|---|---|
-| **Programmatic (`withSpanMetrics`)** | apps with a `NodeSDK` bootstrap file | wrap the NodeSDK config; **recommended** |
+| **Programmatic (`withSpanMetrics`)** | apps with a `NodeSDK` bootstrap file | wrap the NodeSDK config |
 | **Manual** | apps that hand-build `TracerProvider` | add the processor + sampler + `bind()` directly |
 | **Zero-code (`/register`)** | apps using `auto-instrumentations-node/register` | add one `--require` before it |
 
-### Programmatic (recommended)
+### Programmatic (`withSpanMetrics`)
 
 ```js
 const { NodeSDK } = require('@opentelemetry/sdk-node');

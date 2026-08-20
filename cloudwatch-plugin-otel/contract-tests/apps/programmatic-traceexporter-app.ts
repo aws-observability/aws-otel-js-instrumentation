@@ -8,31 +8,26 @@ import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentation
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
-import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { ParentBasedSampler, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
-import { bind, withSpanMetrics } from '../../src';
+import { withSpanMetrics } from '../../src';
 
 const endpoint = process.env.COLLECTOR_ENDPOINT ?? 'http://localhost:4319';
 const resource = resourceFromAttributes({ 'service.name': 'contract-programmatic-traceexporter' });
 
-const meterProvider = new MeterProvider({
-  resource,
-  readers: [
-    new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter({ url: `${endpoint}/v1/metrics` }),
-      exportIntervalMillis: 1000,
-      exportTimeoutMillis: 500,
-    }),
-  ],
-});
-bind(meterProvider);
-
-// Note: ONLY traceExporter is set here — no spanProcessors.
+// No bind(): NodeSDK builds the MeterProvider from metricReader and registers it globally; the
+// extension resolves it from there (explicit bind() is covered by manual-app.ts).
+// Note: ONLY traceExporter is set for traces here — no spanProcessors.
 const sdk = new NodeSDK(
   withSpanMetrics({
     resource,
     sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(0.5) }),
+    metricReader: new PeriodicExportingMetricReader({
+      exporter: new OTLPMetricExporter({ url: `${endpoint}/v1/metrics` }),
+      exportIntervalMillis: 1000,
+      exportTimeoutMillis: 500,
+    }),
     traceExporter: new OTLPTraceExporter({ url: `${endpoint}/v1/traces` }),
     instrumentations: [getNodeAutoInstrumentations()],
   })

@@ -56,4 +56,30 @@ describe('normalizeSpanProcessors (register CONFIG layout)', () => {
     normalizeSpanProcessors(cfg, deps());
     assert.strictEqual(arr.length, 1, 'caller array is copied, not appended to');
   });
+
+  it('aborts without touching cfg when env processors cannot be resolved', () => {
+    // Abort contract: forcing spanProcessors = [ours] here would make NodeSDK skip its own env
+    // wiring and silently drop the user's span export. The extension must give itself up instead.
+    let madeOurs = false;
+    const cfg: NormalizeConfig = {};
+    const out = normalizeSpanProcessors(cfg, {
+      makeSpanMetricsProcessor: () => {
+        madeOurs = true;
+        return OURS;
+      },
+      wrapExporter: wrapped,
+      envSpanProcessors: () => undefined,
+    });
+    assert.strictEqual(out, undefined);
+    assert.ok(!('spanProcessors' in cfg), 'cfg must be left untouched for NodeSDK to do its own env wiring');
+    assert.strictEqual(madeOurs, false, 'our processor must not be constructed on the abort path');
+  });
+
+  it('normalizes a legitimately empty env-processor list (only failure aborts, not emptiness)', () => {
+    // e.g. OTEL_TRACES_EXPORTER=none: the SDK genuinely builds no processors — ours is still added.
+    const cfg: NormalizeConfig = {};
+    const out = normalizeSpanProcessors(cfg, { ...deps(), envSpanProcessors: () => [] });
+    assert.deepStrictEqual(out, [OURS]);
+    assert.deepStrictEqual(cfg.spanProcessors, [OURS]);
+  });
 });

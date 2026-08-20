@@ -86,13 +86,32 @@ function patch(): void {
 
   // Env span processors the SDK would build when the user configured none (zero-code). Resolved from
   // the same sdk-node copy the SDK uses, so exporting keeps working after we add our processor.
-  function envSpanProcessors(): any[] {
+  //
+  // Returns undefined when the SDK's env-processor helper cannot be reached (it lives at a
+  // non-public build/src path that may move between sdk-node versions). Callers must treat
+  // undefined as "do NOT normalize": forcing an empty list instead would make NodeSDK see an
+  // explicit spanProcessors, skip its own env wiring, and silently drop the user's span export
+  // while our 100% metrics masked the loss. If this path breaks, the extension gives itself up —
+  // the user keeps their traces, and the post-start self-verify reports metrics inactive.
+  function envSpanProcessors(): unknown[] | undefined {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const utils = require(require.resolve('@opentelemetry/sdk-node/build/src/utils', { paths: [sdkNodePath] }));
-      return utils.getSpanProcessorsFromEnv ? utils.getSpanProcessorsFromEnv() : [];
-    } catch {
-      return [];
+      if (typeof utils.getSpanProcessorsFromEnv !== 'function') {
+        diag.warn(
+          '[span-metrics] sdk-node env-processor helper not found; span metrics are DISABLED for ' +
+            'this SDK so span export continues with upstream behavior.'
+        );
+        return undefined;
+      }
+      return utils.getSpanProcessorsFromEnv();
+    } catch (e) {
+      diag.warn(
+        '[span-metrics] failed to resolve sdk-node env processors; span metrics are DISABLED for ' +
+          'this SDK so span export continues with upstream behavior.',
+        e
+      );
+      return undefined;
     }
   }
 
@@ -148,10 +167,15 @@ function patch(): void {
           });
         } else if (!self._tracerProviderConfig) {
           // Field shape, env-driven (zero-code): constructor built no _tracerProviderConfig. Build one
-          // carrying env processors + ours so start()'s field-or-env branch includes it.
-          self._tracerProviderConfig = {
-            spanProcessors: [...envSpanProcessors(), new SpanMetricsProcessor()],
-          };
+          // carrying env processors + ours so start()'s field-or-env branch includes it. If the env
+          // processors cannot be resolved, leave the field unset so NodeSDK does its own env wiring
+          // (we lose metrics; the self-verify below warns) rather than replacing the user's export.
+          const envProcessors = envSpanProcessors();
+          if (envProcessors !== undefined) {
+            self._tracerProviderConfig = {
+              spanProcessors: [...envProcessors, new SpanMetricsProcessor()],
+            };
+          }
         }
       } catch (e) {
         diag.error('[span-metrics] failed to inject processor before start()', e);

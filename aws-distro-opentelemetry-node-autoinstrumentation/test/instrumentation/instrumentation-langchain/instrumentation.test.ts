@@ -1449,6 +1449,21 @@ describe('provider detection (all providers)', function () {
 describe('finish reason normalization', function () {
   this.timeout(10000);
 
+  it('does not invent a span finish reason when provider metadata is absent', function () {
+    const response = {
+      generations: [[{ text: 'Done.', message: new AIMessage('Done.') }]],
+    } as any;
+
+    expect((OpenTelemetryCallbackHandler as any)._extractFinishReasons(response)).toEqual([]);
+    expect((OpenTelemetryCallbackHandler as any)._formatOutputMessages(response)).toEqual([
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'Done.' }],
+        finish_reason: 'stop',
+      },
+    ]);
+  });
+
   const finishReasonCases: Array<{ reason: string; expected: string }> = [
     { reason: 'length', expected: 'length' },
     { reason: 'content_filter', expected: 'content_filter' },

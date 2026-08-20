@@ -240,7 +240,7 @@ describe('OpenAI Agents Instrumentation', function () {
       processor._propagateModelToAgent('response-parent', OPENAI_MODEL);
       processor._propagateMessagesToAgent(
         'response-parent',
-        JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: 'Hello' }] }]),
+        [{ role: 'user', parts: [{ type: 'text', content: 'Hello' }] }],
         JSON.stringify([{ role: 'assistant', parts: [{ type: 'text', content: 'Hi' }], finish_reason: 'stop' }])
       );
 
@@ -909,6 +909,10 @@ describe('OpenAI Agents Instrumentation', function () {
       expect(processor._getFinishReasons({ incomplete_details: { reason: 'max_output_tokens' } })).toEqual(['length']);
       expect(processor._getFinishReasons({ incomplete_details: { reason: 'content_filter' } })).toEqual([
         'content_filter',
+      ]);
+      expect(processor._getFinishReasons({ incomplete_details: { reason: 'tool_calls' } })).toEqual(['tool_call']);
+      expect(processor._getFinishReasons({ incomplete_details: { reason: 'provider_reason' } })).toEqual([
+        'provider_reason',
       ]);
       expect(processor._getFinishReasons({ status: 'failed' })).toEqual(['error']);
     });

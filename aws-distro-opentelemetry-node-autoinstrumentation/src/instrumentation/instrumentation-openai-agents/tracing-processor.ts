@@ -280,7 +280,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     const model = response.model;
     if (model) {
       otelSpan.setAttribute(ATTR_GEN_AI_RESPONSE_MODEL, model);
-      (otelSpan as any).name = `${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${model}`;
+      otelSpan.updateName(`${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${model}`);
       this._propagateModelToAgent(parentId, model, GEN_AI_PROVIDER_NAME_VALUE_OPENAI);
     }
 
@@ -309,7 +309,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
 
       const inputMessages = this._formatInputMessages(spanData._input);
       if (inputMessages) {
-        otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, inputMessages);
+        otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson(inputMessages));
       }
 
       const outputMessages = this._formatOutputMessages(response.output, finishReasons);
@@ -336,7 +336,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
         model = model.slice(providerPrefix.length);
       }
       otelSpan.setAttribute(ATTR_GEN_AI_REQUEST_MODEL, model);
-      (otelSpan as any).name = `${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${model}`;
+      otelSpan.updateName(`${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${model}`);
       this._propagateModelToAgent(parentId, model, resolvedProvider);
     }
 
@@ -351,7 +351,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     if (this._captureMessageContent) {
       const inputMessages = this._formatInputMessages(spanData.input);
       if (inputMessages) {
-        otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, inputMessages);
+        otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson(inputMessages));
       }
 
       const outputMessages = this._formatOutputMessages(spanData.output, finishReasons);
@@ -461,7 +461,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   private _getFinishReasons(response: Record<string, any>): string[] {
     const incompleteReason = response.incomplete_details?.reason;
     if (typeof incompleteReason === 'string') {
-      return [incompleteReason === 'max_output_tokens' ? 'length' : incompleteReason];
+      return [this._normalizeFinishReason(incompleteReason)];
     }
     if (response.status === 'failed') return ['error'];
     if (!response.output || !Array.isArray(response.output)) return [];
@@ -474,7 +474,23 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     return [];
   }
 
-  private _formatInputMessages(input: string | Record<string, any>[] | undefined): string | undefined {
+  private _normalizeFinishReason(reason: string): string {
+    switch (reason) {
+      case 'max_output_tokens':
+      case 'max_tokens':
+        return 'length';
+      case 'tool_calls':
+      case 'function_call':
+        return 'tool_call';
+      default:
+        // OTel permits provider-specific finish reasons in addition to its well-known values.
+        return reason;
+    }
+  }
+
+  private _formatInputMessages(
+    input: string | Record<string, any>[] | undefined
+  ): Array<Record<string, unknown>> | undefined {
     if (!input || !Array.isArray(input)) return undefined;
 
     const formatted = input.map((item: Record<string, any>) => {
@@ -512,7 +528,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       return { role: 'user', parts: contentToParts(serializeToJson(item)) };
     });
 
-    return serializeToJson(formatted);
+    return formatted;
   }
 
   private _formatOutputMessages(output: any, finishReasons: string[]): string | undefined {
@@ -616,25 +632,15 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   // Later assistant outputs replace earlier ones so the agent span retains the final response.
   private _propagateMessagesToAgent(
     parentId: string | null,
-    inputMessages: string | undefined,
+    inputMessages: Array<Record<string, unknown>> | undefined,
     outputMessages: string | undefined
   ): void {
     if (!parentId) return;
     const agentSpan = this._spanMap.get(parentId)?.agentSpan;
     if (!agentSpan?.otelSpan.isRecording()) return;
 
-    const findFirstUserMessage = (serializedMessages: string): Record<string, unknown> | undefined => {
-      const messages = tryParseJson(serializedMessages);
-      if (!Array.isArray(messages)) return undefined;
-
-      return messages.find(
-        (message): message is Record<string, unknown> =>
-          typeof message === 'object' && message !== null && !Array.isArray(message) && message.role === 'user'
-      );
-    };
-
     if (!agentSpan.hasCapturedFirstUserMessage && inputMessages) {
-      const firstUserMessage = findFirstUserMessage(inputMessages);
+      const firstUserMessage = inputMessages.find(message => message.role === 'user');
       if (firstUserMessage) {
         agentSpan.otelSpan.setAttribute(ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson([firstUserMessage]));
         agentSpan.hasCapturedFirstUserMessage = true;

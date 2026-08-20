@@ -15,6 +15,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 - feat(agent-observability): capture the first user message and final agent response on OpenAI Agents and
   LangChain `invoke_agent` spans
+- fix(openai-agents): translate generation spans across model providers
+  ([#524](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/524))
 - fix(agent-observability): preserve structured tool values, binary content, and typed multimodal/reasoning
   message parts in native GenAI instrumentation
 - feat: attribute presigned S3 URLs as `AWS::S3` dependencies in Application Signals, opt-in via

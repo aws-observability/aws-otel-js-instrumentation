@@ -50,7 +50,7 @@ const { withSpanMetrics } = require('@aws/cloudwatch-plugin-otel');
 // extension records into that same provider automatically — no bind() call is needed in this mode.
 const sdk = new NodeSDK(withSpanMetrics({
   traceExporter: new OTLPTraceExporter(),
-  metricReader: new PeriodicExportingMetricReader({ exporter: new OTLPMetricExporter() }),
+  metricReaders: [new PeriodicExportingMetricReader({ exporter: new OTLPMetricExporter() })],
   instrumentations: [getNodeAutoInstrumentations()],
 }));
 sdk.start();

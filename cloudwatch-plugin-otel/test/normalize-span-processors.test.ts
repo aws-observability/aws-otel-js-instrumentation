@@ -26,6 +26,16 @@ describe('normalizeSpanProcessors (register CONFIG layout)', () => {
     assert.strictEqual(cfg.spanProcessors, out);
   });
 
+  it('deletes a losing singular spanProcessor when spanProcessors wins (NodeSDK precedence)', () => {
+    // Leaving the loser dangling would make NodeSDK warn about an option that had no effect.
+    const plural = { id: 'user-plural' };
+    const singular = { id: 'user-singular' };
+    const cfg: NormalizeConfig = { spanProcessors: [plural], spanProcessor: singular };
+    const out = normalizeSpanProcessors(cfg, deps());
+    assert.deepStrictEqual(out, [plural, OURS]);
+    assert.ok(!('spanProcessor' in cfg), 'losing singular must be removed from the config');
+  });
+
   it('converts a deprecated singular spanProcessor and removes it', () => {
     const sp = { id: 'user-single' };
     const cfg: NormalizeConfig = { spanProcessor: sp };

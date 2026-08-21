@@ -189,7 +189,8 @@ function patch(): void {
       const self = this as Record<string, any>;
 
       // 1. Our processor is present in the built tracer provider's active processor set.
-      if (!spanMetricsProcessorAttached(self)) {
+      const attached = spanMetricsProcessorAttached(self);
+      if (!attached) {
         diag.warn(
           '[span-metrics] the span-metrics processor does not appear to be attached after start(); ' +
             'span metrics may be inactive. This can indicate an unrecognized sdk-node internal change.'
@@ -200,7 +201,11 @@ function patch(): void {
       const mp = self._meterProvider;
       if (mp) {
         holder.set(mp);
-        diag.info('[span-metrics] active; RED metrics reflect 100% of spans');
+        // Only claim "active" when the attach check also passed — announcing active right after an
+        // injection failure warned would be contradictory and mislead operators grepping logs.
+        if (attached) {
+          diag.info('[span-metrics] active; RED metrics reflect 100% of spans');
+        }
       } else {
         diag.warn(
           '[span-metrics] no MeterProvider after start(); set OTEL_METRICS_EXPORTER (and ' +
@@ -229,8 +234,16 @@ try {
   const message =
     '[span-metrics] initialization failed (is @opentelemetry/sdk-node installed?); ' +
     'span metrics are DISABLED. Traces/metrics continue with upstream behavior.';
+  // Coerce defensively: String(e) itself throws for values with no primitive coercion (e.g. a
+  // thrown null-prototype object), which would re-crash the host this guard exists to protect.
+  let detail: string;
+  try {
+    detail = e instanceof Error ? e.message : String(e);
+  } catch {
+    detail = '(unprintable error)';
+  }
   diag.warn(message, e);
   // Also write to stderr: at --require time no DiagLogger is installed yet (upstream register has
   // not run), so diag.warn alone is invisible. stderr is the only channel guaranteed to surface.
-  process.stderr.write(`${message} ${e instanceof Error ? e.message : String(e)}\n`);
+  process.stderr.write(`${message} ${detail}\n`);
 }

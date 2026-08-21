@@ -43,11 +43,16 @@ interface Mode {
   env: Record<string, string>;
   port: number;
   builtJs?: boolean;
+  // The service.name the app's SDK resource carries; the metric RESOURCE must carry it too. This
+  // pins the resource contract per wiring mode (service.name is not a datapoint attribute), which
+  // the no-bind programmatic modes rely on: the extension must resolve the SDK-owned,
+  // correctly-resourced provider, not some other one.
+  serviceName: string;
 }
 
 const MODES: Mode[] = [
-  { name: 'manual', app: 'manual-app', env: {}, port: 8110 },
-  { name: 'programmatic', app: 'programmatic-app', env: {}, port: 8120 },
+  { name: 'manual', app: 'manual-app', env: {}, port: 8110, serviceName: 'contract-manual' },
+  { name: 'programmatic', app: 'programmatic-app', env: {}, port: 8120, serviceName: 'contract-programmatic' },
   {
     name: 'programmatic (traceExporter-only)',
     app: 'programmatic-traceexporter-app',
@@ -55,6 +60,7 @@ const MODES: Mode[] = [
     // it so spans flush within the app's pre-exit window (otherwise export appears as 0).
     env: { OTEL_BSP_SCHEDULE_DELAY: '500' },
     port: 8150,
+    serviceName: 'contract-programmatic-traceexporter',
   },
   {
     name: 'zero-code',
@@ -63,6 +69,7 @@ const MODES: Mode[] = [
     env: SAMPLING_ENV,
     port: 8130,
     builtJs: true,
+    serviceName: 'contract-zerocode',
   },
 ];
 
@@ -114,6 +121,16 @@ describe('Contract: mode wiring', function () {
         assert.strictEqual(attrs!['aws.otel.span.metrics.schema'], 'v1');
         assert.ok(collector.hasDuration(SERVER_SPAN_NAME), 'duration datapoint present');
         assert.strictEqual(collector.durationUnitSeen(), 's');
+      });
+
+      it("carries the app's service.name on the metric resource", () => {
+        // service.name is a resource attribute, not a datapoint dimension. Asserting the exact
+        // per-mode value proves the extension recorded into the app's correctly-resourced
+        // MeterProvider (in the no-bind modes: the one NodeSDK registered globally) - a wrong or
+        // default-resourced provider would surface as unknown_service here while counts stay green.
+        const resource = collector.metricResourceAttributes();
+        assert.ok(resource, 'metric resource attributes present');
+        assert.strictEqual(resource!['service.name'], mode.serviceName);
       });
     });
   }

@@ -31,10 +31,12 @@ describe('register (load-time fail-safe)', () => {
 
     const stderrChunks: string[] = [];
     const originalWrite = process.stderr.write;
+    // Capture WITHOUT forwarding: the fail-safe banner from this passing test would otherwise be
+    // printed into every suite run and read like a real failure.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    process.stderr.write = ((chunk: any, ...rest: any[]) => {
+    process.stderr.write = ((chunk: any) => {
       stderrChunks.push(String(chunk));
-      return originalWrite.call(process.stderr, chunk, ...rest);
+      return true;
     }) as typeof process.stderr.write;
 
     delete require.cache[REGISTER_PATH];

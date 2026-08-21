@@ -16,18 +16,25 @@ import { withSpanMetrics } from '../../src';
 const endpoint = process.env.COLLECTOR_ENDPOINT ?? 'http://localhost:4319';
 const resource = resourceFromAttributes({ 'service.name': 'contract-programmatic-traceexporter' });
 
-// No bind(): NodeSDK builds the MeterProvider from metricReader and registers it globally; the
+// No bind(): NodeSDK builds the MeterProvider from metricReaders and registers it globally; the
 // extension resolves it from there (explicit bind() is covered by manual-app.ts).
 // Note: ONLY traceExporter is set for traces here — no spanProcessors.
+const metricReader = new PeriodicExportingMetricReader({
+  exporter: new OTLPMetricExporter({ url: `${endpoint}/v1/metrics` }),
+  exportIntervalMillis: 1000,
+  exportTimeoutMillis: 500,
+});
+
 const sdk = new NodeSDK(
   withSpanMetrics({
     resource,
     sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(0.5) }),
-    metricReader: new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter({ url: `${endpoint}/v1/metrics` }),
-      exportIntervalMillis: 1000,
-      exportTimeoutMillis: 500,
-    }),
+    // Both keys for version compatibility: metricReaders is the current option (the singular
+    // metricReader is deprecated), but it does not exist before sdk-node 0.219 - on the FIELD-floor
+    // versions this suite also runs against, only the singular is read. NodeSDK prefers the plural
+    // when both are set, so current versions never see (or warn about) the singular.
+    metricReaders: [metricReader],
+    metricReader,
     traceExporter: new OTLPTraceExporter({ url: `${endpoint}/v1/traces` }),
     instrumentations: [getNodeAutoInstrumentations()],
   })

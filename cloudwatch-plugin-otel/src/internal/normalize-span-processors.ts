@@ -42,6 +42,9 @@ export function normalizeSpanProcessors(cfg: NormalizeConfig, deps: NormalizeDep
   let processors: unknown[];
   if (cfg.spanProcessors) {
     processors = [...cfg.spanProcessors];
+    // Plural wins (NodeSDK precedence); delete the losing singular so NodeSDK does not emit its
+    // deprecation warning for an option that had no effect.
+    delete cfg.spanProcessor;
   } else if (cfg.spanProcessor) {
     processors = [cfg.spanProcessor];
     delete cfg.spanProcessor;

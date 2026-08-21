@@ -13,7 +13,8 @@ import { resolveEnvSamplerOrDefault } from './internal/env-sampler';
 interface NodeSdkConfigLike {
   sampler?: Sampler;
   spanProcessors?: SpanProcessor[];
-  // Deprecated singular option (see withSpanMetrics); present only for detection.
+  // Deprecated singular option: honored with NodeSDK precedence and converted into spanProcessors
+  // (see withSpanMetrics), then removed from the config.
   spanProcessor?: SpanProcessor;
   traceExporter?: SpanExporter;
   [key: string]: unknown;
@@ -58,6 +59,16 @@ export function withSpanMetrics<T extends NodeSdkConfigLike>(config: T): T {
   let processors: SpanProcessor[];
   if (config.spanProcessors) {
     processors = [...config.spanProcessors];
+    if (config.spanProcessor) {
+      // Plural wins (NodeSDK precedence). Delete the loser and say so — leaving it dangling would
+      // make NodeSDK emit its generic deprecation warning, implying the singular processor is in
+      // play when it was actually ignored.
+      diag.warn(
+        "[span-metrics] both 'spanProcessors' and the deprecated 'spanProcessor' (singular) were " +
+          "set; 'spanProcessors' wins (NodeSDK precedence) and the singular processor is IGNORED."
+      );
+      delete config.spanProcessor;
+    }
   } else if (config.spanProcessor) {
     // Deprecated singular option (sdk-node 0.51.0, 2024-04): honored exactly as NodeSDK still does
     // (plural > singular > traceExporter precedence), then removed so it cannot dangle beside the

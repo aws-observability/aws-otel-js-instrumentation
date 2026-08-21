@@ -111,12 +111,21 @@ describe('withSpanMetrics', () => {
   });
 
   it('lets spanProcessors win over the singular spanProcessor (NodeSDK precedence)', () => {
-    const plural = { onStart() {}, onEnd() {}, forceFlush: async () => {}, shutdown: async () => {} };
-    const singular = { onStart() {}, onEnd() {}, forceFlush: async () => {}, shutdown: async () => {} };
-    const out = withSpanMetrics({ spanProcessors: [plural], spanProcessor: singular } as any);
-    assert.strictEqual(out.spanProcessors!.length, 2);
-    assert.strictEqual(out.spanProcessors![0], plural);
-    assert.ok(out.spanProcessors![1] instanceof SpanMetricsProcessor);
-    assert.ok(!out.spanProcessors!.includes(singular), 'singular loses to plural, as in NodeSDK');
+    const warn = sinon.stub(diag, 'warn');
+    try {
+      const plural = { onStart() {}, onEnd() {}, forceFlush: async () => {}, shutdown: async () => {} };
+      const singular = { onStart() {}, onEnd() {}, forceFlush: async () => {}, shutdown: async () => {} };
+      const out = withSpanMetrics({ spanProcessors: [plural], spanProcessor: singular } as any);
+      assert.strictEqual(out.spanProcessors!.length, 2);
+      assert.strictEqual(out.spanProcessors![0], plural);
+      assert.ok(out.spanProcessors![1] instanceof SpanMetricsProcessor);
+      assert.ok(!out.spanProcessors!.includes(singular), 'singular loses to plural, as in NodeSDK');
+      // The losing singular is deleted (so NodeSDK cannot warn about an option that had no effect)
+      // and the drop is announced, since the user's processor is being ignored.
+      assert.strictEqual(out.spanProcessor, undefined, 'losing singular must be removed');
+      assert.ok(warn.calledOnce, 'the silent drop of the singular processor must be warned about');
+    } finally {
+      warn.restore();
+    }
   });
 });

@@ -68,6 +68,8 @@ import { z } from 'zod';
 const providerCases = getProviderCases();
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const legacyCohereProvider = (require('@ai-sdk/cohere/package.json').version as string).startsWith('0.');
+const [aiMajor, aiMinor, aiPatch] = (require('ai/package.json') as { version: string }).version.split('.').map(Number);
+const aiEmitsToolDefinitions = aiMajor > 3 || (aiMajor === 3 && (aiMinor > 4 || (aiMinor === 4 && aiPatch >= 29)));
 
 function stepLimit(steps: number) {
   if ('stepCountIs' in ai && typeof ai.stepCountIs === 'function') {
@@ -354,17 +356,21 @@ describe('generateText tool calls', function () {
       const toolDefs = chatSpans
         .map((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string)
         .find(v => v != null);
-      expect(toolDefs).toBeDefined();
-      const parsed = JSON.parse(toolDefs!);
-      expect(Array.isArray(parsed)).toBe(true);
-      const def = parsed.find((t: any) => t.name === 'get_weather');
-      expect(def).toBeDefined();
-      expect(def.type).toBe('function');
-      expect(def.description).toBe('Get weather for a location');
-      expect(def.parameters).toBeDefined();
-      expect(def.parameters.$schema).toBeUndefined();
-      expect(def.parameters.additionalProperties).toBeUndefined();
-      expect(def.inputSchema).toBeUndefined();
+      if (aiEmitsToolDefinitions) {
+        expect(toolDefs).toBeDefined();
+        const parsed = JSON.parse(toolDefs!);
+        expect(Array.isArray(parsed)).toBe(true);
+        const def = parsed.find((t: any) => t.name === 'get_weather');
+        expect(def).toBeDefined();
+        expect(def.type).toBe('function');
+        expect(def.description).toBe('Get weather for a location');
+        expect(def.parameters).toBeDefined();
+        expect(def.parameters.$schema).toBeUndefined();
+        expect(def.parameters.additionalProperties).toBeUndefined();
+        expect(def.inputSchema).toBeUndefined();
+      } else {
+        expect(toolDefs).toBeUndefined();
+      }
 
       resetMemoryExporter();
     });
@@ -543,6 +549,29 @@ describe('finish reason mapping', function () {
   beforeEach(() => {
     resetMemoryExporter();
     instrumentation.setConfig({ captureMessageContent: false });
+  });
+
+  it('maps AI SDK 3.3 operation, finish reason, and output attributes', function () {
+    const attributes: Record<string, unknown> = {
+      'operation.name': 'ai.generateText.doGenerate weather_agent',
+      'ai.finishReason': 'stop',
+      'ai.result.text': 'Sunny',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_OPERATION_NAME]).toBe('chat');
+    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+    expect(JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string)).toEqual([
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'Sunny' }],
+        finish_reason: 'stop',
+      },
+    ]);
+    expect(attributes['operation.name']).toBeUndefined();
+    expect(attributes['ai.finishReason']).toBeUndefined();
+    expect(attributes['ai.result.text']).toBeUndefined();
   });
 
   const finishReasonsByProvider: Record<string, Array<{ nativeReason: string; expected: string }>> = {

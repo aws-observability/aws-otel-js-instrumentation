@@ -64,6 +64,8 @@ import { createXai } from '@ai-sdk/xai';
 import { z } from 'zod';
 
 const providerCases = getProviderCases();
+// The dependency matrix sets this to false when the installed AI SDK does not emit ai.prompt.tools.
+const expectToolDefinitions = process.env.VERCEL_AI_EXPECT_TOOL_DEFINITIONS !== 'false';
 
 function createProvider(pc: ProviderTestCase, fetch: typeof globalThis.fetch = mockFetchJson(pc.chatResponse)): any {
   switch (pc.name) {
@@ -320,17 +322,21 @@ describe('generateText tool calls', function () {
       const toolDefs = chatSpans
         .map((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string)
         .find(v => v != null);
-      expect(toolDefs).toBeDefined();
-      const parsed = JSON.parse(toolDefs!);
-      expect(Array.isArray(parsed)).toBe(true);
-      const def = parsed.find((t: any) => t.name === 'get_weather');
-      expect(def).toBeDefined();
-      expect(def.type).toBe('function');
-      expect(def.description).toBe('Get weather for a location');
-      expect(def.parameters).toBeDefined();
-      expect(def.parameters.$schema).toBeUndefined();
-      expect(def.parameters.additionalProperties).toBeUndefined();
-      expect(def.inputSchema).toBeUndefined();
+      if (expectToolDefinitions) {
+        expect(toolDefs).toBeDefined();
+        const parsed = JSON.parse(toolDefs!);
+        expect(Array.isArray(parsed)).toBe(true);
+        const def = parsed.find((t: any) => t.name === 'get_weather');
+        expect(def).toBeDefined();
+        expect(def.type).toBe('function');
+        expect(def.description).toBe('Get weather for a location');
+        expect(def.parameters).toBeDefined();
+        expect(def.parameters.$schema).toBeUndefined();
+        expect(def.parameters.additionalProperties).toBeUndefined();
+        expect(def.inputSchema).toBeUndefined();
+      } else {
+        expect(toolDefs).toBeUndefined();
+      }
 
       resetMemoryExporter();
     });
@@ -360,6 +366,43 @@ describe('generateText tool calls', function () {
     new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
 
     expect(attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('');
+  });
+
+  it('maps AI SDK v4 tool parameters to tool definitions', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.prompt.tools': [
+        JSON.stringify({
+          type: 'function',
+          name: 'get_weather',
+          description: 'Get weather',
+          parameters: {
+            $schema: 'http://json-schema.org/draft-07/schema#',
+            type: 'object',
+            properties: {
+              location: { type: 'string' },
+            },
+            additionalProperties: false,
+          },
+        }),
+      ],
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(JSON.parse(attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string)).toEqual([
+      {
+        type: 'function',
+        name: 'get_weather',
+        description: 'Get weather',
+        parameters: {
+          type: 'object',
+          properties: {
+            location: { type: 'string' },
+          },
+        },
+      },
+    ]);
   });
 
   for (const pc of providerCases) {
@@ -505,6 +548,40 @@ describe('finish reason mapping', function () {
   beforeEach(() => {
     resetMemoryExporter();
     instrumentation.setConfig({ captureMessageContent: false });
+  });
+
+  it('preserves unknown finish reasons', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.response.finishReason': 'unknown',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['unknown']);
+  });
+
+  it('maps AI SDK 3.3 operation, finish reason, and output attributes', function () {
+    const attributes: Record<string, unknown> = {
+      'operation.name': 'ai.generateText.doGenerate weather_agent',
+      'ai.finishReason': 'stop',
+      'ai.result.text': 'Sunny',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_OPERATION_NAME]).toBe('chat');
+    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+    expect(JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string)).toEqual([
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'Sunny' }],
+        finish_reason: 'stop',
+      },
+    ]);
+    expect(attributes['operation.name']).toBeUndefined();
+    expect(attributes['ai.finishReason']).toBeUndefined();
+    expect(attributes['ai.result.text']).toBeUndefined();
   });
 
   const finishReasonsByProvider: Record<string, Array<{ nativeReason: string; expected: string }>> = {

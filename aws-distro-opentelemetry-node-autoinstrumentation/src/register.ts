@@ -50,11 +50,12 @@ const diagLogger: DiagLogger = {
   info: consoleLogger.info,
   warn: consoleLogger.warn,
   error(message: string, ...args: unknown[]): void {
-    // Upstream prefixes environment entries before checking its private instrumentation registry.
+    // Keep in sync with the upstream diagnostic:
+    // https://github.com/open-telemetry/opentelemetry-js-contrib/blob/auto-instrumentations-node-v0.77.0/packages/auto-instrumentations-node/src/utils.ts#L226-L232
     if (
-      ![LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME].some(name =>
-        message.includes(`@opentelemetry/instrumentation-${name}`)
-      )
+      ![LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME]
+        .map(name => `Provided instrumentation name "@opentelemetry/instrumentation-${name}" not found`)
+        .includes(message)
     ) {
       consoleLogger.error(message, ...args);
     }

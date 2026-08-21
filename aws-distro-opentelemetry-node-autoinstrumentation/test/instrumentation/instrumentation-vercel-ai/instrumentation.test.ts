@@ -62,6 +62,7 @@ import { createGroq } from '@ai-sdk/groq';
 import { createMistral } from '@ai-sdk/mistral';
 import { createCohere } from '@ai-sdk/cohere';
 import { createXai } from '@ai-sdk/xai';
+import { HttpResponse } from '@smithy/protocol-http';
 import { z } from 'zod';
 
 const providerCases = getProviderCases();
@@ -71,6 +72,25 @@ function stepLimit(steps: number) {
     return { stopWhen: ai.stepCountIs(steps) };
   }
   return { maxSteps: steps };
+}
+
+function createBedrockRequestHandler(fetch: typeof globalThis.fetch) {
+  return {
+    async handle() {
+      const response = await fetch('https://bedrock-runtime.test');
+      return {
+        response: new HttpResponse({
+          statusCode: response.status,
+          headers: Object.fromEntries(response.headers.entries()),
+          body: new Uint8Array(await response.arrayBuffer()),
+        }),
+      };
+    },
+    updateHttpClientConfig() {},
+    httpHandlerConfigs() {
+      return {};
+    },
+  };
 }
 
 function createProvider(pc: ProviderTestCase, fetch: typeof globalThis.fetch = mockFetchJson(pc.chatResponse)): any {
@@ -85,7 +105,15 @@ function createProvider(pc: ProviderTestCase, fetch: typeof globalThis.fetch = m
         accessKeyId: FAKE_AWS_ACCESS_KEY_ID,
         secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY,
         fetch,
-      });
+        bedrockOptions: {
+          region: AWS_REGION,
+          credentials: {
+            accessKeyId: FAKE_AWS_ACCESS_KEY_ID,
+            secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY,
+          },
+          requestHandler: createBedrockRequestHandler(fetch),
+        },
+      } as any);
     case ProviderName.GOOGLE:
       return createGoogleGenerativeAI({ apiKey: FAKE_GOOGLE_KEY, fetch });
     case ProviderName.GROQ:
@@ -370,6 +398,19 @@ describe('generateText tool calls', function () {
     expect(attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('');
   });
 
+  it('infers a tool call when an older provider reports an unknown finish reason', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.response.finishReason': 'unknown',
+      'ai.response.toolCalls': '[{"toolCallId":"call_1","toolName":"get_weather","args":{"location":"Tokyo"}}]',
+      [ATTR_GEN_AI_RESPONSE_FINISH_REASONS]: ['unknown'],
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
+  });
+
   for (const pc of providerCases) {
     it(`${pc.name} maps tool_calls finish reason correctly`, async () => {
       const model = getModel(pc, mockFetchJson(pc.toolCallResponse));
@@ -485,7 +526,7 @@ describe('streamText', function () {
     const provider = createOpenAI({ apiKey: FAKE_OPENAI_KEY, fetch: mockFetch });
     const model = provider.chat(OPENAI_MODEL);
 
-    const result = streamText({
+    const result = await streamText({
       model,
       prompt: 'Say hello',
     });

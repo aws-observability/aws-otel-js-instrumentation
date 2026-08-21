@@ -86,9 +86,17 @@ import { createXai } from '@ai-sdk/xai';
 import OpenAI from 'openai';
 import { z } from 'zod';
 
-// TypeScript's legacy Node resolution cannot resolve this package export.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { aisdk } = require('@openai/agents-extensions/ai-sdk') as { aisdk: (model: any) => any };
+let aisdk: (model: any) => any;
+try {
+  // TypeScript's legacy Node resolution cannot resolve this package export.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  ({ aisdk } = require('@openai/agents-extensions/ai-sdk'));
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;
+  // OpenAI Agents Extensions <0.5 exports the AI SDK adapter from the package root.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  ({ aisdk } = require('@openai/agents-extensions'));
+}
 
 function createAiSdkLanguageModel(pc: ProviderTestCase): any {
   const fetch = mockFetchJson(pc.chatResponse);

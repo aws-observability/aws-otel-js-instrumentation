@@ -79,6 +79,11 @@ export class VercelAISpanProcessor implements SpanProcessor {
       to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
       transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
     },
+    {
+      from: 'ai.finishReason',
+      to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
+      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
+    },
     { from: 'ai.response.id', to: ATTR_GEN_AI_RESPONSE_ID },
     { from: 'ai.response.model', to: ATTR_GEN_AI_RESPONSE_MODEL },
     { from: 'ai.settings.maxTokens', to: ATTR_GEN_AI_REQUEST_MAX_TOKENS },
@@ -105,7 +110,17 @@ export class VercelAISpanProcessor implements SpanProcessor {
       transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
     },
     {
+      from: 'ai.result.text',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
+    },
+    {
       from: 'ai.response.object',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
+    },
+    {
+      from: 'ai.result.object',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
       transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
     },
@@ -160,7 +175,8 @@ export class VercelAISpanProcessor implements SpanProcessor {
     if (span.instrumentationScope?.name !== 'ai') return;
 
     const attrs = span.attributes;
-    const operationId = attrs['ai.operationId'] as string | undefined;
+    const rawOperationId = (attrs['ai.operationId'] ?? attrs['operation.name']) as string | undefined;
+    const operationId = rawOperationId?.split(' ', 1)[0];
 
     if (!operationId || !operationId.startsWith('ai.')) return;
 
@@ -280,8 +296,10 @@ export class VercelAISpanProcessor implements SpanProcessor {
 
   private static formatOutputMessages(value: unknown, attrs: Record<string, unknown>): string {
     const finishReason =
-      typeof attrs['ai.response.finishReason'] === 'string'
-        ? VercelAISpanProcessor.mapFinishReason(attrs['ai.response.finishReason'])
+      typeof (attrs['ai.response.finishReason'] ?? attrs['ai.finishReason']) === 'string'
+        ? VercelAISpanProcessor.mapFinishReason(
+            (attrs['ai.response.finishReason'] ?? attrs['ai.finishReason']) as string
+          )
         : 'stop';
     return serializeToJson([
       {

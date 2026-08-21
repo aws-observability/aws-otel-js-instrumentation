@@ -17,7 +17,7 @@ import {
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-vercel-ai';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_vercel_ai';
 
-const SUPPORTED_VERSIONS = ['>=3.3.11 <7.0.0'];
+const SUPPORTED_VERSIONS = ['>=3.3.0 <7.0.0'];
 
 export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrumentationConfig> {
   // Vercel AI SDK provides native OTel integration but uses its own

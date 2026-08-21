@@ -164,6 +164,7 @@ function patch(): void {
             makeSpanMetricsProcessor: () => new SpanMetricsProcessor(),
             wrapExporter: batchProcessorFor,
             envSpanProcessors,
+            warn: message => diag.warn(message),
           });
         } else if (!self._tracerProviderConfig) {
           // Field shape, env-driven (zero-code): constructor built no _tracerProviderConfig. Build one

@@ -62,6 +62,24 @@ preserved (NodeSDK ignores `traceExporter` once `spanProcessors` is set). The de
 `spanProcessor` option is honored with NodeSDK's own precedence (converted into `spanProcessors`,
 with a deprecation warning) — please migrate to `spanProcessors`.
 
+Span metrics in this mode require an explicit trace output in the config: `traceExporter`,
+`spanProcessors`, or the deprecated singular `spanProcessor`. Without one, `withSpanMetrics` warns
+and returns the config **unchanged**: NodeSDK wires span export from the environment/defaults only
+when processors are not explicitly configured, and setting them here would silently drop that
+export. Env-driven trace setups should use the zero-code register hook instead — and note that
+switching from env-driven export to an explicit `traceExporter` pins the exporter type and protocol
+in code (`OTEL_TRACES_EXPORTER` / `OTEL_EXPORTER_OTLP_PROTOCOL` no longer select them; endpoint and
+header env vars are still honored by the exporter).
+
+An explicitly **empty** `spanProcessors: []` is the metrics-without-trace-export recipe: NodeSDK
+builds no span export for it (that is what the empty array already means), and `withSpanMetrics`
+adds only the span-metrics processor — spans are recorded for metrics but never exported.
+
+If your config is already fully explicit, `withSpanMetrics` is equivalent to hand-wiring the two
+pieces yourself — `sampler: AlwaysRecordSampler.create(yourSampler)` and `new SpanMetricsProcessor()`
+appended to `spanProcessors` — the wrapper just automates NodeSDK's option-precedence handling
+(traceExporter conversion, deprecated-option migration, env-sampler resolution).
+
 The extension records into the global `MeterProvider` that NodeSDK builds and registers. As long as
 you configure a metric reader (via the config above or `OTEL_METRICS_EXPORTER`), no explicit `bind()`
 is required — the metrics inherit the SDK's resource (your `service.name`). Call `bind(provider)`

@@ -120,9 +120,9 @@ export function resolveEnvSampler(): Sampler | undefined {
 
 /**
  * Like {@link resolveEnvSampler} but never returns undefined: falls back to {@link defaultSampler}
- * when no env sampler is configured or the value is unrecognized. Used everywhere the extension must
- * force-record a concrete sampler (both zero-code and withSpanMetrics), so the two modes behave
- * identically and the default lives in one place.
+ * when no env sampler is configured or the value is unrecognized. Used wherever the extension
+ * force-records a concrete sampler (zero-code always; withSpanMetrics when the config carries a
+ * trace output — its no-trace-output abort path wraps nothing), so the default lives in one place.
  */
 export function resolveEnvSamplerOrDefault(): Sampler {
   return resolveEnvSampler() ?? defaultSampler();

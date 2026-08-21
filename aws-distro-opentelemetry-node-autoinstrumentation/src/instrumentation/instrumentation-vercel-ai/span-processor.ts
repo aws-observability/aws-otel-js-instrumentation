@@ -343,8 +343,10 @@ export class VercelAISpanProcessor implements SpanProcessor {
           name: def.name,
         };
         if (def.description) result.description = def.description;
-        if (def.inputSchema) {
-          const { $schema, additionalProperties, ...params } = def.inputSchema;
+        // v5/v6 use inputSchema, v4 uses parameters
+        const schema = def.inputSchema ?? def.parameters;
+        if (schema) {
+          const { $schema, additionalProperties, ...params } = schema;
           result.parameters = params;
         }
         return result;
@@ -386,8 +388,9 @@ export class VercelAISpanProcessor implements SpanProcessor {
       case 'error':
         return 'error';
       case 'other':
-      case 'unknown':
         return 'stop';
+      case 'unknown':
+        return 'unknown';
       default:
         return reason;
     }

@@ -362,6 +362,43 @@ describe('generateText tool calls', function () {
     expect(attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('');
   });
 
+  it('maps AI SDK v4 tool parameters to tool definitions', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.prompt.tools': [
+        JSON.stringify({
+          type: 'function',
+          name: 'get_weather',
+          description: 'Get weather',
+          parameters: {
+            $schema: 'http://json-schema.org/draft-07/schema#',
+            type: 'object',
+            properties: {
+              location: { type: 'string' },
+            },
+            additionalProperties: false,
+          },
+        }),
+      ],
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(JSON.parse(attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string)).toEqual([
+      {
+        type: 'function',
+        name: 'get_weather',
+        description: 'Get weather',
+        parameters: {
+          type: 'object',
+          properties: {
+            location: { type: 'string' },
+          },
+        },
+      },
+    ]);
+  });
+
   for (const pc of providerCases) {
     it(`${pc.name} maps tool_calls finish reason correctly`, async () => {
       const model = getModel(pc, mockFetchJson(pc.toolCallResponse));
@@ -505,6 +542,17 @@ describe('finish reason mapping', function () {
   beforeEach(() => {
     resetMemoryExporter();
     instrumentation.setConfig({ captureMessageContent: false });
+  });
+
+  it('preserves unknown finish reasons', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.response.finishReason': 'unknown',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['unknown']);
   });
 
   const finishReasonsByProvider: Record<string, Array<{ nativeReason: string; expected: string }>> = {

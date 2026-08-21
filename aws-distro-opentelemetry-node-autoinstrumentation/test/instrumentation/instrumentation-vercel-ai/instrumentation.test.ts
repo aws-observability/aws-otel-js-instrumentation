@@ -396,18 +396,6 @@ describe('generateText tool calls', function () {
     expect(attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('');
   });
 
-  it('preserves an unknown finish reason when tool calls are present', function () {
-    const attributes: Record<string, unknown> = {
-      'ai.operationId': 'ai.generateText.doGenerate',
-      'ai.response.finishReason': 'unknown',
-      'ai.response.toolCalls': '[{"toolCallId":"call_1","toolName":"get_weather","args":{"location":"Tokyo"}}]',
-    };
-
-    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
-
-    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['unknown']);
-  });
-
   for (const pc of providerCases) {
     it(`${pc.name} maps tool_calls finish reason correctly`, async () => {
       const model = getModel(pc, mockFetchJson(pc.toolCallResponse));

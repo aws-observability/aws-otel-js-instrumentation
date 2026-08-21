@@ -68,8 +68,7 @@ import { z } from 'zod';
 const providerCases = getProviderCases();
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const legacyCohereProvider = (require('@ai-sdk/cohere/package.json').version as string).startsWith('0.');
-const [aiMajor, aiMinor, aiPatch] = (require('ai/package.json') as { version: string }).version.split('.').map(Number);
-const aiEmitsToolDefinitions = aiMajor > 3 || (aiMajor === 3 && (aiMinor > 4 || (aiMinor === 4 && aiPatch >= 29)));
+const expectToolDefinitions = process.env.VERCEL_AI_EXPECT_TOOL_DEFINITIONS !== 'false';
 
 function stepLimit(steps: number) {
   if ('stepCountIs' in ai && typeof ai.stepCountIs === 'function') {
@@ -356,7 +355,7 @@ describe('generateText tool calls', function () {
       const toolDefs = chatSpans
         .map((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string)
         .find(v => v != null);
-      if (aiEmitsToolDefinitions) {
+      if (expectToolDefinitions) {
         expect(toolDefs).toBeDefined();
         const parsed = JSON.parse(toolDefs!);
         expect(Array.isArray(parsed)).toBe(true);

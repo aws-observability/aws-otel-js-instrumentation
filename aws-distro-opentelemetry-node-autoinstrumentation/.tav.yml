@@ -79,6 +79,8 @@ ai:
     versions:
       include: '3.3.0'
     node: '>=18'
+    env:
+      - VERCEL_AI_EXPECT_TOOL_DEFINITIONS=false
     preinstall: npm uninstall --no-save --no-audit --no-fund ai @ai-sdk/amazon-bedrock @ai-sdk/anthropic @ai-sdk/azure @ai-sdk/cohere @ai-sdk/google @ai-sdk/groq @ai-sdk/mistral @ai-sdk/openai @ai-sdk/xai zod
     peerDependencies:
       - '@ai-sdk/amazon-bedrock@0.0.36'
@@ -96,6 +98,8 @@ ai:
     versions:
       include: '>3.3.0 <4.0.0'
       mode: latest-majors
+    env:
+      - VERCEL_AI_EXPECT_TOOL_DEFINITIONS=true
     peerDependencies:
       - '@ai-sdk/amazon-bedrock@0.0.36'
       - '@ai-sdk/anthropic@0.0.56'

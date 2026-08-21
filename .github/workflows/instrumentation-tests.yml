@@ -47,8 +47,11 @@ jobs:
         run: |
           cp -R . "$RUNNER_TEMP/tav"
           cd "$RUNNER_TEMP/tav"
-          jq '(.dependencies, .devDependencies) |= with_entries(select(.key | test("^(@ai-sdk/|@langchain/|@openai/agents|ai$|zod$)") | not))' package.json > package.tav.json
-          mv package.tav.json package.json
+          package_keys=()
+          for dependency in $(sed -n 's/.*--no-fund //p' .tav.yml | tr ' ' '\n' | sort -u); do
+            package_keys+=("dependencies[$dependency]" "devDependencies[$dependency]")
+          done
+          npm pkg delete "${package_keys[@]}"
           npm install --ignore-scripts --no-package-lock --no-audit --no-fund
           npm run create-version
           npm run test-all-versions

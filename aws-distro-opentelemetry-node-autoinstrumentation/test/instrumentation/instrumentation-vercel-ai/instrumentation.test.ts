@@ -715,22 +715,23 @@ describe('disable/enable', function () {
     const instr = new VercelAIInstrumentation() as any;
     instr.setConfig({ captureMessageContent: true });
     instr._captureLegacyToolDefinitions = true;
-    instr._legacySchemaConverter = () => ({
-      type: 'object',
-      properties: {
-        location: { type: 'string' },
-      },
-      required: ['location'],
-      additionalProperties: false,
-      $schema: 'http://json-schema.org/draft-07/schema#',
-    });
     const model = {};
     const options = {
       model,
       tools: {
         get_weather: {
           description: 'Get weather',
-          parameters: {},
+          parameters: {
+            jsonSchema: {
+              type: 'object',
+              properties: {
+                location: { type: 'string' },
+              },
+              required: ['location'],
+              additionalProperties: false,
+              $schema: 'http://json-schema.org/draft-07/schema#',
+            },
+          },
         },
       },
     };

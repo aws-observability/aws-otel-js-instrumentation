@@ -483,6 +483,48 @@ describe('Register', function () {
     });
   });
 
+  describe('HTTP query-parameter redaction', () => {
+    // This suite's module-level require of register.ts runs with AGENT_OBSERVABILITY_ENABLED unset,
+    // so this covers the redaction-applies-by-default case.
+    it('configures instrumentation-http to redact the AWS SigV4 credential params', () => {
+      const { instrumentationConfigs } = require('../src/register');
+      const { REDACTED_QUERY_PARAMS } = require('../src/utils');
+      const httpConfig = instrumentationConfigs['@opentelemetry/instrumentation-http'];
+      assert.ok(httpConfig, 'instrumentation-http config should be present');
+      assert.deepStrictEqual(httpConfig.redactedQueryParams, REDACTED_QUERY_PARAMS);
+    });
+
+    it('redacts regardless of AGENT_OBSERVABILITY_ENABLED', () => {
+      // instrumentationConfigs is built once at module load, so agent observability has to be set
+      // in a fresh process. Redaction must not be gated behind it (only the ping hook is).
+      const script = `
+        const assert = require('assert');
+        const { instrumentationConfigs } = require('../build/src/register.js');
+        const { REDACTED_QUERY_PARAMS } = require('../build/src/utils.js');
+        const httpConfig = instrumentationConfigs['@opentelemetry/instrumentation-http'];
+        assert.deepStrictEqual(httpConfig.redactedQueryParams, REDACTED_QUERY_PARAMS);
+        assert.ok(typeof httpConfig.ignoreIncomingRequestHook === 'function');
+        process.exit(0);
+      `;
+      const proc = spawnSync(process.execPath, ['-e', script], {
+        cwd: __dirname,
+        timeout: 10000,
+        killSignal: 'SIGKILL',
+        env: {
+          ...process.env,
+          AGENT_OBSERVABILITY_ENABLED: 'true',
+          OTEL_NODE_RESOURCE_DETECTORS: 'none',
+          OTEL_TRACES_EXPORTER: 'none',
+          OTEL_METRICS_EXPORTER: 'none',
+          OTEL_LOGS_EXPORTER: 'none',
+          OTEL_LOG_LEVEL: 'NONE',
+        },
+      });
+      assert.ifError(proc.error);
+      assert.equal(proc.status, 0, proc.stderr?.toString());
+    });
+  });
+
   describe('Healthcheck suppression', () => {
     it('suppresses /ping for incoming HTTP requests', () => {
       const { isHttpPingRequest } = require('../src/register');

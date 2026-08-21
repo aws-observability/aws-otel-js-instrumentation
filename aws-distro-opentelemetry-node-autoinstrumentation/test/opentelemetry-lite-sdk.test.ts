@@ -678,6 +678,60 @@ describe('LiteSdk - UdpSpanExporter', () => {
     expect(span.attributes['aws.remote.service']).toBe('UnknownRemoteService');
     expect(span.attributes['aws.remote.operation']).toBe('UnknownRemoteOperation');
   });
+
+  it('attributes presigned S3 URL when opt-in flag is set', () => {
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'true';
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'test';
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_PRESIGNED_URL_ATTRIBUTION_ENABLED = 'true';
+    const exporter = new UdpSpanExporter('127.0.0.1:2000');
+    const mockUdp = { sendOtlp: sinon.stub(), shutdown: sinon.stub() };
+    (exporter as any)._udpExporter = mockUdp;
+
+    const provider = new TracerProvider({ 'service.name': 'test' });
+    const tracer = provider.getTracer('test');
+    const span = tracer.startSpan('test', { kind: SpanKind.CLIENT }) as Span;
+    span.setAttribute(
+      'http.url',
+      'https://example-bucket.s3.us-west-2.amazonaws.com/object' +
+        '?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=REDACTED&X-Amz-Signature=REDACTED' +
+        '&X-Amz-Date=20260710T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host'
+    );
+    span.setAttribute('http.method', 'GET');
+    span.end();
+
+    exporter.export([span]);
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_PRESIGNED_URL_ATTRIBUTION_ENABLED;
+    expect(span.attributes['aws.remote.service']).toBe('AWS::S3');
+    expect(span.attributes['aws.remote.operation']).toBe('GetObject');
+    expect(span.attributes['aws.remote.resource.type']).toBe('AWS::S3::Bucket');
+    expect(span.attributes['aws.remote.resource.identifier']).toBe('example-bucket');
+  });
+
+  it('does not attribute presigned S3 URL when opt-in flag is unset', () => {
+    process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'true';
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'test';
+    delete process.env.OTEL_AWS_APPLICATION_SIGNALS_PRESIGNED_URL_ATTRIBUTION_ENABLED;
+    const exporter = new UdpSpanExporter('127.0.0.1:2000');
+    const mockUdp = { sendOtlp: sinon.stub(), shutdown: sinon.stub() };
+    (exporter as any)._udpExporter = mockUdp;
+
+    const provider = new TracerProvider({ 'service.name': 'test' });
+    const tracer = provider.getTracer('test');
+    const span = tracer.startSpan('test', { kind: SpanKind.CLIENT }) as Span;
+    span.setAttribute(
+      'http.url',
+      'https://example-bucket.s3.us-west-2.amazonaws.com/object' +
+        '?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=REDACTED&X-Amz-Signature=REDACTED' +
+        '&X-Amz-Date=20260710T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host'
+    );
+    span.setAttribute('http.method', 'GET');
+    span.end();
+
+    exporter.export([span]);
+    expect(span.attributes['aws.remote.service']).toBe('example-bucket.s3.us-west-2.amazonaws.com');
+    expect(span.attributes['aws.remote.operation']).toBe('GET /object');
+    expect(span.attributes['aws.remote.resource.type']).toBeUndefined();
+  });
 });
 
 describe('LiteSdk - OTLP Encoding', () => {
@@ -1577,6 +1631,16 @@ describe('LiteSdk - buildInstrumentations', () => {
     const names = instrs.map(i => i.constructor.name);
     expect(names).toContain('AwsInstrumentation');
     expect(names).not.toContain('HttpInstrumentation');
+  });
+
+  it('configures instrumentation-http to redact the AWS SigV4 credential params', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { REDACTED_QUERY_PARAMS } = require('../src/utils');
+    process.env[ENABLED] = 'http';
+    const instrs = buildInstrumentations();
+    const http = instrs.find(i => i.constructor.name === 'HttpInstrumentation');
+    expect(http).toBeDefined();
+    expect(http.getConfig().redactedQueryParams).toEqual(REDACTED_QUERY_PARAMS);
   });
 });
 

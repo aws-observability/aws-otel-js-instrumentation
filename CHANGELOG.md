@@ -13,6 +13,17 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat(agent-observability): capture the first user message and final agent response on OpenAI Agents and
+  LangChain `invoke_agent` spans
+- fix(openai-agents): translate generation spans across model providers
+  ([#524](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/524))
+- fix(agent-observability): preserve structured tool values, binary content, and typed multimodal/reasoning
+  message parts in native GenAI instrumentation
+- feat: attribute presigned S3 URLs as `AWS::S3` dependencies in Application Signals, opt-in via
+  `OTEL_AWS_APPLICATION_SIGNALS_PRESIGNED_URL_ATTRIBUTION_ENABLED`
+  ([#515](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/515))
+- fix: redact AWS presigned URL credentials from span attributes
+  ([#514](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/514))
 - feat(serviceevents): accept bare package tokens (e.g. `myapp`, `src/myapp`) in
   `OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE`/`_EXCLUDE`, not just `**/…/**` globs
   ([#507](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/507))

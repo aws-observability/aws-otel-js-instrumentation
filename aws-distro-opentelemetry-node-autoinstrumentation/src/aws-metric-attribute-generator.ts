@@ -34,6 +34,7 @@ import {
   MetricAttributeGenerator,
   SERVICE_METRIC,
 } from './metric-attribute-generator';
+import { PresignedUrlAttribution, PresignedUrlAttributor } from './presigned-url-attributor';
 import { RegionalResourceArnParser } from './regional-resource-arn-parser';
 import { SqsUrlParser } from './sqs-url-parser';
 import { LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT } from './aws-opentelemetry-configurator';
@@ -56,6 +57,16 @@ const GRAPHQL: string = 'graphql';
 
 // Constants for Lambda operations
 const LAMBDA_INVOKE_OPERATION: string = 'Invoke';
+
+// Opt-in flag for presigned AWS URL attribution. Read at call time rather than at module load
+// because the generators are constructed as static singletons when this module is first imported,
+// which can precede the SDK reading environment configuration.
+const PRESIGNED_URL_ATTRIBUTION_ENABLED_CONFIG: string =
+  'OTEL_AWS_APPLICATION_SIGNALS_PRESIGNED_URL_ATTRIBUTION_ENABLED';
+
+function isPresignedUrlAttributionEnabled(): boolean {
+  return process.env[PRESIGNED_URL_ATTRIBUTION_ENABLED_CONFIG]?.trim().toLowerCase() === 'true';
+}
 
 // Normalized remote service names for supported AWS services
 const NORMALIZED_DYNAMO_DB_SERVICE_NAME: string = 'AWS::DynamoDB';
@@ -115,10 +126,15 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     const attributes: Attributes = {};
     AwsMetricAttributeGenerator.setService(resource, span, attributes);
     AwsMetricAttributeGenerator.setEgressOperation(span, attributes);
-    AwsMetricAttributeGenerator.setRemoteServiceAndOperation(span, attributes);
+    // Presigned AWS URL attribution is resolved lazily as a fallback inside
+    // setRemoteServiceAndOperation (only when no higher-priority remote attribute matched). It
+    // returns the resolved attribution, if any, so the remote resource can reuse it without
+    // re-parsing the URL.
+    const presignedAttribution = AwsMetricAttributeGenerator.setRemoteServiceAndOperation(span, attributes);
     const isRemoteResourceIdentifierPresent = AwsMetricAttributeGenerator.setRemoteResourceTypeAndIdentifier(
       span,
-      attributes
+      attributes,
+      presignedAttribution
     );
     AwsMetricAttributeGenerator.setRemoteEnvironment(span, attributes);
     if (isRemoteResourceIdentifierPresent) {
@@ -213,9 +229,13 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * the RemoteService. And `http.method`, `http.request.method`, `http.url` and `url.full` will be
    * used to derive the RemoteOperation.
    */
-  private static setRemoteServiceAndOperation(span: ReadableSpan, attributes: Attributes): void {
+  private static setRemoteServiceAndOperation(
+    span: ReadableSpan,
+    attributes: Attributes
+  ): PresignedUrlAttribution | undefined {
     let remoteService: string = AwsSpanProcessingUtil.UNKNOWN_REMOTE_SERVICE;
     let remoteOperation: string = AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION;
+    let presignedAttribution: PresignedUrlAttribution | undefined;
 
     if (
       AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE) ||
@@ -254,6 +274,15 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     } else if (AwsSpanProcessingUtil.isKeyPresent(span, _GRAPHQL_OPERATION_TYPE)) {
       remoteService = GRAPHQL;
       remoteOperation = AwsMetricAttributeGenerator.getRemoteOperation(span, _GRAPHQL_OPERATION_TYPE);
+    } else if (isPresignedUrlAttributionEnabled() && !AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
+      // Fallback for raw HTTP calls using a presigned URL. Exclude AWS SDK spans explicitly: they
+      // use the SDK attribution path even when their RPC service or method attributes are absent.
+      // Parse the URL only when we reach this branch.
+      presignedAttribution = PresignedUrlAttributor.attribute(span);
+      if (presignedAttribution !== undefined) {
+        remoteService = presignedAttribution.remoteService;
+        remoteOperation = presignedAttribution.remoteOperation;
+      }
     }
 
     // Peer service takes priority as RemoteService over everything but AWS Remote.
@@ -268,12 +297,17 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     if (remoteService === AwsSpanProcessingUtil.UNKNOWN_REMOTE_SERVICE) {
       remoteService = AwsMetricAttributeGenerator.generateRemoteService(span);
     }
-    if (remoteOperation === AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION) {
+    // When a presigned AWS URL was attributed, keep its remote operation as-is. Resolvers
+    // intentionally return UnknownRemoteOperation for ambiguous calls (e.g. a bucket-level S3 GET),
+    // and falling back to the generic HTTP path here would reintroduce the high-cardinality
+    // "GET /<key>" operation this feature is meant to avoid.
+    if (remoteOperation === AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION && presignedAttribution === undefined) {
       remoteOperation = AwsMetricAttributeGenerator.generateRemoteOperation(span);
     }
 
     attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE] = remoteService;
     attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_OPERATION] = remoteOperation;
+    return presignedAttribution;
   }
 
   /**
@@ -418,7 +452,11 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * href="https://docs.aws.amazon.com/cloudcontrolapi/latest/userguide/supported-resources.html">AWS
    * Cloud Control resource format</a>.
    */
-  private static setRemoteResourceTypeAndIdentifier(span: ReadableSpan, attributes: Attributes): boolean {
+  private static setRemoteResourceTypeAndIdentifier(
+    span: ReadableSpan,
+    attributes: Attributes,
+    presignedAttribution?: PresignedUrlAttribution
+  ): boolean {
     let remoteResourceType: AttributeValue | undefined;
     let remoteResourceIdentifier: AttributeValue | undefined;
     let cloudFormationIdentifier: AttributeValue | undefined;
@@ -555,6 +593,12 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteResourceType = agentcoreType;
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(agentcoreIdentifier);
         cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(agentcoreCfnId);
+      }
+    } else if (presignedAttribution !== undefined) {
+      const remoteResource = presignedAttribution.remoteResource;
+      if (remoteResource !== undefined) {
+        remoteResourceType = remoteResource.type;
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(remoteResource.identifier);
       }
     } else if (AwsSpanProcessingUtil.isDBSpan(span)) {
       remoteResourceType = DB_CONNECTION_RESOURCE_TYPE;

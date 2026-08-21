@@ -41,7 +41,7 @@ import {
   INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
 } from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
-import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled } from './utils';
+import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, REDACTED_QUERY_PARAMS } from './utils';
 
 const logLevelEnv = getStringFromEnv('OTEL_LOG_LEVEL');
 const logLevel = logLevelEnv ? diagLogLevelFromString(logLevelEnv) : undefined;
@@ -230,10 +230,15 @@ export const instrumentationConfigs: InstrumentationConfigMap = {
   '@opentelemetry/instrumentation-mongoose': {
     suppressInternalInstrumentation: true,
   },
-  ...(isAgentObservabilityEnabled() && {
-    '@opentelemetry/instrumentation-http': {
+  '@opentelemetry/instrumentation-http': {
+    // Redact AWS SigV4 credentials (and the upstream defaults) from captured URLs. See
+    // REDACTED_QUERY_PARAMS for why the full list must be provided here.
+    redactedQueryParams: REDACTED_QUERY_PARAMS,
+    ...(isAgentObservabilityEnabled() && {
       ignoreIncomingRequestHook: isHttpPingRequest,
-    },
+    }),
+  },
+  ...(isAgentObservabilityEnabled() && {
     '@opentelemetry/instrumentation-undici': {
       ignoreRequestHook: isUndiciPingRequest,
     },

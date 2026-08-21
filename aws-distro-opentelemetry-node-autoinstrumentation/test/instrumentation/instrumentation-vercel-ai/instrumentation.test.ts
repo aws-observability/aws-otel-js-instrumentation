@@ -6,6 +6,7 @@
 import { SpanKind } from '@opentelemetry/api';
 import { instrumentation, ensureSpanProcessor } from './load-instrumentation';
 import { VercelAIInstrumentation } from '../../../src/instrumentation/instrumentation-vercel-ai/instrumentation';
+import { VercelAISpanProcessor } from '../../../src/instrumentation/instrumentation-vercel-ai/span-processor';
 import * as sinon from 'sinon';
 import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-utils';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
@@ -105,6 +106,21 @@ function mockMultiStepFetch(pc: ProviderTestCase): typeof globalThis.fetch {
       headers: { 'content-type': 'application/json' },
     });
   }) as typeof fetch;
+}
+
+function createVercelSpan(attributes: Record<string, unknown>): ReadableSpan {
+  return {
+    name: 'ai.test',
+    kind: SpanKind.INTERNAL,
+    instrumentationScope: { name: 'ai' },
+    attributes,
+    parentSpanContext: undefined,
+    spanContext: () => ({
+      traceId: '0'.repeat(32),
+      spanId: '1'.repeat(16),
+      traceFlags: 1,
+    }),
+  } as unknown as ReadableSpan;
 }
 
 before(() => {
@@ -231,6 +247,32 @@ describe('generateText content capture', function () {
     expect(chatSpans[0].attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBeUndefined();
     expect(chatSpans[0].attributes[ATTR_GEN_AI_OUTPUT_MESSAGES]).toBeUndefined();
   });
+
+  it('normalizes image and tool content with the Vercel adapter', function () {
+    expect(
+      (VercelAISpanProcessor as any)._formatMessageParts([
+        { type: 'text', text: 'describe' },
+        { type: 'file', data: 'AAAA', mediaType: 'image/png' },
+        { type: 'tool-call', toolCallId: 'call_1', toolName: 'lookup', args: '{"city":"Tokyo"}' },
+        { type: 'tool-result', toolCallId: 'call_1', result: { forecast: 'sunny' } },
+      ])
+    ).toEqual([
+      { type: 'text', content: 'describe' },
+      {
+        type: 'blob',
+        modality: 'image',
+        mime_type: 'image/png',
+        content: 'AAAA',
+      },
+      {
+        type: 'tool_call',
+        id: 'call_1',
+        name: 'lookup',
+        arguments: { city: 'Tokyo' },
+      },
+      { type: 'tool_call_response', id: 'call_1', response: { forecast: 'sunny' } },
+    ]);
+  });
 });
 
 describe('generateText tool calls', function () {
@@ -293,6 +335,32 @@ describe('generateText tool calls', function () {
       resetMemoryExporter();
     });
   }
+
+  it('preserves structured tool arguments and results through shared serialization', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.toolCall',
+      'ai.toolCall.name': 'structured_add',
+      'ai.toolCall.args': '{"a":1,"b":2}',
+      'ai.toolCall.result': '{"content":{"sum":3},"artifact":{"id":"artifact-1"}}',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_TOOL_CALL_ARGUMENTS]).toBe('{"a":1,"b":2}');
+    expect(attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('{"content":{"sum":3},"artifact":{"id":"artifact-1"}}');
+  });
+
+  it('preserves an explicitly present empty telemetry value', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.toolCall',
+      'ai.toolCall.name': 'empty_result',
+      'ai.toolCall.result': '',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('');
+  });
 
   for (const pc of providerCases) {
     it(`${pc.name} maps tool_calls finish reason correctly`, async () => {

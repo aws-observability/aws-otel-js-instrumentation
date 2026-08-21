@@ -97,10 +97,29 @@ jobs:
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
           name: layer.zip
-      - name: publish
+      - name: Upload to S3 and Sign
+        continue-on-error: true
         run: |
           aws s3 mb s3://${{ env.BUCKET_NAME }}
           aws s3 cp layer.zip s3://${{ env.BUCKET_NAME }}
+
+          # Sign the layer
+          PROFILE=$(aws signer list-signing-profiles --query "profiles[?profileName=='ADOTLambdaLayerSigningProfile'].arn" --output text 2>/dev/null)
+          [ -z "$PROFILE" ] && echo "No signing profile found, skipping" && exit 0
+
+          JOB_ID=$(aws signer start-signing-job \
+            --source "s3={bucketName=${{ env.BUCKET_NAME }},key=layer.zip,version=null}" \
+            --destination "s3={bucketName=${{ env.BUCKET_NAME }},prefix=signed-}" \
+            --profile-name ADOTLambdaLayerSigningProfile \
+            --query 'jobId' --output text)
+
+          aws signer wait successful-signing-job --job-id "$JOB_ID"
+
+          SIGNED=$(aws signer describe-signing-job --job-id "$JOB_ID" --query 'signedObject.s3.key' --output text)
+          aws s3 rm "s3://${{ env.BUCKET_NAME }}/layer.zip"
+          aws s3 mv "s3://${{ env.BUCKET_NAME }}/$SIGNED" "s3://${{ env.BUCKET_NAME }}/layer.zip"
+      - name: publish
+        run: |
           layerARN=$(
             aws lambda publish-layer-version \
               --layer-name ${{ env.LAYER_NAME }} \

@@ -8,8 +8,6 @@ on:
         required: false
         type: string
   workflow_dispatch:
-  schedule:
-    - cron: '17 8 * * *'
 
 permissions:
   contents: read

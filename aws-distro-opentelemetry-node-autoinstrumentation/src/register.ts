@@ -50,10 +50,10 @@ const diagLogger: DiagLogger = {
   info: consoleLogger.info,
   warn: consoleLogger.warn,
   error(message: string, ...args: unknown[]): void {
-    // Upstream reports ADOT-owned instrumentation names as missing from its private registry.
+    // Upstream prefixes environment entries before checking its private instrumentation registry.
     if (
-      ![LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME].some(
-        name => message === `Provided instrumentation name "@opentelemetry/instrumentation-${name}" not found`
+      ![LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME].some(name =>
+        message.includes(`@opentelemetry/instrumentation-${name}`)
       )
     ) {
       consoleLogger.error(message, ...args);

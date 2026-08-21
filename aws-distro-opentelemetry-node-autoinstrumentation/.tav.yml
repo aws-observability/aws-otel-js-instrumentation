@@ -2,6 +2,7 @@
   - versions:
       include: '1.0.0'
     node: '>=20'
+    preinstall: npm uninstall --no-save --no-audit --no-fund @langchain/core zod
     peerDependencies:
       - 'zod@^3.25.76'
     commands: node scripts/run-test-all-versions.js verify @langchain/core
@@ -9,6 +10,7 @@
       include: '>1.0.0 <2.0.0'
       mode: latest-majors
     node: '>=20'
+    preinstall: npm uninstall --no-save --no-audit --no-fund @langchain/core zod
     peerDependencies:
       - 'zod@^3.25.76'
     commands: node scripts/run-test-all-versions.js verify @langchain/core
@@ -18,12 +20,14 @@
       include: '>0.1.0 <1.0.0'
       mode: latest-majors
     node: '>=22'
+    preinstall: npm uninstall --no-save --no-audit --no-fund @openai/agents @openai/agents-core @openai/agents-extensions zod
     peerDependencies:
       - 'zod@^4.0.0'
     commands: node scripts/run-test-all-versions.js verify @openai/agents
   - versions:
       include: '0.1.0'
     node: '>=18'
+    preinstall: npm uninstall --no-save --no-audit --no-fund @openai/agents @openai/agents-core @openai/agents-extensions zod
     peerDependencies:
       - 'zod@^3.25.40'
     commands: node scripts/run-test-all-versions.js verify @openai/agents
@@ -33,6 +37,7 @@ ai:
       include: '>=3.3.0 <4.0.0'
       mode: latest-majors
     node: '>=18'
+    preinstall: npm uninstall --no-save --no-audit --no-fund ai @ai-sdk/openai zod
     peerDependencies:
       - '@ai-sdk/openai@0.0.72'
       - 'zod@^3.22.0'
@@ -41,6 +46,7 @@ ai:
       include: '>=4.0.0 <5.0.0'
       mode: latest-majors
     node: '>=18'
+    preinstall: npm uninstall --no-save --no-audit --no-fund ai @ai-sdk/openai zod
     peerDependencies:
       - '@ai-sdk/openai@^1.0.0'
       - 'zod@^3.25.76'
@@ -49,6 +55,7 @@ ai:
       include: '>=5.0.0 <6.0.0'
       mode: latest-majors
     node: '>=18'
+    preinstall: npm uninstall --no-save --no-audit --no-fund ai @ai-sdk/openai zod
     peerDependencies:
       - '@ai-sdk/openai@^2.0.0'
       - 'zod@^4.0.0'
@@ -57,6 +64,7 @@ ai:
       include: '>=6.0.0 <7.0.0'
       mode: latest-majors
     node: '>=18'
+    preinstall: npm uninstall --no-save --no-audit --no-fund ai @ai-sdk/openai zod
     peerDependencies:
       - '@ai-sdk/openai@^3.0.0'
       - 'zod@^4.1.8'

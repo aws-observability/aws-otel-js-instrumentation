@@ -10,9 +10,6 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
-const TAV_PACKAGE_ROOT = path.dirname(require.resolve('test-all-versions/package.json'));
-const yaml = require(require.resolve('js-yaml', { paths: [TAV_PACKAGE_ROOT] }));
-const semver = require(require.resolve('semver', { paths: [TAV_PACKAGE_ROOT] }));
 const OMITTED_DEPENDENCIES = [/^@ai-sdk\//, /^@langchain\//, /^@openai\/agents/, /^ai$/, /^zod$/];
 const DEFAULT_TAV_TARGETS = ['@langchain/core', '@openai/agents', 'ai'];
 
@@ -282,23 +279,9 @@ function removeCompatibilityDependencies(dependencies = {}) {
   );
 }
 
-function getTargetGroups(target) {
-  const config = yaml.load(fs.readFileSync(path.join(PACKAGE_ROOT, '.tav.yml'), 'utf8'));
-  const targetConfig = config[target];
-  if (!targetConfig) {
-    throw new Error(`No test-all-versions configuration found for ${target}`);
-  }
-  return Array.isArray(targetConfig) ? targetConfig : [targetConfig];
-}
-
-function runTargetGroup(target, group, index, total) {
-  if (group.node && !semver.satisfies(process.version, group.node)) {
-    console.log(`Skipping ${target} compatibility group ${index + 1}/${total} on Node ${process.version}`);
-    return;
-  }
-
+function runTarget(target) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'adot-js-tav-'));
-  console.log(`Running ${target} compatibility group ${index + 1}/${total} in ${tempRoot}`);
+  console.log(`Running ${target} compatibility tests in ${tempRoot}`);
 
   try {
     fs.cpSync(PACKAGE_ROOT, tempRoot, {
@@ -311,10 +294,6 @@ function runTargetGroup(target, group, index, total) {
     packageJson.dependencies = removeCompatibilityDependencies(packageJson.dependencies);
     packageJson.devDependencies = removeCompatibilityDependencies(packageJson.devDependencies);
     fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
-    fs.writeFileSync(
-      path.join(tempRoot, '.tav.yml'),
-      yaml.dump({ [target]: group }, { lineWidth: -1, noRefs: true })
-    );
 
     runNpm(['install', '--ignore-scripts', '--no-package-lock', '--no-audit', '--no-fund'], tempRoot);
     runNpm(['run', 'create-version'], tempRoot);
@@ -337,8 +316,7 @@ async function main() {
   }
 
   for (const target of targets.filter(Boolean)) {
-    const groups = getTargetGroups(target);
-    groups.forEach((group, index) => runTargetGroup(target, group, index, groups.length));
+    runTarget(target);
   }
 }
 

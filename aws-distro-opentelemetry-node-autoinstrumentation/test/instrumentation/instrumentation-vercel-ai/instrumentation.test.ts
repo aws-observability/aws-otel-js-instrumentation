@@ -52,7 +52,8 @@ import {
   FAKE_AWS_SECRET_ACCESS_KEY,
   AWS_REGION,
 } from '../test-fixtures';
-import { generateText, streamText, tool, stepCountIs } from 'ai';
+import { generateText, streamText, tool } from 'ai';
+import * as ai from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
@@ -61,11 +62,21 @@ import { createGroq } from '@ai-sdk/groq';
 import { createMistral } from '@ai-sdk/mistral';
 import { createCohere } from '@ai-sdk/cohere';
 import { createXai } from '@ai-sdk/xai';
+import { HttpResponse } from '@smithy/protocol-http';
 import { z } from 'zod';
 
 const providerCases = getProviderCases();
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const legacyCohereProvider = (require('@ai-sdk/cohere/package.json').version as string).startsWith('0.');
 // The dependency matrix sets this to false when the installed AI SDK does not emit ai.prompt.tools.
 const expectToolDefinitions = process.env.VERCEL_AI_EXPECT_TOOL_DEFINITIONS !== 'false';
+
+function stepLimit(steps: number) {
+  if ('stepCountIs' in ai && typeof ai.stepCountIs === 'function') {
+    return { stopWhen: ai.stepCountIs(steps) };
+  }
+  return { maxSteps: steps };
+}
 
 function createProvider(pc: ProviderTestCase, fetch: typeof globalThis.fetch = mockFetchJson(pc.chatResponse)): any {
   switch (pc.name) {
@@ -79,7 +90,30 @@ function createProvider(pc: ProviderTestCase, fetch: typeof globalThis.fetch = m
         accessKeyId: FAKE_AWS_ACCESS_KEY_ID,
         secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY,
         fetch,
-      });
+        bedrockOptions: {
+          region: AWS_REGION,
+          credentials: {
+            accessKeyId: FAKE_AWS_ACCESS_KEY_ID,
+            secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY,
+          },
+          requestHandler: {
+            async handle() {
+              const response = await fetch('https://bedrock-runtime.test');
+              return {
+                response: new HttpResponse({
+                  statusCode: response.status,
+                  headers: Object.fromEntries(response.headers.entries()),
+                  body: new Uint8Array(await response.arrayBuffer()),
+                }),
+              };
+            },
+            updateHttpClientConfig() {},
+            httpHandlerConfigs() {
+              return {};
+            },
+          },
+        },
+      } as any);
     case ProviderName.GOOGLE:
       return createGoogleGenerativeAI({ apiKey: FAKE_GOOGLE_KEY, fetch });
     case ProviderName.GROQ:
@@ -304,7 +338,7 @@ describe('generateText tool calls', function () {
         model,
         prompt: 'What is the weather in Tokyo?',
         tools: { get_weather: weatherTool },
-        stopWhen: stepCountIs(3),
+        ...stepLimit(3),
       } as any);
 
       const spans = getTestSpans();
@@ -419,7 +453,7 @@ describe('generateText tool calls', function () {
         model,
         prompt: 'What is the weather in Tokyo?',
         tools: { get_weather: weatherTool },
-        stopWhen: stepCountIs(1),
+        ...stepLimit(1),
       } as any);
 
       const spans = getTestSpans();
@@ -430,7 +464,11 @@ describe('generateText tool calls', function () {
       );
       expect(chatSpans.length).toBeGreaterThanOrEqual(1);
       const reasons = chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS] as string[];
-      expect(reasons[0]).toMatch(/tool.call/);
+      if (pc.name === ProviderName.COHERE && legacyCohereProvider) {
+        expect(reasons[0]).toBe('unknown');
+      } else {
+        expect(reasons[0]).toMatch(/tool.call/);
+      }
 
       resetMemoryExporter();
     });
@@ -464,7 +502,7 @@ describe('generateText agent detection', function () {
         model,
         prompt: 'What is the weather in Tokyo?',
         tools: { get_weather: weatherTool },
-        stopWhen: stepCountIs(5),
+        ...stepLimit(5),
       } as any);
 
       const spans = getTestSpans();
@@ -520,7 +558,7 @@ describe('streamText', function () {
     const provider = createOpenAI({ apiKey: FAKE_OPENAI_KEY, fetch: mockFetch });
     const model = provider.chat(OPENAI_MODEL);
 
-    const result = streamText({
+    const result = await streamText({
       model,
       prompt: 'Say hello',
     });

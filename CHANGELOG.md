@@ -13,6 +13,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- test(agent-observability): validate the oldest and latest supported LangChain and OpenAI Agents releases,
+  plus the latest release from each supported Vercel AI SDK major, across supported Node.js versions
+  ([#526](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/526))
 - fix(vercel-ai): align AI SDK compatibility
   ([#529](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/529))
 - feat(agent-observability): capture the first user message and final agent response on OpenAI Agents and

@@ -14,13 +14,19 @@ permissions:
 
 jobs:
   run-tests:
-    name: Node ${{ matrix.node-version }}
+    name: Node ${{ matrix.node-version }} / ${{ matrix.tav-target }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         node-version: ['18', '20', '22', '24']
+        tav-target: ['@langchain/core', '@openai/agents', 'ai']
+        exclude:
+          - node-version: '18'
+            tav-target: '@langchain/core'
+          - node-version: '18'
+            tav-target: '@openai/agents'
     steps:
       - name: Checkout Repo
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
@@ -35,4 +41,14 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Run test-all-versions
-        run: npm run test-all-versions
+        working-directory: aws-distro-opentelemetry-node-autoinstrumentation
+        env:
+          TAV: ${{ matrix.tav-target }}
+        run: |
+          cp -R . "$RUNNER_TEMP/tav"
+          cd "$RUNNER_TEMP/tav"
+          jq '(.dependencies, .devDependencies) |= with_entries(select(.key | test("^(@ai-sdk/|@langchain/|@openai/agents|ai$|zod$)") | not))' package.json > package.tav.json
+          mv package.tav.json package.json
+          npm install --ignore-scripts --no-package-lock --no-audit --no-fund
+          npm run create-version
+          npm run test-all-versions

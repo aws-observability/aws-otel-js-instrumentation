@@ -38,8 +38,7 @@
     "test:instrumentation:vercel-ai": "OTEL_AWS_SERVICE_EVENTS_ENABLED=false nyc ts-mocha --exit --timeout 15000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/instrumentation/instrumentation-vercel-ai/**/*.ts'",
     "test:node18": "OTEL_AWS_SERVICE_EVENTS_ENABLED=false nyc ts-mocha --exit --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' --ignore 'test/instrumentation/instrumentation-langchain/**' --ignore 'test/instrumentation/instrumentation-vercel-ai/**' --ignore 'test/instrumentation/instrumentation-openai-agents/**' 'test/**/*.ts'",
     "test:coverage": "OTEL_AWS_SERVICE_EVENTS_ENABLED=false nyc --check-coverage --functions 95 --lines 95 ts-mocha --exit --timeout 15000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/**/*.ts'",
-    "test-all-versions": "node scripts/run-test-all-versions.js",
-    "test-all-versions:isolated": "tav",
+    "test-all-versions": "tav",
     "watch": "tsc -w"
   },
   "nyc": {

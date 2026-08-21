@@ -3,9 +3,9 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { createRequire } from 'module';
 import { types } from 'util';
 import { InstrumentationBase, InstrumentationNodeModuleDefinition } from '@opentelemetry/instrumentation';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { LIB_VERSION } from '../../version';
 import { VercelAIInstrumentationConfig } from './types';
 import { VercelAISpanProcessor } from './span-processor';
@@ -42,7 +42,6 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
   private _patchedExports: any;
   private _spanProcessorRegistered: boolean = false;
   private _captureLegacyToolDefinitions: boolean = false;
-  private _legacySchemaConverter?: (schema: any) => Record<string, any>;
 
   constructor(config: VercelAIInstrumentationConfig = {}) {
     super(INSTRUMENTATION_NAME, LIB_VERSION, config);
@@ -102,7 +101,6 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
 
   private _enableTelemetryByDefaultWrapper(moduleExports: any, moduleVersion?: string): any {
     this._captureLegacyToolDefinitions = VercelAIInstrumentation.needsLegacyToolDefinitions(moduleVersion);
-    this._legacySchemaConverter = this._captureLegacyToolDefinitions ? this._loadLegacySchemaConverter() : undefined;
 
     // The exports we are trying to patch in CJS have non-configurable properties,
     // so we must copy them into a plain object. However in ESM exports are wrappable directly.
@@ -136,7 +134,6 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
       this._patchedExports = undefined;
     }
     this._captureLegacyToolDefinitions = false;
-    this._legacySchemaConverter = undefined;
   }
 
   // automatically enables SDK telemetry to always be on
@@ -183,23 +180,12 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     return minor < 4 || (minor === 4 && patch < 29);
   }
 
-  private _loadLegacySchemaConverter(): ((schema: any) => Record<string, any>) | undefined {
-    try {
-      const aiRequire = createRequire(require.resolve('ai/package.json'));
-      const converterModule = aiRequire('zod-to-json-schema');
-      return converterModule.default ?? converterModule.zodToJsonSchema ?? converterModule;
-    } catch (error) {
-      this._diag.debug('Unable to load the AI SDK schema converter for legacy tool definitions', error);
-      return undefined;
-    }
-  }
-
   private _formatLegacyToolDefinitions(tools: any): string | undefined {
     if (!tools || typeof tools !== 'object') return undefined;
 
     try {
       const definitions = Object.entries(tools).map(([name, tool]: [string, any]) => {
-        const schema = tool.parameters?.jsonSchema ?? this._legacySchemaConverter?.(tool.parameters);
+        const schema = tool.parameters?.jsonSchema ?? zodToJsonSchema(tool.parameters);
         if (!schema || typeof schema !== 'object') {
           throw new Error(`Unable to convert the schema for tool '${name}'`);
         }

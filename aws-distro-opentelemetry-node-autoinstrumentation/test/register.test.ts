@@ -118,6 +118,30 @@ describe('Register', function () {
     testInstrumentation(OpenAIAgentsInstrumentation, OPENAI_AGENTS_NAME, OPENAI_AGENTS_SHORT_NAME);
     testInstrumentation(VercelAIInstrumentation, VERCEL_AI_NAME, VERCEL_AI_SHORT_NAME);
 
+    it('suppresses only custom instrumentation registry errors', () => {
+      const customNames = [LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME].join(',');
+      const invalidName = 'not-registered';
+      const configuredNames = `${customNames},${invalidName}`;
+
+      const proc = spawnWithAssertion(
+        {
+          OTEL_LOG_LEVEL: 'INFO',
+          OTEL_NODE_ENABLED_INSTRUMENTATIONS: configuredNames,
+          OTEL_NODE_DISABLED_INSTRUMENTATIONS: configuredNames,
+        },
+        `assert.strictEqual(process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS, '${configuredNames}');
+         assert.strictEqual(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS, '${configuredNames}');`
+      );
+      assert.ifError(proc.error);
+      assert.equal(proc.status, 0, proc.stderr?.toString());
+
+      const stderr = proc.stderr?.toString() ?? '';
+      for (const customName of customNames.split(',')) {
+        assert.ok(!stderr.includes(`instrumentation-${customName}`), `unexpected custom error: ${stderr}`);
+      }
+      assert.ok(stderr.includes(`instrumentation-${invalidName}`), `expected upstream error was suppressed: ${stderr}`);
+    });
+
     describe('third-party conflict detection', () => {
       const conflictTestCases: {
         name: string;

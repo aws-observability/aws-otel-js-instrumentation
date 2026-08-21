@@ -43,9 +43,24 @@ import {
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, REDACTED_QUERY_PARAMS } from './utils';
 
+// Upstream validates against its own registry and reports ADOT-owned instrumentation names as missing.
+const ignoredInstrumentationErrors = new Set(
+  [LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME].map(
+    name => `Provided instrumentation name "@opentelemetry/instrumentation-${name}" not found`
+  )
+);
+
+const diagLogger = new DiagConsoleLogger();
+const logError = diagLogger.error;
+diagLogger.error = (...args: Parameters<typeof logError>): void => {
+  if (!ignoredInstrumentationErrors.has(args[0])) {
+    logError(...args);
+  }
+};
+
 const logLevelEnv = getStringFromEnv('OTEL_LOG_LEVEL');
 const logLevel = logLevelEnv ? diagLogLevelFromString(logLevelEnv) : undefined;
-diag.setLogger(new DiagConsoleLogger(), logLevel);
+diag.setLogger(diagLogger, logLevel);
 
 /*
 Sets up default environment variables and apply patches

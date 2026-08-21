@@ -63,6 +63,7 @@ function runTarget(target) {
     fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 
     runNpm(['install', '--ignore-scripts', '--no-package-lock', '--no-audit', '--no-fund'], tempRoot);
+    runNpm(['run', 'create-version'], tempRoot);
     runNpm(['run', 'test-all-versions:isolated'], tempRoot, { TAV: target });
   } finally {
     if (process.env.KEEP_TAV_TMP === '1') {

@@ -21,7 +21,7 @@ import {
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-openai-agents';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_openai_agents';
 
-const SUPPORTED_VERSIONS = ['>=0.5.0'];
+const SUPPORTED_VERSIONS = ['>=0.0.17 <1.0.0'];
 
 export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgentsInstrumentationConfig> {
   // OpenAI Agents SDK has its own tracing system that is completely separate from OTel.

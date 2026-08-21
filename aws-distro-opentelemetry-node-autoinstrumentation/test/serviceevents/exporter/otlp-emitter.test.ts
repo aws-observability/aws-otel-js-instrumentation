@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import expect from 'expect';
-import { ServiceEventsOtlpEmitter, buildLogOtlpExporter } from '../../../src/serviceevents/exporter/otlp-emitter';
+import {
+  ServiceEventsOtlpEmitter,
+  buildLogOtlpExporter,
+  resolveMetricExportIntervalMillis,
+} from '../../../src/serviceevents/exporter/otlp-emitter';
 import { EndpointMetricEvent, EndpointErrorMetric } from '../../../src/serviceevents/models/endpoint-telemetry';
 import { FunctionCallMetrics } from '../../../src/serviceevents/models/function-telemetry';
 import { IncidentSnapshot } from '../../../src/serviceevents/models/incident-telemetry';
@@ -611,6 +615,38 @@ describe('buildLogOtlpExporter', function () {
     // misconfiguration surfaces as CloudWatch-side errors, not a crash here.
     const exp = buildLogOtlpExporter('https://logs.us-east-2.amazonaws.com/v1/logs', '', '', CompressionAlgorithm.NONE);
     expect(exp).toBeInstanceOf(OTLPAwsLogExporter);
+  });
+});
+
+describe('resolveMetricExportIntervalMillis', function () {
+  const original = process.env.OTEL_METRIC_EXPORT_INTERVAL;
+
+  afterEach(function () {
+    if (original === undefined) {
+      delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
+    } else {
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = original;
+    }
+  });
+
+  it('defaults to 60s when OTEL_METRIC_EXPORT_INTERVAL is unset', function () {
+    delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
+    expect(resolveMetricExportIntervalMillis()).toBe(60_000);
+  });
+
+  it('honors a smaller configured value (e.g. contract tests)', function () {
+    process.env.OTEL_METRIC_EXPORT_INTERVAL = '2000';
+    expect(resolveMetricExportIntervalMillis()).toBe(2000);
+  });
+
+  it('caps values above 60s to 60s', function () {
+    process.env.OTEL_METRIC_EXPORT_INTERVAL = '120000';
+    expect(resolveMetricExportIntervalMillis()).toBe(60_000);
+  });
+
+  it('falls back to 60s for a non-numeric value', function () {
+    process.env.OTEL_METRIC_EXPORT_INTERVAL = 'not-a-number';
+    expect(resolveMetricExportIntervalMillis()).toBe(60_000);
   });
 });
 

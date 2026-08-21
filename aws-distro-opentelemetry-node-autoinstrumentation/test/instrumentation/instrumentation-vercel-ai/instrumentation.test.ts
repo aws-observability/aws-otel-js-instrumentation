@@ -396,6 +396,31 @@ describe('generateText tool calls', function () {
     expect(attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('');
   });
 
+  it('maps AI SDK 3.3 tool definitions carried through telemetry metadata', function () {
+    const toolDefinitions = JSON.stringify([
+      {
+        type: 'function',
+        name: 'get_weather',
+        description: 'Get weather',
+        parameters: {
+          type: 'object',
+          properties: {
+            location: { type: 'string' },
+          },
+        },
+      },
+    ]);
+    const attributes: Record<string, unknown> = {
+      'operation.name': 'ai.generateText.doGenerate',
+      [`ai.telemetry.metadata.${ATTR_GEN_AI_TOOL_DEFINITIONS}`]: toolDefinitions,
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_TOOL_DEFINITIONS]).toBe(toolDefinitions);
+    expect(attributes[`ai.telemetry.metadata.${ATTR_GEN_AI_TOOL_DEFINITIONS}`]).toBeUndefined();
+  });
+
   for (const pc of providerCases) {
     it(`${pc.name} maps tool_calls finish reason correctly`, async () => {
       const model = getModel(pc, mockFetchJson(pc.toolCallResponse));
@@ -545,6 +570,29 @@ describe('finish reason mapping', function () {
     instrumentation.setConfig({ captureMessageContent: false });
   });
 
+  it('maps AI SDK 3.3 operation, finish reason, and output attributes', function () {
+    const attributes: Record<string, unknown> = {
+      'operation.name': 'ai.generateText.doGenerate weather_agent',
+      'ai.finishReason': 'stop',
+      'ai.result.text': 'Sunny',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_OPERATION_NAME]).toBe('chat');
+    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+    expect(JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string)).toEqual([
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'Sunny' }],
+        finish_reason: 'stop',
+      },
+    ]);
+    expect(attributes['operation.name']).toBeUndefined();
+    expect(attributes['ai.finishReason']).toBeUndefined();
+    expect(attributes['ai.result.text']).toBeUndefined();
+  });
+
   const finishReasonsByProvider: Record<string, Array<{ nativeReason: string; expected: string }>> = {
     [ProviderName.OPENAI]: [
       { nativeReason: 'stop', expected: 'stop' },
@@ -651,6 +699,52 @@ describe('disable/enable', function () {
     });
 
     expect(result.text).toContain('Paris');
+  });
+
+  it('injects legacy tool definitions through telemetry metadata without wrapping the model', function () {
+    const instr = new VercelAIInstrumentation() as any;
+    instr.setConfig({ captureMessageContent: true });
+    instr._captureLegacyToolDefinitions = true;
+    instr._legacySchemaConverter = () => ({
+      type: 'object',
+      properties: {
+        location: { type: 'string' },
+      },
+      required: ['location'],
+      additionalProperties: false,
+      $schema: 'http://json-schema.org/draft-07/schema#',
+    });
+    const model = {};
+    const options = {
+      model,
+      tools: {
+        get_weather: {
+          description: 'Get weather',
+          parameters: {},
+        },
+      },
+    };
+
+    const result = instr._autoInjectTelemetryEnabled(options);
+
+    expect(result.model).toBe(model);
+    expect(JSON.parse(result.experimental_telemetry.metadata[ATTR_GEN_AI_TOOL_DEFINITIONS])).toEqual([
+      {
+        type: 'function',
+        name: 'get_weather',
+        description: 'Get weather',
+        parameters: {
+          type: 'object',
+          properties: {
+            location: { type: 'string' },
+          },
+          required: ['location'],
+        },
+      },
+    ]);
+    expect(VercelAIInstrumentation['needsLegacyToolDefinitions']('3.3.0')).toBe(true);
+    expect(VercelAIInstrumentation['needsLegacyToolDefinitions']('3.4.28')).toBe(true);
+    expect(VercelAIInstrumentation['needsLegacyToolDefinitions']('3.4.29')).toBe(false);
   });
 
   describe('enable override', () => {

@@ -176,7 +176,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
 
     const attrs = span.attributes;
     const rawOperationId = (attrs['ai.operationId'] ?? attrs['operation.name']) as string | undefined;
-    const operationId = rawOperationId?.split(' ', 1)[0];
+    const operationId = rawOperationId?.split(' ')[0];
 
     if (!operationId || !operationId.startsWith('ai.')) return;
 
@@ -295,12 +295,9 @@ export class VercelAISpanProcessor implements SpanProcessor {
   }
 
   private static formatOutputMessages(value: unknown, attrs: Record<string, unknown>): string {
+    const rawFinishReason = attrs['ai.response.finishReason'] ?? attrs['ai.finishReason'];
     const finishReason =
-      typeof (attrs['ai.response.finishReason'] ?? attrs['ai.finishReason']) === 'string'
-        ? VercelAISpanProcessor.mapFinishReason(
-            (attrs['ai.response.finishReason'] ?? attrs['ai.finishReason']) as string
-          )
-        : 'stop';
+      typeof rawFinishReason === 'string' ? VercelAISpanProcessor.mapFinishReason(rawFinishReason) : 'stop';
     return serializeToJson([
       {
         role: 'assistant',
@@ -361,7 +358,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
           name: def.name,
         };
         if (def.description) result.description = def.description;
-        // v5/v6 use inputSchema, v4 uses parameters
+        // Tool schemas moved from parameters to inputSchema in AI SDK v5.
         const schema = def.inputSchema ?? def.parameters;
         if (schema) {
           const { $schema, additionalProperties, ...params } = schema;

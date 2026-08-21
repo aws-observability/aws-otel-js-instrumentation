@@ -66,6 +66,8 @@ import { HttpResponse } from '@smithy/protocol-http';
 import { z } from 'zod';
 
 const providerCases = getProviderCases();
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const legacyCohereProvider = (require('@ai-sdk/cohere/package.json').version as string).startsWith('0.');
 
 function stepLimit(steps: number) {
   if ('stepCountIs' in ai && typeof ai.stepCountIs === 'function') {
@@ -398,17 +400,16 @@ describe('generateText tool calls', function () {
     expect(attributes[ATTR_GEN_AI_TOOL_CALL_RESULT]).toBe('');
   });
 
-  it('infers a tool call when an older provider reports an unknown finish reason', function () {
+  it('preserves an unknown finish reason when tool calls are present', function () {
     const attributes: Record<string, unknown> = {
       'ai.operationId': 'ai.generateText.doGenerate',
       'ai.response.finishReason': 'unknown',
       'ai.response.toolCalls': '[{"toolCallId":"call_1","toolName":"get_weather","args":{"location":"Tokyo"}}]',
-      [ATTR_GEN_AI_RESPONSE_FINISH_REASONS]: ['unknown'],
     };
 
     new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
 
-    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
+    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['unknown']);
   });
 
   for (const pc of providerCases) {
@@ -436,7 +437,11 @@ describe('generateText tool calls', function () {
       );
       expect(chatSpans.length).toBeGreaterThanOrEqual(1);
       const reasons = chatSpans[0].attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS] as string[];
-      expect(reasons[0]).toMatch(/tool.call/);
+      if (pc.name === ProviderName.COHERE && legacyCohereProvider) {
+        expect(reasons[0]).toBe('unknown');
+      } else {
+        expect(reasons[0]).toMatch(/tool.call/);
+      }
 
       resetMemoryExporter();
     });

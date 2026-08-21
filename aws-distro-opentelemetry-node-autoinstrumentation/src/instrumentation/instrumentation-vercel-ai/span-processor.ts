@@ -77,7 +77,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     {
       from: 'ai.response.finishReason',
       to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
-      transform: (v: string, attrs: Record<string, unknown>) => [VercelAISpanProcessor.mapFinishReason(v, attrs)],
+      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
     },
     { from: 'ai.response.id', to: ATTR_GEN_AI_RESPONSE_ID },
     { from: 'ai.response.model', to: ATTR_GEN_AI_RESPONSE_MODEL },
@@ -203,16 +203,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
       }
     }
 
-    const finishReasons = mutableAttrs[ATTR_GEN_AI_RESPONSE_FINISH_REASONS];
-    if (Array.isArray(finishReasons) && VercelAISpanProcessor.hasToolCalls(mutableAttrs)) {
-      mutableAttrs[ATTR_GEN_AI_RESPONSE_FINISH_REASONS] = finishReasons.map(reason => {
-        const value = String(reason);
-        return value === 'other' || value === 'unknown'
-          ? VercelAISpanProcessor.mapFinishReason(value, mutableAttrs)
-          : value;
-      });
-    }
-
     if (operationId === 'ai.generateText' || operationId === 'ai.streamText') {
       mutableAttrs[ATTR_GEN_AI_OPERATION_NAME] = this.isAgentSpan(span)
         ? GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT
@@ -291,7 +281,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
   private static formatOutputMessages(value: unknown, attrs: Record<string, unknown>): string {
     const finishReason =
       typeof attrs['ai.response.finishReason'] === 'string'
-        ? VercelAISpanProcessor.mapFinishReason(attrs['ai.response.finishReason'], attrs)
+        ? VercelAISpanProcessor.mapFinishReason(attrs['ai.response.finishReason'])
         : 'stop';
     return serializeToJson([
       {
@@ -385,11 +375,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     return model ? `${op} ${model}` : op;
   }
 
-  private static mapFinishReason(reason: string, attrs?: Record<string, unknown>): string {
-    if ((reason === 'other' || reason === 'unknown') && VercelAISpanProcessor.hasToolCalls(attrs)) {
-      return 'tool_call';
-    }
-
+  private static mapFinishReason(reason: string): string {
     switch (reason) {
       case 'stop':
         return 'stop';
@@ -402,25 +388,11 @@ export class VercelAISpanProcessor implements SpanProcessor {
       case 'error':
         return 'error';
       case 'other':
-      case 'unknown':
         return 'stop';
+      case 'unknown':
+        return 'unknown';
       default:
         return reason;
-    }
-  }
-
-  private static hasToolCalls(attrs?: Record<string, unknown>): boolean {
-    if (!attrs) return false;
-
-    const value = attrs['ai.response.toolCalls'] ?? attrs['ai.result.toolCalls'];
-    if (Array.isArray(value)) return value.length > 0;
-    if (typeof value !== 'string') return false;
-
-    try {
-      const toolCalls = JSON.parse(value);
-      return Array.isArray(toolCalls) && toolCalls.length > 0;
-    } catch {
-      return false;
     }
   }
 

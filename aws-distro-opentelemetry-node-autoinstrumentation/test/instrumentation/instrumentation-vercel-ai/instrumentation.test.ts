@@ -64,8 +64,7 @@ import { createXai } from '@ai-sdk/xai';
 import { z } from 'zod';
 
 const providerCases = getProviderCases();
-const [aiMajor, aiMinor, aiPatch] = (require('ai/package.json') as { version: string }).version.split('.').map(Number);
-const aiEmitsToolDefinitions = aiMajor > 3 || (aiMajor === 3 && (aiMinor > 4 || (aiMinor === 4 && aiPatch >= 29)));
+const expectToolDefinitions = process.env.VERCEL_AI_EXPECT_TOOL_DEFINITIONS !== 'false';
 
 function createProvider(pc: ProviderTestCase, fetch: typeof globalThis.fetch = mockFetchJson(pc.chatResponse)): any {
   switch (pc.name) {
@@ -322,7 +321,7 @@ describe('generateText tool calls', function () {
       const toolDefs = chatSpans
         .map((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string)
         .find(v => v != null);
-      if (aiEmitsToolDefinitions) {
+      if (expectToolDefinitions) {
         expect(toolDefs).toBeDefined();
         const parsed = JSON.parse(toolDefs!);
         expect(Array.isArray(parsed)).toBe(true);

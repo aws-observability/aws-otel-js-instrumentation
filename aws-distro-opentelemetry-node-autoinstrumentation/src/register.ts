@@ -20,7 +20,7 @@ if (process.env.OTEL_TRACES_SAMPLER === 'xray') {
   useXraySampler = true;
 }
 
-import { diag, DiagConsoleLogger, metrics, trace } from '@opentelemetry/api';
+import { diag, DiagConsoleLogger, DiagLogger, metrics, trace } from '@opentelemetry/api';
 import { logs } from '@opentelemetry/api-logs';
 import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
 import { getStringFromEnv, diagLogLevelFromString } from '@opentelemetry/core';
@@ -43,9 +43,28 @@ import {
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, REDACTED_QUERY_PARAMS } from './utils';
 
+const consoleLogger = new DiagConsoleLogger();
+const diagLogger: DiagLogger = {
+  verbose: consoleLogger.verbose,
+  debug: consoleLogger.debug,
+  info: consoleLogger.info,
+  warn: consoleLogger.warn,
+  error(message: string, ...args: unknown[]): void {
+    // Keep in sync with the upstream diagnostic:
+    // https://github.com/open-telemetry/opentelemetry-js-contrib/blob/4e52a9053029304f271b7dbe1b07e7fb2b987e30/packages/auto-instrumentations-node/src/utils.ts#L226-L232
+    if (
+      ![LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME]
+        .map(name => `Provided instrumentation name "@opentelemetry/instrumentation-${name}" not found`)
+        .includes(message)
+    ) {
+      consoleLogger.error(message, ...args);
+    }
+  },
+};
+
 const logLevelEnv = getStringFromEnv('OTEL_LOG_LEVEL');
 const logLevel = logLevelEnv ? diagLogLevelFromString(logLevelEnv) : undefined;
-diag.setLogger(new DiagConsoleLogger(), logLevel);
+diag.setLogger(diagLogger, logLevel);
 
 /*
 Sets up default environment variables and apply patches

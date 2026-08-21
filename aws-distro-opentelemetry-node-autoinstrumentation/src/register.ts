@@ -43,13 +43,6 @@ import {
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, REDACTED_QUERY_PARAMS } from './utils';
 
-// Upstream validates against its own registry and reports ADOT-owned instrumentation names as missing.
-const ignoredInstrumentationErrors = new Set(
-  [LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME].map(
-    name => `Provided instrumentation name "@opentelemetry/instrumentation-${name}" not found`
-  )
-);
-
 const consoleLogger = new DiagConsoleLogger();
 const diagLogger: DiagLogger = {
   verbose: consoleLogger.verbose,
@@ -57,7 +50,12 @@ const diagLogger: DiagLogger = {
   info: consoleLogger.info,
   warn: consoleLogger.warn,
   error(message: string, ...args: unknown[]): void {
-    if (!ignoredInstrumentationErrors.has(message)) {
+    // Upstream reports ADOT-owned instrumentation names as missing from its private registry.
+    if (
+      ![LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME].some(
+        name => message === `Provided instrumentation name "@opentelemetry/instrumentation-${name}" not found`
+      )
+    ) {
       consoleLogger.error(message, ...args);
     }
   },

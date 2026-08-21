@@ -20,7 +20,7 @@ if (process.env.OTEL_TRACES_SAMPLER === 'xray') {
   useXraySampler = true;
 }
 
-import { diag, DiagConsoleLogger, metrics, trace } from '@opentelemetry/api';
+import { diag, DiagConsoleLogger, DiagLogger, metrics, trace } from '@opentelemetry/api';
 import { logs } from '@opentelemetry/api-logs';
 import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
 import { getStringFromEnv, diagLogLevelFromString } from '@opentelemetry/core';
@@ -50,12 +50,17 @@ const ignoredInstrumentationErrors = new Set(
   )
 );
 
-const diagLogger = new DiagConsoleLogger();
-const logError = diagLogger.error;
-diagLogger.error = (...args: Parameters<typeof logError>): void => {
-  if (!ignoredInstrumentationErrors.has(args[0])) {
-    logError(...args);
-  }
+const consoleLogger = new DiagConsoleLogger();
+const diagLogger: DiagLogger = {
+  verbose: consoleLogger.verbose,
+  debug: consoleLogger.debug,
+  info: consoleLogger.info,
+  warn: consoleLogger.warn,
+  error(message: string, ...args: unknown[]): void {
+    if (!ignoredInstrumentationErrors.has(message)) {
+      consoleLogger.error(message, ...args);
+    }
+  },
 };
 
 const logLevelEnv = getStringFromEnv('OTEL_LOG_LEVEL');

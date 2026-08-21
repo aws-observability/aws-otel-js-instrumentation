@@ -77,25 +77,9 @@
 ai:
   - &ai-v3
     versions:
-      include: '3.3.0'
+      include: '3.4.29'
     node: '>=18'
     preinstall: npm uninstall --no-save --no-audit --no-fund ai @ai-sdk/amazon-bedrock @ai-sdk/anthropic @ai-sdk/azure @ai-sdk/cohere @ai-sdk/google @ai-sdk/groq @ai-sdk/mistral @ai-sdk/openai @ai-sdk/xai zod
-    peerDependencies:
-      - '@ai-sdk/amazon-bedrock@0.0.36'
-      - '@ai-sdk/anthropic@0.0.56'
-      - '@ai-sdk/azure@0.0.52'
-      - '@ai-sdk/cohere@0.0.28'
-      - '@ai-sdk/google@0.0.55'
-      - '@ai-sdk/groq@0.0.3'
-      - '@ai-sdk/mistral@0.0.46'
-      - '@ai-sdk/openai@0.0.40'
-      - '@ai-sdk/xai@^1.0.0'
-      - 'zod@^3.22.0'
-    commands: npm run test:instrumentation:vercel-ai
-  - <<: *ai-v3
-    versions:
-      include: '>3.3.0 <4.0.0'
-      mode: latest-majors
     peerDependencies:
       - '@ai-sdk/amazon-bedrock@0.0.36'
       - '@ai-sdk/anthropic@0.0.56'
@@ -107,6 +91,11 @@ ai:
       - '@ai-sdk/openai@0.0.72'
       - '@ai-sdk/xai@^1.0.0'
       - 'zod@^3.22.0'
+    commands: npm run test:instrumentation:vercel-ai
+  - <<: *ai-v3
+    versions:
+      include: '>3.4.29 <4.0.0'
+      mode: latest-majors
   - versions:
       include: '>=4.0.0 <5.0.0'
       mode: latest-majors

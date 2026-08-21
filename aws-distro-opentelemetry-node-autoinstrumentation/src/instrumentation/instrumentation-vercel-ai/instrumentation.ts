@@ -5,12 +5,9 @@
 
 import { types } from 'util';
 import { InstrumentationBase, InstrumentationNodeModuleDefinition } from '@opentelemetry/instrumentation';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { LIB_VERSION } from '../../version';
 import { VercelAIInstrumentationConfig } from './types';
 import { VercelAISpanProcessor } from './span-processor';
-import { ATTR_GEN_AI_TOOL_DEFINITIONS } from '../common/semconv';
-import { serializeToJson } from '../common/instrumentation-utils';
 import {
   isAgenticInstrumentationOptIn,
   isInstrumentationDisabled,
@@ -20,7 +17,7 @@ import {
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-vercel-ai';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_vercel_ai';
 
-const SUPPORTED_VERSIONS = ['>=3.3.0 <7.0.0'];
+const SUPPORTED_VERSIONS = ['>=3.4.29 <7.0.0'];
 
 export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrumentationConfig> {
   // Vercel AI SDK provides native OTel integration but uses its own
@@ -41,7 +38,6 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
   ];
   private _patchedExports: any;
   private _spanProcessorRegistered: boolean = false;
-  private _captureLegacyToolDefinitions: boolean = false;
 
   constructor(config: VercelAIInstrumentationConfig = {}) {
     super(INSTRUMENTATION_NAME, LIB_VERSION, config);
@@ -92,16 +88,13 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
       new InstrumentationNodeModuleDefinition(
         'ai',
         SUPPORTED_VERSIONS,
-        (moduleExports: any, moduleVersion?: string) =>
-          this._enableTelemetryByDefaultWrapper(moduleExports, moduleVersion),
+        (moduleExports: any) => this._enableTelemetryByDefaultWrapper(moduleExports),
         (_moduleExports: any) => this._enableTelemetryByDefaultUnwrap()
       ),
     ];
   }
 
-  private _enableTelemetryByDefaultWrapper(moduleExports: any, moduleVersion?: string): any {
-    this._captureLegacyToolDefinitions = VercelAIInstrumentation.needsLegacyToolDefinitions(moduleVersion);
-
+  private _enableTelemetryByDefaultWrapper(moduleExports: any): any {
     // The exports we are trying to patch in CJS have non-configurable properties,
     // so we must copy them into a plain object. However in ESM exports are wrappable directly.
     const isESM = types.isProxy(moduleExports);
@@ -133,7 +126,6 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
       }
       this._patchedExports = undefined;
     }
-    this._captureLegacyToolDefinitions = false;
   }
 
   // automatically enables SDK telemetry to always be on
@@ -150,57 +142,14 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     }
 
     const captureContent = this.getConfig().captureMessageContent ?? false;
-    const recordInputs = existing?.recordInputs ?? captureContent;
-    const toolDefinitions =
-      this._captureLegacyToolDefinitions && recordInputs ? this._formatLegacyToolDefinitions(options.tools) : undefined;
-    const metadata =
-      toolDefinitions == null
-        ? existing?.metadata
-        : {
-            ...existing?.metadata,
-            [ATTR_GEN_AI_TOOL_DEFINITIONS]: toolDefinitions,
-          };
 
     options.experimental_telemetry = {
       isEnabled: true,
       recordInputs: captureContent,
       recordOutputs: captureContent,
       ...existing,
-      ...(metadata == null ? {} : { metadata }),
     };
 
     return options;
-  }
-
-  private static needsLegacyToolDefinitions(moduleVersion?: string): boolean {
-    const match = /^3\.(\d+)\.(\d+)/.exec(moduleVersion ?? '');
-    if (!match) return false;
-    const minor = Number(match[1]);
-    const patch = Number(match[2]);
-    return minor < 4 || (minor === 4 && patch < 29);
-  }
-
-  private _formatLegacyToolDefinitions(tools: any): string | undefined {
-    if (!tools || typeof tools !== 'object') return undefined;
-
-    try {
-      const definitions = Object.entries(tools).map(([name, tool]: [string, any]) => {
-        const schema = tool.parameters?.jsonSchema ?? zodToJsonSchema(tool.parameters);
-        if (!schema || typeof schema !== 'object') {
-          throw new Error(`Unable to convert the schema for tool '${name}'`);
-        }
-        const { $schema, additionalProperties, ...parameters } = schema;
-        return {
-          type: 'function',
-          name,
-          ...(tool.description ? { description: tool.description } : {}),
-          parameters,
-        };
-      });
-      return serializeToJson(definitions);
-    } catch (error) {
-      this._diag.debug('Unable to capture legacy Vercel AI tool definitions', error);
-      return undefined;
-    }
   }
 }

@@ -64,6 +64,7 @@ import { createXai } from '@ai-sdk/xai';
 import { z } from 'zod';
 
 const providerCases = getProviderCases();
+// The dependency matrix sets this to false when the installed AI SDK does not emit ai.prompt.tools.
 const expectToolDefinitions = process.env.VERCEL_AI_EXPECT_TOOL_DEFINITIONS !== 'false';
 
 function createProvider(pc: ProviderTestCase, fetch: typeof globalThis.fetch = mockFetchJson(pc.chatResponse)): any {

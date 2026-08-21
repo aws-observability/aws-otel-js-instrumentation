@@ -76,25 +76,6 @@ function stepLimit(steps: number) {
   return { maxSteps: steps };
 }
 
-function createBedrockRequestHandler(fetch: typeof globalThis.fetch) {
-  return {
-    async handle() {
-      const response = await fetch('https://bedrock-runtime.test');
-      return {
-        response: new HttpResponse({
-          statusCode: response.status,
-          headers: Object.fromEntries(response.headers.entries()),
-          body: new Uint8Array(await response.arrayBuffer()),
-        }),
-      };
-    },
-    updateHttpClientConfig() {},
-    httpHandlerConfigs() {
-      return {};
-    },
-  };
-}
-
 function createProvider(pc: ProviderTestCase, fetch: typeof globalThis.fetch = mockFetchJson(pc.chatResponse)): any {
   switch (pc.name) {
     case ProviderName.OPENAI:
@@ -113,7 +94,22 @@ function createProvider(pc: ProviderTestCase, fetch: typeof globalThis.fetch = m
             accessKeyId: FAKE_AWS_ACCESS_KEY_ID,
             secretAccessKey: FAKE_AWS_SECRET_ACCESS_KEY,
           },
-          requestHandler: createBedrockRequestHandler(fetch),
+          requestHandler: {
+            async handle() {
+              const response = await fetch('https://bedrock-runtime.test');
+              return {
+                response: new HttpResponse({
+                  statusCode: response.status,
+                  headers: Object.fromEntries(response.headers.entries()),
+                  body: new Uint8Array(await response.arrayBuffer()),
+                }),
+              };
+            },
+            updateHttpClientConfig() {},
+            httpHandlerConfigs() {
+              return {};
+            },
+          },
         },
       } as any);
     case ProviderName.GOOGLE:

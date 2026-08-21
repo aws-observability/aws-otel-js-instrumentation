@@ -51,7 +51,7 @@ const diagLogger: DiagLogger = {
   warn: consoleLogger.warn,
   error(message: string, ...args: unknown[]): void {
     // Keep in sync with the upstream diagnostic:
-    // https://github.com/open-telemetry/opentelemetry-js-contrib/blob/auto-instrumentations-node-v0.77.0/packages/auto-instrumentations-node/src/utils.ts#L226-L232
+    // https://github.com/open-telemetry/opentelemetry-js-contrib/blob/4e52a9053029304f271b7dbe1b07e7fb2b987e30/packages/auto-instrumentations-node/src/utils.ts#L226-L232
     if (
       ![LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME]
         .map(name => `Provided instrumentation name "@opentelemetry/instrumentation-${name}" not found`)

@@ -71,9 +71,11 @@ switching from env-driven export to an explicit `traceExporter` pins the exporte
 in code (`OTEL_TRACES_EXPORTER` / `OTEL_EXPORTER_OTLP_PROTOCOL` no longer select them; endpoint and
 header env vars are still honored by the exporter).
 
-An explicitly **empty** `spanProcessors: []` is the metrics-without-trace-export recipe: NodeSDK
-builds no span export for it (that is what the empty array already means), and `withSpanMetrics`
-adds only the span-metrics processor — spans are recorded for metrics but never exported.
+Span metrics require trace export to be enabled. When trace export is disabled — an explicitly
+empty `spanProcessors: []`, or `OTEL_TRACES_EXPORTER=none` in zero-code mode — the extension
+disables itself with a warning and changes nothing: OpenTelemetry registers no tracer provider in
+that state (spans are non-recording and no trace context is propagated downstream), and wiring the
+extension in would create a recording provider that alters trace-context propagation fleet-wide.
 
 If your config is already fully explicit, `withSpanMetrics` is equivalent to hand-wiring the two
 pieces yourself — `sampler: AlwaysRecordSampler.create(yourSampler)` and `new SpanMetricsProcessor()`

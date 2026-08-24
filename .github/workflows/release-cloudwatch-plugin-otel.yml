@@ -28,6 +28,12 @@ jobs:
           os: ubuntu-latest
           run_unit_tests: true
 
+      # The release runner provides a Docker daemon (same as the PR build's compat-tests job), so
+      # the full contract suite — all wiring modes and attribute families — gates the release.
+      - name: Run contract tests
+        working-directory: cloudwatch-plugin-otel
+        run: npm run test:contract
+
       - name: Build Tarball
         working-directory: cloudwatch-plugin-otel
         run: npm pack
@@ -39,6 +45,19 @@ jobs:
             echo "Input version '${{ inputs.cloudwatch-plugin-otel-version }}' does not match with the CloudWatch Plugin project version '$cloudwatchPluginVersion'"
             exit 1
           fi
+
+      # Install the packed tarball into a scratch project and smoke-test the published surface:
+      # the main entrypoint must load, and the ./register entrypoint must resolve AND degrade
+      # gracefully (exit 0) — this validates the files allowlist and exports map of the artifact
+      # that will actually be published, which the source-tree test suites cannot.
+      - name: Validate packed tarball
+        run: |
+          tarball="$(pwd)/cloudwatch-plugin-otel/$(ls cloudwatch-plugin-otel | grep -E '^aws-cloudwatch-plugin-otel-.*\.tgz$')"
+          mkdir -p /tmp/tarball-smoke && cd /tmp/tarball-smoke
+          npm init -y
+          npm install "$tarball"
+          node -e "require('@aws/cloudwatch-plugin-otel'); console.log('main entry ok')"
+          node --require @aws/cloudwatch-plugin-otel/register -e "console.log('register entry ok')"
 
       - name: Upgrade npm
         run: npm install -g npm@latest

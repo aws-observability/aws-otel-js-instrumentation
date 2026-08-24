@@ -12,14 +12,14 @@
  * injection strategy, and after start() verifies the extension actually took effect. If neither
  * shape is recognized, or the post-start self-check shows the extension is inert, it warns loudly
  * and leaves telemetry running with upstream behavior rather than silently mis-wiring.
+ *
+ * LOAD SAFETY: this module is loaded via --require, often process-wide through NODE_OPTIONS, so it
+ * must never crash a host that lacks OpenTelemetry. Everything that touches an OpenTelemetry
+ * package — including our own modules that import one at load time — is required LAZILY inside
+ * patch(), so merely loading this file executes nothing that can throw MODULE_NOT_FOUND. Only
+ * dependency-free modules may be imported statically here.
  */
-import { diag } from '@opentelemetry/api';
-import { AlwaysRecordSampler } from './always-record-sampler';
-import { SpanMetricsProcessor } from './span-metrics-processor';
-import * as holder from './internal/open-telemetry-holder';
-import { detectShape } from './internal/detect-shape';
-import { normalizeSpanProcessors } from './internal/normalize-span-processors';
-import { resolveEnvSamplerOrDefault } from './internal/env-sampler';
+import { normalizeSpanProcessors, TRACE_EXPORT_DISABLED_MESSAGE } from './internal/normalize-span-processors';
 
 function safeVersion(pkgPath: string): string {
   try {
@@ -29,25 +29,36 @@ function safeVersion(pkgPath: string): string {
   }
 }
 
-// Best-effort check that a SpanMetricsProcessor ended up in the built tracer provider's active
-// processor set. Reads a private composite (_activeSpanProcessor._spanProcessors); if the internals
-// aren't in the expected shape we return true (don't cry wolf on an introspection miss — the shape
-// probe already gated us, and this is a secondary safety net, not the primary guard).
-function spanMetricsProcessorAttached(sdkInstance: Record<string, any>): boolean {
-  try {
-    const tp = sdkInstance._tracerProvider;
-    const composite = tp && tp._activeSpanProcessor;
-    const list = composite && composite._spanProcessors;
-    if (!Array.isArray(list)) {
-      return true; // unknown internal shape — don't emit a false warning
-    }
-    return list.some(p => p instanceof SpanMetricsProcessor);
-  } catch {
-    return true;
-  }
-}
-
 function patch(): void {
+  // Lazy requires (see LOAD SAFETY above): a missing @opentelemetry/api or sdk-trace-base peer
+  // throws HERE, inside the guarded call, not at module load.
+  /* eslint-disable @typescript-eslint/no-var-requires */
+  const { diag } = require('@opentelemetry/api');
+  const { AlwaysRecordSampler } = require('./always-record-sampler');
+  const { SpanMetricsProcessor } = require('./span-metrics-processor');
+  const holder = require('./internal/open-telemetry-holder');
+  const { detectShape } = require('./internal/detect-shape');
+  const { resolveEnvSamplerOrDefault } = require('./internal/env-sampler');
+  /* eslint-enable @typescript-eslint/no-var-requires */
+
+  // Best-effort check that a SpanMetricsProcessor ended up in the built tracer provider's active
+  // processor set. Reads a private composite (_activeSpanProcessor._spanProcessors); if the
+  // internals aren't in the expected shape we return true (don't cry wolf on an introspection miss —
+  // the shape probe already gated us, and this is a secondary safety net, not the primary guard).
+  function spanMetricsProcessorAttached(sdkInstance: Record<string, any>): boolean {
+    try {
+      const tp = sdkInstance._tracerProvider;
+      const composite = tp && tp._activeSpanProcessor;
+      const list = composite && composite._spanProcessors;
+      if (!Array.isArray(list)) {
+        return true; // unknown internal shape — don't emit a false warning
+      }
+      return list.some(p => p instanceof SpanMetricsProcessor);
+    } catch {
+      return true;
+    }
+  }
+
   // auto-instrumentations-node may resolve its OWN nested copy of sdk-node, which is a different
   // module instance than a bare require('@opentelemetry/sdk-node') from here. Patch the SAME copy
   // upstream will construct by resolving sdk-node relative to auto-instrumentations-node.
@@ -68,11 +79,10 @@ function patch(): void {
   const version: string = safeVersion(pkgPath);
   const OriginalNodeSDK = sdkNode.NodeSDK;
 
-  // Detect the internal shape by probing a throwaway instance rather than matching a version number.
+  // Detect the internal shape by probing the class source rather than matching a version number.
   // A version allowlist both rejects new-but-compatible versions and accepts a version whose
   // internals silently shifted; probing the actual layout self-adapts and is verified again after
-  // start(). The probe passes a minimal trace config so the FIELD-shape constructor populates
-  // _tracerProviderConfig; CONFIG-shape leaves that undefined and exposes _configuration instead.
+  // start().
   const shape = detectShape(OriginalNodeSDK, version);
   if (shape === 'UNKNOWN') {
     diag.warn(
@@ -141,11 +151,19 @@ function patch(): void {
       if (!isConfigShape) {
         // Field shape (<= 0.219): the constructor may have assembled _tracerProviderConfig from an
         // explicit exporter/processor config. Append ours there; the env-driven case (no field) is
-        // handled in start().
+        // handled in start(). An EMPTY processor list means trace export is disabled — upstream
+        // registers no tracer provider for it, and adding only ours would create a recording
+        // provider that changes trace-context propagation downstream. Abort in that case.
         try {
           const tpConfig = (this as Record<string, any>)._tracerProviderConfig;
           if (tpConfig) {
-            tpConfig.spanProcessors = [...(tpConfig.spanProcessors ?? []), new SpanMetricsProcessor()];
+            const existing = tpConfig.spanProcessors ?? [];
+            if (existing.length === 0) {
+              diag.warn(TRACE_EXPORT_DISABLED_MESSAGE);
+              (this as Record<string, any>)._spanMetricsAborted = true;
+            } else {
+              tpConfig.spanProcessors = [...existing, new SpanMetricsProcessor()];
+            }
           }
         } catch (e) {
           diag.error('[span-metrics] failed to append processor at construction', e);
@@ -154,25 +172,42 @@ function patch(): void {
     }
 
     start(): void {
+      // Aborted = the extension deliberately gave itself up before start (trace export disabled, or
+      // env processors unresolvable). Every abort path has already emitted its own warning, so the
+      // post-start self-verify below must stay silent: its introspection defaults would otherwise
+      // log "active" right after the DISABLED warning (spanMetricsProcessorAttached returns true
+      // when no tracer provider exists at all).
+      let aborted = (this as Record<string, any>)._spanMetricsAborted === true;
       try {
         const self = this as Record<string, any>;
         if (isConfigShape) {
           // Config shape (>= 0.220): start() derives spanProcessors from this._configuration.
           // Normalize that to an explicit spanProcessors list with ours appended, preserving export.
           const cfg = self._configuration ?? (self._configuration = {});
-          normalizeSpanProcessors(cfg, {
+          const normalized = normalizeSpanProcessors(cfg, {
             makeSpanMetricsProcessor: () => new SpanMetricsProcessor(),
             wrapExporter: batchProcessorFor,
             envSpanProcessors,
             warn: message => diag.warn(message),
           });
+          if (normalized === undefined) {
+            aborted = true;
+          }
         } else if (!self._tracerProviderConfig) {
           // Field shape, env-driven (zero-code): constructor built no _tracerProviderConfig. Build one
           // carrying env processors + ours so start()'s field-or-env branch includes it. If the env
           // processors cannot be resolved, leave the field unset so NodeSDK does its own env wiring
-          // (we lose metrics; the self-verify below warns) rather than replacing the user's export.
+          // rather than replacing the user's export.
           const envProcessors = envSpanProcessors();
-          if (envProcessors !== undefined) {
+          if (envProcessors === undefined) {
+            aborted = true;
+          } else if (envProcessors.length === 0) {
+            // OTEL_TRACES_EXPORTER=none: trace export disabled — upstream would register no
+            // tracer provider. Building one carrying only our processor would change propagation
+            // downstream, so leave the field unset and stay inert.
+            diag.warn(TRACE_EXPORT_DISABLED_MESSAGE);
+            aborted = true;
+          } else {
             self._tracerProviderConfig = {
               spanProcessors: [...envProcessors, new SpanMetricsProcessor()],
             };
@@ -183,6 +218,12 @@ function patch(): void {
       }
 
       super.start();
+
+      // The extension is deliberately inert and has already said so — no self-verify, no bind, no
+      // "active" claim.
+      if (aborted) {
+        return;
+      }
 
       // Self-verification: confirm the extension actually took effect, rather than assuming the
       // shape-based injection worked. Catches "wired but inert" regardless of sdk-node version — the
@@ -226,14 +267,15 @@ function patch(): void {
 
 // A telemetry add-on must never crash the host. This module is loaded via --require (often set
 // process-wide through NODE_OPTIONS), so an escaping exception here — e.g. MODULE_NOT_FOUND when
-// @opentelemetry/sdk-node is absent, which is a devDependency of this package, not a transitive
-// one — would abort EVERY Node process on the box at startup, including ones unrelated to
-// telemetry. Degrade to a no-op instead: skip the patch, warn, and leave upstream behavior intact.
+// @opentelemetry/sdk-node is absent (a devDependency of this package) or when even the
+// @opentelemetry/api peer is missing — would abort EVERY Node process on the box at startup,
+// including ones unrelated to telemetry. Degrade to a no-op instead: skip the patch, warn, and
+// leave upstream behavior intact.
 try {
   patch();
 } catch (e) {
   const message =
-    '[span-metrics] initialization failed (is @opentelemetry/sdk-node installed?); ' +
+    '[span-metrics] initialization failed (are the OpenTelemetry packages installed?); ' +
     'span metrics are DISABLED. Traces/metrics continue with upstream behavior.';
   // Coerce defensively: String(e) itself throws for values with no primitive coercion (e.g. a
   // thrown null-prototype object), which would re-crash the host this guard exists to protect.
@@ -243,7 +285,14 @@ try {
   } catch {
     detail = '(unprintable error)';
   }
-  diag.warn(message, e);
+  // diag itself lives in @opentelemetry/api, which may be exactly what failed to resolve — the
+  // attempt must not be allowed to re-throw. stderr below is the unconditional channel.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('@opentelemetry/api').diag.warn(message, e);
+  } catch {
+    // api unavailable — stderr only.
+  }
   // Also write to stderr: at --require time no DiagLogger is installed yet (upstream register has
   // not run), so diag.warn alone is invisible. stderr is the only channel guaranteed to surface.
   process.stderr.write(`${message} ${detail}\n`);

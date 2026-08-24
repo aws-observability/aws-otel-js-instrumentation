@@ -82,26 +82,38 @@ describe('normalizeSpanProcessors (shared truth-table implementation)', () => {
 
   // ---- R2: spanProcessors empty (metrics-without-trace-export) ----
 
-  it('R2: empty spanProcessors gets only ours, with the recorded-not-exported warning', () => {
+  it('R2+I2: empty spanProcessors ABORTS untouched (trace export disabled; no provider may appear)', () => {
+    // Upstream NodeSDK registers NO tracer provider for a truthy empty array — spans are
+    // non-recording and no sampled trace context propagates. Wiring our processor in would create a
+    // recording provider and flip downstream sampling decisions, so the extension gives itself up.
+    let madeOurs = false;
     const cfg: NormalizeConfig = { spanProcessors: [] };
-    const { d, warnings } = deps();
+    const { d, warnings } = deps({
+      makeSpanMetricsProcessor: () => {
+        madeOurs = true;
+        return OURS;
+      },
+    });
     const out = normalizeSpanProcessors(cfg, d);
-    assert.deepStrictEqual(out, [OURS]);
-    assert.deepStrictEqual(cfg.spanProcessors, [OURS]);
+    assert.strictEqual(out, undefined);
+    assert.deepStrictEqual(cfg.spanProcessors, [], 'I2: cfg untouched — empty list stays empty');
+    assert.strictEqual(madeOurs, false, 'our processor must not be constructed');
     assert.strictEqual(warnings.length, 1, 'I4');
-    assert.ok(warnings[0].includes('not exported'), 'warn states spans are recorded but not exported');
+    assert.ok(warnings[0].includes('trace export is disabled'), 'the abort must name the cause');
   });
 
-  it('R2+I3+I4: empty plural still beats (deletes + warns) a singular and an exporter', () => {
+  it('R2+I2: empty plural aborts untouched even alongside a singular and an exporter', () => {
+    // The empty plural still wins NodeSDK precedence (the singular/exporter are already dead
+    // upstream); the abort leaves EVERYTHING as-is — no deletes, no extra warns.
     const singular = { id: 'user-singular' };
     const exporter = { id: 'user-exporter' };
     const cfg: NormalizeConfig = { spanProcessors: [], spanProcessor: singular, traceExporter: exporter };
     const { d, warnings } = deps();
     const out = normalizeSpanProcessors(cfg, d);
-    assert.deepStrictEqual(out, [OURS]);
-    assert.ok(!('spanProcessor' in cfg) && !('traceExporter' in cfg), 'I3');
-    // 1 empty-list warn + 2 dropped-component warns.
-    assert.strictEqual(warnings.length, 3, 'I4: each dropped user component warned once');
+    assert.strictEqual(out, undefined);
+    assert.strictEqual(cfg.spanProcessor, singular, 'I2: no deletes on the abort path');
+    assert.strictEqual(cfg.traceExporter, exporter, 'I2: no deletes on the abort path');
+    assert.strictEqual(warnings.length, 1, 'one abort warn only');
   });
 
   // ---- R3: deprecated singular spanProcessor ----
@@ -163,11 +175,16 @@ describe('normalizeSpanProcessors (shared truth-table implementation)', () => {
     assert.strictEqual(warnings.length, 0);
   });
 
-  it('R5: normalizes a legitimately empty env-processor list (only failure aborts, not emptiness)', () => {
+  it('R5+I2: an empty env-processor list (OTEL_TRACES_EXPORTER=none) aborts untouched', () => {
+    // Same rule as R2: trace export disabled means upstream registers no provider; adding only our
+    // processor would create one and change trace-context propagation downstream.
     const cfg: NormalizeConfig = {};
-    const { d } = deps({ envSpanProcessors: () => [] });
+    const { d, warnings } = deps({ envSpanProcessors: () => [] });
     const out = normalizeSpanProcessors(cfg, d);
-    assert.deepStrictEqual(out, [OURS]);
+    assert.strictEqual(out, undefined);
+    assert.deepStrictEqual(Object.keys(cfg), [], 'I2: cfg untouched');
+    assert.strictEqual(warnings.length, 1);
+    assert.ok(warnings[0].includes('trace export is disabled'));
   });
 
   it('R5+I2: aborts without touching cfg when env processors cannot be resolved', () => {

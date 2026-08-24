@@ -45,7 +45,7 @@ describe('Contract: messaging attributes family (Kafka + kafkajs)', function () 
         KAFKA_PORT: String(kafka.port),
         OTEL_TRACES_SAMPLER: 'always_on',
         OTEL_METRICS_EXPORTER: 'otlp',
-        OTEL_TRACES_EXPORTER: 'none',
+        OTEL_TRACES_EXPORTER: 'otlp',
         OTEL_LOGS_EXPORTER: 'none',
         OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
         OTEL_EXPORTER_OTLP_ENDPOINT: COLLECTOR_ENDPOINT,

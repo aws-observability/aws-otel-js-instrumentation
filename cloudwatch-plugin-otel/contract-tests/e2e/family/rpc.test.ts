@@ -35,7 +35,7 @@ describe('Contract: RPC attributes family (gRPC)', function () {
         RPC_PORT: '50253',
         OTEL_TRACES_SAMPLER: 'always_on',
         OTEL_METRICS_EXPORTER: 'otlp',
-        OTEL_TRACES_EXPORTER: 'none',
+        OTEL_TRACES_EXPORTER: 'otlp',
         OTEL_LOGS_EXPORTER: 'none',
         OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
         OTEL_EXPORTER_OTLP_ENDPOINT: COLLECTOR_ENDPOINT,

@@ -110,19 +110,20 @@ describe('withSpanMetrics', () => {
     }
   });
 
-  it('R2: empty spanProcessors becomes the metrics-only recipe ([ours], sampler wrapped, warn)', () => {
-    // A defined-but-empty spanProcessors means the user disabled trace export (NodeSDK wires no
-    // export and no env fallback for a truthy empty array). Appending only our processor cannot
-    // lose any export — there is none — and delivers span metrics without trace export.
+  it('R2: empty spanProcessors ABORTS untouched (trace export disabled; propagation must not change)', () => {
+    // Upstream NodeSDK registers NO tracer provider for a truthy empty array: spans are
+    // non-recording and no sampled traceparent is injected into outgoing requests. Wiring the
+    // extension in would create a recording provider and flip downstream sampling decisions, so
+    // the transform gives itself up: warn, return the original config, wrap nothing.
     const warn = sinon.stub(diag, 'warn');
     try {
       const config: { sampler?: Sampler; spanProcessors: any[] } = { spanProcessors: [] };
       const out = withSpanMetrics(config);
-      assert.strictEqual(out.spanProcessors.length, 1);
-      assert.ok(out.spanProcessors[0] instanceof SpanMetricsProcessor);
-      assert.ok(out.sampler instanceof AlwaysRecordSampler, 'sampler wrapped so 100% of spans are metered');
-      assert.ok(warn.calledOnce, 'the recorded-not-exported tradeoff must be announced');
-      assert.ok(String(warn.firstCall.args[0]).includes('not exported'), 'R2 warn must state the tradeoff');
+      assert.strictEqual(out, config, 'abort returns the original object');
+      assert.strictEqual(out.spanProcessors.length, 0, 'the empty list stays empty');
+      assert.strictEqual(out.sampler, undefined, 'sampler must stay unwrapped');
+      assert.ok(warn.calledOnce);
+      assert.ok(String(warn.firstCall.args[0]).includes('trace export is disabled'));
     } finally {
       warn.restore();
     }
@@ -143,6 +144,39 @@ describe('withSpanMetrics', () => {
     } finally {
       warn.restore();
     }
+  });
+
+  it('F2: never mutates the input config (returns a wired shallow copy)', () => {
+    const exporter = new InMemorySpanExporter();
+    const input: any = { traceExporter: exporter, instrumentations: ['sentinel'] };
+    const out = withSpanMetrics(input);
+    assert.notStrictEqual(out, input, 'a copy is returned on non-abort paths');
+    // Input untouched: exporter still present, no sampler, no spanProcessors.
+    assert.strictEqual(input.traceExporter, exporter);
+    assert.strictEqual(input.sampler, undefined);
+    assert.ok(!('spanProcessors' in input));
+    // The copy is wired and carries over unrelated fields.
+    assert.strictEqual(out.traceExporter, undefined);
+    assert.ok(out.sampler instanceof AlwaysRecordSampler);
+    assert.strictEqual(out.spanProcessors!.length, 2);
+    assert.deepStrictEqual(out.instrumentations, ['sentinel']);
+  });
+
+  it('F2: works on a frozen config (no TypeError in strict mode)', () => {
+    const exporter = new InMemorySpanExporter();
+    const input = Object.freeze({ traceExporter: exporter });
+    const out = withSpanMetrics(input as any);
+    assert.ok(out.sampler instanceof AlwaysRecordSampler);
+    assert.strictEqual(out.spanProcessors!.length, 2);
+    assert.strictEqual((input as any).traceExporter, exporter, 'frozen input untouched');
+  });
+
+  it('F2: works on a sealed config', () => {
+    const exporter = new InMemorySpanExporter();
+    const input = Object.seal({ traceExporter: exporter, sampler: undefined });
+    const out = withSpanMetrics(input as any);
+    assert.ok(out.sampler instanceof AlwaysRecordSampler);
+    assert.strictEqual((input as any).traceExporter, exporter, 'sealed input untouched');
   });
 
   it('R6: null spanProcessors falls through to a real traceExporter (no crash, export preserved)', () => {

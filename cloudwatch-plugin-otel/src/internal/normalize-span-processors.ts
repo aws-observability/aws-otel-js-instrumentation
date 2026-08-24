@@ -11,8 +11,13 @@
 // Consequences this module must honor:
 //   - null/undefined are never a "disable" signal; they fall through like absent fields.
 //   - A defined EMPTY spanProcessors array is truthy: it wins the chain and NodeSDK then builds no
-//     export and registers no tracer provider. Appending only our processor there costs the user
-//     nothing they had not already chosen — it is the metrics-without-trace-export recipe.
+//     export and REGISTERS NO TRACER PROVIDER AT ALL — spans are non-recording and, critically, no
+//     sampled trace context is injected into outgoing requests. If this extension added a recording
+//     provider there, every outgoing request would start carrying sampled traceparent headers,
+//     flipping downstream services' sampling decisions fleet-wide. So when trace export is disabled
+//     (empty spanProcessors, or OTEL_TRACES_EXPORTER=none resolving to an empty env list) the
+//     extension ABORTS: warn, leave the config untouched, keep upstream propagation behavior
+//     byte-identical. There is no metrics-without-trace-export mode.
 //   - Once spanProcessors is set, the losing fields (spanProcessor, traceExporter) are dead weight:
 //     NodeSDK ignores them. Every consumed or out-precedenced input is deleted, with a warning when
 //     the user's component is dropped rather than converted. (Deleting a dangling singular also
@@ -35,12 +40,19 @@ export interface NormalizeDeps {
   // Wrap a lone traceExporter as NodeSDK would (BatchSpanProcessor from the SDK's own sdk-trace-base).
   wrapExporter: (exporter: unknown) => unknown;
   // Span processors the SDK would build from the environment when nothing else is configured.
-  // Returns undefined when they cannot be resolved (see the abort contract below); an empty array is
-  // a legitimate result (e.g. OTEL_TRACES_EXPORTER=none) and normalizes normally.
+  // Returns undefined when they cannot be resolved (abort, cfg untouched). An empty array
+  // (OTEL_TRACES_EXPORTER=none) also aborts: trace export is disabled, so span metrics stay off.
   envSpanProcessors: () => unknown[] | undefined;
   // Emits user-facing warnings (typically diag.warn). Kept injectable so tests can count calls.
   warn: (message: string) => void;
 }
+
+// Single message for every trace-export-disabled abort (empty spanProcessors, or env resolving to
+// an empty list), so operators grep for one string regardless of which path triggered it.
+export const TRACE_EXPORT_DISABLED_MESSAGE =
+  '[span-metrics] trace export is disabled (no span processors resolved); span metrics are ' +
+  'DISABLED so tracing behavior is unchanged. To enable span metrics, configure trace export: ' +
+  "set OTEL_TRACES_EXPORTER to a real exporter (not 'none') or pass spanProcessors/traceExporter.";
 
 // Mutates `cfg` in place: sets cfg.spanProcessors to the resolved list (existing/derived + ours) and
 // removes every input the SDK would otherwise ignore. Returns the resolved list for convenience.
@@ -53,16 +65,14 @@ export function normalizeSpanProcessors(cfg: NormalizeConfig, deps: NormalizeDep
   let processors: unknown[];
   if (cfg.spanProcessors) {
     // R1 (non-empty) / R2 (empty): plural wins outright, mirroring NodeSDK.
-    processors = [...cfg.spanProcessors];
-    if (processors.length === 0) {
-      // R2: the user disabled trace export (NodeSDK builds no export for a truthy empty array).
-      // Appending our processor enables span metrics without changing that choice — but spans that
-      // were non-recording under the user's config alone will now be recorded (never exported).
-      deps.warn(
-        "[span-metrics] 'spanProcessors' is empty (trace export disabled); adding only the " +
-          'span-metrics processor. Spans will be recorded for metrics but not exported.'
-      );
+    if (cfg.spanProcessors.length === 0) {
+      // R2: trace export is disabled — upstream NodeSDK registers NO tracer provider for a truthy
+      // empty array (spans non-recording, no trace context injected downstream). Injecting a
+      // provider that records would change propagation fleet-wide, so abort untouched instead.
+      deps.warn(TRACE_EXPORT_DISABLED_MESSAGE);
+      return undefined;
     }
+    processors = [...cfg.spanProcessors];
     dropLoser(cfg, deps, 'spanProcessor');
     dropLoser(cfg, deps, 'traceExporter');
   } else if (cfg.spanProcessor) {
@@ -84,6 +94,12 @@ export function normalizeSpanProcessors(cfg: NormalizeConfig, deps: NormalizeDep
     // R5/R6: nothing truthy configured (absent or null — null is not a disable signal in any era).
     const envProcessors = deps.envSpanProcessors();
     if (envProcessors === undefined) {
+      return undefined;
+    }
+    if (envProcessors.length === 0) {
+      // Same abort as R2: an empty env list (OTEL_TRACES_EXPORTER=none) means upstream registers no
+      // tracer provider; adding only our processor would create one and change propagation.
+      deps.warn(TRACE_EXPORT_DISABLED_MESSAGE);
       return undefined;
     }
     processors = [...envProcessors];

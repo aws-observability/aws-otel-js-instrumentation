@@ -1,0 +1,82 @@
+name: Release CloudWatch Plugin for OpenTelemetry
+
+on:
+  workflow_dispatch:
+    inputs:
+      cloudwatch-plugin-otel-version:
+        description: The version to tag the release with, e.g., 1.2.0
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  build:
+    environment: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
+
+      - name: Set up Node and run Unit Tests
+        uses: ./.github/actions/set_up
+        with:
+          node_version: "24"
+          package_name: "@aws/cloudwatch-plugin-otel"
+          os: ubuntu-latest
+          run_unit_tests: true
+
+      # The release runner provides a Docker daemon (same as the PR build's compat-tests job), so
+      # the full contract suite — all wiring modes and attribute families — gates the release.
+      - name: Run contract tests
+        working-directory: cloudwatch-plugin-otel
+        run: npm run test:contract
+
+      - name: Build Tarball
+        working-directory: cloudwatch-plugin-otel
+        run: npm pack
+
+      - name: Validate project version matches workflow input
+        run: |
+          cloudwatchPluginVersion=$(node -p "require('./cloudwatch-plugin-otel/package.json').version")
+          if [[ ! "$cloudwatchPluginVersion" == "${{ inputs.cloudwatch-plugin-otel-version }}" ]]; then
+            echo "Input version '${{ inputs.cloudwatch-plugin-otel-version }}' does not match with the CloudWatch Plugin project version '$cloudwatchPluginVersion'"
+            exit 1
+          fi
+
+      # Install the packed tarball into a scratch project and smoke-test the published surface:
+      # the main entrypoint must load, and the ./register entrypoint must resolve AND degrade
+      # gracefully (exit 0) — this validates the files allowlist and exports map of the artifact
+      # that will actually be published, which the source-tree test suites cannot.
+      - name: Validate packed tarball
+        run: |
+          tarballs=("$(pwd)"/cloudwatch-plugin-otel/aws-cloudwatch-plugin-otel-*.tgz)
+          tarball="${tarballs[0]}"
+          test -f "$tarball"
+          mkdir -p /tmp/tarball-smoke && cd /tmp/tarball-smoke
+          npm init -y
+          npm install "$tarball"
+          node -e "require('@aws/cloudwatch-plugin-otel'); console.log('main entry ok')"
+          node --require @aws/cloudwatch-plugin-otel/register -e "console.log('register entry ok')"
+
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
+      - name: Publish to npm
+        working-directory: cloudwatch-plugin-otel
+        env:
+          NPM_CONFIG_PROVENANCE: true
+        run: npm publish
+
+      - name: Create GH release
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+        run: |
+          gh release create --target "$GITHUB_REF_NAME" \
+            --title "Release cloudwatch-plugin-otel v${{ inputs.cloudwatch-plugin-otel-version }}" \
+            --notes "Please refer to the [Changelog](https://github.com/aws-observability/aws-otel-js-instrumentation/blob/main/cloudwatch-plugin-otel/CHANGELOG.md) for more details" \
+            --draft \
+            "cloudwatch-plugin-otel/v${{ inputs.cloudwatch-plugin-otel-version }}"

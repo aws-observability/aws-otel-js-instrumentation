@@ -1,0 +1,110 @@
+## Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+## SPDX-License-Identifier: Apache-2.0
+
+name: CloudWatch Plugin for OpenTelemetry PR Build
+
+# Dedicated PR build for the standalone cloudwatch-plugin-otel module. Path-scoped so it runs ONLY
+# when this module changes — changes elsewhere in the repo do not trigger it, and vice versa.
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    branches:
+      - main
+      - "release/v*"
+    paths:
+      - "cloudwatch-plugin-otel/**"
+      - ".github/workflows/cloudwatch-plugin-otel-pr-build.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: cloudwatch-plugin-otel
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "18"
+      - name: Install workspace
+        run: npm ci
+        working-directory: .
+      - name: Lint
+        run: npm run lint
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "18"
+      - name: Install workspace
+        run: npm ci
+        working-directory: .
+      - name: Build and run unit tests
+        run: npm test
+
+  compat-tests:
+    name: Unit + contract (OTel ${{ matrix.channel }})
+    runs-on: ubuntu-latest # provides a Docker daemon for the DB/messaging Testcontainers suites
+    strategy:
+      fail-fast: false
+      matrix:
+        # pinned    = the versions the module declares (currently sdk-node 0.220+, the CONFIG layout)
+        # latest    = newest published release (CONFIG-layout ceiling)
+        # field-floor = the oldest supported sdk-node (0.203), which uses the pre-0.220 FIELD layout.
+        #   Without this leg CI would only ever exercise the CONFIG injection path; FIELD (most versions
+        #   released in the past year, and what many live deployments still run) would be untested.
+        channel: [pinned, latest, field-floor]
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "18"
+      - name: Install workspace
+        run: npm ci
+        working-directory: .
+      - name: Bump to latest OTel (latest channel only)
+        if: matrix.channel == 'latest'
+        run: |
+          npm install --no-audit --no-fund --save-dev \
+            @opentelemetry/api@latest \
+            @opentelemetry/sdk-node@latest \
+            @opentelemetry/auto-instrumentations-node@latest \
+            @opentelemetry/sdk-trace-base@latest \
+            @opentelemetry/sdk-trace-node@latest \
+            @opentelemetry/sdk-metrics@latest \
+            @opentelemetry/resources@latest
+      - name: Pin FIELD-layout floor (field-floor channel only)
+        if: matrix.channel == 'field-floor'
+        # sdk-node 0.203.0 is the FIELD-layout floor; the 2.0.1 SDK packages and
+        # auto-instrumentations-node 0.62.0 are the set that pairs with it (0.62.0 declares sdk-node
+        # ^0.203.0). api stays at the module's declared ^1.9 (a single shared copy is required).
+        run: |
+          npm install --no-audit --no-fund --save-dev \
+            @opentelemetry/sdk-node@0.203.0 \
+            @opentelemetry/auto-instrumentations-node@0.62.0 \
+            @opentelemetry/sdk-trace-base@2.0.1 \
+            @opentelemetry/sdk-trace-node@2.0.1 \
+            @opentelemetry/sdk-metrics@2.0.1 \
+            @opentelemetry/resources@2.0.1
+      - name: Build (src + contract apps)
+        run: |
+          npx tsc -p .
+          npx tsc -p tsconfig.apps.json
+      - name: Unit + contract suites (all modes and families)
+        run: npx ts-mocha --timeout 300000 -p tsconfig.json 'test/**/*.test.ts' 'contract-tests/**/*.test.ts'

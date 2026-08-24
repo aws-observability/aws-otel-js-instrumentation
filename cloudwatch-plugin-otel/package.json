@@ -1,0 +1,97 @@
+{
+  "name": "@aws/cloudwatch-plugin-otel",
+  "version": "0.0.1",
+  "description": "Generates span-derived RED metrics inside the OpenTelemetry JS SDK, from 100% of spans, before trace sampling.",
+  "author": {
+    "name": "Amazon Web Services",
+    "url": "http://aws.amazon.com"
+  },
+  "homepage": "https://github.com/aws-observability/aws-otel-js-instrumentation/tree/main/cloudwatch-plugin-otel#readme",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "build/src/index.js",
+  "types": "build/src/index.d.ts",
+  "exports": {
+    ".": "./build/src/index.js",
+    "./register": "./build/src/register.js"
+  },
+  "repository": "aws-observability/aws-otel-js-instrumentation",
+  "scripts": {
+    "clean": "rimraf build/*",
+    "compile": "tsc -p .",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "prepublishOnly": "npm run compile",
+    "tdd": "yarn test -- --watch-extensions ts --watch",
+    "pretest": "tsc -p . && tsc -p tsconfig.apps.json",
+    "test": "nyc ts-mocha --timeout 20000 -p tsconfig.json 'test/**/*.ts'",
+    "pretest:contract": "tsc -p . && tsc -p tsconfig.apps.json",
+    "test:contract": "ts-mocha --timeout 90000 -p tsconfig.json 'contract-tests/**/*.test.ts'",
+    "watch": "tsc -w",
+    "create-version": "node -p \"'export const LIB_VERSION = ' + JSON.stringify(require('./package.json').version) + ';'\" > src/version.ts",
+    "precompile": "npm run create-version"
+  },
+  "nyc": {
+    "all": true,
+    "include": [
+      "src/**/*.ts"
+    ]
+  },
+  "bugs": {
+    "url": "https://github.com/aws-observability/aws-otel-js-instrumentation/issues"
+  },
+  "keywords": [
+    "aws",
+    "amazon",
+    "adot",
+    "opentelemetry",
+    "otel",
+    "nodejs",
+    "metrics",
+    "spanmetrics",
+    "red-metrics"
+  ],
+  "devDependencies": {
+    "@grpc/grpc-js": "1.12.5",
+    "@grpc/proto-loader": "0.7.13",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
+    "@opentelemetry/resources": "2.10.0",
+    "@opentelemetry/sdk-metrics": "2.10.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/sdk-trace-base": "2.10.0",
+    "@opentelemetry/sdk-trace-node": "2.10.0",
+    "@testcontainers/kafka": "10.13.2",
+    "@types/express": "4.17.21",
+    "@types/mocha": "7.0.2",
+    "@types/node": "18.6.5",
+    "@types/sinon": "10.0.18",
+    "expect": "29.2.0",
+    "express": "4.21.2",
+    "kafkajs": "2.2.4",
+    "mocha": "7.2.0",
+    "nyc": "15.1.0",
+    "pg": "8.13.1",
+    "rimraf": "5.0.5",
+    "sinon": "15.2.0",
+    "testcontainers": "10.13.2",
+    "ts-mocha": "10.0.0",
+    "typescript": "5.0.4"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "dependencies": {
+    "@opentelemetry/sdk-trace-base": "^2.0.0"
+  },
+  "files": [
+    "build/src/**/*.js",
+    "build/src/**/*.js.map",
+    "build/src/**/*.d.ts"
+  ]
+}

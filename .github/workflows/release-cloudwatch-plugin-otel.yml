@@ -52,7 +52,9 @@ jobs:
       # that will actually be published, which the source-tree test suites cannot.
       - name: Validate packed tarball
         run: |
-          tarball="$(pwd)/cloudwatch-plugin-otel/$(ls cloudwatch-plugin-otel | grep -E '^aws-cloudwatch-plugin-otel-.*\.tgz$')"
+          tarballs=("$(pwd)"/cloudwatch-plugin-otel/aws-cloudwatch-plugin-otel-*.tgz)
+          tarball="${tarballs[0]}"
+          test -f "$tarball"
           mkdir -p /tmp/tarball-smoke && cd /tmp/tarball-smoke
           npm init -y
           npm install "$tarball"

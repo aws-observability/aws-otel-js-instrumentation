@@ -20,13 +20,20 @@ jobs:
       - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
 
-      - name: Set up Node and run Unit Tests
+      # run_unit_tests is false because the set_up action runs the ROOT test script (lerna run
+      # test = every workspace): this release must gate on the plugin's own suites only, not on
+      # unrelated workspaces whose tests can flake the publish.
+      - name: Set up Node
         uses: ./.github/actions/set_up
         with:
           node_version: "24"
           package_name: "@aws/cloudwatch-plugin-otel"
           os: ubuntu-latest
-          run_unit_tests: true
+          run_unit_tests: false
+
+      - name: Run unit tests
+        working-directory: cloudwatch-plugin-otel
+        run: npm test
 
       # The release runner provides a Docker daemon (same as the PR build's compat-tests job), so
       # the full contract suite — all wiring modes and attribute families — gates the release.

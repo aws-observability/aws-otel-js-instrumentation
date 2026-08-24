@@ -66,7 +66,7 @@ describe('SpanMetricsAttributesBuilder', () => {
     );
     assert.strictEqual(attrs['http.request.method'], 'GET');
     assert.strictEqual(attrs['http.route'], '/owners/:id');
-    assert.strictEqual(attrs['rpc.system'], 'grpc');
+    assert.strictEqual(attrs['rpc.system'], 'grpc', 'legacy rpc.system passes through via fallback');
     assert.strictEqual(attrs['rpc.method'], 'M');
     assert.strictEqual(attrs['messaging.operation.name'], 'send');
     assert.strictEqual(attrs['error.type'], '500');
@@ -102,6 +102,44 @@ describe('SpanMetricsAttributesBuilder', () => {
     assert.ok(!('db.system.name' in attrs));
     assert.ok(!('db.operation.name' in attrs));
     assert.ok(!('db.collection.name' in attrs));
+  });
+
+  it('passes legacy http keys through unchanged when current keys are absent', () => {
+    // Legacy-semconv HTTP instrumentation (pre-1.21 defaults) emits http.method/http.status_code.
+    const attrs = buildAttributes(
+      fakeSpan({ kind: SpanKind.SERVER, attributes: { 'http.method': 'GET', 'http.status_code': 200 } })
+    );
+    assert.strictEqual(attrs['http.method'], 'GET');
+    assert.strictEqual(attrs['http.status_code'], 200);
+    assert.strictEqual(typeof attrs['http.status_code'], 'number', 'legacy status code stays an int');
+    assert.ok(!('http.request.method' in attrs), 'never re-homed to the current key');
+    assert.ok(!('http.response.status_code' in attrs));
+  });
+
+  it('prefers current http keys and does not add the legacy ones', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        attributes: {
+          'http.request.method': 'GET',
+          'http.method': 'GET',
+          'http.response.status_code': 200,
+          'http.status_code': 200,
+        },
+      })
+    );
+    assert.strictEqual(attrs['http.request.method'], 'GET');
+    assert.strictEqual(attrs['http.response.status_code'], 200);
+    assert.ok(!('http.method' in attrs));
+    assert.ok(!('http.status_code' in attrs));
+  });
+
+  it('passes legacy rpc.system through unchanged and prefers current rpc.system.name', () => {
+    const legacyOnly = buildAttributes(fakeSpan({ attributes: { 'rpc.system': 'grpc' } }));
+    assert.strictEqual(legacyOnly['rpc.system'], 'grpc');
+    assert.ok(!('rpc.system.name' in legacyOnly));
+    const both = buildAttributes(fakeSpan({ attributes: { 'rpc.system.name': 'grpc', 'rpc.system': 'grpc' } }));
+    assert.strictEqual(both['rpc.system.name'], 'grpc');
+    assert.ok(!('rpc.system' in both));
   });
 
   it('prefers the current db key and does not add the legacy one', () => {

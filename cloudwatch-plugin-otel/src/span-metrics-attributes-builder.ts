@@ -13,7 +13,7 @@ const ALLOWLIST: string[] = [
   'http.response.status_code',
   'http.route',
   'error.type',
-  'rpc.system',
+  'rpc.system.name',
   'rpc.service',
   'rpc.method',
   'db.system.name',
@@ -27,6 +27,9 @@ const ALLOWLIST: string[] = [
 // legacy key is present it is passed through under its own key/value, unchanged — never re-homed to
 // the current key, because some migrations also changed the value vocabulary.
 const LEGACY_FALLBACKS: Array<{ currentKey: string; legacyKey: string }> = [
+  { currentKey: 'http.request.method', legacyKey: 'http.method' },
+  { currentKey: 'http.response.status_code', legacyKey: 'http.status_code' },
+  { currentKey: 'rpc.system.name', legacyKey: 'rpc.system' },
   { currentKey: 'db.system.name', legacyKey: 'db.system' },
   { currentKey: 'db.operation.name', legacyKey: 'db.operation' },
   { currentKey: 'db.collection.name', legacyKey: 'db.sql.table' },

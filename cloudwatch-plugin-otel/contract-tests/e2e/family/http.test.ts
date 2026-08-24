@@ -28,17 +28,18 @@ describe('Contract: HTTP attributes family', function () {
     //   - current-semconv instrumentation (newer, or OTEL_SEMCONV_STABILITY_OPT_IN=http): the metric
     //     carries http.request.method + http.response.status_code (int). These are allowlisted.
     //   - legacy-semconv instrumentation (older default): it emits http.method / http.status_code,
-    //     which are NOT in the allowlist (no HTTP legacy fallback in the spec), so neither current
-    //     nor legacy method/status keys appear.
+    //     which pass through under their own key/value via the spec's legacy fallback (never
+    //     re-homed to the current keys).
     // Both are correct; assert exactly one of those two shapes rather than pinning to a version.
     if ('http.request.method' in attrs) {
       assert.strictEqual(attrs['http.request.method'], 'GET');
       assert.strictEqual(attrs['http.response.status_code'], 200);
       assert.strictEqual(typeof attrs['http.response.status_code'], 'number', 'status_code is int per semconv');
+      assert.ok(!('http.method' in attrs), 'current key wins; legacy not duplicated');
     } else {
-      assert.ok(!('http.response.status_code' in attrs));
-      assert.ok(!('http.method' in attrs), 'legacy http.method is not allowlisted');
-      assert.ok(!('http.status_code' in attrs), 'legacy http.status_code is not allowlisted');
+      assert.strictEqual(attrs['http.method'], 'GET', 'legacy http.method passes through via fallback');
+      assert.strictEqual(attrs['http.status_code'], 200, 'legacy http.status_code passes through via fallback');
+      assert.ok(!('http.response.status_code' in attrs), 'never re-homed to the current key');
     }
 
     // High-cardinality raw URL/target are never copied, in any semconv.

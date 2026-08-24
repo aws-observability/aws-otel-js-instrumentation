@@ -37,10 +37,10 @@ import { contentToParts, PROVIDER_MAP, serializeToJson, toToolAttributeValue } f
 import type { Serialized } from '@langchain/core/load/serializable';
 import type { ChatGeneration, Generation, LLMResult } from '@langchain/core/outputs';
 import type { ChainValues } from '@langchain/core/utils/types';
-import type { BaseMessage } from '@langchain/core/messages';
+import type { BaseMessage, BaseMessageLike } from '@langchain/core/messages';
 import type { ToolCall } from '@langchain/core/messages/tool';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
-import { isAIMessage } from '@langchain/core/messages';
+import { coerceMessageLikeToMessage, isAIMessage } from '@langchain/core/messages';
 
 const LANGGRAPH_STEP_SPAN_ATTR = 'langgraph.step';
 const LANGGRAPH_NODE_SPAN_ATTR = 'langgraph.node';
@@ -185,7 +185,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
   override handleChainStart(
     serialized: Serialized,
-    _inputs: ChainValues,
+    inputs: ChainValues,
     runId: string,
     parentRunId?: string,
     _tags?: string[],
@@ -214,9 +214,9 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       Array.isArray(serialized.id) &&
       serialized.id.some(part => part === 'langgraph') &&
       serialized.id.some(part => part === 'pregel' || part === 'CompiledStateGraph' || part === 'Pregel') &&
-      _inputs != null &&
-      typeof _inputs === 'object' &&
-      'messages' in _inputs;
+      inputs != null &&
+      typeof inputs === 'object' &&
+      'messages' in inputs;
     const isAgentChain =
       !!name &&
       (name.includes('AgentExecutor') ||
@@ -240,11 +240,40 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this._setAttribute(span, ATTR_GEN_AI_PROVIDER_NAME, provider);
     if (isAgentChain) {
       this._setAttribute(span, ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT);
+      if (this.captureMessageContent) {
+        const payload = inputs.messages || inputs.input;
+        if (payload) {
+          const messages = OpenTelemetryCallbackHandler._formatChainMessages(payload);
+          const { conversation } = OpenTelemetryCallbackHandler._formatMessages([messages]);
+          if (conversation.length > 0) {
+            this._setAttribute(span, ATTR_GEN_AI_INPUT_MESSAGES, serializeToJson(conversation));
+          }
+        }
+      }
     }
     this._setAttribute(span, ATTR_GEN_AI_AGENT_NAME, agentName);
   }
 
-  override handleChainEnd(_outputs: ChainValues, runId: string, _parentRunId?: string): void {
+  override handleChainEnd(outputs: ChainValues, runId: string, _parentRunId?: string): void {
+    const entry = this.runIdToSpanMap.get(runId);
+    if (this.captureMessageContent && entry?.span && entry.agentSpan === entry.span) {
+      const payload = outputs.messages || outputs.output;
+      if (payload) {
+        const messages = OpenTelemetryCallbackHandler._formatChainMessages(payload);
+        const { conversation } = OpenTelemetryCallbackHandler._formatMessages([messages]);
+        if (conversation.length > 0) {
+          const finalMessage = {
+            ...conversation[conversation.length - 1],
+            role: 'assistant',
+            finish_reason:
+              messages.length > 0
+                ? OpenTelemetryCallbackHandler._extractMessageFinishReason(messages[messages.length - 1])
+                : 'stop',
+          };
+          this._setAttribute(entry.span, ATTR_GEN_AI_OUTPUT_MESSAGES, serializeToJson([finalMessage]));
+        }
+      }
+    }
     this._endSpan(runId);
   }
 
@@ -516,6 +545,17 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     return 'kwargs' in serialized ? serialized.kwargs : undefined;
   }
 
+  // Chain callbacks accept untyped values, unlike chat callbacks, so normalize
+  // message-like values before passing them to the shared formatter.
+  private static _formatChainMessages(payload: unknown): BaseMessage[] {
+    try {
+      const messageLikes = Array.isArray(payload) ? payload : [payload];
+      return messageLikes.map(message => coerceMessageLikeToMessage(message as BaseMessageLike));
+    } catch {
+      return [];
+    }
+  }
+
   // Converts LangChain messages to OTel format conversation and system instructions format based on
   // the following schemas:
   // https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-input-messages.json
@@ -660,14 +700,18 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   private static _extractFinishReason(generation: Generation): string | undefined {
     if (!('message' in generation)) return undefined;
     const message = (generation as ChatGeneration).message;
+    return OpenTelemetryCallbackHandler._extractMessageFinishReason(message, generation.generationInfo);
+  }
+
+  private static _extractMessageFinishReason(message: BaseMessage, generationInfo?: Record<string, unknown>): string {
     const metadata = (message.response_metadata ?? {}) as Record<string, unknown>;
     const rawReason =
-      generation.generationInfo?.finish_reason ??
+      generationInfo?.finish_reason ??
       metadata.finish_reason ??
       metadata.stop_reason ??
       metadata.stopReason ??
       metadata.finishReason;
-    return typeof rawReason === 'string' ? OpenTelemetryCallbackHandler._normalizeFinishReason(rawReason) : undefined;
+    return typeof rawReason === 'string' ? OpenTelemetryCallbackHandler._normalizeFinishReason(rawReason) : 'stop';
   }
 
   private static _normalizeRole(messageType: string): string {

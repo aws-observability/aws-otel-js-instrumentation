@@ -1449,6 +1449,21 @@ describe('provider detection (all providers)', function () {
 describe('finish reason normalization', function () {
   this.timeout(10000);
 
+  it('defaults the finish reason to stop when provider metadata is absent', function () {
+    const response = {
+      generations: [[{ text: 'Done.', message: new AIMessage('Done.') }]],
+    } as any;
+
+    expect((OpenTelemetryCallbackHandler as any)._extractFinishReasons(response)).toEqual(['stop']);
+    expect((OpenTelemetryCallbackHandler as any)._formatOutputMessages(response)).toEqual([
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'Done.' }],
+        finish_reason: 'stop',
+      },
+    ]);
+  });
+
   const finishReasonCases: Array<{ reason: string; expected: string }> = [
     { reason: 'length', expected: 'length' },
     { reason: 'content_filter', expected: 'content_filter' },
@@ -1667,6 +1682,79 @@ describe('invoke_agent spans', function () {
     expect(agentSpan.name).toBe('invoke_agent research-analyst');
     expect(agentSpan.attributes[ATTR_GEN_AI_OPERATION_NAME]).toBe('invoke_agent');
     expect(agentSpan.attributes[ATTR_GEN_AI_AGENT_NAME]).toBe('research-analyst');
+
+    const inputMessages = JSON.parse(agentSpan.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+    expect(inputMessages).toEqual([
+      {
+        role: 'user',
+        parts: [{ type: 'text', content: 'What is the weather?' }],
+      },
+    ]);
+
+    const outputMessages = JSON.parse(agentSpan.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+    expect(outputMessages).toEqual([
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'ok' }],
+        finish_reason: 'stop',
+      },
+    ]);
+  });
+
+  it('captures input/output fallbacks and honors the content-capture setting', async function () {
+    resetMemoryExporter();
+    const serialized = {
+      lc: 1,
+      type: 'not_implemented' as const,
+      name: 'AgentExecutor',
+      id: ['langchain', 'agents', 'AgentExecutor'],
+    };
+    const output = new AIMessage({
+      content: 'Final answer',
+      response_metadata: { stop_reason: 'end_turn' },
+    });
+
+    const capturingHandler = new OpenTelemetryCallbackHandler(trace.getTracer('agent-content-test'), true);
+    capturingHandler.handleChainStart(serialized, { input: 'Initial question' }, 'capturing-agent');
+    capturingHandler.handleChainEnd({ output }, 'capturing-agent');
+
+    const disabledHandler = new OpenTelemetryCallbackHandler(trace.getTracer('agent-no-content-test'), false);
+    disabledHandler.handleChainStart(serialized, { input: 'Hidden question' }, 'disabled-agent');
+    disabledHandler.handleChainEnd({ output }, 'disabled-agent');
+
+    const agentSpans = getTestSpans().filter(
+      (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent'
+    );
+    const capturingSpan = agentSpans.find(span => span.name === 'invoke_agent AgentExecutor');
+    expect(capturingSpan).toBeDefined();
+    const inputMessages = JSON.parse(capturingSpan!.attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+    expect(inputMessages).toEqual([
+      {
+        role: 'user',
+        parts: [{ type: 'text', content: 'Initial question' }],
+      },
+    ]);
+
+    const outputMessages = JSON.parse(capturingSpan!.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+    expect(outputMessages).toEqual([
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'Final answer' }],
+        finish_reason: 'stop',
+      },
+    ]);
+
+    const disabledSpan = agentSpans.find(
+      span =>
+        span.name === 'invoke_agent AgentExecutor' &&
+        span.attributes[ATTR_GEN_AI_INPUT_MESSAGES] === undefined &&
+        span.attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] === undefined
+    );
+    expect(disabledSpan).toBeDefined();
   });
 });
 

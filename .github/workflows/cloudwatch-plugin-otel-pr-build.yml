@@ -101,7 +101,7 @@ jobs:
             @opentelemetry/resources@2.0.1
       - name: Build (src + contract apps)
         run: |
-          npx tsc -p .
-          npx tsc -p tsconfig.apps.json
+          npm exec --workspaces=false -- tsc -p .
+          npm exec --workspaces=false -- tsc -p tsconfig.apps.json
       - name: Unit + contract suites (all modes and families)
-        run: npx ts-mocha --timeout 300000 -p tsconfig.json 'test/**/*.test.ts' 'contract-tests/**/*.test.ts'
+        run: npm exec --workspaces=false -- ts-mocha --timeout 300000 -p tsconfig.json 'test/**/*.test.ts' 'contract-tests/**/*.test.ts'

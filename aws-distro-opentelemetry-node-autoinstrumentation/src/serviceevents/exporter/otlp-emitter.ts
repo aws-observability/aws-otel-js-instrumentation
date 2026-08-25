@@ -215,7 +215,7 @@ export class ServiceEventsOtlpEmitter {
           : wrapExporterSuppressed(this.buildLogOtlpExporter(CompressionAlgorithm.NONE));
         this.loggerProvider = new LoggerProvider({
           resource,
-          processors: [new BatchLogRecordProcessor(logExporter)],
+          processors: [new BatchLogRecordProcessor({ exporter: logExporter })],
         });
       }
       this.logger = this.loggerProvider.getLogger(INSTRUMENTATION_SCOPE, INSTRUMENTATION_VERSION);

@@ -213,6 +213,9 @@ jobs:
         with:
           verbose: true
 
+  instrumentation-tests:
+    uses: ./.github/workflows/instrumentation-tests.yml
+
   contract-tests:
     needs: build
     uses: ./.github/workflows/contract-tests.yml
@@ -234,7 +237,7 @@ jobs:
 
   all-pr-checks-pass:
     runs-on: ubuntu-latest
-    needs: [static-code-checks, contract-tests, lint, build, unit-tests, build-and-scan-image, build-lambda]
+    needs: [static-code-checks, contract-tests, instrumentation-tests, lint, build, unit-tests, build-and-scan-image, build-lambda]
     if: always()
     steps:
       - name: Checkout to get workflow file

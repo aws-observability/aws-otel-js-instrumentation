@@ -54,21 +54,6 @@ describe('register (load-time fail-safe)', () => {
     return { threw, stderr: stderrChunks.join('') };
   }
 
-  // Mirrors src/register.ts's own sdk-node resolution: it patches the copy reachable from
-  // auto-instrumentations-node (the one upstream's zero-code register constructs), falling back to
-  // plain resolution. That is not always the copy a bare require() from this test resolves — npm may
-  // hoist auto-instrumentations-node to a level where it sees a different physical sdk-node of the
-  // same version, in which case a test asserting on its own copy would silently exercise the
-  // UNPATCHED NodeSDK. Resolve it the way register does so assertions target what it patched.
-  function resolveSdkNodeAsRegisterDoes(): string {
-    try {
-      const autoInstrEntry = require.resolve('@opentelemetry/auto-instrumentations-node');
-      return require.resolve('@opentelemetry/sdk-node', { paths: [autoInstrEntry] });
-    } catch {
-      return require.resolve('@opentelemetry/sdk-node');
-    }
-  }
-
   // F8 regression: with trace export disabled (OTEL_TRACES_EXPORTER=none) upstream NodeSDK
   // registers NO tracer provider — spans are non-recording and NO sampled traceparent is injected
   // into outgoing requests. The patched SDK must preserve that exactly: injecting our processor
@@ -77,7 +62,7 @@ describe('register (load-time fail-safe)', () => {
     this.timeout(10000);
     /* eslint-disable @typescript-eslint/no-var-requires */
     const api = require('@opentelemetry/api');
-    const sdkNode = require(resolveSdkNodeAsRegisterDoes());
+    const sdkNode = require('@opentelemetry/sdk-node');
     /* eslint-enable @typescript-eslint/no-var-requires */
     const originalDescriptor = Object.getOwnPropertyDescriptor(sdkNode, 'NodeSDK');
     const prevTraces = process.env.OTEL_TRACES_EXPORTER;

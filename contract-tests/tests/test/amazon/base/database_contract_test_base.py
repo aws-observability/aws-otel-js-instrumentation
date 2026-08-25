@@ -122,9 +122,6 @@ class DatabaseContractTestBase(ContractTestBase):
     def _assert_semantic_conventions_attributes(self, attributes_list: List[KeyValue], **kwargs) -> None:
         attributes_dict: Dict[str, AnyValue] = self._get_attributes_dict(attributes_list)
         command = kwargs.get("db_operation") or kwargs.get("sql_command")
-        # The database semantic conventions are stable, so the instrumentations emit the stable
-        # attribute names only. The legacy `db.statement`/`db.system`/`db.name`/`net.peer.*` names
-        # are no longer produced.
         self.assertTrue(attributes_dict.get("db.query.text").string_value.startswith(command))
         self._assert_str_attribute(attributes_dict, "db.system.name", self.get_remote_service())
         self._assert_str_attribute(attributes_dict, "db.namespace", DATABASE_NAME)

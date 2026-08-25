@@ -418,12 +418,7 @@ export class AwsSpanProcessingUtil {
     return operation;
   }
 
-  // Check if the current Span adheres to database semantic conventions.
-  // Both the legacy (`db.system`/`db.operation`/`db.statement`) and stable
-  // (`db.system.name`/`db.operation.name`/`db.query.text`) conventions are accepted: since the
-  // database semconv went stable, instrumentations emit only the stable names, while older
-  // instrumentation versions — and instrumentations still opted into the legacy names — emit only
-  // the legacy ones.
+  // Check if the current Span adheres to database semantic conventions
   static isDBSpan(span: ReadableSpan): boolean {
     return (
       AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_SYSTEM) ||

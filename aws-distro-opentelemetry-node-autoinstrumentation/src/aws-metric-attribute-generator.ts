@@ -257,10 +257,6 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       );
       remoteOperation = AwsMetricAttributeGenerator.getRemoteOperation(span, SEMATTRS_RPC_METHOD);
     } else if (AwsSpanProcessingUtil.isDBSpan(span)) {
-      // Since the database semantic conventions went stable, instrumentations emit `db.system.name`,
-      // `db.operation.name` and `db.query.text` instead of the legacy `db.system`, `db.operation` and
-      // `db.statement`. Read both so spans from either convention are attributed to the database
-      // rather than falling back to its network address.
       remoteService = AwsMetricAttributeGenerator.getRemoteService(
         span,
         AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_SYSTEM) ? SEMATTRS_DB_SYSTEM : ATTR_DB_SYSTEM_NAME

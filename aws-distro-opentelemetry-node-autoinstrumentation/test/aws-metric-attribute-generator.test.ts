@@ -1717,10 +1717,6 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(SEMATTRS_DB_SYSTEM, undefined);
   });
 
-  // Instrumentations that follow the now-stable database semantic conventions emit `db.system.name`,
-  // `db.operation.name`, `db.query.text` and `db.namespace` instead of the legacy `db.system`,
-  // `db.operation`, `db.statement` and `db.name`. Without dual-reading, these spans are not
-  // recognized as DB spans at all and `aws.remote.service` falls back to the network address.
   it('testDBClientSpanWithStableSemanticConventions', () => {
     mockAttribute(ATTR_DB_SYSTEM_NAME, 'mysql');
     mockAttribute(ATTR_DB_OPERATION_NAME, 'SELECT');

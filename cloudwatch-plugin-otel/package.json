@@ -1,6 +1,6 @@
 {
   "name": "@aws/cloudwatch-plugin-otel",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Generates span-derived RED metrics inside the OpenTelemetry JS SDK, from 100% of spans, before trace sampling.",
   "author": {
     "name": "Amazon Web Services",

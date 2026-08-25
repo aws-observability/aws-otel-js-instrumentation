@@ -84,7 +84,6 @@
   },
   "workspaces": [
     "aws-distro-opentelemetry-node-autoinstrumentation/",
-    "exporters/aws-distro-opentelemetry-exporter-xray-udp/",
-    "cloudwatch-plugin-otel/"
+    "exporters/aws-distro-opentelemetry-exporter-xray-udp/"
   ]
 }

@@ -20,16 +20,15 @@ jobs:
       - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
 
-      # run_unit_tests is false because the set_up action runs the ROOT test script (lerna run
-      # test = every workspace): this release must gate on the plugin's own suites only, not on
-      # unrelated workspaces whose tests can flake the publish.
       - name: Set up Node
-        uses: ./.github/actions/set_up
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 #v5.0.0
         with:
-          node_version: "24"
-          package_name: "@aws/cloudwatch-plugin-otel"
-          os: ubuntu-latest
-          run_unit_tests: false
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        working-directory: cloudwatch-plugin-otel
+        run: npm ci
 
       - name: Run unit tests
         working-directory: cloudwatch-plugin-otel

@@ -279,6 +279,8 @@ describe('Register', function () {
       trace.setGlobalTracerProvider(provider);
 
       const instr = new VercelAIInstrumentation();
+      const debugSpy = sinon.spy((instr as any)._diag, 'debug');
+      const infoSpy = sinon.spy((instr as any)._diag, 'info');
       instr.setTracerProvider(trace.getTracerProvider() as any);
 
       const delegate = (trace.getTracerProvider() as any).getDelegate?.() ?? provider;
@@ -287,7 +289,14 @@ describe('Register', function () {
         processors.some((p: any) => p.constructor.name === 'VercelAISpanProcessor'),
         'VercelAISpanProcessor should be auto-registered'
       );
+      assert.ok(
+        debugSpy.calledWith('Registered VercelAISpanProcessor successfully'),
+        'VercelAISpanProcessor registration should be logged at debug level'
+      );
+      assert.equal(infoSpy.callCount, 0, 'VercelAISpanProcessor registration should not be logged at info level');
 
+      debugSpy.restore();
+      infoSpy.restore();
       instr.disable();
       trace.disable();
     });

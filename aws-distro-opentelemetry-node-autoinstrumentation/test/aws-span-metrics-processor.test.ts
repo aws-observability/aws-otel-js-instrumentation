@@ -19,7 +19,7 @@ import { hrTimeDuration } from '@opentelemetry/core';
 import { resourceFromAttributes, emptyResource, Resource } from '@opentelemetry/resources';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 import { ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
-import { SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
+import { ATTR_HTTP_RESPONSE_STATUS_CODE, SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
 import expect from 'expect';
 import * as sinon from 'sinon';
 import { AWS_ATTRIBUTE_KEYS } from '../src/aws-attribute-keys';
@@ -385,6 +385,31 @@ describe('AwsSpanMetricsProcessorTest', () => {
     validateMetricsGeneratedForHttpStatusCode(600, ExpectedStatusMetric.NEITHER);
   });
 
+  // Since the HTTP semantic conventions went stable, instrumentations emit
+  // `http.response.status_code` rather than the legacy `http.status_code`. Both must classify.
+  it('testOnEndMetricsGenerationWithStableStatusCodes', () => {
+    // Invalid HTTP status codes
+    validateMetricsGeneratedForHttpStatusCode(undefined, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
+
+    // Valid HTTP status codes
+    validateMetricsGeneratedForHttpStatusCode(200, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForHttpStatusCode(399, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForHttpStatusCode(400, ExpectedStatusMetric.ERROR, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForHttpStatusCode(499, ExpectedStatusMetric.ERROR, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForHttpStatusCode(500, ExpectedStatusMetric.FAULT, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForHttpStatusCode(599, ExpectedStatusMetric.FAULT, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForHttpStatusCode(600, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
+  });
+
+  it('testOnEndMetricsGenerationWithStableAwsStatusCodes', () => {
+    validateMetricsGeneratedForAttributeStatusCode(399, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForAttributeStatusCode(400, ExpectedStatusMetric.ERROR, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForAttributeStatusCode(499, ExpectedStatusMetric.ERROR, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForAttributeStatusCode(500, ExpectedStatusMetric.FAULT, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForAttributeStatusCode(599, ExpectedStatusMetric.FAULT, ATTR_HTTP_RESPONSE_STATUS_CODE);
+    validateMetricsGeneratedForAttributeStatusCode(600, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
+  });
+
   it('testOnEndMetricsGenerationWithStatusDataError', () => {
     // Empty Status and HTTP with Error Status
     validateMetricsGeneratedForStatusDataError(undefined, ExpectedStatusMetric.FAULT);
@@ -532,9 +557,10 @@ describe('AwsSpanMetricsProcessorTest', () => {
 
   function validateMetricsGeneratedForHttpStatusCode(
     httpStatusCode: number | undefined,
-    expectedStatusMetric: ExpectedStatusMetric
+    expectedStatusMetric: ExpectedStatusMetric,
+    statusCodeKey: string = SEMATTRS_HTTP_STATUS_CODE
   ): void {
-    const spanAttributes: Attributes = { [SEMATTRS_HTTP_STATUS_CODE]: httpStatusCode };
+    const spanAttributes: Attributes = { [statusCodeKey]: httpStatusCode };
     const readableSpanMock: ReadableSpan = buildReadableSpanMock(spanAttributes, SpanKind.PRODUCER, undefined, {
       code: SpanStatusCode.UNSET,
     });
@@ -547,7 +573,8 @@ describe('AwsSpanMetricsProcessorTest', () => {
 
   function validateMetricsGeneratedForAttributeStatusCode(
     awsStatusCode: number | undefined,
-    expectedStatusMetric: ExpectedStatusMetric
+    expectedStatusMetric: ExpectedStatusMetric,
+    statusCodeKey: string = SEMATTRS_HTTP_STATUS_CODE
   ): void {
     // Testing Dependency Metric
     const attributes: Attributes = { 'new key': 'new value' };
@@ -558,11 +585,11 @@ describe('AwsSpanMetricsProcessorTest', () => {
     if (awsStatusCode !== undefined) {
       metricAttributesMap[SERVICE_METRIC] = {
         'new service key': 'new service value',
-        [SEMATTRS_HTTP_STATUS_CODE]: awsStatusCode,
+        [statusCodeKey]: awsStatusCode,
       };
       metricAttributesMap[DEPENDENCY_METRIC] = {
         'new dependency key': 'new dependency value',
-        [SEMATTRS_HTTP_STATUS_CODE]: awsStatusCode,
+        [statusCodeKey]: awsStatusCode,
       };
     }
     configureMocksForOnEnd(readableSpanMock, metricAttributesMap);

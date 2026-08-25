@@ -6,6 +6,10 @@ import type { InstrumentationScope } from '@opentelemetry/core';
 import { Resource, emptyResource, defaultResource } from '@opentelemetry/resources';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
+  ATTR_DB_NAMESPACE,
+  ATTR_DB_OPERATION_NAME,
+  ATTR_DB_QUERY_TEXT,
+  ATTR_DB_SYSTEM_NAME,
   MESSAGINGOPERATIONVALUES_PROCESS,
   SEMATTRS_DB_CONNECTION_STRING,
   SEMATTRS_DB_NAME,
@@ -1711,6 +1715,45 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(SEMATTRS_DB_CONNECTION_STRING, undefined);
 
     mockAttribute(SEMATTRS_DB_SYSTEM, undefined);
+  });
+
+  // Instrumentations that follow the now-stable database semantic conventions emit `db.system.name`,
+  // `db.operation.name`, `db.query.text` and `db.namespace` instead of the legacy `db.system`,
+  // `db.operation`, `db.statement` and `db.name`. Without dual-reading, these spans are not
+  // recognized as DB spans at all and `aws.remote.service` falls back to the network address.
+  it('testDBClientSpanWithStableSemanticConventions', () => {
+    mockAttribute(ATTR_DB_SYSTEM_NAME, 'mysql');
+    mockAttribute(ATTR_DB_OPERATION_NAME, 'SELECT');
+    mockAttribute(_SERVER_ADDRESS, 'abc.com');
+    mockAttribute(_SERVER_PORT, 3306);
+
+    // `db.system.name` drives the remote service rather than `server.address`:`server.port`.
+    validateExpectedRemoteAttributes('mysql', 'SELECT');
+    mockAttribute(ATTR_DB_OPERATION_NAME, undefined);
+
+    // Falls back to `db.query.text` when `db.operation.name` is absent.
+    mockAttribute(ATTR_DB_QUERY_TEXT, 'SELECT * FROM users');
+    validateExpectedRemoteAttributes('mysql', 'SELECT');
+    mockAttribute(ATTR_DB_QUERY_TEXT, 'invalid query text');
+    validateExpectedRemoteAttributes('mysql', UNKNOWN_REMOTE_OPERATION);
+    mockAttribute(ATTR_DB_QUERY_TEXT, undefined);
+    validateExpectedRemoteAttributes('mysql', UNKNOWN_REMOTE_OPERATION);
+
+    // The legacy keys still win when both conventions are present (dual-emitting instrumentations).
+    mockAttribute(SEMATTRS_DB_SYSTEM, 'legacy system');
+    mockAttribute(SEMATTRS_DB_OPERATION, 'legacy operation');
+    validateExpectedRemoteAttributes('legacy system', 'legacy operation');
+    mockAttribute(SEMATTRS_DB_SYSTEM, undefined);
+    mockAttribute(SEMATTRS_DB_OPERATION, undefined);
+
+    // `db.namespace` is used for the remote resource identifier in place of `db.name`.
+    mockAttribute(ATTR_DB_NAMESPACE, 'db_name');
+    validateRemoteResourceAttributes('DB::Connection', 'db_name|abc.com|3306');
+    mockAttribute(ATTR_DB_NAMESPACE, undefined);
+
+    mockAttribute(ATTR_DB_SYSTEM_NAME, undefined);
+    mockAttribute(_SERVER_ADDRESS, undefined);
+    mockAttribute(_SERVER_PORT, undefined);
   });
 
   function mockAttribute(key: string, value: AttributeValue | undefined): void {

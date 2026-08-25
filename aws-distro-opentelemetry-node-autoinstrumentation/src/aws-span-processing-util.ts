@@ -6,6 +6,9 @@ import type { InstrumentationScope } from '@opentelemetry/core';
 import type { ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
 
 import {
+  ATTR_DB_OPERATION_NAME,
+  ATTR_DB_QUERY_TEXT,
+  ATTR_DB_SYSTEM_NAME,
   ATTR_HTTP_REQUEST_METHOD,
   ATTR_URL_FULL,
   ATTR_URL_PATH,
@@ -415,12 +418,20 @@ export class AwsSpanProcessingUtil {
     return operation;
   }
 
-  // Check if the current Span adheres to database semantic conventions
+  // Check if the current Span adheres to database semantic conventions.
+  // Both the legacy (`db.system`/`db.operation`/`db.statement`) and stable
+  // (`db.system.name`/`db.operation.name`/`db.query.text`) conventions are accepted: since the
+  // database semconv went stable, instrumentations emit only the stable names, while older
+  // instrumentation versions — and instrumentations still opted into the legacy names — emit only
+  // the legacy ones.
   static isDBSpan(span: ReadableSpan): boolean {
     return (
       AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_SYSTEM) ||
+      AwsSpanProcessingUtil.isKeyPresent(span, ATTR_DB_SYSTEM_NAME) ||
       AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_OPERATION) ||
-      AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_STATEMENT)
+      AwsSpanProcessingUtil.isKeyPresent(span, ATTR_DB_OPERATION_NAME) ||
+      AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_STATEMENT) ||
+      AwsSpanProcessingUtil.isKeyPresent(span, ATTR_DB_QUERY_TEXT)
     );
   }
 

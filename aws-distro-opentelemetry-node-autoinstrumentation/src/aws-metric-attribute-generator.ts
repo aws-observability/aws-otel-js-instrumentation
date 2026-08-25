@@ -5,6 +5,10 @@ import { Attributes, AttributeValue, diag, SpanKind } from '@opentelemetry/api';
 import { defaultServiceName, Resource } from '@opentelemetry/resources';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
+  ATTR_DB_NAMESPACE,
+  ATTR_DB_OPERATION_NAME,
+  ATTR_DB_QUERY_TEXT,
+  ATTR_DB_SYSTEM_NAME,
   ATTR_HTTP_REQUEST_METHOD,
   ATTR_URL_FULL,
   SEMATTRS_DB_CONNECTION_STRING,
@@ -253,11 +257,22 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       );
       remoteOperation = AwsMetricAttributeGenerator.getRemoteOperation(span, SEMATTRS_RPC_METHOD);
     } else if (AwsSpanProcessingUtil.isDBSpan(span)) {
-      remoteService = AwsMetricAttributeGenerator.getRemoteService(span, SEMATTRS_DB_SYSTEM);
+      // Since the database semantic conventions went stable, instrumentations emit `db.system.name`,
+      // `db.operation.name` and `db.query.text` instead of the legacy `db.system`, `db.operation` and
+      // `db.statement`. Read both so spans from either convention are attributed to the database
+      // rather than falling back to its network address.
+      remoteService = AwsMetricAttributeGenerator.getRemoteService(
+        span,
+        AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_SYSTEM) ? SEMATTRS_DB_SYSTEM : ATTR_DB_SYSTEM_NAME
+      );
       if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_OPERATION)) {
         remoteOperation = AwsMetricAttributeGenerator.getRemoteOperation(span, SEMATTRS_DB_OPERATION);
-      } else {
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, ATTR_DB_OPERATION_NAME)) {
+        remoteOperation = AwsMetricAttributeGenerator.getRemoteOperation(span, ATTR_DB_OPERATION_NAME);
+      } else if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_STATEMENT)) {
         remoteOperation = AwsMetricAttributeGenerator.getDBStatementRemoteOperation(span, SEMATTRS_DB_STATEMENT);
+      } else {
+        remoteOperation = AwsMetricAttributeGenerator.getDBStatementRemoteOperation(span, ATTR_DB_QUERY_TEXT);
       }
     } else if (
       AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_FAAS_INVOKED_NAME) ||
@@ -720,7 +735,8 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * provided.
    */
   private static getDbConnection(span: ReadableSpan): string | undefined {
-    const dbName: AttributeValue | undefined = span.attributes[SEMATTRS_DB_NAME];
+    // `db.namespace` is the stable replacement for the legacy `db.name`.
+    const dbName: AttributeValue | undefined = span.attributes[SEMATTRS_DB_NAME] ?? span.attributes[ATTR_DB_NAMESPACE];
     let dbConnection: string | undefined;
 
     if (AwsSpanProcessingUtil.isKeyPresent(span, _SERVER_ADDRESS)) {

@@ -4,7 +4,7 @@
 import { AttributeValue, Attributes, Context, Histogram, SpanStatusCode } from '@opentelemetry/api';
 import { Resource } from '@opentelemetry/resources';
 import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
+import { ATTR_HTTP_RESPONSE_STATUS_CODE, SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
 import { AttributeMap, MetricAttributeGenerator } from './metric-attribute-generator';
 import { AwsSpanProcessingUtil, ForceFlushFunction } from './aws-span-processing-util';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
@@ -101,11 +101,15 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
   // possible except for the throttle
   // https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/exporter/awsxrayexporter/internal/translator/cause.go#L121-L160
   private recordErrorOrFault(spanData: ReadableSpan, attributes: Attributes): void {
-    let httpStatusCode: AttributeValue | undefined = spanData.attributes[SEMATTRS_HTTP_STATUS_CODE];
+    // `http.response.status_code` is the stable replacement for the legacy `http.status_code`. Read
+    // both, otherwise spans from instrumentations that only emit the stable name have no status code
+    // and every 4xx/5xx is classified purely from the span status.
+    let httpStatusCode: AttributeValue | undefined =
+      spanData.attributes[SEMATTRS_HTTP_STATUS_CODE] ?? spanData.attributes[ATTR_HTTP_RESPONSE_STATUS_CODE];
     const statusCode: SpanStatusCode = spanData.status.code;
 
     if (typeof httpStatusCode !== 'number') {
-      httpStatusCode = attributes[SEMATTRS_HTTP_STATUS_CODE];
+      httpStatusCode = attributes[SEMATTRS_HTTP_STATUS_CODE] ?? attributes[ATTR_HTTP_RESPONSE_STATUS_CODE];
     }
 
     if (

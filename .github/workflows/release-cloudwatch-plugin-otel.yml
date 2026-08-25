@@ -28,7 +28,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: cloudwatch-plugin-otel
-        run: npm ci
+        run: npm ci --workspaces=false
 
       - name: Run unit tests
         working-directory: cloudwatch-plugin-otel

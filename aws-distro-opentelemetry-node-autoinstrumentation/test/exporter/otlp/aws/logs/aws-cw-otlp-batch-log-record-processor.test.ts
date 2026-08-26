@@ -152,8 +152,7 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
         shutdown: sandbox.stub().resolves(),
         forceFlush: sandbox.stub().resolves(),
       } as any;
-      processor = new AwsCloudWatchOtlpBatchLogRecordProcessor({
-        exporter: mockExporter,
+      processor = new AwsCloudWatchOtlpBatchLogRecordProcessor(mockExporter, {
         maxExportBatchSize: 50,
         exportTimeoutMillis: 5000,
       });
@@ -229,8 +228,7 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
 
     it('should drain all records across multiple maxExportBatchSize chunks', async () => {
       // Use a small maxExportBatchSize to force multiple chunks
-      const smallBatchProcessor = new AwsCloudWatchOtlpBatchLogRecordProcessor({
-        exporter: mockExporter,
+      const smallBatchProcessor = new AwsCloudWatchOtlpBatchLogRecordProcessor(mockExporter, {
         maxExportBatchSize: 5,
         exportTimeoutMillis: 5000,
       });
@@ -268,8 +266,7 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
         shutdown: sandbox.stub().resolves(),
         forceFlush: sandbox.stub().resolves(),
       } as any;
-      processor = new AwsCloudWatchOtlpBatchLogRecordProcessor({
-        exporter: mockExporter,
+      processor = new AwsCloudWatchOtlpBatchLogRecordProcessor(mockExporter, {
         maxExportBatchSize: 50,
         exportTimeoutMillis: 5000,
       });
@@ -329,8 +326,7 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
         shutdown: sandbox.stub().resolves(),
         forceFlush: sandbox.stub().resolves(),
       } as any;
-      processor = new AwsCloudWatchOtlpBatchLogRecordProcessor({
-        exporter: mockExporter,
+      processor = new AwsCloudWatchOtlpBatchLogRecordProcessor(mockExporter, {
         maxExportBatchSize: 50,
         exportTimeoutMillis: 5000,
       });

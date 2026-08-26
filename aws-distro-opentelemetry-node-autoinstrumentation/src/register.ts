@@ -52,14 +52,12 @@ const UNKNOWN_INSTRUMENTATION_ERRORS = new Set(
   )
 );
 
-const consoleLogger = new DiagConsoleLogger();
-const diagLogger: DiagLogger = {
-  ...consoleLogger,
-  error: (message: string, ...args: unknown[]): void => {
-    if (!UNKNOWN_INSTRUMENTATION_ERRORS.has(message)) {
-      consoleLogger.error(message, ...args);
-    }
-  },
+const diagLogger: DiagLogger = new DiagConsoleLogger();
+const consoleError = diagLogger.error.bind(diagLogger);
+diagLogger.error = (message: string, ...args: unknown[]): void => {
+  if (!UNKNOWN_INSTRUMENTATION_ERRORS.has(message)) {
+    consoleError(message, ...args);
+  }
 };
 
 const logLevelEnv = getStringFromEnv('OTEL_LOG_LEVEL');

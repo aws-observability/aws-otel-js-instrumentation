@@ -101,6 +101,8 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
   // possible except for the throttle
   // https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/exporter/awsxrayexporter/internal/translator/cause.go#L121-L160
   private recordErrorOrFault(spanData: ReadableSpan, attributes: Attributes): void {
+    // TODO: Remove legacy `http.status_code` support; semconv renamed it to `http.response.status_code`.
+    // https://github.com/open-telemetry/semantic-conventions/blob/3c3ffc3b01cdda4cabbc82e9584696ec1e63306a/docs/non-normative/http-migration.md#summary-of-changes
     let httpStatusCode: AttributeValue | undefined =
       spanData.attributes[SEMATTRS_HTTP_STATUS_CODE] ?? spanData.attributes[ATTR_HTTP_RESPONSE_STATUS_CODE];
     const statusCode: SpanStatusCode = spanData.status.code;

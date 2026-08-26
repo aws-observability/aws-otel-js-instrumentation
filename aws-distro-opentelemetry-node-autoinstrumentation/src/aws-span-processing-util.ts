@@ -420,6 +420,9 @@ export class AwsSpanProcessingUtil {
 
   // Check if the current Span adheres to database semantic conventions
   static isDBSpan(span: ReadableSpan): boolean {
+    // TODO: Remove legacy DB attribute support. Semconv renamed `db.system` to `db.system.name`,
+    // `db.operation` to `db.operation.name`, and `db.statement` to `db.query.text`.
+    // https://github.com/open-telemetry/semantic-conventions/blob/3c3ffc3b01cdda4cabbc82e9584696ec1e63306a/docs/non-normative/db-migration.md#database-client-span-attributes
     return (
       AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_SYSTEM) ||
       AwsSpanProcessingUtil.isKeyPresent(span, ATTR_DB_SYSTEM_NAME) ||

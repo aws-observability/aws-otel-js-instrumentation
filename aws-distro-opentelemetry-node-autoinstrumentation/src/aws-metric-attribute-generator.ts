@@ -257,6 +257,9 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       );
       remoteOperation = AwsMetricAttributeGenerator.getRemoteOperation(span, SEMATTRS_RPC_METHOD);
     } else if (AwsSpanProcessingUtil.isDBSpan(span)) {
+      // TODO: Remove legacy DB attribute support. Semconv renamed `db.system` to `db.system.name`,
+      // `db.operation` to `db.operation.name`, and `db.statement` to `db.query.text`.
+      // https://github.com/open-telemetry/semantic-conventions/blob/3c3ffc3b01cdda4cabbc82e9584696ec1e63306a/docs/non-normative/db-migration.md#database-client-span-attributes
       remoteService = AwsMetricAttributeGenerator.getRemoteService(
         span,
         AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_SYSTEM) ? SEMATTRS_DB_SYSTEM : ATTR_DB_SYSTEM_NAME
@@ -731,7 +734,8 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * provided.
    */
   private static getDbConnection(span: ReadableSpan): string | undefined {
-    // `db.namespace` is the stable replacement for the legacy `db.name`.
+    // TODO: Remove legacy `db.name` support; semconv renamed it to `db.namespace`.
+    // https://github.com/open-telemetry/semantic-conventions/blob/3c3ffc3b01cdda4cabbc82e9584696ec1e63306a/docs/non-normative/db-migration.md#database-client-span-attributes
     const dbName: AttributeValue | undefined = span.attributes[SEMATTRS_DB_NAME] ?? span.attributes[ATTR_DB_NAMESPACE];
     let dbConnection: string | undefined;
 

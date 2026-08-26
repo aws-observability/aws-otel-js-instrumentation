@@ -32,8 +32,13 @@
     "prepublishOnly": "npm run compile",
     "tdd": "yarn test -- --watch-extensions ts --watch",
     "test": "OTEL_AWS_SERVICE_EVENTS_ENABLED=false nyc ts-mocha --exit --timeout 15000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/**/*.ts'",
+    "test:instrumentation": "OTEL_AWS_SERVICE_EVENTS_ENABLED=false nyc ts-mocha --exit --timeout 15000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/instrumentation/**/*.ts'",
+    "test:instrumentation:langchain": "OTEL_AWS_SERVICE_EVENTS_ENABLED=false nyc ts-mocha --exit --timeout 15000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/instrumentation/instrumentation-langchain/**/*.ts'",
+    "test:instrumentation:openai-agents": "OTEL_AWS_SERVICE_EVENTS_ENABLED=false nyc ts-mocha --exit --timeout 15000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/instrumentation/instrumentation-openai-agents/**/*.ts'",
+    "test:instrumentation:vercel-ai": "OTEL_AWS_SERVICE_EVENTS_ENABLED=false nyc ts-mocha --exit --timeout 15000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/instrumentation/instrumentation-vercel-ai/**/*.ts'",
     "test:node18": "OTEL_AWS_SERVICE_EVENTS_ENABLED=false nyc ts-mocha --exit --timeout 10000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' --ignore 'test/instrumentation/instrumentation-langchain/**' --ignore 'test/instrumentation/instrumentation-vercel-ai/**' --ignore 'test/instrumentation/instrumentation-openai-agents/**' 'test/**/*.ts'",
     "test:coverage": "OTEL_AWS_SERVICE_EVENTS_ENABLED=false nyc --check-coverage --functions 95 --lines 95 ts-mocha --exit --timeout 15000 -p tsconfig.json --require '@opentelemetry/contrib-test-utils' 'test/**/*.ts'",
+    "test-all-versions": "tav",
     "watch": "tsc -w"
   },
   "nyc": {
@@ -105,6 +110,7 @@
     "@aws-sdk/client-sns": "3.982.0",
     "@aws-sdk/client-sts": "3.982.0",
     "@openai/agents": "^0.8.0",
+    "@openai/agents-extensions": "^0.8.5",
     "@langchain/anthropic": "^1.3.26",
     "@langchain/aws": "^1.3.5",
     "@langchain/cohere": "^1.0.4",
@@ -125,6 +131,7 @@
     "@types/proxyquire": "^1.3.31",
     "@types/sinon": "10.0.18",
     "@types/uuid": "^9.0.8",
+    "ajv": "6.12.6",
     "expect": "29.2.0",
     "mocha": "7.2.0",
     "nock": "13.2.1",
@@ -133,6 +140,7 @@
     "proxyquire": "^2.1.3",
     "rimraf": "5.0.5",
     "sinon": "15.2.0",
+    "test-all-versions": "6.2.0",
     "ts-mocha": "10.0.0",
     "typescript": "5.0.4",
     "zod": "^4.0.0"

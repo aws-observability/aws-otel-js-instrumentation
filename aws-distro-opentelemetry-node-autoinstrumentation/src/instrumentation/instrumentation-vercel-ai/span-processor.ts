@@ -41,10 +41,16 @@ import {
   GEN_AI_OUTPUT_TYPE_VALUE_JSON,
   GEN_AI_OUTPUT_TYPE_VALUE_TEXT,
 } from '../common/semconv';
-import { PROVIDER_MAP, serializeToJson } from '../common/instrumentation-utils';
+import {
+  AttributeMapping,
+  contentToParts,
+  resolveProviderName,
+  serializeToJson,
+  toToolAttributeValue,
+  tryParseJson,
+} from '../common/instrumentation-utils';
 import { LIB_VERSION } from '../../version';
 import { INSTRUMENTATION_NAME } from './instrumentation';
-import { AttributeMapping } from '../common/instrumentation-utils';
 
 export class VercelAISpanProcessor implements SpanProcessor {
   // Span processor that translates VercelAI span attributes into OTel GenAI semantic conventions.
@@ -57,7 +63,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     {
       from: 'ai.model.provider',
       to: ATTR_GEN_AI_PROVIDER_NAME,
-      transform: (v: string) => VercelAISpanProcessor.mapProviderName(v),
+      transform: (v: string) => resolveProviderName(v),
     },
     { from: 'ai.model.id', to: ATTR_GEN_AI_REQUEST_MODEL },
     { from: 'ai.telemetry.functionId', to: ATTR_GEN_AI_AGENT_NAME },
@@ -70,6 +76,11 @@ export class VercelAISpanProcessor implements SpanProcessor {
     { from: 'ai.usage.inputTokenDetails.cacheWriteTokens', to: ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS },
     {
       from: 'ai.response.finishReason',
+      to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
+      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
+    },
+    {
+      from: 'ai.finishReason',
       to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
       transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
     },
@@ -96,12 +107,22 @@ export class VercelAISpanProcessor implements SpanProcessor {
     {
       from: 'ai.response.text',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
-      transform: (v: string, attrs: Record<string, any>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
+      transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
+    },
+    {
+      from: 'ai.result.text',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
     },
     {
       from: 'ai.response.object',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
-      transform: (v: string, attrs: Record<string, any>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
+      transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
+    },
+    {
+      from: 'ai.result.object',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
     },
     {
       from: 'ai.prompt.tools',
@@ -113,12 +134,12 @@ export class VercelAISpanProcessor implements SpanProcessor {
     {
       from: 'ai.toolCall.args',
       to: ATTR_GEN_AI_TOOL_CALL_ARGUMENTS,
-      transform: (v: string) => VercelAISpanProcessor.unwrapJsonString(v),
+      transform: (v: unknown) => toToolAttributeValue(typeof v === 'string' ? tryParseJson(v) : v),
     },
     {
       from: 'ai.toolCall.result',
       to: ATTR_GEN_AI_TOOL_CALL_RESULT,
-      transform: (v: string) => VercelAISpanProcessor.unwrapJsonString(v),
+      transform: (v: unknown) => toToolAttributeValue(typeof v === 'string' ? tryParseJson(v) : v),
     },
   ];
 
@@ -154,7 +175,8 @@ export class VercelAISpanProcessor implements SpanProcessor {
     if (span.instrumentationScope?.name !== 'ai') return;
 
     const attrs = span.attributes;
-    const operationId = attrs['ai.operationId'] as string | undefined;
+    const rawOperationId = (attrs['ai.operationId'] ?? attrs['operation.name']) as string | undefined;
+    const operationId = rawOperationId?.split(' ')[0];
 
     if (!operationId || !operationId.startsWith('ai.')) return;
 
@@ -189,7 +211,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     for (const mapping of VercelAISpanProcessor.ATTRIBUTE_MAP) {
       if (!mapping.to) continue;
       const value = attrs[mapping.from];
-      if (value != null && !mutableAttrs[mapping.to]) {
+      if (value != null && !Object.prototype.hasOwnProperty.call(mutableAttrs, mapping.to)) {
         const mapped = mapping.transform ? mapping.transform(value, mutableAttrs) : value;
         if (mapped != null) {
           mutableAttrs[mapping.to] = mapped;
@@ -264,33 +286,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
       const messages = typeof value === 'string' ? JSON.parse(value) : value;
       if (!Array.isArray(messages)) return value;
       const formatted = messages.map((msg: any) => {
-        const parts: Array<Record<string, unknown>> = [];
-        if (typeof msg.content === 'string') {
-          parts.push({ type: 'text', content: msg.content });
-        } else if (Array.isArray(msg.content)) {
-          for (const part of msg.content) {
-            if (part.type === 'text') {
-              parts.push({ type: 'text', content: part.text ?? part.content ?? '' });
-            } else if (part.type === 'tool-call' || part.type === 'tool_call') {
-              parts.push({
-                type: 'tool_call',
-                id: part.toolCallId ?? part.id ?? null,
-                name: part.toolName ?? part.name ?? '',
-                arguments:
-                  typeof part.args === 'string' ? VercelAISpanProcessor.unwrapJsonString(part.args) : part.args,
-              });
-            } else if (part.type === 'tool-result' || part.type === 'tool_call_response') {
-              parts.push({
-                type: 'tool_call_response',
-                id: part.toolCallId ?? part.id ?? null,
-                response: part.result ?? part.response ?? '',
-              });
-            } else {
-              parts.push(part);
-            }
-          }
-        }
-        return { role: msg.role, parts };
+        return { role: msg.role, parts: VercelAISpanProcessor._formatMessageParts(msg.content) };
       });
       return serializeToJson(formatted);
     } catch {
@@ -298,18 +294,58 @@ export class VercelAISpanProcessor implements SpanProcessor {
     }
   }
 
-  private static formatOutputMessages(value: string, attrs: Record<string, any>): string {
+  private static formatOutputMessages(value: unknown, attrs: Record<string, unknown>): string {
+    const rawFinishReason = attrs['ai.response.finishReason'] ?? attrs['ai.finishReason'];
     const finishReason =
-      typeof attrs['ai.response.finishReason'] === 'string'
-        ? VercelAISpanProcessor.mapFinishReason(attrs['ai.response.finishReason'])
-        : 'stop';
+      typeof rawFinishReason === 'string' ? VercelAISpanProcessor.mapFinishReason(rawFinishReason) : 'stop';
     return serializeToJson([
       {
         role: 'assistant',
-        parts: [{ type: 'text', content: value }],
+        parts: VercelAISpanProcessor._formatMessageParts(value),
         finish_reason: finishReason,
       },
     ]);
+  }
+
+  private static _formatMessageParts(content: unknown): Array<Record<string, unknown>> {
+    const blocks = Array.isArray(content) ? content : [content];
+    return blocks.flatMap(block => {
+      if (!block || typeof block !== 'object') return contentToParts(block);
+      const value = block as Record<string, unknown>;
+      if (value.type === 'tool-call' || value.type === 'tool_call') {
+        const args = value.args ?? value.arguments ?? {};
+        return [
+          {
+            type: 'tool_call',
+            id: value.toolCallId ?? value.id ?? null,
+            name: value.toolName ?? value.name ?? '',
+            arguments: typeof args === 'string' ? tryParseJson(args) : args,
+          },
+        ];
+      }
+      if (value.type === 'tool-result' || value.type === 'tool_call_response') {
+        return [
+          {
+            type: 'tool_call_response',
+            id: value.toolCallId ?? value.id ?? null,
+            response: value.result ?? value.response ?? '',
+          },
+        ];
+      }
+      if (
+        value.type === 'file' &&
+        typeof value.mediaType === 'string' &&
+        value.mediaType.startsWith('image/') &&
+        typeof value.data === 'string'
+      ) {
+        return contentToParts(
+          value.data.startsWith('data:') || value.data.includes('://')
+            ? { type: 'image_url', image_url: { url: value.data } }
+            : { type: 'image', media_type: value.mediaType, data: value.data }
+        );
+      }
+      return contentToParts(value);
+    });
   }
 
   private static formatToolDefinitions(tools: any): string | undefined {
@@ -322,8 +358,10 @@ export class VercelAISpanProcessor implements SpanProcessor {
           name: def.name,
         };
         if (def.description) result.description = def.description;
-        if (def.inputSchema) {
-          const { $schema, additionalProperties, ...params } = def.inputSchema;
+        // Tool schemas moved from parameters to inputSchema in AI SDK v5.
+        const schema = def.inputSchema ?? def.parameters;
+        if (schema) {
+          const { $schema, additionalProperties, ...params } = schema;
           result.parameters = params;
         }
         return result;
@@ -365,26 +403,12 @@ export class VercelAISpanProcessor implements SpanProcessor {
       case 'error':
         return 'error';
       case 'other':
-      case 'unknown':
         return 'stop';
+      case 'unknown':
+        return 'unknown';
       default:
         return reason;
     }
-  }
-
-  private static mapProviderName(provider: string): string {
-    if (!provider) return provider;
-    const lower = provider.toLowerCase();
-
-    if (PROVIDER_MAP[lower]) return PROVIDER_MAP[lower];
-
-    for (const [prefix, mapped] of Object.entries(PROVIDER_MAP)) {
-      if (lower.startsWith(prefix + '.') || lower.startsWith(prefix + '-')) {
-        return mapped;
-      }
-    }
-
-    return provider;
   }
 
   private static inferOutputType(operationId: string): string | undefined {
@@ -395,16 +419,5 @@ export class VercelAISpanProcessor implements SpanProcessor {
       return GEN_AI_OUTPUT_TYPE_VALUE_JSON;
     }
     return undefined;
-  }
-
-  private static unwrapJsonString(value: string): string {
-    try {
-      const parsed = JSON.parse(value);
-      if (typeof parsed === 'string') return parsed;
-      if (typeof parsed === 'object' && parsed !== null) return JSON.stringify(parsed);
-      return value;
-    } catch {
-      return value;
-    }
   }
 }

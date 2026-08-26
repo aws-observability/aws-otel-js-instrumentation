@@ -853,6 +853,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
   }
 
   private static setRemoteDbUser(span: ReadableSpan, attributes: Attributes): void {
+    // TODO: `db.user` has no stable replacement, so `aws.remote.db.user` is legacy-only.
     if (AwsSpanProcessingUtil.isDBSpan(span) && AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_DB_USER)) {
       attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_DB_USER] = span.attributes[SEMATTRS_DB_USER];
     }

@@ -215,6 +215,7 @@ export class ServiceEventsOtlpEmitter {
           : wrapExporterSuppressed(this.buildLogOtlpExporter(CompressionAlgorithm.NONE));
         this.loggerProvider = new LoggerProvider({
           resource,
+          // Preserve the former 5s default because low-volume ServiceEvents favor batching over latency.
           processors: [new BatchLogRecordProcessor({ exporter: logExporter, scheduledDelayMillis: 5_000 })],
         });
       }

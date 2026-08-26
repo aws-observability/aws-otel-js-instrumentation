@@ -4,7 +4,6 @@ import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import type { SdkLogRecord, BatchLogRecordProcessorOptions } from '@opentelemetry/sdk-logs';
 import { AnyValue } from '@opentelemetry/api-logs';
 import { ExportResultCode, globalErrorHandler } from '@opentelemetry/core';
-import { OTLPAwsLogExporter } from './otlp-aws-log-exporter';
 
 /*
  * OTel log events include fixed metadata attributes so the estimated metadata size
@@ -48,15 +47,6 @@ export const BASE_LOG_BUFFER_BYTE_SIZE: number = 2000;
 export const MAX_LOG_REQUEST_BYTE_SIZE: number = 1048576;
 
 /**
- * Options for {@link AwsCloudWatchOtlpBatchLogRecordProcessor}. Mirrors upstream's
- * BatchLogRecordProcessorOptions but narrows `exporter` to OTLPAwsLogExporter, since the
- * 1 MB sub-batching below is specific to the AWS CloudWatch Logs OTLP endpoint.
- */
-export type AwsCloudWatchOtlpBatchLogRecordProcessorOptions = Omit<BatchLogRecordProcessorOptions, 'exporter'> & {
-  exporter: OTLPAwsLogExporter;
-};
-
-/**
  * Custom implementation of BatchLogRecordProcessor that manages log record batching
  * with size-based constraints to prevent exceeding AWS CloudWatch Logs OTLP endpoint request size limits.
  *
@@ -73,7 +63,7 @@ export type AwsCloudWatchOtlpBatchLogRecordProcessorOptions = Omit<BatchLogRecor
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProcessor {
-  constructor(options: AwsCloudWatchOtlpBatchLogRecordProcessorOptions) {
+  constructor(options: BatchLogRecordProcessorOptions) {
     super(options);
   }
 

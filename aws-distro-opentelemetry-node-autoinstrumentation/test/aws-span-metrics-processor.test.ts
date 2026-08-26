@@ -385,31 +385,6 @@ describe('AwsSpanMetricsProcessorTest', () => {
     validateMetricsGeneratedForHttpStatusCode(600, ExpectedStatusMetric.NEITHER);
   });
 
-  // Since the HTTP semantic conventions went stable, instrumentations emit
-  // `http.response.status_code` rather than the legacy `http.status_code`. Both must classify.
-  it('testOnEndMetricsGenerationWithStableStatusCodes', () => {
-    // Invalid HTTP status codes
-    validateMetricsGeneratedForHttpStatusCode(undefined, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
-
-    // Valid HTTP status codes
-    validateMetricsGeneratedForHttpStatusCode(200, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForHttpStatusCode(399, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForHttpStatusCode(400, ExpectedStatusMetric.ERROR, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForHttpStatusCode(499, ExpectedStatusMetric.ERROR, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForHttpStatusCode(500, ExpectedStatusMetric.FAULT, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForHttpStatusCode(599, ExpectedStatusMetric.FAULT, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForHttpStatusCode(600, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
-  });
-
-  it('testOnEndMetricsGenerationWithStableAwsStatusCodes', () => {
-    validateMetricsGeneratedForAttributeStatusCode(399, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForAttributeStatusCode(400, ExpectedStatusMetric.ERROR, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForAttributeStatusCode(499, ExpectedStatusMetric.ERROR, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForAttributeStatusCode(500, ExpectedStatusMetric.FAULT, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForAttributeStatusCode(599, ExpectedStatusMetric.FAULT, ATTR_HTTP_RESPONSE_STATUS_CODE);
-    validateMetricsGeneratedForAttributeStatusCode(600, ExpectedStatusMetric.NEITHER, ATTR_HTTP_RESPONSE_STATUS_CODE);
-  });
-
   it('testOnEndMetricsGenerationWithStatusDataError', () => {
     // Empty Status and HTTP with Error Status
     validateMetricsGeneratedForStatusDataError(undefined, ExpectedStatusMetric.FAULT);
@@ -557,44 +532,46 @@ describe('AwsSpanMetricsProcessorTest', () => {
 
   function validateMetricsGeneratedForHttpStatusCode(
     httpStatusCode: number | undefined,
-    expectedStatusMetric: ExpectedStatusMetric,
-    statusCodeKey: string = SEMATTRS_HTTP_STATUS_CODE
+    expectedStatusMetric: ExpectedStatusMetric
   ): void {
-    const spanAttributes: Attributes = { [statusCodeKey]: httpStatusCode };
-    const readableSpanMock: ReadableSpan = buildReadableSpanMock(spanAttributes, SpanKind.PRODUCER, undefined, {
-      code: SpanStatusCode.UNSET,
-    });
-    const metricAttributesMap: AttributeMap = buildMetricAttributes(CONTAINS_ATTRIBUTES, readableSpanMock);
-    configureMocksForOnEnd(readableSpanMock, metricAttributesMap);
+    for (const statusCodeKey of [SEMATTRS_HTTP_STATUS_CODE, ATTR_HTTP_RESPONSE_STATUS_CODE]) {
+      const spanAttributes: Attributes = { [statusCodeKey]: httpStatusCode };
+      const readableSpanMock: ReadableSpan = buildReadableSpanMock(spanAttributes, SpanKind.PRODUCER, undefined, {
+        code: SpanStatusCode.UNSET,
+      });
+      const metricAttributesMap: AttributeMap = buildMetricAttributes(CONTAINS_ATTRIBUTES, readableSpanMock);
+      configureMocksForOnEnd(readableSpanMock, metricAttributesMap);
 
-    awsSpanMetricsProcessor.onEnd(readableSpanMock);
-    validateMetrics(metricAttributesMap, expectedStatusMetric);
+      awsSpanMetricsProcessor.onEnd(readableSpanMock);
+      validateMetrics(metricAttributesMap, expectedStatusMetric);
+    }
   }
 
   function validateMetricsGeneratedForAttributeStatusCode(
     awsStatusCode: number | undefined,
-    expectedStatusMetric: ExpectedStatusMetric,
-    statusCodeKey: string = SEMATTRS_HTTP_STATUS_CODE
+    expectedStatusMetric: ExpectedStatusMetric
   ): void {
-    // Testing Dependency Metric
-    const attributes: Attributes = { 'new key': 'new value' };
-    const readableSpanMock: ReadableSpan = buildReadableSpanMock(attributes, SpanKind.PRODUCER, undefined, {
-      code: SpanStatusCode.UNSET,
-    });
-    const metricAttributesMap: AttributeMap = buildMetricAttributes(CONTAINS_ATTRIBUTES, readableSpanMock);
-    if (awsStatusCode !== undefined) {
-      metricAttributesMap[SERVICE_METRIC] = {
-        'new service key': 'new service value',
-        [statusCodeKey]: awsStatusCode,
-      };
-      metricAttributesMap[DEPENDENCY_METRIC] = {
-        'new dependency key': 'new dependency value',
-        [statusCodeKey]: awsStatusCode,
-      };
+    for (const statusCodeKey of [SEMATTRS_HTTP_STATUS_CODE, ATTR_HTTP_RESPONSE_STATUS_CODE]) {
+      // Testing Dependency Metric
+      const attributes: Attributes = { 'new key': 'new value' };
+      const readableSpanMock: ReadableSpan = buildReadableSpanMock(attributes, SpanKind.PRODUCER, undefined, {
+        code: SpanStatusCode.UNSET,
+      });
+      const metricAttributesMap: AttributeMap = buildMetricAttributes(CONTAINS_ATTRIBUTES, readableSpanMock);
+      if (awsStatusCode !== undefined) {
+        metricAttributesMap[SERVICE_METRIC] = {
+          'new service key': 'new service value',
+          [statusCodeKey]: awsStatusCode,
+        };
+        metricAttributesMap[DEPENDENCY_METRIC] = {
+          'new dependency key': 'new dependency value',
+          [statusCodeKey]: awsStatusCode,
+        };
+      }
+      configureMocksForOnEnd(readableSpanMock, metricAttributesMap);
+      awsSpanMetricsProcessor.onEnd(readableSpanMock);
+      validateMetrics(metricAttributesMap, expectedStatusMetric);
     }
-    configureMocksForOnEnd(readableSpanMock, metricAttributesMap);
-    awsSpanMetricsProcessor.onEnd(readableSpanMock);
-    validateMetrics(metricAttributesMap, expectedStatusMetric);
   }
 
   function validateMetricsGeneratedForStatusDataError(

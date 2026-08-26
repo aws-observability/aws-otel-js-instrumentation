@@ -38,9 +38,8 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "18"
-      - name: Install workspace
-        run: npm ci
-        working-directory: .
+      - name: Install dependencies
+        run: npm ci --workspaces=false
       - name: Lint
         run: npm run lint
 
@@ -52,9 +51,8 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "18"
-      - name: Install workspace
-        run: npm ci
-        working-directory: .
+      - name: Install dependencies
+        run: npm ci --workspaces=false
       - name: Build and run unit tests
         run: npm test
 
@@ -75,13 +73,12 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "18"
-      - name: Install workspace
-        run: npm ci
-        working-directory: .
+      - name: Install dependencies
+        run: npm ci --workspaces=false
       - name: Bump to latest OTel (latest channel only)
         if: matrix.channel == 'latest'
         run: |
-          npm install --no-audit --no-fund --save-dev \
+          npm install --workspaces=false --no-audit --no-fund --save-dev \
             @opentelemetry/api@latest \
             @opentelemetry/sdk-node@latest \
             @opentelemetry/auto-instrumentations-node@latest \
@@ -95,7 +92,7 @@ jobs:
         # auto-instrumentations-node 0.62.0 are the set that pairs with it (0.62.0 declares sdk-node
         # ^0.203.0). api stays at the module's declared ^1.9 (a single shared copy is required).
         run: |
-          npm install --no-audit --no-fund --save-dev \
+          npm install --workspaces=false --no-audit --no-fund --save-dev \
             @opentelemetry/sdk-node@0.203.0 \
             @opentelemetry/auto-instrumentations-node@0.62.0 \
             @opentelemetry/sdk-trace-base@2.0.1 \
@@ -104,7 +101,7 @@ jobs:
             @opentelemetry/resources@2.0.1
       - name: Build (src + contract apps)
         run: |
-          npx tsc -p .
-          npx tsc -p tsconfig.apps.json
+          npm exec --workspaces=false -- tsc -p .
+          npm exec --workspaces=false -- tsc -p tsconfig.apps.json
       - name: Unit + contract suites (all modes and families)
-        run: npx ts-mocha --timeout 300000 -p tsconfig.json 'test/**/*.test.ts' 'contract-tests/**/*.test.ts'
+        run: npm exec --workspaces=false -- ts-mocha --timeout 300000 -p tsconfig.json 'test/**/*.test.ts' 'contract-tests/**/*.test.ts'

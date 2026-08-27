@@ -68,15 +68,18 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
 
   override setTracerProvider(provider: any): void {
     if (!this._spanProcessorRegistered) {
+      this._diag.debug('Registering VercelAISpanProcessor');
       const delegate = provider.getDelegate?.() ?? provider;
       const processors = delegate._activeSpanProcessor?._spanProcessors;
 
       if (!Array.isArray(processors)) {
-        this._diag.warn('Failed to register VercelAISpanProcessor');
+        this._diag.debug(
+          'Skipping VercelAISpanProcessor registration: tracer provider has no active span processors yet'
+        );
       } else {
         processors.unshift(new VercelAISpanProcessor());
         this._spanProcessorRegistered = true;
-        this._diag.debug('Registered VercelAISpanProcessor');
+        this._diag.debug('Registered VercelAISpanProcessor successfully');
       }
     }
 

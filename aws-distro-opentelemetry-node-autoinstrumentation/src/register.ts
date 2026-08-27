@@ -20,7 +20,7 @@ if (process.env.OTEL_TRACES_SAMPLER === 'xray') {
   useXraySampler = true;
 }
 
-import { diag, DiagConsoleLogger, metrics, trace } from '@opentelemetry/api';
+import { diag, DiagConsoleLogger, DiagLogger, metrics, trace } from '@opentelemetry/api';
 import { logs } from '@opentelemetry/api-logs';
 import { getNodeAutoInstrumentations, InstrumentationConfigMap } from '@opentelemetry/auto-instrumentations-node';
 import { getStringFromEnv, diagLogLevelFromString } from '@opentelemetry/core';
@@ -43,9 +43,26 @@ import {
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
 import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, REDACTED_QUERY_PARAMS } from './utils';
 
+// Upstream logs an error for every name in OTEL_NODE_{ENABLED,DISABLED}_INSTRUMENTATIONS that
+// isn't in its own instrumentation map, which includes our GenAI instrumentations:
+// https://github.com/open-telemetry/opentelemetry-js-contrib/blob/4e52a9053029304f271b7dbe1b07e7fb2b987e30/packages/auto-instrumentations-node/src/utils.ts#L226-L232
+const UNKNOWN_INSTRUMENTATION_ERRORS = new Set(
+  [LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME].map(
+    name => `Provided instrumentation name "@opentelemetry/instrumentation-${name}" not found`
+  )
+);
+
+const diagLogger: DiagLogger = new DiagConsoleLogger();
+const consoleError = diagLogger.error.bind(diagLogger);
+diagLogger.error = (message: string, ...args: unknown[]): void => {
+  if (!UNKNOWN_INSTRUMENTATION_ERRORS.has(message)) {
+    consoleError(message, ...args);
+  }
+};
+
 const logLevelEnv = getStringFromEnv('OTEL_LOG_LEVEL');
 const logLevel = logLevelEnv ? diagLogLevelFromString(logLevelEnv) : undefined;
-diag.setLogger(new DiagConsoleLogger(), logLevel);
+diag.setLogger(diagLogger, logLevel);
 
 /*
 Sets up default environment variables and apply patches

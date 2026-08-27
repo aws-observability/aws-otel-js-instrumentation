@@ -56,8 +56,8 @@ export class VercelAISpanProcessor implements SpanProcessor {
   // Span processor that translates VercelAI span attributes into OTel GenAI semantic conventions.
 
   // Vercel AI does not record whether a request was configured as an agentic workflow in its span attributes.
-  // We detect agents by tracking child spans if it either has tool use or multiple LLM calls.
-  private _spanIdToCounts: Map<string, { llmCalls: number; toolCalls: number }> = new Map();
+  // We detect agents by tracking child spans: declared tools, tool use, or multiple LLM calls.
+  private _spanIdToCounts: Map<string, { llmCalls: number; toolCalls: number; toolDefs: number }> = new Map();
 
   private static readonly ATTRIBUTE_MAP: AttributeMapping[] = [
     {
@@ -189,11 +189,18 @@ export class VercelAISpanProcessor implements SpanProcessor {
     ) {
       const parentSpanId = span.parentSpanContext?.spanId;
       if (parentSpanId) {
-        const signals = this._spanIdToCounts.get(parentSpanId) ?? { llmCalls: 0, toolCalls: 0 };
+        const signals = this._spanIdToCounts.get(parentSpanId) ?? { llmCalls: 0, toolCalls: 0, toolDefs: 0 };
         if (operationId === 'ai.toolCall') {
           signals.toolCalls++;
         } else {
           signals.llmCalls++;
+          // A request that declares tools is an agent turn even when the model chose not to call
+          // any. ai.prompt.tools is only recorded on the inner doGenerate/doStream span, so hoist
+          // it to the parent alongside the call counts.
+          const tools = attrs['ai.prompt.tools'];
+          if (Array.isArray(tools) && tools.length > 0) {
+            signals.toolDefs++;
+          }
         }
         this._spanIdToCounts.set(parentSpanId, signals);
       }
@@ -271,20 +278,49 @@ export class VercelAISpanProcessor implements SpanProcessor {
    * connected to a Generative AI model invokes the concept of an agent."
    * See: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/
    *
-   * We detect this if the LLM used any tools or made more than one LLM call.
+   * We detect this if the LLM had tools available, used any, or made more than one LLM call.
    */
   private isAgentSpan(span: ReadableSpan): boolean {
     const spanId = span.spanContext().spanId;
     const signals = this._spanIdToCounts.get(spanId);
     this._spanIdToCounts.delete(spanId);
     if (!signals) return false;
-    return signals.toolCalls > 0 || signals.llmCalls > 1;
+    return signals.toolDefs > 0 || signals.toolCalls > 0 || signals.llmCalls > 1;
   }
 
   private static formatInputMessages(value: string): string | undefined {
     try {
-      const messages = typeof value === 'string' ? JSON.parse(value) : value;
-      if (!Array.isArray(messages)) return value;
+      const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+
+      // ai.prompt.messages is already a message array, but ai.prompt carries the caller's raw
+      // args instead — { system?, prompt?, messages? } — so flatten it into the same shape before
+      // formatting. Anything we don't recognize falls through to the raw value, since the ai.*
+      // attributes are deleted in onEnd and dropping it would lose the prompt entirely.
+      let messages: any[];
+      if (Array.isArray(parsed)) {
+        messages = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        messages = [];
+        const system = parsed.system;
+        for (const entry of Array.isArray(system) ? system : [system]) {
+          if (entry == null) continue;
+          messages.push(
+            typeof entry === 'object'
+              ? { role: entry.role ?? 'system', content: entry.content }
+              : { role: 'system', content: entry }
+          );
+        }
+        if (parsed.prompt != null) {
+          messages.push({ role: 'user', content: parsed.prompt });
+        }
+        if (Array.isArray(parsed.messages)) {
+          messages.push(...parsed.messages);
+        }
+        if (messages.length === 0) return value;
+      } else {
+        return value;
+      }
+
       const formatted = messages.map((msg: any) => {
         return { role: msg.role, parts: VercelAISpanProcessor._formatMessageParts(msg.content) };
       });

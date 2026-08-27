@@ -144,16 +144,22 @@ function mockMultiStepFetch(pc: ProviderTestCase): typeof globalThis.fetch {
   }) as typeof fetch;
 }
 
-function createVercelSpan(attributes: Record<string, unknown>): ReadableSpan {
+function createVercelSpan(
+  attributes: Record<string, unknown>,
+  ids: { spanId?: string; parentSpanId?: string } = {}
+): ReadableSpan {
+  const spanId = ids.spanId ?? '1'.repeat(16);
   return {
     name: 'ai.test',
     kind: SpanKind.INTERNAL,
     instrumentationScope: { name: 'ai' },
     attributes,
-    parentSpanContext: undefined,
+    parentSpanContext: ids.parentSpanId
+      ? { traceId: '0'.repeat(32), spanId: ids.parentSpanId, traceFlags: 1 }
+      : undefined,
     spanContext: () => ({
       traceId: '0'.repeat(32),
-      spanId: '1'.repeat(16),
+      spanId,
       traceFlags: 1,
     }),
   } as unknown as ReadableSpan;
@@ -525,6 +531,146 @@ describe('generateText agent detection', function () {
     const spans = getTestSpans();
     const agentSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent');
     expect(agentSpans.length).toBe(0);
+  });
+
+  it('detects agent span when tools are declared but the model calls none', async () => {
+    const model = getModel(providerCases[0]);
+
+    const weatherTool = (tool as any)({
+      description: 'Get weather',
+      parameters: z.object({ location: z.string() }),
+      execute: async ({ location }: { location: string }) => `Sunny in ${location}`,
+    });
+
+    await generateText({
+      model,
+      prompt: 'Hello',
+      tools: { get_weather: weatherTool },
+    } as any);
+
+    const spans = getTestSpans();
+    const agentSpans = spans.filter((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'invoke_agent');
+    if (expectToolDefinitions) {
+      expect(agentSpans.length).toBeGreaterThanOrEqual(1);
+    } else {
+      expect(agentSpans.length).toBe(0);
+    }
+  });
+
+  it('hoists declared tools from the inner span to classify the parent as invoke_agent', function () {
+    const processor = new VercelAISpanProcessor();
+    const parentSpanId = 'a'.repeat(16);
+
+    const inner: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.prompt.tools': [JSON.stringify({ type: 'function', name: 'emit_suggestions' })],
+    };
+    processor.onEnd(createVercelSpan(inner, { spanId: 'b'.repeat(16), parentSpanId }));
+    expect(inner[ATTR_GEN_AI_OPERATION_NAME]).toBe('chat');
+
+    const outer: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText',
+      'ai.telemetry.functionId': 'horizon-loop-agent',
+    };
+    const outerSpan = createVercelSpan(outer, { spanId: parentSpanId });
+    processor.onEnd(outerSpan);
+
+    expect(outer[ATTR_GEN_AI_OPERATION_NAME]).toBe('invoke_agent');
+    expect(outerSpan.name).toBe('invoke_agent horizon-loop-agent');
+  });
+
+  it('leaves the parent as chat when the inner span declares no tools', function () {
+    const processor = new VercelAISpanProcessor();
+    const parentSpanId = 'c'.repeat(16);
+
+    processor.onEnd(
+      createVercelSpan({ 'ai.operationId': 'ai.generateText.doGenerate' }, { spanId: 'd'.repeat(16), parentSpanId })
+    );
+
+    const outer: Record<string, unknown> = { 'ai.operationId': 'ai.generateText' };
+    processor.onEnd(createVercelSpan(outer, { spanId: parentSpanId }));
+
+    expect(outer[ATTR_GEN_AI_OPERATION_NAME]).toBe('chat');
+  });
+});
+
+describe('input message normalization', function () {
+  this.timeout(15000);
+
+  beforeEach(() => {
+    resetMemoryExporter();
+  });
+
+  it('normalizes the ai.prompt object emitted on the outer span', async function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText',
+      'ai.prompt': JSON.stringify({
+        system: [
+          { role: 'system', content: 'You are terse.' },
+          { role: 'system', content: 'Cite sources.' },
+        ],
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'Any anomalies?' }] }],
+      }),
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    const inputMessages = JSON.parse(attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+    expect(inputMessages).toEqual([
+      { role: 'system', parts: [{ type: 'text', content: 'You are terse.' }] },
+      { role: 'system', parts: [{ type: 'text', content: 'Cite sources.' }] },
+      { role: 'user', parts: [{ type: 'text', content: 'Any anomalies?' }] },
+    ]);
+  });
+
+  it('normalizes a string system prompt and the prompt shorthand', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText',
+      'ai.prompt': JSON.stringify({ system: 'Be brief.', prompt: 'Hello' }),
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(JSON.parse(attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string)).toEqual([
+      { role: 'system', parts: [{ type: 'text', content: 'Be brief.' }] },
+      { role: 'user', parts: [{ type: 'text', content: 'Hello' }] },
+    ]);
+  });
+
+  it('leaves an already normalized message array untouched', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.prompt.messages': JSON.stringify([{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }]),
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(JSON.parse(attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string)).toEqual([
+      { role: 'user', parts: [{ type: 'text', content: 'Hello' }] },
+    ]);
+  });
+
+  it('keeps the raw value when the prompt shape is unrecognized', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText',
+      'ai.prompt': '{"unexpected":true}',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBe('{"unexpected":true}');
+  });
+
+  it('keeps the raw value when the prompt is not JSON', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText',
+      'ai.prompt': 'not json{',
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_INPUT_MESSAGES]).toBe('not json{');
   });
 });
 

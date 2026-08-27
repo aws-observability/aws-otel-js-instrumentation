@@ -51,6 +51,7 @@ import {
 } from '../common/instrumentation-utils';
 import { LIB_VERSION } from '../../version';
 import { INSTRUMENTATION_NAME } from './instrumentation';
+import type { ModelMessage, Prompt } from 'ai';
 
 export class VercelAISpanProcessor implements SpanProcessor {
   // Span processor that translates VercelAI span attributes into OTel GenAI semantic conventions.
@@ -194,9 +195,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
           signals.toolCalls++;
         } else {
           signals.llmCalls++;
-          // A request that declares tools is an agent turn even when the model chose not to call
-          // any. ai.prompt.tools is only recorded on the inner doGenerate/doStream span, so hoist
-          // it to the parent alongside the call counts.
           const tools = attrs['ai.prompt.tools'];
           if (Array.isArray(tools) && tools.length > 0) {
             signals.toolDefs++;
@@ -292,36 +290,40 @@ export class VercelAISpanProcessor implements SpanProcessor {
     try {
       const parsed = typeof value === 'string' ? JSON.parse(value) : value;
 
-      // ai.prompt.messages is already a message array, but ai.prompt carries the caller's raw
-      // args instead — { system?, prompt?, messages? } — so flatten it into the same shape before
-      // formatting. Anything we don't recognize falls through to the raw value, since the ai.*
-      // attributes are deleted in onEnd and dropping it would lose the prompt entirely.
-      let messages: any[];
+      let messages: ModelMessage[];
       if (Array.isArray(parsed)) {
-        messages = parsed;
+        messages = parsed as ModelMessage[];
       } else if (parsed && typeof parsed === 'object') {
+        const {
+          system,
+          prompt,
+          messages: promptMessages,
+        } = parsed as {
+          system?: Prompt['system'];
+          prompt?: string | ModelMessage[];
+          messages?: ModelMessage[];
+        };
         messages = [];
-        const system = parsed.system;
         for (const entry of Array.isArray(system) ? system : [system]) {
           if (entry == null) continue;
           messages.push(
-            typeof entry === 'object'
-              ? { role: entry.role ?? 'system', content: entry.content }
-              : { role: 'system', content: entry }
+            typeof entry === 'object' ? { role: 'system', content: entry.content } : { role: 'system', content: entry }
           );
         }
-        if (parsed.prompt != null) {
-          messages.push({ role: 'user', content: parsed.prompt });
+        if (Array.isArray(prompt)) {
+          messages.push(...prompt);
+        } else if (prompt != null) {
+          messages.push({ role: 'user', content: prompt });
         }
-        if (Array.isArray(parsed.messages)) {
-          messages.push(...parsed.messages);
+        if (Array.isArray(promptMessages)) {
+          messages.push(...promptMessages);
         }
         if (messages.length === 0) return value;
       } else {
         return value;
       }
 
-      const formatted = messages.map((msg: any) => {
+      const formatted = messages.map(msg => {
         return { role: msg.role, parts: VercelAISpanProcessor._formatMessageParts(msg.content) };
       });
       return serializeToJson(formatted);

@@ -638,6 +638,46 @@ describe('input message normalization', function () {
     ]);
   });
 
+  it('normalizes the array form of prompt as messages, not as user content', async function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText',
+      'ai.prompt': JSON.stringify({
+        prompt: [
+          { role: 'user', content: 'What is the weather?' },
+          { role: 'assistant', content: [{ type: 'text', text: 'Where?' }] },
+          { role: 'user', content: 'Tokyo' },
+        ],
+      }),
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    const inputMessages = JSON.parse(attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string);
+    await validateOtelGenaiSchema(inputMessages, 'gen-ai-input-messages');
+    expect(inputMessages).toEqual([
+      { role: 'user', parts: [{ type: 'text', content: 'What is the weather?' }] },
+      { role: 'assistant', parts: [{ type: 'text', content: 'Where?' }] },
+      { role: 'user', parts: [{ type: 'text', content: 'Tokyo' }] },
+    ]);
+  });
+
+  it('normalizes a single SystemModelMessage system prompt', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText',
+      'ai.prompt': JSON.stringify({
+        system: { role: 'system', content: 'Be brief.', providerOptions: { anthropic: {} } },
+        prompt: 'Hello',
+      }),
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(JSON.parse(attributes[ATTR_GEN_AI_INPUT_MESSAGES] as string)).toEqual([
+      { role: 'system', parts: [{ type: 'text', content: 'Be brief.' }] },
+      { role: 'user', parts: [{ type: 'text', content: 'Hello' }] },
+    ]);
+  });
+
   it('leaves an already normalized message array untouched', function () {
     const attributes: Record<string, unknown> = {
       'ai.operationId': 'ai.generateText.doGenerate',

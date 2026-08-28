@@ -173,6 +173,14 @@ jobs:
             ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}
             ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}
 
+      - name: Perform image scan
+        uses: ./.github/actions/image_scan
+        with:
+          image-ref: ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
+          logout: 'false'
+          trivyignore-file: .github/trivy/daily-scan.trivyignore.yaml
+
       - name: Tag platform images in private ECR
         env:
           REPO_NAME: adot-autoinstrumentation-node

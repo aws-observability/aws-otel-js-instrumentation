@@ -244,7 +244,7 @@ export class ServiceEventsOtlpEmitter {
           readers: [
             new PeriodicExportingMetricReader({
               exporter: metricExporter,
-              exportIntervalMillis: 10_000,
+              exportIntervalMillis: resolveMetricExportIntervalMillis(),
             }),
           ],
         });
@@ -582,6 +582,19 @@ const serviceEventsAggregationSelector: AggregationSelector = (instrumentType: I
 // Dynamic Instrumentation feature so a single value configures both signals.
 function resolveLogsEndpoint(explicit?: string): string {
   return explicit || process.env.OTEL_AWS_OTLP_LOGS_ENDPOINT || 'http://localhost:4316/v1/logs';
+}
+
+// The ServiceEvents metric reader honors the standard OTEL_METRIC_EXPORT_INTERVAL,
+// defaulting to — and capping at — 60s. This matches the Application Signals reader
+// (AwsOpentelemetryConfigurator.geMetricExportInterval) and the Java/.NET/Python
+// distros, all of which use a 60s ServiceEvents cadence. Contract tests set a small
+// value so metrics flush within the test wait window.
+export function resolveMetricExportIntervalMillis(): number {
+  const configured = Number(process.env.OTEL_METRIC_EXPORT_INTERVAL);
+  if (isNaN(configured) || configured > 60_000) {
+    return 60_000;
+  }
+  return configured;
 }
 
 function resolveMetricsEndpoint(explicit?: string): string {

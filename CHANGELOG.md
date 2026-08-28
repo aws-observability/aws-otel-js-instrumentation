@@ -13,6 +13,10 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix(vercel-ai): normalize ai.prompt input messages and treat declared tools as an agent signal
+  ([#536](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/536))
+- fix(agent-observability): suppress invalid instrumentation startup logs
+  ([#531](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/531))
 - test(agent-observability): validate the oldest and latest supported LangChain and OpenAI Agents releases,
   plus the latest release from each supported Vercel AI SDK major, across supported Node.js versions
   ([#526](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/526))

@@ -74,6 +74,7 @@ jobs:
           node_version: "24"
           package_name: aws-distro-opentelemetry-node-autoinstrumentation
           os: ubuntu-latest
+          trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
 
       - name: Output Tarball File Name
         id: staging_tarball_output

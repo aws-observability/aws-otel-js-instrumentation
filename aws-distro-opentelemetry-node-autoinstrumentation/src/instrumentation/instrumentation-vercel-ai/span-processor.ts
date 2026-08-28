@@ -51,13 +51,14 @@ import {
 } from '../common/instrumentation-utils';
 import { LIB_VERSION } from '../../version';
 import { INSTRUMENTATION_NAME } from './instrumentation';
+import type { ModelMessage, Prompt } from 'ai';
 
 export class VercelAISpanProcessor implements SpanProcessor {
   // Span processor that translates VercelAI span attributes into OTel GenAI semantic conventions.
 
   // Vercel AI does not record whether a request was configured as an agentic workflow in its span attributes.
-  // We detect agents by tracking child spans if it either has tool use or multiple LLM calls.
-  private _spanIdToCounts: Map<string, { llmCalls: number; toolCalls: number }> = new Map();
+  // We detect agents by tracking child spans: declared tools, tool use, or multiple LLM calls.
+  private _spanIdToCounts: Map<string, { llmCalls: number; toolCalls: number; toolDefs: number }> = new Map();
 
   private static readonly ATTRIBUTE_MAP: AttributeMapping[] = [
     {
@@ -189,11 +190,15 @@ export class VercelAISpanProcessor implements SpanProcessor {
     ) {
       const parentSpanId = span.parentSpanContext?.spanId;
       if (parentSpanId) {
-        const signals = this._spanIdToCounts.get(parentSpanId) ?? { llmCalls: 0, toolCalls: 0 };
+        const signals = this._spanIdToCounts.get(parentSpanId) ?? { llmCalls: 0, toolCalls: 0, toolDefs: 0 };
         if (operationId === 'ai.toolCall') {
           signals.toolCalls++;
         } else {
           signals.llmCalls++;
+          const tools = attrs['ai.prompt.tools'];
+          if (Array.isArray(tools) && tools.length > 0) {
+            signals.toolDefs++;
+          }
         }
         this._spanIdToCounts.set(parentSpanId, signals);
       }
@@ -271,21 +276,54 @@ export class VercelAISpanProcessor implements SpanProcessor {
    * connected to a Generative AI model invokes the concept of an agent."
    * See: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/
    *
-   * We detect this if the LLM used any tools or made more than one LLM call.
+   * We detect this if the LLM had tools available, used any, or made more than one LLM call.
    */
   private isAgentSpan(span: ReadableSpan): boolean {
     const spanId = span.spanContext().spanId;
     const signals = this._spanIdToCounts.get(spanId);
     this._spanIdToCounts.delete(spanId);
     if (!signals) return false;
-    return signals.toolCalls > 0 || signals.llmCalls > 1;
+    return signals.toolDefs > 0 || signals.toolCalls > 0 || signals.llmCalls > 1;
   }
 
   private static formatInputMessages(value: string): string | undefined {
     try {
-      const messages = typeof value === 'string' ? JSON.parse(value) : value;
-      if (!Array.isArray(messages)) return value;
-      const formatted = messages.map((msg: any) => {
+      const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+
+      let messages: ModelMessage[];
+      if (Array.isArray(parsed)) {
+        messages = parsed as ModelMessage[];
+      } else if (parsed && typeof parsed === 'object') {
+        const {
+          system,
+          prompt,
+          messages: promptMessages,
+        } = parsed as {
+          system?: Prompt['system'];
+          prompt?: string | ModelMessage[];
+          messages?: ModelMessage[];
+        };
+        messages = [];
+        for (const entry of Array.isArray(system) ? system : [system]) {
+          if (entry == null) continue;
+          messages.push(
+            typeof entry === 'object' ? { role: 'system', content: entry.content } : { role: 'system', content: entry }
+          );
+        }
+        if (Array.isArray(prompt)) {
+          messages.push(...prompt);
+        } else if (prompt != null) {
+          messages.push({ role: 'user', content: prompt });
+        }
+        if (Array.isArray(promptMessages)) {
+          messages.push(...promptMessages);
+        }
+        if (messages.length === 0) return value;
+      } else {
+        return value;
+      }
+
+      const formatted = messages.map(msg => {
         return { role: msg.role, parts: VercelAISpanProcessor._formatMessageParts(msg.content) };
       });
       return serializeToJson(formatted);

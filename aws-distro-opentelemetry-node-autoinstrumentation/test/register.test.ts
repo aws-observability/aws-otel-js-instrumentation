@@ -300,6 +300,32 @@ describe('Register', function () {
       instr.disable();
       trace.disable();
     });
+
+    it('does not register VercelAISpanProcessor when Vercel AI instrumentation is disabled', () => {
+      const originalDisabledInstrumentations = process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+      process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = VERCEL_AI_SHORT_NAME;
+
+      const provider = new BasicTracerProvider();
+      const instr = new VercelAIInstrumentation();
+
+      try {
+        assert.equal(instr.isEnabled(), false, 'Vercel AI instrumentation should be disabled');
+        instr.setTracerProvider(provider);
+
+        const processors = (provider as any)._activeSpanProcessor?._spanProcessors ?? [];
+        assert.ok(
+          !processors.some((p: any) => p.constructor.name === 'VercelAISpanProcessor'),
+          'VercelAISpanProcessor should not be registered'
+        );
+      } finally {
+        instr.disable();
+        if (originalDisabledInstrumentations === undefined) {
+          delete process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+        } else {
+          process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = originalDisabledInstrumentations;
+        }
+      }
+    });
   });
 
   it('Requires without error', () => {

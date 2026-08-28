@@ -13,6 +13,7 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix(vercel-ai): honor disabled instrumentation settings when registering the span processor
 - fix(agent-observability): suppress invalid instrumentation startup logs
   ([#531](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/531))
 - test(agent-observability): validate the oldest and latest supported LangChain and OpenAI Agents releases,

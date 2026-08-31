@@ -15,6 +15,23 @@ export const OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEY
 // https://www.typescriptlang.org/docs/handbook/release-notes/typescript-2-8.html#improved-control-over-mapped-type-modifiers
 export type Mutable<T> = { -readonly [P in keyof T]: T[P] };
 
+/**
+ * Query-string parameters whose values `@opentelemetry/instrumentation-http` redacts from the URL
+ * captured on HTTP spans. The `redactedQueryParams` config replaces the upstream default list
+ * rather than extending it, so the defaults are re-included below.
+ */
+export const REDACTED_QUERY_PARAMS: string[] = [
+  // Upstream DEFAULT_QUERY_STRINGS_TO_REDACT — re-included because the config replaces, not extends.
+  'sig',
+  'Signature',
+  'AWSAccessKeyId',
+  'X-Goog-Signature',
+  // AWS SigV4/SigV4a query-string authentication credentials.
+  'X-Amz-Signature',
+  'X-Amz-Credential',
+  'X-Amz-Security-Token',
+];
+
 export const getNodeVersion = () => {
   const nodeVersion = process.versions.node;
   const versionParts = nodeVersion.split('.');

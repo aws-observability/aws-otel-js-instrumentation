@@ -434,15 +434,24 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
     });
   });
 
-  describe('dedup keys on the recovered error identity (not route-only)', function () {
+  describe('dedup keys on the recovered error identity (not operation-only)', function () {
     // Regression: the span processor passes exception=null and defers exception detail to the
     // collector. The dedup hash must recover the error type+message from investigation data so two
-    // DISTINCT errors on the same route do NOT collapse to one snapshot under maxSameError=1.
-    function seedException(name: string, message: string): void {
+    // DISTINCT errors on the same operation do NOT collapse to one snapshot under maxSameError=1.
+    // The hash derives its origin from the traceback (a V8 stack string), NOT from functionName —
+    // functionName is the customer-consumed value the hash leaves untouched. So vary the stack's
+    // top frame (file + function) to drive distinct-vs-same dedup behavior.
+    function seedException(
+      name: string,
+      message: string,
+      file: string = '/app/handler.js',
+      func: string = 'handle'
+    ): void {
       const state = ServiceEventsMonitorState.getInstance();
       state.beginInvestigation(true);
       const inv = state.peekInvestigationData();
-      inv!.exception = { name, message, traceback: `${name}: ${message}`, functionName: 'app.handler' };
+      const traceback = `${name}: ${message}\n    at ${func} (${file}:10:5)\n    at caller (/app/main.js:3:1)`;
+      inv!.exception = { name, message, traceback, functionName: func };
     }
 
     it('two distinct error TYPES on the same route both emit (maxSameError=1)', function () {
@@ -460,13 +469,32 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       }
     });
 
-    it('two distinct error MESSAGES of the same type on one route both emit (maxSameError=1)', function () {
+    it('two distinct MESSAGES of the same type+function on one route deduplicate (maxSameError=1)', function () {
+      // The unbounded-key fix: the message is no longer part of the dedup key, so two occurrences of
+      // the same error that differ only in request-specific message text now collide.
       const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
       try {
-        seedException('DbError', 'timeout on shard A');
+        seedException('DbError', 'timeout on shard A', '/app/db.js', 'queryOrders');
         expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
         c.collect();
-        seedException('DbError', 'timeout on shard B');
+        seedException('DbError', 'timeout on shard B', '/app/db.js', 'queryOrders');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('the same type+function name in distinct MODULES on one route both emit (maxSameError=1)', function () {
+      // The file-qualified origin keeps same-named functions in different files apart — the
+      // collision the qualification fixes.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('DbError', 'timeout', '/app/orders.js', 'handle');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedException('DbError', 'timeout', '/app/users.js', 'handle');
         expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
         c.collect();
         expect(emitter.snapshots.length).toBe(2);
@@ -475,13 +503,29 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       }
     });
 
-    it('the SAME error (type+message) on one route deduplicates (maxSameError=1)', function () {
+    it('the same error type from distinct FUNCTIONS on one route both emit (maxSameError=1)', function () {
+      // The origin function keeps two same-type errors apart now that the message is gone.
       const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
       try {
-        seedException('DbError', 'timeout');
+        seedException('DbError', 'timeout', '/app/db.js', 'queryOrders');
         expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
         c.collect();
-        seedException('DbError', 'timeout');
+        seedException('DbError', 'timeout', '/app/db.js', 'writeOrders');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('the SAME error (type+function) on one route deduplicates (maxSameError=1)', function () {
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('DbError', 'timeout', '/app/db.js', 'queryOrders');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedException('DbError', 'timeout', '/app/db.js', 'queryOrders');
         // Same recovered identity → same hash → period-deduplicated.
         expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
         c.collect();
@@ -491,15 +535,165 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       }
     });
 
-    it('a latency incident (no exception) still keys route-only', function () {
+    it('a latency incident (no exception) still keys operation-only', function () {
       const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
       try {
-        // No investigation exception; two slow 2xx on the same route dedup together (route-only).
+        // No investigation exception; two slow 2xx on the same operation dedup together.
         expect(c.processPotentialIncident('/slow', 'GET', 200, 6000, null, makeRequestData())).not.toBeNull();
         c.collect();
         expect(c.processPotentialIncident('/slow', 'GET', 200, 6000, null, makeRequestData())).toBeNull();
         c.collect();
         expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('the same error on distinct METHODS of one route both emit (maxSameError=1)', function () {
+      // The key is `<method> <route>`, so GET and POST on the same route are distinct incidents even
+      // for the identical recovered error — matching the Java and Python distros.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedException('DbError', 'timeout', '/app/db.js', 'queryOrders');
+        expect(c.processPotentialIncident('/orders', 'GET', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedException('DbError', 'timeout', '/app/db.js', 'queryOrders');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+
+    // originFromStack frame-shape parsing: the top frame's function AND file must come from the SAME
+    // frame, with V8 decorations (async prefix, [as alias]), anonymous frames, and Windows paths all
+    // handled so the origin stays bounded and deploy-stable. These seed a raw traceback directly.
+    function seedRawTraceback(name: string, traceback: string, message: string = 'x'): void {
+      const state = ServiceEventsMonitorState.getInstance();
+      state.beginInvestigation(true);
+      const inv = state.peekInvestigationData();
+      inv!.exception = { name, message, traceback, functionName: 'ignored' };
+    }
+
+    it('a shifted line number in the top frame does not change the dedup key', function () {
+      // The `:line:col` suffix is deploy-unstable (an edit above the throw site shifts it), so it must
+      // be excluded — otherwise a recurring bug re-fires as a new incident after every deploy.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedRawTraceback('DbError', 'DbError: x\n    at queryOrders (/app/db.js:10:5)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback('DbError', 'DbError: x\n    at queryOrders (/app/db.js:99:12)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('a multi-line message embedding a fake frame cannot hijack the origin', function () {
+      // V8 renders the (multi-line) message BEFORE the frames, so a message containing indented
+      // `at pwn (/req/<id>.js:..)` text must NOT be parsed as the top frame — otherwise the
+      // request-specific id would key the hash per request (the unbounded-key bug). Two requests
+      // that differ ONLY in that injected message text must dedup to one incident.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        const realFrames = '\n    at queryOrders (/app/db.js:5:2)\n    at handler (/app/main.js:9:1)';
+        seedRawTraceback(
+          'DbError',
+          'DbError: boom\n    at pwn (/req/111.js:1:1)' + realFrames,
+          'boom\n    at pwn (/req/111.js:1:1)'
+        );
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback(
+          'DbError',
+          'DbError: boom\n    at pwn (/req/222.js:1:1)' + realFrames,
+          'boom\n    at pwn (/req/222.js:1:1)'
+        );
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('a header-only stack (no real frames) with an injected message frame does not proliferate', function () {
+      // Frameless stack (e.g. Error.stackTraceLimit=0, or a synthetic span-event stacktrace): after
+      // dropping the header there are NO frames, so the origin degrades to '' (operation-only). Two
+      // requests differing only in the injected per-request message text must still dedup to one.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedRawTraceback(
+          'DbError',
+          'DbError: boom\n    at pwn (/req/111.js:1:1)',
+          'boom\n    at pwn (/req/111.js:1:1)'
+        );
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback(
+          'DbError',
+          'DbError: boom\n    at pwn (/req/222.js:1:1)',
+          'boom\n    at pwn (/req/222.js:1:1)'
+        );
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('the async prefix and [as alias] decoration do not leak into the origin', function () {
+      // `at async queryOrders (...)` and `at Server.handle [as _handle] (...)` must key the same as
+      // the undecorated frame — the decorations are not part of the stable throw-site identity.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedRawTraceback('DbError', 'DbError: x\n    at queryOrders (/app/db.js:10:5)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback('DbError', 'DbError: x\n    at async queryOrders (/app/db.js:10:5)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(1);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('same-named anonymous-frame files in distinct modules stay apart (file-qualified)', function () {
+      // Anonymous top frames (`at /path/file.js:line:col`) still qualify by file, so a recurring
+      // anonymous throw in db.js and one in users.js are distinct incidents rather than both keying
+      // on the raw `file:line:col`.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedRawTraceback('DbError', 'DbError: x\n    at /app/db.js:10:5');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback('DbError', 'DbError: x\n    at /app/users.js:10:5');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
+      } finally {
+        c.stop();
+      }
+    });
+
+    it('a Windows drive-letter path in the top frame still qualifies distinct modules', function () {
+      // `C:\app\db.js` must not be mis-split on its drive-letter colon — same-named functions in
+      // different Windows-path modules must stay apart.
+      const c = new IncidentSnapshotCollector(600_000, 5000, 100, 'env', 'svc', '0.0.1', 1, emitter, null);
+      try {
+        seedRawTraceback('DbError', 'DbError: x\n    at handle (C:\\app\\orders.js:10:5)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        seedRawTraceback('DbError', 'DbError: x\n    at handle (C:\\app\\users.js:10:5)');
+        expect(c.processPotentialIncident('/orders', 'POST', 500, 10, null, makeRequestData())).not.toBeNull();
+        c.collect();
+        expect(emitter.snapshots.length).toBe(2);
       } finally {
         c.stop();
       }
@@ -514,8 +708,12 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       // a duplicate even though it never produced a snapshot.
       const c = new IncidentSnapshotCollector(600_000, 5000, 1, 'env', 'svc', '0.0.1', 1, emitter, null);
       try {
-        const errA = new Error('A');
-        const errB = new Error('B');
+        // Two DISTINCT errors: same type, but thrown from differently-named functions so their
+        // stacks yield different origin frames → different hashes (the message is not in the key).
+        const throwA = (): Error => new Error('A');
+        const throwB = (): Error => new Error('B');
+        const errA = throwA();
+        const errB = throwB();
         expect(c.processPotentialIncident('/x', 'GET', 500, 10, errA, makeRequestData())).not.toBeNull();
         // Second distinct error: gates would pass dedup but the rate window (1) is full → rejected.
         expect(c.processPotentialIncident('/x', 'GET', 500, 10, errB, makeRequestData())).toBeNull();
@@ -574,17 +772,17 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       }
     });
 
-    it('preserves the first occurrence affected_endpoint when a different-method occurrence upgrades', function () {
-      // The dedup hash keys on route (not method), so GET /api/x and POST /api/x with the same error
-      // share a hash. The exemplar is filed under the FIRST occurrence's operation, so the swapped
-      // snapshot must keep the first occurrence's affected_endpoint, not adopt the upgrader's method.
+    it('preserves the first occurrence exemplar when a later sampled occurrence upgrades', function () {
+      // The dedup hash keys on operation (`<method> <route>`), so a later sampled occurrence upgrades
+      // the pending (unsampled) snapshot only when it shares the same operation. The exemplar is filed
+      // under the FIRST occurrence, so the swapped snapshot must keep the first occurrence's identity.
       const err = new Error('boom');
       const exemplar = collector.processPotentialIncident('/api/x', 'GET', 500, 50, err, makeRequestData());
       expect(exemplar).not.toBeNull();
-      // Sampled POST occurrence of the same error upgrades the pending (unsampled) GET snapshot.
+      // Sampled GET occurrence of the same error upgrades the pending (unsampled) GET snapshot.
       collector.processPotentialIncident(
         '/api/x',
-        'POST',
+        'GET',
         500,
         50,
         err,
@@ -592,7 +790,6 @@ describe('IncidentSnapshotCollector (OTLP)', function () {
       );
       collector.collect();
       expect(emitter.snapshots.length).toBe(1);
-      // affected_endpoint stays 'GET /api/x' (the exemplar's filed operation), NOT 'POST /api/x'.
       expect(emitter.snapshots[0].affected_endpoint).toBe('GET /api/x');
       expect(emitter.snapshots[0].snapshot_id).toBe(exemplar!.snapshot_id);
     });

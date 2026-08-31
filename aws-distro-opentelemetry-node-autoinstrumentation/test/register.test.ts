@@ -118,6 +118,30 @@ describe('Register', function () {
     testInstrumentation(OpenAIAgentsInstrumentation, OPENAI_AGENTS_NAME, OPENAI_AGENTS_SHORT_NAME);
     testInstrumentation(VercelAIInstrumentation, VERCEL_AI_NAME, VERCEL_AI_SHORT_NAME);
 
+    it('suppresses only custom instrumentation registry errors', () => {
+      const customNames = [LANGCHAIN_SHORT_NAME, OPENAI_AGENTS_SHORT_NAME, VERCEL_AI_SHORT_NAME].join(',');
+      const invalidName = 'not-registered';
+      const configuredNames = `${customNames},${invalidName}`;
+
+      const proc = spawnWithAssertion(
+        {
+          OTEL_LOG_LEVEL: 'INFO',
+          OTEL_NODE_ENABLED_INSTRUMENTATIONS: configuredNames,
+          OTEL_NODE_DISABLED_INSTRUMENTATIONS: configuredNames,
+        },
+        `assert.strictEqual(process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS, '${configuredNames}');
+         assert.strictEqual(process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS, '${configuredNames}');`
+      );
+      assert.ifError(proc.error);
+      assert.equal(proc.status, 0, proc.stderr?.toString());
+
+      const stderr = proc.stderr?.toString() ?? '';
+      for (const customName of customNames.split(',')) {
+        assert.ok(!stderr.includes(`instrumentation-${customName}`), `unexpected custom error: ${stderr}`);
+      }
+      assert.ok(stderr.includes(`instrumentation-${invalidName}`), `expected upstream error was suppressed: ${stderr}`);
+    });
+
     describe('third-party conflict detection', () => {
       const conflictTestCases: {
         name: string;
@@ -255,6 +279,8 @@ describe('Register', function () {
       trace.setGlobalTracerProvider(provider);
 
       const instr = new VercelAIInstrumentation();
+      const debugSpy = sinon.spy((instr as any)._diag, 'debug');
+      const infoSpy = sinon.spy((instr as any)._diag, 'info');
       instr.setTracerProvider(trace.getTracerProvider() as any);
 
       const delegate = (trace.getTracerProvider() as any).getDelegate?.() ?? provider;
@@ -263,9 +289,42 @@ describe('Register', function () {
         processors.some((p: any) => p.constructor.name === 'VercelAISpanProcessor'),
         'VercelAISpanProcessor should be auto-registered'
       );
+      assert.ok(
+        debugSpy.calledWith('Registered VercelAISpanProcessor successfully'),
+        'VercelAISpanProcessor registration should be logged at debug level'
+      );
+      assert.equal(infoSpy.callCount, 0, 'VercelAISpanProcessor registration should not be logged at info level');
 
+      debugSpy.restore();
+      infoSpy.restore();
       instr.disable();
       trace.disable();
+    });
+
+    it('does not register VercelAISpanProcessor when Vercel AI instrumentation is disabled', () => {
+      const originalDisabledInstrumentations = process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+      process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = VERCEL_AI_SHORT_NAME;
+
+      const provider = new BasicTracerProvider();
+      const instr = new VercelAIInstrumentation();
+
+      try {
+        assert.equal(instr.isEnabled(), false, 'Vercel AI instrumentation should be disabled');
+        instr.setTracerProvider(provider);
+
+        const processors = (provider as any)._activeSpanProcessor?._spanProcessors ?? [];
+        assert.ok(
+          !processors.some((p: any) => p.constructor.name === 'VercelAISpanProcessor'),
+          'VercelAISpanProcessor should not be registered'
+        );
+      } finally {
+        instr.disable();
+        if (originalDisabledInstrumentations === undefined) {
+          delete process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+        } else {
+          process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = originalDisabledInstrumentations;
+        }
+      }
     });
   });
 
@@ -480,6 +539,48 @@ describe('Register', function () {
           OTEL_AWS_APPLICATION_SIGNALS_ENABLED: 'true',
         })
       ).toEqual({ action: 'init' });
+    });
+  });
+
+  describe('HTTP query-parameter redaction', () => {
+    // This suite's module-level require of register.ts runs with AGENT_OBSERVABILITY_ENABLED unset,
+    // so this covers the redaction-applies-by-default case.
+    it('configures instrumentation-http to redact the AWS SigV4 credential params', () => {
+      const { instrumentationConfigs } = require('../src/register');
+      const { REDACTED_QUERY_PARAMS } = require('../src/utils');
+      const httpConfig = instrumentationConfigs['@opentelemetry/instrumentation-http'];
+      assert.ok(httpConfig, 'instrumentation-http config should be present');
+      assert.deepStrictEqual(httpConfig.redactedQueryParams, REDACTED_QUERY_PARAMS);
+    });
+
+    it('redacts regardless of AGENT_OBSERVABILITY_ENABLED', () => {
+      // instrumentationConfigs is built once at module load, so agent observability has to be set
+      // in a fresh process. Redaction must not be gated behind it (only the ping hook is).
+      const script = `
+        const assert = require('assert');
+        const { instrumentationConfigs } = require('../build/src/register.js');
+        const { REDACTED_QUERY_PARAMS } = require('../build/src/utils.js');
+        const httpConfig = instrumentationConfigs['@opentelemetry/instrumentation-http'];
+        assert.deepStrictEqual(httpConfig.redactedQueryParams, REDACTED_QUERY_PARAMS);
+        assert.ok(typeof httpConfig.ignoreIncomingRequestHook === 'function');
+        process.exit(0);
+      `;
+      const proc = spawnSync(process.execPath, ['-e', script], {
+        cwd: __dirname,
+        timeout: 10000,
+        killSignal: 'SIGKILL',
+        env: {
+          ...process.env,
+          AGENT_OBSERVABILITY_ENABLED: 'true',
+          OTEL_NODE_RESOURCE_DETECTORS: 'none',
+          OTEL_TRACES_EXPORTER: 'none',
+          OTEL_METRICS_EXPORTER: 'none',
+          OTEL_LOGS_EXPORTER: 'none',
+          OTEL_LOG_LEVEL: 'NONE',
+        },
+      });
+      assert.ifError(proc.error);
+      assert.equal(proc.status, 0, proc.stderr?.toString());
     });
   });
 

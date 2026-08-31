@@ -28,6 +28,11 @@ permissions:
   contents: read
 
 jobs:
+  instrumentation-tests:
+    uses: ./.github/workflows/instrumentation-tests.yml
+    with:
+      ref: ${{ inputs.ref || github.sha }}
+
   build:
     runs-on: ubuntu-latest
     outputs:
@@ -69,6 +74,7 @@ jobs:
           node_version: "24"
           package_name: aws-distro-opentelemetry-node-autoinstrumentation
           os: ubuntu-latest
+          trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
 
       - name: Output Tarball File Name
         id: staging_tarball_output
@@ -115,7 +121,7 @@ jobs:
 
   publish-main-build-status:
     name: "Publish Main Build Status"
-    needs: [ build, application-signals-e2e-test ]
+    needs: [ build, application-signals-e2e-test, instrumentation-tests ]
     runs-on: ubuntu-latest
     if: always() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/v'))
     steps:
@@ -127,7 +133,7 @@ jobs:
 
       - name: Publish main build status
         run: |
-          value="${{ needs.build.result == 'success' && needs.application-signals-e2e-test.result == 'success' && '0.0' || '1.0'}}"
+          value="${{ needs.build.result == 'success' && needs.application-signals-e2e-test.result == 'success' && needs.instrumentation-tests.result == 'success' && '0.0' || '1.0'}}"
           aws cloudwatch put-metric-data --namespace 'ADOT/GitHubActions' \
             --metric-name Failure \
             --dimensions repository=${{ github.repository }},branch=${{ github.ref_name }},workflow=main_build \

@@ -231,35 +231,62 @@ function getList(envVar: string, defaultValue: string[]): string[] {
 }
 
 /**
- * Parse a package-pattern list env var, rejecting bare match-everything sentinels.
+ * Backslash-escape glob metacharacters so a token matches literally.
+ * A real dir like Next.js `[id]` must not be read as a glob character class.
+ * `/` and `.` are left alone: `/` is a path separator, `.` is already literal.
+ */
+function escapeGlobToken(token: string): string {
+  return token.replace(/[?[\]{}()!+@|\\]/g, '\\$&');
+}
+
+/**
+ * Turn a plain package token into globs that match its files.
+ * `myapp` -> instruments the whole `myapp/` subtree, like Java `com.myapp` /
+ * Python `myapp`. A token with a `*` is already a glob and is left as-is.
  *
- * Bare `*` and `**` are rejected as too broad: under minimatch's `matchBase: true`
- * they match every path, defeating the point of an explicit allowlist. Strip these
- * entries and warn — `diag.warn` rather than `diag.info` because we're silently
- * altering user-provided configuration, and info-level diag is often suppressed in
- * production OTel setups.
+ * We emit three patterns because the matcher runs against full file paths:
+ *   `**\/myapp/**`  -> files inside the dir (`myapp/index.js`)
+ *   `**\/myapp.*`   -> a file named after the token (`myapp.js`)
+ *   `**\/myapp`     -> when the token already includes the extension (`server.js`)
+ */
+function expandBarePattern(entry: string): string[] {
+  if (entry.includes('*')) {
+    return [entry]; // already a glob — use it as written
+  }
+  const token = entry.replace(/^\/+|\/+$/g, ''); // drop leading/trailing slashes
+  if (token.length === 0) {
+    return [];
+  }
+  const esc = escapeGlobToken(token);
+  return [`**/${esc}/**`, `**/${esc}.*`, `**/${esc}`];
+}
+
+/**
+ * Read a package-list env var and turn each entry into match globs. Used for both
+ * PACKAGES_INCLUDE and PACKAGES_EXCLUDE.
  *
- * An empty list instruments nothing — there is no implicit default scope (see the
- * scope rule in ast-transformation.ts).
+ * A bare `*` or `**` is dropped (it would match everything, defeating the allowlist)
+ * and warned about. Everything else is expanded by expandBarePattern. An empty list
+ * instruments nothing — there is no default scope (see ast-transformation.ts).
  */
 function getPatternList(envVar: string, defaultValue: string[]): string[] {
   const raw = getList(envVar, defaultValue);
   const rejected: string[] = [];
-  const normalized: string[] = [];
+  const out: string[] = [];
   for (const item of raw) {
     if (item === '*' || item === '**') {
       rejected.push(item);
       continue;
     }
-    normalized.push(item);
+    out.push(...expandBarePattern(item));
   }
   if (rejected.length > 0) {
     diag.warn(
       `ServiceEvents: ignoring match-everything entries ${JSON.stringify(rejected)} in ${envVar}; ` +
-        'use specific package prefixes (e.g. src/myapp/**). An empty list instruments nothing.'
+        'use a package token (e.g. myapp) or a glob (e.g. **/myapp/**). An empty list instruments nothing.'
     );
   }
-  return normalized;
+  return out;
 }
 
 /**

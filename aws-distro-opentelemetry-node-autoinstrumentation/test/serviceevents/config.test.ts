@@ -339,11 +339,92 @@ describe('ServiceEventsConfig', function () {
     it('should parse OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE as comma-separated list', function () {
       clearServiceEventsEnvVars();
 
-      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = 'my-lib,another-lib';
+      // Use explicit globs here so this test stays focused on comma-splitting; the
+      // bare-token expansion behavior is covered by the dedicated tests below.
+      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = '**/my-lib/**,**/another-lib/**';
 
       const config = createServiceEventsConfigFromEnv();
 
-      expect(config.packagesInclude).toEqual(['my-lib', 'another-lib']);
+      expect(config.packagesInclude).toEqual(['**/my-lib/**', '**/another-lib/**']);
+    });
+  });
+
+  describe('createServiceEventsConfigFromEnv() expands glob-free package tokens', function () {
+    it('expands a bare token to its subtree + file globs (PACKAGES_INCLUDE)', function () {
+      clearServiceEventsEnvVars();
+      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = 'myapp';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.packagesInclude).toEqual(['**/myapp/**', '**/myapp.*', '**/myapp']);
+    });
+
+    it('expands a slashed non-glob token (src/myapp)', function () {
+      clearServiceEventsEnvVars();
+      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = 'src/myapp';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.packagesInclude).toEqual(['**/src/myapp/**', '**/src/myapp.*', '**/src/myapp']);
+    });
+
+    it('trims leading/trailing slashes before expanding', function () {
+      clearServiceEventsEnvVars();
+      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = '/myapp/';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.packagesInclude).toEqual(['**/myapp/**', '**/myapp.*', '**/myapp']);
+    });
+
+    it('expands a filename-with-extension token so the bare-filename form matches it', function () {
+      clearServiceEventsEnvVars();
+      // `server.js` names a file directly; the `**/<token>` form matches it literally
+      // (the `.*` form alone would only find `server.js.<ext>`, e.g. a sourcemap).
+      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = 'server.js';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.packagesInclude).toEqual(['**/server.js/**', '**/server.js.*', '**/server.js']);
+    });
+
+    it('escapes the extglob @ in a scoped-package token but keeps the internal slash', function () {
+      clearServiceEventsEnvVars();
+      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = '@scope/pkg';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.packagesInclude).toEqual(['**/\\@scope/pkg/**', '**/\\@scope/pkg.*', '**/\\@scope/pkg']);
+    });
+
+    it('passes explicit globs through unchanged', function () {
+      clearServiceEventsEnvVars();
+      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = '**/myapp/**,src/lib/*';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.packagesInclude).toEqual(['**/myapp/**', 'src/lib/*']);
+    });
+
+    it('handles a mixed list of bare tokens and globs', function () {
+      clearServiceEventsEnvVars();
+      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = 'myapp,**/vendor/**';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.packagesInclude).toEqual(['**/myapp/**', '**/myapp.*', '**/myapp', '**/vendor/**']);
+    });
+
+    it('applies the same expansion to PACKAGES_EXCLUDE', function () {
+      clearServiceEventsEnvVars();
+      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_EXCLUDE = 'models';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.packagesExclude).toEqual(['**/models/**', '**/models.*', '**/models']);
+    });
+
+    it('escapes glob metacharacters so Next.js dynamic-route dirs match literally', function () {
+      clearServiceEventsEnvVars();
+      // A char-class `[id]`, a route group `(group)`, and a `?` are real directory
+      // names on disk — they must be escaped, not glob-interpreted.
+      process.env.OTEL_AWS_SERVICE_EVENTS_PACKAGES_INCLUDE = '[id],(group),my?lib';
+      const config = createServiceEventsConfigFromEnv();
+      expect(config.packagesInclude).toEqual([
+        '**/\\[id\\]/**',
+        '**/\\[id\\].*',
+        '**/\\[id\\]',
+        '**/\\(group\\)/**',
+        '**/\\(group\\).*',
+        '**/\\(group\\)',
+        '**/my\\?lib/**',
+        '**/my\\?lib.*',
+        '**/my\\?lib',
+      ]);
     });
   });
 

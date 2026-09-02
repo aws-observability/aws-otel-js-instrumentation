@@ -5,7 +5,6 @@ import { Context, SpanKind } from '@opentelemetry/api';
 import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import {
   ATTR_GEN_AI_AGENT_NAME,
-  ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT,
   ATTR_GEN_AI_INPUT_MESSAGES,
   ATTR_GEN_AI_OPERATION_NAME,
   ATTR_GEN_AI_OUTPUT_MESSAGES,
@@ -160,16 +159,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
       transform: (_v: string, attrs: Record<string, unknown>) =>
         VercelAISpanProcessor.formatOutputMessages(undefined, attrs),
-    },
-    {
-      from: 'ai.embedding',
-      to: ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT,
-      transform: (v: unknown) => VercelAISpanProcessor.getEmbeddingDimension(v),
-    },
-    {
-      from: 'ai.embeddings',
-      to: ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT,
-      transform: (v: unknown) => VercelAISpanProcessor.getEmbeddingDimension(v),
     },
     {
       from: 'ai.prompt.tools',
@@ -420,14 +409,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
         finish_reason: finishReason,
       },
     ]);
-  }
-
-  private static getEmbeddingDimension(value: unknown): number | undefined {
-    const parsed = typeof value === 'string' ? tryParseJson(value) : value;
-    if (!Array.isArray(parsed)) return undefined;
-    if (parsed.every(item => typeof item === 'number')) return parsed.length;
-    const first = typeof parsed[0] === 'string' ? tryParseJson(parsed[0]) : parsed[0];
-    return Array.isArray(first) ? first.length : undefined;
   }
 
   private static _formatMessageParts(content: unknown): Array<Record<string, unknown>> {

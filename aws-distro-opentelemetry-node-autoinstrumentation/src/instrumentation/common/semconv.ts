@@ -44,7 +44,6 @@ export const ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS = 'gen_ai.usage.reasoning
 export const ATTR_GEN_AI_USAGE_TOTAL_TOKENS = 'gen_ai.usage.total_tokens';
 export const ATTR_GEN_AI_WORKFLOW_NAME = 'gen_ai.workflow.name';
 export const ATTR_GEN_AI_OUTPUT_TYPE = 'gen_ai.output.type';
-export const ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT = 'gen_ai.embeddings.dimension.count';
 
 export const GEN_AI_OPERATION_NAME_VALUE_CHAT = 'chat';
 export const GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS = 'embeddings';

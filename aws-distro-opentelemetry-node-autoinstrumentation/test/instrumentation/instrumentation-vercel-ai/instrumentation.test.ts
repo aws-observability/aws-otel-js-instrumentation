@@ -11,7 +11,6 @@ import * as sinon from 'sinon';
 import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-utils';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
-  ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT,
   ATTR_GEN_AI_OPERATION_NAME,
   ATTR_GEN_AI_PROVIDER_NAME,
   ATTR_GEN_AI_REQUEST_MODEL,
@@ -80,7 +79,6 @@ const legacyCohereProvider = (require('@ai-sdk/cohere/package.json').version as 
 const expectToolDefinitions = process.env.VERCEL_AI_EXPECT_TOOL_DEFINITIONS !== 'false';
 
 it('uses the pinned OTel semantic convention names for mapped attributes', function () {
-  expect(ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT).toBe(otelGenAISemconv.ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT);
   expect(ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK).toBe(otelGenAISemconv.ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK);
   expect(ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS).toBe(
     otelGenAISemconv.ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS
@@ -470,24 +468,6 @@ describe('generateText content capture', function () {
         finish_reason: 'tool_call',
       },
     ]);
-  });
-
-  it('maps embedding dimensions from single and batched outputs', function () {
-    const singleAttributes: Record<string, unknown> = {
-      'ai.operationId': 'ai.embed',
-      'ai.embedding': '[0.1,0.2,0.3]',
-    };
-    const batchAttributes: Record<string, unknown> = {
-      'ai.operationId': 'ai.embedMany',
-      'ai.embeddings': ['[0.1,0.2]', '[0.3,0.4]'],
-    };
-
-    const processor = new VercelAISpanProcessor();
-    processor.onEnd(createVercelSpan(singleAttributes));
-    processor.onEnd(createVercelSpan(batchAttributes));
-
-    expect(singleAttributes[ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT]).toBe(3);
-    expect(batchAttributes[ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT]).toBe(2);
   });
 });
 

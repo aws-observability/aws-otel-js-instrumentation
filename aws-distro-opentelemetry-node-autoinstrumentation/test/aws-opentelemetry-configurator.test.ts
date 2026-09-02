@@ -63,7 +63,7 @@ import { OTLPAwsSpanExporter } from '../src/exporter/otlp/aws/traces/otlp-aws-sp
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from '../src/exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
 import { TRACE_PARENT_HEADER } from '@opentelemetry/core';
 import { ConsoleEMFExporter } from '../src/exporter/aws/metrics/console-emf-exporter';
-import { GenAiNestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
+import { GenAINestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
 
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -517,7 +517,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(spanProcessors.length).toEqual(4);
 
     // Verify processors are added in the expected order
-    expect(spanProcessors[0]).toBeInstanceOf(GenAiNestedClientSpanProcessor);
+    expect(spanProcessors[0]).toBeInstanceOf(GenAINestedClientSpanProcessor);
     expect(spanProcessors[1]).toBeInstanceOf(BaggageSpanProcessor);
     expect(spanProcessors[2]).toBeInstanceOf(AttributePropagatingSpanProcessor);
     expect(spanProcessors[3]).toBeInstanceOf(AwsSpanMetricsProcessor);
@@ -562,7 +562,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       const config = new AwsOpentelemetryConfigurator([]).configure();
       processors = config.spanProcessors ?? [];
 
-      expect(processors[0]).toBeInstanceOf(GenAiNestedClientSpanProcessor);
+      expect(processors[0]).toBeInstanceOf(GenAINestedClientSpanProcessor);
       expect(processors[1]).toBeInstanceOf(BatchSpanProcessor);
     } finally {
       await Promise.all(processors.map(processor => processor.shutdown()));

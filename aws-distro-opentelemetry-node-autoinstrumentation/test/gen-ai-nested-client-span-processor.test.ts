@@ -4,7 +4,7 @@
 import { context, SpanKind, trace } from '@opentelemetry/api';
 import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
 import { expect } from 'expect';
-import { GenAiNestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
+import { GenAINestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
 import {
   ATTR_GEN_AI_OPERATION_NAME,
   GEN_AI_OPERATION_NAME_VALUE_CHAT,
@@ -14,15 +14,15 @@ import {
   GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION,
 } from '../src/instrumentation/common/semconv';
 
-describe('TestGenAiNestedClientSpanProcessor', () => {
+describe('TestGenAINestedClientSpanProcessor', () => {
   let exporter: InMemorySpanExporter;
   let provider: NodeTracerProvider;
-  let processor: GenAiNestedClientSpanProcessor;
+  let processor: GenAINestedClientSpanProcessor;
   let tracer: ReturnType<NodeTracerProvider['getTracer']>;
 
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
-    processor = new GenAiNestedClientSpanProcessor();
+    processor = new GenAINestedClientSpanProcessor();
     provider = new NodeTracerProvider({
       spanProcessors: [processor, new SimpleSpanProcessor(exporter)],
     });
@@ -125,7 +125,7 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
     const spans = exporter.getFinishedSpans();
     expect(spans[0].kind).toBe(SpanKind.CLIENT);
     expect(spans[1].kind).toBe(SpanKind.CLIENT);
-    expect((processor as any)._parentSpanIdToGenAiClientChildOperations.size).toBe(0);
+    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(0);
   });
 
   it('should not convert non-LLM operation', () => {
@@ -148,7 +148,7 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
     const spans = exporter.getFinishedSpans();
     expect(spans[0].kind).toBe(SpanKind.CLIENT);
     expect(spans[1].kind).toBe(SpanKind.CLIENT);
-    expect((processor as any)._parentSpanIdToGenAiClientChildOperations.size).toBe(0);
+    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(0);
   });
 
   it('should not modify INTERNAL span', () => {
@@ -177,18 +177,15 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
   });
 
   it('should clear state on shutdown', async () => {
-    const processor = new GenAiNestedClientSpanProcessor();
-    (processor as any)._parentSpanIdToGenAiClientChildOperations.set(
-      '123',
-      new Set([GEN_AI_OPERATION_NAME_VALUE_CHAT])
-    );
-    expect((processor as any)._parentSpanIdToGenAiClientChildOperations.size).toBe(1);
+    const processor = new GenAINestedClientSpanProcessor();
+    (processor as any)._parentSpanIdAndOperationToGenAiClientChild.set(`123:${GEN_AI_OPERATION_NAME_VALUE_CHAT}`, true);
+    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(1);
     await processor.shutdown();
-    expect((processor as any)._parentSpanIdToGenAiClientChildOperations.size).toBe(0);
+    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(0);
   });
 
   it('should return resolved promise from forceFlush', async () => {
-    const processor = new GenAiNestedClientSpanProcessor();
+    const processor = new GenAINestedClientSpanProcessor();
     await processor.forceFlush();
   });
 });

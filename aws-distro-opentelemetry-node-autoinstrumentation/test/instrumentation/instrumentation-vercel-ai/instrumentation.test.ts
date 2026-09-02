@@ -416,6 +416,30 @@ describe('generateText content capture', function () {
     expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
   });
 
+  it('preserves structured reasoning blocks emitted by future AI SDK versions', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.response.finishReason': 'stop',
+      'ai.response.reasoning': [
+        { type: 'reasoning', text: 'First thought.' },
+        { type: 'reasoning', text: 'Second thought.' },
+      ],
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string)).toEqual([
+      {
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', content: 'First thought.' },
+          { type: 'reasoning', content: 'Second thought.' },
+        ],
+        finish_reason: 'stop',
+      },
+    ]);
+  });
+
   it('maps AI SDK v3 result tool calls when the result text is empty', function () {
     const attributes: Record<string, unknown> = {
       'operation.name': 'ai.generateText.doGenerate weather_agent',

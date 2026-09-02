@@ -393,7 +393,11 @@ export class VercelAISpanProcessor implements SpanProcessor {
     const parts: Array<Record<string, unknown>> = [];
     const reasoning = attrs['ai.response.reasoning'];
     if (reasoning != null) {
-      parts.push(...VercelAISpanProcessor._formatMessageParts({ type: 'reasoning', text: reasoning }));
+      parts.push(
+        ...VercelAISpanProcessor._formatMessageParts(
+          typeof reasoning === 'string' ? { type: 'reasoning', text: reasoning } : reasoning
+        )
+      );
     }
 
     const output =

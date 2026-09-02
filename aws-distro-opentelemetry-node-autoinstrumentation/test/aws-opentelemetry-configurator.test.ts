@@ -63,7 +63,15 @@ import { OTLPAwsSpanExporter } from '../src/exporter/otlp/aws/traces/otlp-aws-sp
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from '../src/exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
 import { TRACE_PARENT_HEADER } from '@opentelemetry/core';
 import { ConsoleEMFExporter } from '../src/exporter/aws/metrics/console-emf-exporter';
-import { GenAiNestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
+import { GenAINestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
 
 // Tests AwsOpenTelemetryConfigurator after running Environment Variable setup in register.ts
 describe('AwsOpenTelemetryConfiguratorTest', () => {
@@ -509,7 +517,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(spanProcessors.length).toEqual(4);
 
     // Verify processors are added in the expected order
-    expect(spanProcessors[0]).toBeInstanceOf(GenAiNestedClientSpanProcessor);
+    expect(spanProcessors[0]).toBeInstanceOf(GenAINestedClientSpanProcessor);
     expect(spanProcessors[1]).toBeInstanceOf(BaggageSpanProcessor);
     expect(spanProcessors[2]).toBeInstanceOf(AttributePropagatingSpanProcessor);
     expect(spanProcessors[3]).toBeInstanceOf(AwsSpanMetricsProcessor);
@@ -536,6 +544,33 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
     // Clean up
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
+  });
+
+  it('registers the GenAI nested client processor before exporter processors', async () => {
+    const previousAgentObservability = process.env.AGENT_OBSERVABILITY_ENABLED;
+    const previousTracesExporter = process.env.OTEL_TRACES_EXPORTER;
+    const previousTracesEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+    const previousBaseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    let processors: SpanProcessor[] = [];
+
+    try {
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      process.env.OTEL_TRACES_EXPORTER = 'otlp';
+      delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+      processors = config.spanProcessors ?? [];
+
+      expect(processors[0]).toBeInstanceOf(GenAINestedClientSpanProcessor);
+      expect(processors[1]).toBeInstanceOf(BatchSpanProcessor);
+    } finally {
+      await Promise.all(processors.map(processor => processor.shutdown()));
+      restoreEnv('AGENT_OBSERVABILITY_ENABLED', previousAgentObservability);
+      restoreEnv('OTEL_TRACES_EXPORTER', previousTracesExporter);
+      restoreEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', previousTracesEndpoint);
+      restoreEnv('OTEL_EXPORTER_OTLP_ENDPOINT', previousBaseEndpoint);
+    }
   });
 
   it('BaggageSpanProcessorSessionIdFilteringTest', () => {

@@ -4,7 +4,7 @@
 import { context, SpanKind, trace } from '@opentelemetry/api';
 import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
 import { expect } from 'expect';
-import { GenAiNestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
+import { GenAINestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
 import {
   ATTR_GEN_AI_OPERATION_NAME,
   GEN_AI_OPERATION_NAME_VALUE_CHAT,
@@ -14,15 +14,17 @@ import {
   GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION,
 } from '../src/instrumentation/common/semconv';
 
-describe('TestGenAiNestedClientSpanProcessor', () => {
+describe('TestGenAINestedClientSpanProcessor', () => {
   let exporter: InMemorySpanExporter;
   let provider: NodeTracerProvider;
+  let processor: GenAINestedClientSpanProcessor;
   let tracer: ReturnType<NodeTracerProvider['getTracer']>;
 
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
+    processor = new GenAINestedClientSpanProcessor();
     provider = new NodeTracerProvider({
-      spanProcessors: [new GenAiNestedClientSpanProcessor(), new SimpleSpanProcessor(exporter)],
+      spanProcessors: [processor, new SimpleSpanProcessor(exporter)],
     });
     tracer = provider.getTracer('test');
   });
@@ -56,7 +58,7 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
     expect(parentSpan.kind).toBe(SpanKind.INTERNAL);
   });
 
-  it('should convert parent when HTTP child span exists', () => {
+  it('should keep parent CLIENT when HTTP child span exists', () => {
     const parent = makeLlmSpan();
     const ctx = trace.setSpan(context.active(), parent);
     const child = tracer.startSpan('POST', { kind: SpanKind.CLIENT }, ctx);
@@ -65,7 +67,7 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
 
     const spans = exporter.getFinishedSpans();
     const parentSpan = spans.find(s => s.name === 'chat model')!;
-    expect(parentSpan.kind).toBe(SpanKind.INTERNAL);
+    expect(parentSpan.kind).toBe(SpanKind.CLIENT);
   });
 
   it('should keep CLIENT when no child exists', () => {
@@ -113,6 +115,19 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
     expect(spans[1].kind).toBe(SpanKind.INTERNAL);
   });
 
+  it('should keep parent CLIENT when nested GenAI child has a different operation', () => {
+    const parent = makeLlmSpan();
+    const ctx = trace.setSpan(context.active(), parent);
+    const child = makeLlmSpan('embeddings model', GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS, SpanKind.CLIENT, ctx);
+    child.end();
+    parent.end();
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans[0].kind).toBe(SpanKind.CLIENT);
+    expect(spans[1].kind).toBe(SpanKind.CLIENT);
+    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(0);
+  });
+
   it('should not convert non-LLM operation', () => {
     const span = tracer.startSpan('invoke_agent MyAgent', { kind: SpanKind.CLIENT });
     span.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT);
@@ -120,6 +135,20 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
 
     const spans = exporter.getFinishedSpans();
     expect(spans[0].kind).toBe(SpanKind.CLIENT);
+  });
+
+  it('should keep a non-LLM parent CLIENT when it has a nested GenAI child', () => {
+    const parent = tracer.startSpan('invoke_agent MyAgent', { kind: SpanKind.CLIENT });
+    parent.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT);
+    const ctx = trace.setSpan(context.active(), parent);
+    const child = makeLlmSpan('chat model', GEN_AI_OPERATION_NAME_VALUE_CHAT, SpanKind.CLIENT, ctx);
+    child.end();
+    parent.end();
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans[0].kind).toBe(SpanKind.CLIENT);
+    expect(spans[1].kind).toBe(SpanKind.CLIENT);
+    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(0);
   });
 
   it('should not modify INTERNAL span', () => {
@@ -148,15 +177,15 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
   });
 
   it('should clear state on shutdown', async () => {
-    const processor = new GenAiNestedClientSpanProcessor();
-    (processor as any)._hasGenAiClientChild.set('123', true);
-    expect((processor as any)._hasGenAiClientChild.size).toBe(1);
+    const processor = new GenAINestedClientSpanProcessor();
+    (processor as any)._parentSpanIdAndOperationToGenAiClientChild.set(`123:${GEN_AI_OPERATION_NAME_VALUE_CHAT}`, true);
+    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(1);
     await processor.shutdown();
-    expect((processor as any)._hasGenAiClientChild.size).toBe(0);
+    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(0);
   });
 
   it('should return resolved promise from forceFlush', async () => {
-    const processor = new GenAiNestedClientSpanProcessor();
+    const processor = new GenAINestedClientSpanProcessor();
     await processor.forceFlush();
   });
 });

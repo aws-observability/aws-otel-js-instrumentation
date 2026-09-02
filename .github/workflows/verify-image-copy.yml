@@ -1,0 +1,62 @@
+## Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+## SPDX-License-Identifier: Apache-2.0
+#
+# TESTING-ONLY workflow -- NOT intended to be merged to main.
+# Lets you exercise the release-time image copy/artifact verification on a real CI runner
+# (ubuntu-latest, both architectures) without cutting a release. It runs the SAME script
+# release-build.yml runs as its gate, with no AWS credentials, no ECR, and no publishing.
+#
+# How to run: push this file on a branch -> it runs on push (and via the "Run workflow"
+# button once it's on a branch the Actions tab exposes). Delete before merging to main.
+name: Verify image copy (testing only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Expected distro version to assert (blank = skip version check; source is a -dev0 version)"
+        required: false
+        default: ""
+  push: {}
+
+permissions:
+  contents: read
+
+env:
+  TEST_TAG: adot-autoinstrumentation-node:test
+
+jobs:
+  verify-image-copy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
+
+      # QEMU lets the amd64 runner build and run the arm64 image under emulation.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 #3.6.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 #v3.11.1
+
+      # Build the release image locally (not pushed) for this architecture, exactly as
+      # release-build.yml does, then verify it.
+      - name: Build image for testing
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
+        with:
+          push: false
+          load: true
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          tags: ${{ env.TEST_TAG }}
+
+      - name: Verify image copy + ported distro
+        shell: bash
+        env:
+          DOCKER_DEFAULT_PLATFORM: ${{ matrix.platform }}
+        run: .github/scripts/test-adot-js-image.sh "${{ env.TEST_TAG }}" "${{ github.event.inputs.version }}"

@@ -404,8 +404,11 @@ export class VercelAISpanProcessor implements SpanProcessor {
       value;
     parts.push(...VercelAISpanProcessor._formatMessageParts(output));
 
-    const toolCalls = attrs['ai.response.toolCalls'] ?? attrs['ai.result.toolCalls'];
-    parts.push(...VercelAISpanProcessor.formatResponseToolCalls(toolCalls));
+    const rawToolCalls = attrs['ai.response.toolCalls'] ?? attrs['ai.result.toolCalls'];
+    const toolCalls = typeof rawToolCalls === 'string' ? tryParseJson(rawToolCalls) : rawToolCalls;
+    if (Array.isArray(toolCalls)) {
+      parts.push(...VercelAISpanProcessor._formatMessageParts(toolCalls));
+    }
     return serializeToJson([
       {
         role: 'assistant',
@@ -413,12 +416,6 @@ export class VercelAISpanProcessor implements SpanProcessor {
         finish_reason: finishReason,
       },
     ]);
-  }
-
-  private static formatResponseToolCalls(value: unknown): Array<Record<string, unknown>> {
-    const toolCalls = typeof value === 'string' ? tryParseJson(value) : value;
-    if (!Array.isArray(toolCalls)) return [];
-    return VercelAISpanProcessor._formatMessageParts(toolCalls);
   }
 
   private static getEmbeddingDimension(value: unknown): number | undefined {

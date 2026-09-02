@@ -17,12 +17,14 @@ import {
 describe('TestGenAiNestedClientSpanProcessor', () => {
   let exporter: InMemorySpanExporter;
   let provider: NodeTracerProvider;
+  let processor: GenAiNestedClientSpanProcessor;
   let tracer: ReturnType<NodeTracerProvider['getTracer']>;
 
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
+    processor = new GenAiNestedClientSpanProcessor();
     provider = new NodeTracerProvider({
-      spanProcessors: [new GenAiNestedClientSpanProcessor(), new SimpleSpanProcessor(exporter)],
+      spanProcessors: [processor, new SimpleSpanProcessor(exporter)],
     });
     tracer = provider.getTracer('test');
   });
@@ -56,7 +58,7 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
     expect(parentSpan.kind).toBe(SpanKind.INTERNAL);
   });
 
-  it('should convert parent when HTTP child span exists', () => {
+  it('should keep parent CLIENT when HTTP child span exists', () => {
     const parent = makeLlmSpan();
     const ctx = trace.setSpan(context.active(), parent);
     const child = tracer.startSpan('POST', { kind: SpanKind.CLIENT }, ctx);
@@ -65,7 +67,7 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
 
     const spans = exporter.getFinishedSpans();
     const parentSpan = spans.find(s => s.name === 'chat model')!;
-    expect(parentSpan.kind).toBe(SpanKind.INTERNAL);
+    expect(parentSpan.kind).toBe(SpanKind.CLIENT);
   });
 
   it('should keep CLIENT when no child exists', () => {
@@ -113,6 +115,19 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
     expect(spans[1].kind).toBe(SpanKind.INTERNAL);
   });
 
+  it('should keep parent CLIENT when nested GenAI child has a different operation', () => {
+    const parent = makeLlmSpan();
+    const ctx = trace.setSpan(context.active(), parent);
+    const child = makeLlmSpan('embeddings model', GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS, SpanKind.CLIENT, ctx);
+    child.end();
+    parent.end();
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans[0].kind).toBe(SpanKind.CLIENT);
+    expect(spans[1].kind).toBe(SpanKind.CLIENT);
+    expect((processor as any)._parentSpanIdToGenAiClientChildOperations.size).toBe(0);
+  });
+
   it('should not convert non-LLM operation', () => {
     const span = tracer.startSpan('invoke_agent MyAgent', { kind: SpanKind.CLIENT });
     span.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT);
@@ -120,6 +135,20 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
 
     const spans = exporter.getFinishedSpans();
     expect(spans[0].kind).toBe(SpanKind.CLIENT);
+  });
+
+  it('should keep a non-LLM parent CLIENT when it has a nested GenAI child', () => {
+    const parent = tracer.startSpan('invoke_agent MyAgent', { kind: SpanKind.CLIENT });
+    parent.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT);
+    const ctx = trace.setSpan(context.active(), parent);
+    const child = makeLlmSpan('chat model', GEN_AI_OPERATION_NAME_VALUE_CHAT, SpanKind.CLIENT, ctx);
+    child.end();
+    parent.end();
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans[0].kind).toBe(SpanKind.CLIENT);
+    expect(spans[1].kind).toBe(SpanKind.CLIENT);
+    expect((processor as any)._parentSpanIdToGenAiClientChildOperations.size).toBe(0);
   });
 
   it('should not modify INTERNAL span', () => {
@@ -149,10 +178,13 @@ describe('TestGenAiNestedClientSpanProcessor', () => {
 
   it('should clear state on shutdown', async () => {
     const processor = new GenAiNestedClientSpanProcessor();
-    (processor as any)._hasGenAiClientChild.set('123', true);
-    expect((processor as any)._hasGenAiClientChild.size).toBe(1);
+    (processor as any)._parentSpanIdToGenAiClientChildOperations.set(
+      '123',
+      new Set([GEN_AI_OPERATION_NAME_VALUE_CHAT])
+    );
+    expect((processor as any)._parentSpanIdToGenAiClientChildOperations.size).toBe(1);
     await processor.shutdown();
-    expect((processor as any)._hasGenAiClientChild.size).toBe(0);
+    expect((processor as any)._parentSpanIdToGenAiClientChildOperations.size).toBe(0);
   });
 
   it('should return resolved promise from forceFlush', async () => {

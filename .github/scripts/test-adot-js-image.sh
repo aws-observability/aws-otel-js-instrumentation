@@ -91,16 +91,19 @@ const payload = process.env.OTEL_PAYLOAD;
 const pkg = '@aws/aws-distro-opentelemetry-node-autoinstrumentation';
 
 // (a) the ADOT distro resolves, and does so FROM the operator volume (not some other install).
+
 const resolved = fs.realpathSync(require.resolve(pkg));
 if (!resolved.startsWith(fs.realpathSync(payload))) {
   throw new Error(`ADOT distro resolved from ${resolved}, not the operator volume ${payload}`);
 }
 
-// (b) the operator's real hook -- the `register` entry -- resolves from the ported payload.
+// (c) the operator's real hook -- the `register` entry -- resolves from the ported payload.
+
 require.resolve(pkg + '/register');
 
-// (c) the ported package reports the expected release version (proves the correctly-versioned
+// (b) the ported package reports the expected release version (proves the correctly-versioned
 //     source was built into the image).
+
 const pkgJsonPath = `${payload}/node_modules/@aws/aws-distro-opentelemetry-node-autoinstrumentation/package.json`;
 const version = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')).version;
 const expected = process.env.EXPECTED_VERSION || '';
@@ -110,6 +113,7 @@ if (expected && version !== expected) {
 
 // Reaching here also means the --require of autoinstrumentation.js executed without throwing,
 // i.e. the operator's exact preload path loads.
+
 console.log(`ported image verified: ${pkg}@${version} loaded from the operator volume; register entry resolved`);
 process.exit(0);
 JS

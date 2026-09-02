@@ -5,6 +5,7 @@ import { Context, SpanKind } from '@opentelemetry/api';
 import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import {
   ATTR_GEN_AI_AGENT_NAME,
+  ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT,
   ATTR_GEN_AI_INPUT_MESSAGES,
   ATTR_GEN_AI_OPERATION_NAME,
   ATTR_GEN_AI_OUTPUT_MESSAGES,
@@ -14,6 +15,7 @@ import {
   ATTR_GEN_AI_REQUEST_MAX_TOKENS,
   ATTR_GEN_AI_REQUEST_MODEL,
   ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY,
+  ATTR_GEN_AI_REQUEST_SEED,
   ATTR_GEN_AI_REQUEST_STOP_SEQUENCES,
   ATTR_GEN_AI_REQUEST_TEMPERATURE,
   ATTR_GEN_AI_REQUEST_TOP_K,
@@ -21,6 +23,7 @@ import {
   ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
   ATTR_GEN_AI_RESPONSE_ID,
   ATTR_GEN_AI_RESPONSE_MODEL,
+  ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK,
   ATTR_GEN_AI_TOOL_CALL_ARGUMENTS,
   ATTR_GEN_AI_TOOL_CALL_ID,
   ATTR_GEN_AI_TOOL_CALL_RESULT,
@@ -31,6 +34,7 @@ import {
   ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS,
   GEN_AI_OPERATION_NAME_VALUE_CHAT,
   GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS,
   GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL,
@@ -73,7 +77,10 @@ export class VercelAISpanProcessor implements SpanProcessor {
     { from: 'ai.usage.tokens', to: ATTR_GEN_AI_USAGE_INPUT_TOKENS },
     { from: 'ai.usage.outputTokens', to: ATTR_GEN_AI_USAGE_OUTPUT_TOKENS },
     { from: 'ai.usage.completionTokens', to: ATTR_GEN_AI_USAGE_OUTPUT_TOKENS },
+    { from: 'ai.usage.outputTokenDetails.reasoningTokens', to: ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS },
+    { from: 'ai.usage.reasoningTokens', to: ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS },
     { from: 'ai.usage.inputTokenDetails.cacheReadTokens', to: ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS },
+    { from: 'ai.usage.cachedInputTokens', to: ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS },
     { from: 'ai.usage.inputTokenDetails.cacheWriteTokens', to: ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS },
     {
       from: 'ai.response.finishReason',
@@ -87,6 +94,16 @@ export class VercelAISpanProcessor implements SpanProcessor {
     },
     { from: 'ai.response.id', to: ATTR_GEN_AI_RESPONSE_ID },
     { from: 'ai.response.model', to: ATTR_GEN_AI_RESPONSE_MODEL },
+    {
+      from: 'ai.response.msToFirstChunk',
+      to: ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK,
+      transform: (v: number) => v / 1000,
+    },
+    {
+      from: 'ai.stream.msToFirstChunk',
+      to: ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK,
+      transform: (v: number) => v / 1000,
+    },
     { from: 'ai.settings.maxTokens', to: ATTR_GEN_AI_REQUEST_MAX_TOKENS },
     { from: 'ai.settings.maxOutputTokens', to: ATTR_GEN_AI_REQUEST_MAX_TOKENS },
     { from: 'ai.settings.temperature', to: ATTR_GEN_AI_REQUEST_TEMPERATURE },
@@ -94,6 +111,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     { from: 'ai.settings.topK', to: ATTR_GEN_AI_REQUEST_TOP_K },
     { from: 'ai.settings.frequencyPenalty', to: ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY },
     { from: 'ai.settings.presencePenalty', to: ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY },
+    { from: 'ai.settings.seed', to: ATTR_GEN_AI_REQUEST_SEED },
     { from: 'ai.settings.stopSequences', to: ATTR_GEN_AI_REQUEST_STOP_SEQUENCES },
     {
       from: 'ai.prompt.messages',
@@ -124,6 +142,34 @@ export class VercelAISpanProcessor implements SpanProcessor {
       from: 'ai.result.object',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
       transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
+    },
+    {
+      from: 'ai.response.reasoning',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (_v: string, attrs: Record<string, unknown>) =>
+        VercelAISpanProcessor.formatOutputMessages(undefined, attrs),
+    },
+    {
+      from: 'ai.response.toolCalls',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (_v: string, attrs: Record<string, unknown>) =>
+        VercelAISpanProcessor.formatOutputMessages(undefined, attrs),
+    },
+    {
+      from: 'ai.result.toolCalls',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (_v: string, attrs: Record<string, unknown>) =>
+        VercelAISpanProcessor.formatOutputMessages(undefined, attrs),
+    },
+    {
+      from: 'ai.embedding',
+      to: ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT,
+      transform: (v: unknown) => VercelAISpanProcessor.getEmbeddingDimension(v),
+    },
+    {
+      from: 'ai.embeddings',
+      to: ATTR_GEN_AI_EMBEDDINGS_DIMENSION_COUNT,
+      transform: (v: unknown) => VercelAISpanProcessor.getEmbeddingDimension(v),
     },
     {
       from: 'ai.prompt.tools',
@@ -222,6 +268,14 @@ export class VercelAISpanProcessor implements SpanProcessor {
           mutableAttrs[mapping.to] = mapped;
         }
       }
+    }
+
+    // AI SDK also emits this OTel attribute directly, but with its own non-canonical
+    // values such as "tool-calls" and "content-filter". Always normalize it when
+    // the corresponding AI SDK attribute is available.
+    const rawFinishReason = attrs['ai.response.finishReason'] ?? attrs['ai.finishReason'];
+    if (typeof rawFinishReason === 'string') {
+      mutableAttrs[ATTR_GEN_AI_RESPONSE_FINISH_REASONS] = [VercelAISpanProcessor.mapFinishReason(rawFinishReason)];
     }
 
     if (operationId === 'ai.generateText' || operationId === 'ai.streamText') {
@@ -336,13 +390,43 @@ export class VercelAISpanProcessor implements SpanProcessor {
     const rawFinishReason = attrs['ai.response.finishReason'] ?? attrs['ai.finishReason'];
     const finishReason =
       typeof rawFinishReason === 'string' ? VercelAISpanProcessor.mapFinishReason(rawFinishReason) : 'stop';
+    const parts: Array<Record<string, unknown>> = [];
+    const reasoning = attrs['ai.response.reasoning'];
+    if (reasoning != null) {
+      parts.push(...VercelAISpanProcessor._formatMessageParts({ type: 'reasoning', text: reasoning }));
+    }
+
+    const output =
+      attrs['ai.response.text'] ??
+      attrs['ai.result.text'] ??
+      attrs['ai.response.object'] ??
+      attrs['ai.result.object'] ??
+      value;
+    parts.push(...VercelAISpanProcessor._formatMessageParts(output));
+
+    const toolCalls = attrs['ai.response.toolCalls'] ?? attrs['ai.result.toolCalls'];
+    parts.push(...VercelAISpanProcessor.formatResponseToolCalls(toolCalls));
     return serializeToJson([
       {
         role: 'assistant',
-        parts: VercelAISpanProcessor._formatMessageParts(value),
+        parts,
         finish_reason: finishReason,
       },
     ]);
+  }
+
+  private static formatResponseToolCalls(value: unknown): Array<Record<string, unknown>> {
+    const toolCalls = typeof value === 'string' ? tryParseJson(value) : value;
+    if (!Array.isArray(toolCalls)) return [];
+    return VercelAISpanProcessor._formatMessageParts(toolCalls);
+  }
+
+  private static getEmbeddingDimension(value: unknown): number | undefined {
+    const parsed = typeof value === 'string' ? tryParseJson(value) : value;
+    if (!Array.isArray(parsed)) return undefined;
+    if (parsed.every(item => typeof item === 'number')) return parsed.length;
+    const first = typeof parsed[0] === 'string' ? tryParseJson(parsed[0]) : parsed[0];
+    return Array.isArray(first) ? first.length : undefined;
   }
 
   private static _formatMessageParts(content: unknown): Array<Record<string, unknown>> {
@@ -350,8 +434,18 @@ export class VercelAISpanProcessor implements SpanProcessor {
     return blocks.flatMap(block => {
       if (!block || typeof block !== 'object') return contentToParts(block);
       const value = block as Record<string, unknown>;
-      if (value.type === 'tool-call' || value.type === 'tool_call') {
-        const args = value.args ?? value.arguments ?? {};
+      if (value.type === 'reasoning') {
+        return contentToParts({
+          type: 'reasoning',
+          reasoning: value.text ?? value.reasoning ?? value.thinking ?? value.content,
+        });
+      }
+      if (
+        value.type === 'tool-call' ||
+        value.type === 'tool_call' ||
+        (value.type == null && value.toolCallId != null && value.toolName != null)
+      ) {
+        const args = value.input ?? value.args ?? value.arguments ?? {};
         return [
           {
             type: 'tool_call',
@@ -441,7 +535,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
       case 'error':
         return 'error';
       case 'other':
-        return 'stop';
+        return 'other';
       case 'unknown':
         return 'unknown';
       default:

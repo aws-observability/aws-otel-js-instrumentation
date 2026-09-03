@@ -1,4 +1,4 @@
-# AWS Distro for OpenTelemetry Vercel AI SDK instrumentation
+# AWS Distro for OpenTelemetry Vercel AI SDK Instrumentation
 
 This instrumentation traces applications built with the Vercel AI SDK and emits
 telemetry that follows OpenTelemetry's Generative AI semantic conventions.

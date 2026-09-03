@@ -1,4 +1,4 @@
-# AWS Distro for OpenTelemetry OpenAI Agents instrumentation
+# AWS Distro for OpenTelemetry OpenAI Agents Instrumentation
 
 This instrumentation traces applications built with the OpenAI Agents SDK for
 JavaScript and emits telemetry that follows OpenTelemetry's Generative AI

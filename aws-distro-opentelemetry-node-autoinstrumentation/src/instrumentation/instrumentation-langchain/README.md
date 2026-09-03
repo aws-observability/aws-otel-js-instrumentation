@@ -1,4 +1,4 @@
-# AWS Distro for OpenTelemetry LangChain instrumentation
+# AWS Distro for OpenTelemetry LangChain Instrumentation
 
 This instrumentation traces applications built with LangChain.js and emits
 telemetry that follows OpenTelemetry's Generative AI semantic conventions.

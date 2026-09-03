@@ -189,7 +189,7 @@ jobs:
         shell: bash
         env:
           DOCKER_DEFAULT_PLATFORM: linux/amd64
-        run: .github/scripts/test-adot-js-image.sh "${{ env.TEST_TAG }}-amd64" "${{ env.VERSION }}"
+        run: .github/scripts/test-adot-js-image.sh "${{ env.TEST_TAG }}-amd64" "${{ env.VERSION }}" "aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}"
 
       - name: Build arm64 image for testing
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
@@ -205,7 +205,7 @@ jobs:
         shell: bash
         env:
           DOCKER_DEFAULT_PLATFORM: linux/arm64
-        run: .github/scripts/test-adot-js-image.sh "${{ env.TEST_TAG }}-arm64" "${{ env.VERSION }}"
+        run: .github/scripts/test-adot-js-image.sh "${{ env.TEST_TAG }}-arm64" "${{ env.VERSION }}" "aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}"
 
       - name: Build and push multi-arch image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
@@ -225,13 +225,13 @@ jobs:
         shell: bash
         env:
           DOCKER_DEFAULT_PLATFORM: linux/amd64
-        run: .github/scripts/test-adot-js-image.sh "${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}" "${{ env.VERSION }}"
+        run: .github/scripts/test-adot-js-image.sh "${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}" "${{ env.VERSION }}" "aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}"
 
       - name: Verify published arm64 image
         shell: bash
         env:
           DOCKER_DEFAULT_PLATFORM: linux/arm64
-        run: .github/scripts/test-adot-js-image.sh "${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}" "${{ env.VERSION }}"
+        run: .github/scripts/test-adot-js-image.sh "${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}" "${{ env.VERSION }}" "aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}"
 
       - name: Perform image scan
         uses: ./.github/actions/image_scan

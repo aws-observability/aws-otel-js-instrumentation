@@ -1,35 +1,48 @@
 #!/bin/bash
-# Post-build verification for the ADOT JS (Node) auto-instrumentation image.
-# This script:
-#   1. runs the image's own cp-utility to copy /autoinstrumentation into an operator volume,
-#   2. confirms the payload actually landed (the copy ran and is non-empty),
-#   3. loads the volume payload the way the operator does (node --require the entry script) and
-#      asserts the ADOT distro resolves FROM the volume, reports the expected release version,
-#      and its `register` entry (the operator's real hook) resolves -- i.e. the RIGHT, working
-#      artifact ported, and
-#   4. checks the copied tree is byte-for-byte identical to the payload baked into the image
-#      (diff -r + aggregate sha256).
+# Post-build verification for the ADOT JS (Node) auto-instrumentation image. Three complementary
+# checks, each catching what the others cannot:
+#   - Load: the operator-copied payload loads (node --require the entry), the package resolves from
+#     the volume, is the expected version, and its `register` hook resolves. Covers runtime + deps;
+#     always runs.
+#   - Copy fidelity: the only check of the cp-utility -- the volume copy is byte-for-byte identical
+#     to the image payload (diff -r).
+#   - Independent reference (optional): the image's library matches the separately-built npm
+#     tarball (like adot-java). Catches library corruption that still loads. Skipped if the tarball
+#     is absent; only a real mismatch fails.
 #
-# Steps 1-2 + 4 are copy fidelity (bytes moved intact); step 3 is the "ported correctly" check
-# a pure checksum can't give -- it proves the payload actually loads and self-identifies.
-#
-# Mirrors the Python image verifier (test-adot-python-image.sh); Tier 1 is identical, Tier 3 is
-# the Node equivalent of the Python distro/entry-point load check.
-#
-# Usage: test-adot-js-image.sh <TEST_TAG> [EXPECTED_VERSION]
+# Usage: test-adot-js-image.sh <TEST_TAG> [EXPECTED_VERSION] [TARBALL]
 #   TEST_TAG         image ref to test (a locally built, not-yet-pushed image)
 #   EXPECTED_VERSION optional; when set (release runs pass env.VERSION) the ported package's
 #                    version must match exactly. Omit for local runs against source.
+#   TARBALL          optional path to the release npm tarball (.tgz). When set, the image's library
+#                    build output is cross-checked against this independently-built artifact.
 
 set -x -e -u
 
 TEST_TAG=$1
 EXPECTED_VERSION="${2:-}"
+TARBALL="${3:-}"
 
-VOLUME=operator-volume
+PKG=@aws/aws-distro-opentelemetry-node-autoinstrumentation
+
+# Per-run unique names so a run killed before the trap fires (cancelled workflow, OOM) can't
+# leave a volume/containers behind for the next run to pick up -- which would make diff -r
+# compare a mixed tree.
+RUN_ID="$$-${RANDOM}"
+VOLUME="operator-volume-${RUN_ID}"
+VERIFY_CTR="adot-verify-${RUN_ID}"
+SRC_CTR="adot-src-${RUN_ID}"
 WORKDIR=$(mktemp -d)
 IMAGE_SRC="${WORKDIR}/image-src"
 VOLUME_COPY="${WORKDIR}/volume-copy"
+
+cleanup() {
+  docker rm -f "${VERIFY_CTR}" >/dev/null 2>&1 || true
+  docker rm -f "${SRC_CTR}" >/dev/null 2>&1 || true
+  docker volume rm "${VOLUME}" >/dev/null 2>&1 || true
+  rm -rf "${WORKDIR}"
+}
+trap cleanup EXIT
 
 # Link the neutral verifier image to the Node the payload was built with: read the Dockerfile's
 # build stage (the `... AS build` line) rather than hardcoding, so it can't drift. Fall back to
@@ -46,15 +59,12 @@ case "${NEUTRAL_IMAGE:-}" in
     ;;
 esac
 
-cleanup() {
-  docker rm -f adot-verify >/dev/null 2>&1 || true
-  docker rm -f adot-src >/dev/null 2>&1 || true
-  docker volume rm "${VOLUME}" >/dev/null 2>&1 || true
-  rm -rf "${WORKDIR}"
-}
-trap cleanup EXIT
-
 docker volume create "${VOLUME}"
+
+# Extract the image's baked-in payload up front (scratch image: create, don't run) -- used for
+# the copy-fidelity diff and the independent-reference check.
+docker create --name "${SRC_CTR}" "${TEST_TAG}" /bin/cp >/dev/null
+docker cp "${SRC_CTR}":/autoinstrumentation "${IMAGE_SRC}"
 
 # 1. Exercise the image's own cp-utility exactly as the operator init container does:
 #    recursively copy the baked-in /autoinstrumentation payload into the shared volume.
@@ -63,9 +73,9 @@ docker run --rm --mount source="${VOLUME}",dst=/otel-auto-instrumentation "${TES
 
 # 2. Assert the payload actually landed in the operator volume, using a neutral container
 #    (the ADOT image is FROM scratch and has no shell/coreutils).
-docker run -d --name adot-verify --mount source="${VOLUME}",dst=/otel-auto-instrumentation \
+docker run -d --name "${VERIFY_CTR}" --mount source="${VOLUME}",dst=/otel-auto-instrumentation \
   "${NEUTRAL_IMAGE}" sleep 300 >/dev/null
-docker cp adot-verify:/otel-auto-instrumentation "${VOLUME_COPY}"
+docker cp "${VERIFY_CTR}":/otel-auto-instrumentation "${VOLUME_COPY}"
 if [ -z "$(ls -A "${VOLUME_COPY}" 2>/dev/null)" ]; then
   echo "error: /autoinstrumentation was not copied into the operator-volume"
   exit 1
@@ -74,7 +84,7 @@ echo "autoinstrumentation payload was copied to the operator-volume"
 
 # 3. VERIFY THE PORTED IMAGE. Preload the payload's entry the way the OTel Operator does
 #    (node --require .../autoinstrumentation.js, which pulls in the SDK's /register hook), then
-#    assert the distro resolves from the volume, the version matches, and /register resolves.
+#    assert the package resolves from the volume, the version matches, and /register resolves.
 #    Exporters are disabled so preloading the SDK has no network side effects.
 # NOTE: -i is required so the heredoc on stdin is forwarded into the container's `node -`.
 docker run --rm -i \
@@ -90,20 +100,15 @@ const fs = require('fs');
 const payload = process.env.OTEL_PAYLOAD;
 const pkg = '@aws/aws-distro-opentelemetry-node-autoinstrumentation';
 
-// (a) the ADOT distro resolves, and does so FROM the operator volume (not some other install).
-
-const resolved = fs.realpathSync(require.resolve(pkg));
+// (a) the ADOT distro's `register` hook -- the operator's real entry -- resolves, and does so
+//     FROM the operator volume. The package exposes no bare main via its "exports" map, so we
+//     resolve the /register subpath the operator actually uses rather than the bare package.
+const resolved = fs.realpathSync(require.resolve(pkg + '/register'));
 if (!resolved.startsWith(fs.realpathSync(payload))) {
-  throw new Error(`ADOT distro resolved from ${resolved}, not the operator volume ${payload}`);
+  throw new Error(`ADOT distro register hook resolved from ${resolved}, not the operator volume ${payload}`);
 }
 
-// (c) the operator's real hook -- the `register` entry -- resolves from the ported payload.
-
-require.resolve(pkg + '/register');
-
-// (b) the ported package reports the expected release version (proves the correctly-versioned
-//     source was built into the image).
-
+// (b) the ported package reports the expected release version.
 const pkgJsonPath = `${payload}/node_modules/@aws/aws-distro-opentelemetry-node-autoinstrumentation/package.json`;
 const version = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')).version;
 const expected = process.env.EXPECTED_VERSION || '';
@@ -111,17 +116,13 @@ if (expected && version !== expected) {
   throw new Error(`ported distro version ${version} != expected ${expected}`);
 }
 
-// Reaching here also means the --require of autoinstrumentation.js executed without throwing,
-// i.e. the operator's exact preload path loads.
-
+// Reaching here also means the --require of autoinstrumentation.js executed without throwing.
 console.log(`ported image verified: ${pkg}@${version} loaded from the operator volume; register entry resolved`);
 process.exit(0);
 JS
 
-# 4. Copy fidelity: the copied tree must be byte-for-byte identical to the image payload.
-#    (scratch image: create -- but never start -- a container to copy the original out of.)
-docker create --name adot-src "${TEST_TAG}" /bin/cp >/dev/null
-docker cp adot-src:/autoinstrumentation "${IMAGE_SRC}"
+# 4. Copy fidelity: the copied tree must be byte-for-byte identical to the image payload
+#    (already extracted to ${IMAGE_SRC} up front).
 if diff -r "${IMAGE_SRC}" "${VOLUME_COPY}"; then
   echo "copied autoinstrumentation payload matched the image payload"
 else
@@ -129,11 +130,22 @@ else
   exit 1
 fi
 
-ORIG_CHECKSUM=$(cd "${IMAGE_SRC}" && find . -type f -exec sha256sum {} \; | LC_ALL=C sort | sha256sum | cut -d' ' -f1)
-COPY_CHECKSUM=$(cd "${VOLUME_COPY}" && find . -type f -exec sha256sum {} \; | LC_ALL=C sort | sha256sum | cut -d' ' -f1)
-if [ "${COPY_CHECKSUM}" = "${ORIG_CHECKSUM}" ]; then
-  echo "copied autoinstrumentation checksum matched (${COPY_CHECKSUM})"
-else
-  echo "error: copied autoinstrumentation checksum mis-matched (image=${ORIG_CHECKSUM} volume=${COPY_CHECKSUM})"
-  exit 1
+# 5. Independent-reference check (optional): diff the image's installed library build output against
+#    the separately-built npm tarball (npm pack -> package/build). Best-effort -- warn and SKIP if
+#    the tarball is missing/unreadable so reference acquisition never blocks a release; only a real
+#    content mismatch fails. Transitive deps have no independent artifact, so are not covered.
+if [ -n "${TARBALL}" ]; then
+  REF="${WORKDIR}/tar-ref"
+  mkdir -p "${REF}"
+  PKGDIR="${IMAGE_SRC}/node_modules/${PKG}"
+  if [ ! -f "${TARBALL}" ]; then
+    echo "warning: tarball reference '${TARBALL}' not found; skipping independent-reference check"
+  elif ! tar -xzf "${TARBALL}" -C "${REF}"; then
+    echo "warning: could not extract tarball reference '${TARBALL}'; skipping independent-reference check"
+  elif diff -r "${REF}/package/build" "${PKGDIR}/build"; then
+    echo "image library matched the independently-built tarball"
+  else
+    echo "error: image library differs from the independently-built tarball"
+    exit 1
+  fi
 fi

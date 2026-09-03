@@ -54,7 +54,7 @@ export class SnapshotOtlpEmitter {
       const exporter = new OTLPLogExporter({ url: this.logsEndpoint });
       this.loggerProvider = new LoggerProvider({
         resource: resourceFromAttributes(resourceAttrs),
-        processors: [new BatchLogRecordProcessor(exporter)],
+        processors: [new BatchLogRecordProcessor({ exporter })],
       });
       this.logger = this.loggerProvider.getLogger(INSTRUMENTATION_SCOPE, INSTRUMENTATION_VERSION);
 

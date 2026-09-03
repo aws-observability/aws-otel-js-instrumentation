@@ -517,11 +517,11 @@ export class AwsLoggerProcessorProvider {
 
     return exporters.map(exporter => {
       if (exporter instanceof ConsoleLogRecordExporter || exporter instanceof CompactConsoleLogRecordExporter) {
-        return new SimpleLogRecordProcessor(exporter);
+        return new SimpleLogRecordProcessor({ exporter });
       } else if (exporter instanceof OTLPAwsLogExporter && isAgentObservabilityEnabled()) {
         return new AwsCloudWatchOtlpBatchLogRecordProcessor(exporter);
       }
-      return new BatchLogRecordProcessor(exporter);
+      return new BatchLogRecordProcessor({ exporter });
     });
   }
 

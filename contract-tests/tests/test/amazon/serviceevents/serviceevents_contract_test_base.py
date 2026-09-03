@@ -193,20 +193,19 @@ class ServiceEventsTestInfrastructure(TestCase):
         for key, val in self.get_application_extra_environment_variables().items():
             self.application.with_env(key, val)
 
+        self.mock_collector_client = MockCollectorClient(
+            self.mock_collector.get_container_host_ip(),
+            self.mock_collector.get_exposed_port(_MOCK_COLLECTOR_PORT),
+        )
+        # Clear signals from the previous test before startup so this test retains its deployment
+        # event regardless of the log processor's batch export delay.
+        self.mock_collector_client.clear_signals()
         self.application.start()
         wait_for_logs(
             self.application,
             self.get_application_wait_pattern(),
             timeout=self.get_application_start_timeout(),
         )
-        self.mock_collector_client = MockCollectorClient(
-            self.mock_collector.get_container_host_ip(),
-            self.mock_collector.get_exposed_port(_MOCK_COLLECTOR_PORT),
-        )
-        # Clear startup signals so each test sees only the telemetry its requests
-        # generate. Matches the pattern used by aws-sdk_test.py etc.
-        time.sleep(2)
-        self.mock_collector_client.clear_signals()
 
     def tear_down(self) -> None:
         try:

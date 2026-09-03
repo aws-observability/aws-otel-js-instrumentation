@@ -12,7 +12,7 @@ Run your application with ADOT NodeJS with:
 node --require '@aws/aws-distro-opentelemetry-node-autoinstrumentation/register' your-application.js
 ```
 
-## Agent Observability
+## Generative AI
 
 Instrumentation is also available for the supported agent frameworks and SDKs
 listed below. These libraries complement the auto-instrumentation already

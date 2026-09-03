@@ -15,7 +15,6 @@ import {
   ATTR_GEN_AI_PROVIDER_NAME,
   ATTR_GEN_AI_REQUEST_MODEL,
   ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
-  ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK,
   ATTR_GEN_AI_REQUEST_TEMPERATURE,
   ATTR_GEN_AI_REQUEST_MAX_TOKENS,
   ATTR_GEN_AI_REQUEST_TOP_P,
@@ -79,7 +78,6 @@ const legacyCohereProvider = (require('@ai-sdk/cohere/package.json').version as 
 const expectToolDefinitions = process.env.VERCEL_AI_EXPECT_TOOL_DEFINITIONS !== 'false';
 
 it('uses the pinned OTel semantic convention names for mapped attributes', function () {
-  expect(ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK).toBe(otelGenAISemconv.ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK);
   expect(ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS).toBe(
     otelGenAISemconv.ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS
   );
@@ -244,14 +242,13 @@ describe('generateText basic chat spans', function () {
     expect(span.attributes[ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY]).toBe(0.3);
   });
 
-  it('maps seed, cache usage, reasoning usage, and response timing', function () {
+  it('maps seed, cache usage, and reasoning usage', function () {
     const attributes: Record<string, unknown> = {
       'ai.operationId': 'ai.generateText.doGenerate',
       'ai.settings.seed': 42,
       'ai.usage.cachedInputTokens': 7,
       'ai.usage.inputTokenDetails.cacheWriteTokens': 3,
       'ai.usage.outputTokenDetails.reasoningTokens': 4,
-      'ai.response.msToFirstChunk': 250,
     };
 
     new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
@@ -260,20 +257,8 @@ describe('generateText basic chat spans', function () {
     expect(attributes[ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS]).toBe(7);
     expect(attributes[ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS]).toBe(3);
     expect(attributes[ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS]).toBe(4);
-    expect(attributes[ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK]).toBe(0.25);
     expect(attributes['gen_ai.usage.cache_read_input_tokens']).toBeUndefined();
     expect(attributes['gen_ai.usage.cache_creation_input_tokens']).toBeUndefined();
-  });
-
-  it('maps stream time to first chunk from milliseconds to seconds', function () {
-    const attributes: Record<string, unknown> = {
-      'ai.operationId': 'ai.streamObject.doStream',
-      'ai.stream.msToFirstChunk': 125,
-    };
-
-    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
-
-    expect(attributes[ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK]).toBe(0.125);
   });
 
   it('maps legacy reasoning token usage', function () {

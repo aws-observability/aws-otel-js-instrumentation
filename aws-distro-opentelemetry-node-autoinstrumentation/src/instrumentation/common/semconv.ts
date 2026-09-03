@@ -28,7 +28,6 @@ export const ATTR_GEN_AI_REQUEST_TOP_P = 'gen_ai.request.top_p';
 export const ATTR_GEN_AI_RESPONSE_FINISH_REASONS = 'gen_ai.response.finish_reasons';
 export const ATTR_GEN_AI_RESPONSE_ID = 'gen_ai.response.id';
 export const ATTR_GEN_AI_RESPONSE_MODEL = 'gen_ai.response.model';
-export const ATTR_GEN_AI_RESPONSE_TIME_TO_FIRST_CHUNK = 'gen_ai.response.time_to_first_chunk';
 export const ATTR_GEN_AI_SYSTEM_INSTRUCTIONS = 'gen_ai.system_instructions';
 export const ATTR_GEN_AI_TOOL_CALL_ARGUMENTS = 'gen_ai.tool.call.arguments';
 export const ATTR_GEN_AI_TOOL_CALL_ID = 'gen_ai.tool.call.id';

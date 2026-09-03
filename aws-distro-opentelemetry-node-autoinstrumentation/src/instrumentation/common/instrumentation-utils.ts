@@ -69,8 +69,8 @@ export interface AttributeMapping {
   from: string;
   to?: string;
   transform?: (value: any, attrs: Record<string, any>) => any;
-  // Apply the mapping even when the destination attribute already exists.
-  override?: boolean;
+  // Apply the transformation even when the destination attribute already exists.
+  overrideDestinationIfExists?: boolean;
 }
 
 export function tryParseJson(value: string): unknown {

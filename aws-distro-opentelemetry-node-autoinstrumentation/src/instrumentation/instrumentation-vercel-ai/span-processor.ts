@@ -80,17 +80,20 @@ export class VercelAISpanProcessor implements SpanProcessor {
     { from: 'ai.usage.inputTokenDetails.cacheReadTokens', to: ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS },
     { from: 'ai.usage.cachedInputTokens', to: ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS },
     { from: 'ai.usage.inputTokenDetails.cacheWriteTokens', to: ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS },
+    // Some AI SDK versions emit both ai.* and gen_ai.* finish-reason attributes,
+    // but copy non-canonical values such as "tool-calls" into the gen_ai.* destination.
+    // Override that destination with the normalized value from the ai.* source.
     {
       from: 'ai.finishReason',
       to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
       transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
-      override: true,
+      overrideDestinationIfExists: true,
     },
     {
       from: 'ai.response.finishReason',
       to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
       transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
-      override: true,
+      overrideDestinationIfExists: true,
     },
     { from: 'ai.response.id', to: ATTR_GEN_AI_RESPONSE_ID },
     { from: 'ai.response.model', to: ATTR_GEN_AI_RESPONSE_MODEL },
@@ -243,7 +246,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
       if (!mapping.to) continue;
       const value = attrs[mapping.from];
       const destinationExists = Object.prototype.hasOwnProperty.call(mutableAttrs, mapping.to);
-      if (value != null && (mapping.override || !destinationExists)) {
+      if (value != null && (mapping.overrideDestinationIfExists || !destinationExists)) {
         const mapped = mapping.transform ? mapping.transform(value, mutableAttrs) : value;
         if (mapped != null) {
           mutableAttrs[mapping.to] = mapped;

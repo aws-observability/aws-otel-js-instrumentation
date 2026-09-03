@@ -36,7 +36,8 @@ to model calls, tool invocations, and downstream dependencies.
 - [Vercel AI SDK](aws-distro-opentelemetry-node-autoinstrumentation/src/instrumentation/instrumentation-vercel-ai/README.md) (`ai >=3.3.0 <7.0.0`)
 
 > [!NOTE]
-> Instrumentation is skipped when a conflicting third-party instrumentation is
+> When agent observability is enabled (`AGENT_OBSERVABILITY_ENABLED=true`),
+> instrumentation is skipped when a conflicting third-party instrumentation is
 > detected for the same framework. Set
 > `AWS_AGENTIC_INSTRUMENTATION_OPT_IN=true` to force the ADOT instrumentation to
 > load.

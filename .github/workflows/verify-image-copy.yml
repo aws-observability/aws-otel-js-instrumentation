@@ -59,4 +59,5 @@ jobs:
         shell: bash
         env:
           DOCKER_DEFAULT_PLATFORM: ${{ matrix.platform }}
-        run: .github/scripts/test-adot-js-image.sh "${{ env.TEST_TAG }}" "${{ github.event.inputs.version }}"
+          VERSION: ${{ github.event.inputs.version }}
+        run: .github/scripts/test-adot-js-image.sh "${{ env.TEST_TAG }}" "${{ env.VERSION }}"

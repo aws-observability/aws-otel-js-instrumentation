@@ -81,14 +81,16 @@ export class VercelAISpanProcessor implements SpanProcessor {
     { from: 'ai.usage.cachedInputTokens', to: ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS },
     { from: 'ai.usage.inputTokenDetails.cacheWriteTokens', to: ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS },
     {
-      from: 'ai.response.finishReason',
-      to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
-      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
-    },
-    {
       from: 'ai.finishReason',
       to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
       transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
+      override: true,
+    },
+    {
+      from: 'ai.response.finishReason',
+      to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
+      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
+      override: true,
     },
     { from: 'ai.response.id', to: ATTR_GEN_AI_RESPONSE_ID },
     { from: 'ai.response.model', to: ATTR_GEN_AI_RESPONSE_MODEL },
@@ -240,20 +242,13 @@ export class VercelAISpanProcessor implements SpanProcessor {
     for (const mapping of VercelAISpanProcessor.ATTRIBUTE_MAP) {
       if (!mapping.to) continue;
       const value = attrs[mapping.from];
-      if (value != null && !Object.prototype.hasOwnProperty.call(mutableAttrs, mapping.to)) {
+      const destinationExists = Object.prototype.hasOwnProperty.call(mutableAttrs, mapping.to);
+      if (value != null && (mapping.override || !destinationExists)) {
         const mapped = mapping.transform ? mapping.transform(value, mutableAttrs) : value;
         if (mapped != null) {
           mutableAttrs[mapping.to] = mapped;
         }
       }
-    }
-
-    // AI SDK also emits this OTel attribute directly, but with its own non-canonical
-    // values such as "tool-calls" and "content-filter". Always normalize it when
-    // the corresponding AI SDK attribute is available.
-    const rawFinishReason = attrs['ai.response.finishReason'] ?? attrs['ai.finishReason'];
-    if (typeof rawFinishReason === 'string') {
-      mutableAttrs[ATTR_GEN_AI_RESPONSE_FINISH_REASONS] = [VercelAISpanProcessor.mapFinishReason(rawFinishReason)];
     }
 
     if (operationId === 'ai.generateText' || operationId === 'ai.streamText') {

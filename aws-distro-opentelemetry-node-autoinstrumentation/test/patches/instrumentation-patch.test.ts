@@ -739,6 +739,7 @@ describe('InstrumentationPatchTest', () => {
       let mockedMiddlewareStack;
       let middlewareArgsHeader: any;
       const testXrayTraceHeader = 'test-xray-trace-header';
+      const traceContextEnvironmentKey = '_X_AMZN_TRACE_ID';
 
       beforeEach(async () => {
         // Clear environment variables before each test
@@ -767,7 +768,16 @@ describe('InstrumentationPatchTest', () => {
 
       afterEach(() => {
         sinon.restore();
+        delete process.env[traceContextEnvironmentKey];
       });
+
+      function stubPropagatorInjecting(traceHeader: string): void {
+        sinon
+          .stub(AWSXRayPropagator.prototype, 'inject')
+          .callsFake((context: OtelContext, carrier: unknown, setter: TextMapSetter) => {
+            (carrier as any)[AWSXRAY_TRACE_ID_HEADER] = traceHeader;
+          });
+      }
 
       it('Updates trace header casing when AWSXRayPropagator injects trace header successfully', async () => {
         sinon
@@ -784,6 +794,61 @@ describe('InstrumentationPatchTest', () => {
         expect(middlewareArgsHeader.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED]).toEqual(testXrayTraceHeader);
 
         expect(mockedMiddlewareStackInternal[0][1].name).toEqual('_adotInjectXrayContextMiddleware');
+      });
+
+      // The AWS SDK's own recursionDetectionMiddleware sits on the same `build` step at
+      // `low` priority - after this middleware, which defaults to `normal` - and only sets
+      // the header when it is absent. Replacing the header here means it never runs, so
+      // `Lineage` has to be carried over or Lambda's recursive loop detection silently
+      // stops counting the chain.
+      it('Carries Lineage from the invocation onto the injected trace header', async () => {
+        process.env[traceContextEnvironmentKey] =
+          'Root=1-11111111-111111111111111111111111;Sampled=0;Lineage=2:a87bd80c:1';
+        stubPropagatorInjecting(testXrayTraceHeader);
+
+        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsHeader);
+
+        expect(middlewareArgsHeader.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED]).toEqual(
+          `${testXrayTraceHeader};Lineage=2:a87bd80c:1`
+        );
+      });
+
+      it('Prefers a trace header already on the request over the invocation', async () => {
+        process.env[traceContextEnvironmentKey] = 'Root=1-11111111-111111111111111111111111;Lineage=9:ffffffff:9';
+        middlewareArgsHeader.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED] =
+          'Root=1-22222222-222222222222222222222222;Lineage=2:a87bd80c:1';
+        stubPropagatorInjecting(testXrayTraceHeader);
+
+        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsHeader);
+
+        expect(middlewareArgsHeader.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED]).toEqual(
+          `${testXrayTraceHeader};Lineage=2:a87bd80c:1`
+        );
+      });
+
+      it('Carries Self and unrecognised fields, and does not carry the replaced trace fields', async () => {
+        process.env[traceContextEnvironmentKey] =
+          'Root=1-11111111-111111111111111111111111;Parent=2222222222222222;Sampled=0;Self=1-67891233-12456789abcdef012345678;CalledFrom=app';
+        stubPropagatorInjecting(testXrayTraceHeader);
+
+        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsHeader);
+
+        expect(middlewareArgsHeader.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED]).toEqual(
+          `${testXrayTraceHeader};Self=1-67891233-12456789abcdef012345678;CalledFrom=app`
+        );
+        expect(middlewareArgsHeader.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED]).not.toContain(
+          'Root=1-11111111'
+        );
+      });
+
+      it('Leaves the injected trace header alone when there is nothing to carry', async () => {
+        process.env[traceContextEnvironmentKey] =
+          'Root=1-11111111-111111111111111111111111;Parent=2222222222222222;Sampled=0';
+        stubPropagatorInjecting(testXrayTraceHeader);
+
+        await mockedMiddlewareStackInternal[0][0]((arg: any) => Promise.resolve(), null)(middlewareArgsHeader);
+
+        expect(middlewareArgsHeader.request.headers[AWSXRAY_TRACE_ID_HEADER_CAPITALIZED]).toEqual(testXrayTraceHeader);
       });
 
       it('Does not set trace header when AWSXRayPropagator does not inject trace header', async () => {

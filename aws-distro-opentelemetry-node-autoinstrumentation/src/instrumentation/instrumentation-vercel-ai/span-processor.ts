@@ -55,10 +55,6 @@ import { LIB_VERSION } from '../../version';
 import { INSTRUMENTATION_NAME } from './instrumentation';
 import type { ModelMessage, Prompt } from 'ai';
 
-type VercelAIAttributeMapping = AttributeMapping & {
-  overwriteExisting?: boolean;
-};
-
 export class VercelAISpanProcessor implements SpanProcessor {
   // Span processor that translates VercelAI span attributes into OTel GenAI semantic conventions.
 
@@ -66,7 +62,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
   // We detect agents by tracking child spans: declared tools, tool use, or multiple LLM calls.
   private _spanIdToCounts: Map<string, { llmCalls: number; toolCalls: number; toolDefs: number }> = new Map();
 
-  private static readonly ATTRIBUTE_MAP: VercelAIAttributeMapping[] = [
+  private static readonly ATTRIBUTE_MAP: AttributeMapping[] = [
     {
       from: 'ai.model.provider',
       to: ATTR_GEN_AI_PROVIDER_NAME,
@@ -84,20 +80,15 @@ export class VercelAISpanProcessor implements SpanProcessor {
     { from: 'ai.usage.inputTokenDetails.cacheReadTokens', to: ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS },
     { from: 'ai.usage.cachedInputTokens', to: ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS },
     { from: 'ai.usage.inputTokenDetails.cacheWriteTokens', to: ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS },
-    // AI SDK may also emit the destination attribute directly with non-canonical
-    // values. Process the legacy source first so ai.response.finishReason wins
-    // when both source attributes are present.
-    {
-      from: 'ai.finishReason',
-      to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
-      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
-      overwriteExisting: true,
-    },
     {
       from: 'ai.response.finishReason',
       to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
       transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
-      overwriteExisting: true,
+    },
+    {
+      from: 'ai.finishReason',
+      to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
+      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
     },
     { from: 'ai.response.id', to: ATTR_GEN_AI_RESPONSE_ID },
     { from: 'ai.response.model', to: ATTR_GEN_AI_RESPONSE_MODEL },
@@ -249,15 +240,20 @@ export class VercelAISpanProcessor implements SpanProcessor {
     for (const mapping of VercelAISpanProcessor.ATTRIBUTE_MAP) {
       if (!mapping.to) continue;
       const value = attrs[mapping.from];
-      if (
-        value != null &&
-        (mapping.overwriteExisting || !Object.prototype.hasOwnProperty.call(mutableAttrs, mapping.to))
-      ) {
+      if (value != null && !Object.prototype.hasOwnProperty.call(mutableAttrs, mapping.to)) {
         const mapped = mapping.transform ? mapping.transform(value, mutableAttrs) : value;
         if (mapped != null) {
           mutableAttrs[mapping.to] = mapped;
         }
       }
+    }
+
+    // AI SDK also emits this OTel attribute directly, but with its own non-canonical
+    // values such as "tool-calls" and "content-filter". Always normalize it when
+    // the corresponding AI SDK attribute is available.
+    const rawFinishReason = attrs['ai.response.finishReason'] ?? attrs['ai.finishReason'];
+    if (typeof rawFinishReason === 'string') {
+      mutableAttrs[ATTR_GEN_AI_RESPONSE_FINISH_REASONS] = [VercelAISpanProcessor.mapFinishReason(rawFinishReason)];
     }
 
     if (operationId === 'ai.generateText' || operationId === 'ai.streamText') {

@@ -12,6 +12,24 @@ Run your application with ADOT NodeJS with:
 node --require '@aws/aws-distro-opentelemetry-node-autoinstrumentation/register' your-application.js
 ```
 
+## Agent Observability
+
+Instrumentation is also available for the supported agent frameworks and SDKs
+listed below. These libraries complement the auto-instrumentation already
+included with the distribution, providing comprehensive, end-to-end visibility
+into your agent applications, from incoming requests and framework orchestration
+to model calls, tool invocations, and downstream dependencies.
+
+- [LangChain](src/instrumentation/instrumentation-langchain/README.md) (`@langchain/core >=1.0.0 <2.0.0`)
+- [OpenAI Agents SDK](src/instrumentation/instrumentation-openai-agents/README.md) (`@openai/agents-core >=0.1.0`)
+- [Vercel AI SDK](src/instrumentation/instrumentation-vercel-ai/README.md) (`ai >=3.3.0 <7.0.0`)
+
+> [!NOTE]
+> Instrumentation is skipped when a conflicting third-party instrumentation is
+> detected for the same framework. Set
+> `AWS_AGENTIC_INSTRUMENTATION_OPT_IN=true` to force the ADOT instrumentation to
+> load.
+
 ## Sample Environment Variables for Application Signals
 
 ```shell

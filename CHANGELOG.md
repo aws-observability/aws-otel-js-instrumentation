@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix(vercel-ai): map missing AI SDK telemetry to OTel GenAI attributes and output messages
+  ([#543](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/543))
 - fix(agent-observability): only demote duplicate nested GenAI client spans
   ([#544](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/544))
 - fix(vercel-ai): honor disabled instrumentation settings when registering the span processor

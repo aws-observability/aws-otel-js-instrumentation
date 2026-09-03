@@ -506,7 +506,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
       case 'error':
         return 'error';
       case 'other':
-        return 'other';
+        return 'stop';
       case 'unknown':
         return 'unknown';
       default:

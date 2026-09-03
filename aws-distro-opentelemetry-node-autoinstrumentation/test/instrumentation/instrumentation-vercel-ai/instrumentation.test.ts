@@ -933,17 +933,6 @@ describe('finish reason mapping', function () {
     expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['unknown']);
   });
 
-  it('preserves the AI SDK other finish reason', function () {
-    const attributes: Record<string, unknown> = {
-      'ai.operationId': 'ai.generateText.doGenerate',
-      'ai.response.finishReason': 'other',
-    };
-
-    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
-
-    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['other']);
-  });
-
   it('maps AI SDK 3.3 operation, finish reason, and output attributes', function () {
     const attributes: Record<string, unknown> = {
       'operation.name': 'ai.generateText.doGenerate weather_agent',

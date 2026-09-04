@@ -27,9 +27,14 @@ to model calls, tool invocations, and downstream dependencies.
 > [!NOTE]
 > When agent observability is enabled (`AGENT_OBSERVABILITY_ENABLED=true`),
 > instrumentation is skipped when a conflicting third-party instrumentation is
-> detected for the same framework. Set
-> `AWS_AGENTIC_INSTRUMENTATION_OPT_IN=true` to force the ADOT instrumentation to
-> load.
+> detected for the same framework. You may add `aws_langchain`,
+> `aws_openai_agents`, and `aws_vercel_ai` to
+> `OTEL_NODE_DISABLED_INSTRUMENTATIONS` to disable all of the above
+> instrumentations if you are using another instrumentation source and automatic
+> detection does not work. If another third-party instrumentation is installed,
+> you may set `AWS_AGENTIC_INSTRUMENTATION_OPT_IN=true` to force the above
+> instrumentations to load. We recommend that you do not use this setting because
+> both instrumentations may run and produce duplicate or inconsistent telemetry.
 
 ## Sample Environment Variables for Application Signals
 

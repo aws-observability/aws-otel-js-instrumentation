@@ -17,6 +17,7 @@ env:
   RELEASE_PUBLIC_REPOSITORY: public.ecr.aws/aws-observability/adot-autoinstrumentation-node
   RELEASE_PRIVATE_REPOSITORY: 020628701572.dkr.ecr.us-west-2.amazonaws.com/adot-autoinstrumentation-node
   RELEASE_PRIVATE_REGISTRY: 020628701572.dkr.ecr.us-west-2.amazonaws.com
+  TEST_TAG: adot-autoinstrumentation-node:test
   PACKAGE_NAME: aws-distro-opentelemetry-node-autoinstrumentation
   ARTIFACT_NAME: aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz
   # Legacy list of commercial regions to deploy to. New regions should NOT be added here, and instead should be added to the `aws_region` default input to the workflow.
@@ -162,6 +163,50 @@ jobs:
         with:
           registry: public.ecr.aws
 
+      # QEMU lets this amd64 runner build and run the arm64 image so both released
+      # architectures are verified before publishing.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 #3.6.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 #v3.11.1
+
+      # Build each released architecture locally (not pushed) and run the post-build integrity +
+      # ported-distro verification against each, so a bad artifact never reaches ECR. amd64 runs
+      # natively; arm64 under QEMU. DOCKER_DEFAULT_PLATFORM makes the script target the arch under
+      # test (so the neutral verifier loads arch-matching native addons).
+      - name: Build amd64 image for testing
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
+        with:
+          push: false
+          load: true
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          tags: ${{ env.TEST_TAG }}-amd64
+
+      - name: Verify amd64 image
+        shell: bash
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/amd64
+        run: .github/scripts/test-adot-js-image.sh "${{ env.TEST_TAG }}-amd64" "${{ env.VERSION }}" "aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}"
+
+      - name: Build arm64 image for testing
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
+        with:
+          push: false
+          load: true
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          tags: ${{ env.TEST_TAG }}-arm64
+
+      - name: Verify arm64 image
+        shell: bash
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/arm64
+        run: .github/scripts/test-adot-js-image.sh "${{ env.TEST_TAG }}-arm64" "${{ env.VERSION }}" "aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}"
+
       - name: Build and push multi-arch image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
         with:
@@ -172,6 +217,29 @@ jobs:
           tags: |
             ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}
             ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}
+
+      # Re-run the verification against the ACTUAL published image (pulling each arch back from
+      # the registry), so we validate exactly the bits customers receive -- not just the local
+      # pre-push builds. A failure here still blocks the rest of the release via job deps.
+      - name: Verify published amd64 image
+        shell: bash
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/amd64
+        run: .github/scripts/test-adot-js-image.sh "${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}" "${{ env.VERSION }}" "aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}"
+
+      - name: Verify published arm64 image
+        shell: bash
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/arm64
+        run: .github/scripts/test-adot-js-image.sh "${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}" "${{ env.VERSION }}" "aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}"
+
+      - name: Perform image scan
+        uses: ./.github/actions/image_scan
+        with:
+          image-ref: ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
+          logout: 'false'
+          trivyignore-file: .github/trivy/daily-scan.trivyignore.yaml
 
       - name: Tag platform images in private ECR
         env:

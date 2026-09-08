@@ -1792,3 +1792,34 @@ describe('_handleError cleans up skipped chain entries', function () {
     expect(handler.runIdToSpanMap.has('skipped-run-id')).toBe(false);
   });
 });
+
+describe('callback handler load failure', function () {
+  it('falls through to the original call and does not retry the failed load', function () {
+    const instr = new LangChainInstrumentation();
+    instr.enable();
+
+    // The handler is built inside the try block using getConfig(), so throwing here stands in for a
+    // handler module that cannot be loaded at all, as happens when the distro is mounted outside the
+    // application's node_modules and its @langchain/core import fails to resolve.
+    let configCalls = 0;
+    (instr as any).getConfig = () => {
+      configCalls += 1;
+      throw new Error("Cannot find module '@langchain/core/callbacks/base'");
+    };
+
+    const originalResult = Symbol('original result');
+    const fakeCallbackManager: any = { _configureSync: () => originalResult };
+
+    instr._patchCallbackManager(fakeCallbackManager);
+
+    expect(fakeCallbackManager._configureSync([])).toBe(originalResult);
+    expect(instr._handler).toBeUndefined();
+    expect(instr._handlerLoadFailed).toBe(true);
+    expect(configCalls).toBe(1);
+
+    expect(fakeCallbackManager._configureSync([])).toBe(originalResult);
+    expect(configCalls).toBe(1);
+
+    instr.disable();
+  });
+});

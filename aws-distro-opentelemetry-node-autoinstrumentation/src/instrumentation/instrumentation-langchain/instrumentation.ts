@@ -28,6 +28,7 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
   _wrappedChatProtos: Set<any> = new Set();
   _wrappedToolProtos: Set<any> = new Set();
   _handler: any = undefined;
+  _handlerLoadFailed: boolean = false;
 
   constructor(config: LangChainInstrumentationConfig = {}) {
     super(INSTRUMENTATION_NAME, LIB_VERSION, config);
@@ -36,6 +37,7 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
   override setConfig(config: LangChainInstrumentationConfig = {}) {
     super.setConfig({ ...config, captureMessageContent: !!config.captureMessageContent });
     this._handler = undefined;
+    this._handlerLoadFailed = false;
   }
 
   override enable() {
@@ -110,15 +112,31 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
 
     this._wrap(CallbackManager, '_configureSync', (original: any) => {
       return function (this: any, ...args: any[]) {
-        if (!langChainInstrumentation._handler) {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const { OpenTelemetryCallbackHandler } = require('./callback-handler');
-          langChainInstrumentation._handler = new OpenTelemetryCallbackHandler(
-            langChainInstrumentation.tracer,
-            !!langChainInstrumentation.getConfig().captureMessageContent
-          );
-          langChainInstrumentation._diag.debug('Lazily loaded OTel callback handler');
+        if (!langChainInstrumentation._handler && !langChainInstrumentation._handlerLoadFailed) {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { OpenTelemetryCallbackHandler } = require('./callback-handler');
+            langChainInstrumentation._handler = new OpenTelemetryCallbackHandler(
+              langChainInstrumentation.tracer,
+              !!langChainInstrumentation.getConfig().captureMessageContent
+            );
+            langChainInstrumentation._diag.debug('Lazily loaded OTel callback handler');
+          } catch (error: unknown) {
+            // The handler imports @langchain/core directly, so it only resolves when the distro can
+            // reach the application's node_modules. Deployments that mount the distro elsewhere
+            // (for example the Kubernetes operator) throw here. Give up on tracing rather than
+            // propagating the failure into the caller's request.
+            langChainInstrumentation._handlerLoadFailed = true;
+            langChainInstrumentation._diag.warn(
+              `Failed to load the OTel callback handler; LangChain traces will not be emitted: ${error}`
+            );
+          }
         }
+
+        if (!langChainInstrumentation._handler) {
+          return original.apply(this, args);
+        }
+
         // OTel handler must be first so that span context is set before
         // other handlers that are registered are executed so that we can
         // propagate to downstream instrumentations.
@@ -138,6 +156,7 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     this._unwrap(CallbackManager, '_configureSync');
     this._patchedCallbackManagers.clear();
     this._handler = undefined;
+    this._handlerLoadFailed = false;
     this._diag.debug('Unpatched CallbackManager');
   }
 

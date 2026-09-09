@@ -92,6 +92,22 @@ jobs:
           name: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
           path: aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
 
+      # Verify the freshly pushed staging image the same way release-build does: pull each arch
+      # back and check the operator copies + loads the payload, the version matches, and the
+      # library matches the built tarball. Catches a broken image on merge to main, before release.
+      # amd64 runs natively; arm64 under QEMU (set up by artifacts_build's multi-arch build).
+      - name: Verify staging image (amd64)
+        shell: bash
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/amd64
+        run: .github/scripts/test-adot-js-image.sh "${{ steps.node_output.outputs.stagingImage }}" "${{ steps.node_output.outputs.ADOT_NODE_VERSION }}" "aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL }}"
+
+      - name: Verify staging image (arm64)
+        shell: bash
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/arm64
+        run: .github/scripts/test-adot-js-image.sh "${{ steps.node_output.outputs.stagingImage }}" "${{ steps.node_output.outputs.ADOT_NODE_VERSION }}" "aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL }}"
+
       - name: Build and Publish Lambda Staging Layer
         uses: ./.github/actions/lambda_artifacts_build
         with:

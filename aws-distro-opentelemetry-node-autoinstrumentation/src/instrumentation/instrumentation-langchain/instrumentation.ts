@@ -16,6 +16,7 @@ import {
   isInstrumentationDisabled,
   detectConflictingInstrumentation,
 } from '../../utils';
+import { tryWrap, tryUnwrap } from '../common/instrumentation-utils';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-langchain';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_langchain';
@@ -96,9 +97,28 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
             (m: any) => this._patchToolsModule(m),
             (m: any) => this._unpatchToolsModule(m)
           ),
+          // Not a patch: hands the callback handler the application's own message helpers, so that
+          // it never has to require('@langchain/core') from a path the distro cannot resolve.
+          ...moduleFiles(
+            '@langchain/core/dist/messages/index',
+            (m: any) => {
+              this._setLangChainMessagesModule(m);
+              return m;
+            },
+            (m: any) => {
+              this._setLangChainMessagesModule(undefined);
+              return m;
+            }
+          ),
         ]
       ),
     ];
+  }
+
+  // Lazy require, like the handler itself, to keep enable() cheap when LangChain is never used.
+  private _setLangChainMessagesModule(messagesModule: any): void {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('./callback-handler').setLangChainMessagesModule(messagesModule);
   }
 
   _patchCallbackManager(CallbackManager: any): void {
@@ -108,25 +128,37 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
 
     const langChainInstrumentation = this;
 
-    this._wrap(CallbackManager, '_configureSync', (original: any) => {
-      return function (this: any, ...args: any[]) {
-        if (!langChainInstrumentation._handler) {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const { OpenTelemetryCallbackHandler } = require('./callback-handler');
-          langChainInstrumentation._handler = new OpenTelemetryCallbackHandler(
-            langChainInstrumentation.tracer,
-            !!langChainInstrumentation.getConfig().captureMessageContent
-          );
-          langChainInstrumentation._diag.debug('Lazily loaded OTel callback handler');
-        }
-        // OTel handler must be first so that span context is set before
-        // other handlers that are registered are executed so that we can
-        // propagate to downstream instrumentations.
-        // see: https://github.com/aws-observability/aws-otel-python-instrumentation/blob/e729533/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/langchain/callback_handler.py#L78-L82
-        args[0] = LangChainInstrumentation._injectHandler(args[0], langChainInstrumentation._handler);
-        return original.apply(this, args);
-      };
-    });
+    const wrapped = tryWrap(
+      () =>
+        this._wrap(CallbackManager, '_configureSync', (original: any) => {
+          return function (this: any, ...args: any[]) {
+            try {
+              if (!langChainInstrumentation._handler) {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { OpenTelemetryCallbackHandler } = require('./callback-handler');
+                langChainInstrumentation._handler = new OpenTelemetryCallbackHandler(
+                  langChainInstrumentation.tracer,
+                  !!langChainInstrumentation.getConfig().captureMessageContent
+                );
+                langChainInstrumentation._diag.debug('Lazily loaded OTel callback handler');
+              }
+              // OTel handler must be first so that span context is set before
+              // other handlers that are registered are executed so that we can
+              // propagate to downstream instrumentations.
+              // see: https://github.com/aws-observability/aws-otel-python-instrumentation/blob/e729533/aws-opentelemetry-distro/src/amazon/opentelemetry/distro/instrumentation/langchain/callback_handler.py#L78-L82
+              args[0] = LangChainInstrumentation._injectHandler(args[0], langChainInstrumentation._handler);
+            } catch (error) {
+              langChainInstrumentation._diag.debug(
+                'Failed to inject OTel callback handler, continuing without LangChain instrumentation',
+                error
+              );
+            }
+            return original.apply(this, args);
+          };
+        }),
+      'CallbackManager._configureSync'
+    );
+    if (!wrapped) return;
 
     this._patchedCallbackManagers.add(CallbackManager);
     this._diag.debug('Patched CallbackManager._configureSync');
@@ -135,7 +167,7 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
   _unpatchCallbackManager(CallbackManager: any): void {
     if (!CallbackManager || !this._patchedCallbackManagers.has(CallbackManager)) return;
 
-    this._unwrap(CallbackManager, '_configureSync');
+    tryUnwrap(() => this._unwrap(CallbackManager, '_configureSync'), 'CallbackManager._configureSync');
     this._patchedCallbackManagers.clear();
     this._handler = undefined;
     this._diag.debug('Unpatched CallbackManager');
@@ -146,12 +178,17 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     if (!proto || this._patchedChatModelsProtos.has(proto)) return modExports;
 
     const langChainInstrumentation = this;
-    this._wrap(proto, '_generateUncached', (original: any) => {
-      return function (this: any, ...args: any[]) {
-        langChainInstrumentation._propagateContextOnChatProto(Object.getPrototypeOf(this));
-        return original.apply(this, args);
-      };
-    });
+    const wrapped = tryWrap(
+      () =>
+        this._wrap(proto, '_generateUncached', (original: any) => {
+          return function (this: any, ...args: any[]) {
+            langChainInstrumentation._propagateContextOnChatProto(Object.getPrototypeOf(this));
+            return original.apply(this, args);
+          };
+        }),
+      'BaseChatModel.prototype._generateUncached'
+    );
+    if (!wrapped) return modExports;
 
     this._patchedChatModelsProtos.add(proto);
     this._diag.debug('Patched BaseChatModel.prototype._generateUncached');
@@ -162,10 +199,17 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     const proto = modExports?.BaseChatModel?.prototype;
     if (!proto || !this._patchedChatModelsProtos.has(proto)) return modExports;
 
-    this._unwrap(proto, '_generateUncached');
+    tryUnwrap(() => this._unwrap(proto, '_generateUncached'), 'BaseChatModel.prototype._generateUncached');
     for (const p of this._wrappedChatProtos) {
-      if (typeof p._generate === 'function') this._unwrap(p, '_generate');
-      if (typeof p._streamResponseChunks === 'function') this._unwrap(p, '_streamResponseChunks');
+      if (typeof p._generate === 'function') {
+        tryUnwrap(() => this._unwrap(p, '_generate'), `${p.constructor?.name || 'chat model'}._generate`);
+      }
+      if (typeof p._streamResponseChunks === 'function') {
+        tryUnwrap(
+          () => this._unwrap(p, '_streamResponseChunks'),
+          `${p.constructor?.name || 'chat model'}._streamResponseChunks`
+        );
+      }
     }
     this._wrappedChatProtos.clear();
     this._patchedChatModelsProtos.clear();
@@ -178,12 +222,17 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     if (!proto || this._patchedToolsProtos.has(proto)) return modExports;
 
     const langChainInstrumentation = this;
-    this._wrap(proto, 'call', (original: any) => {
-      return function (this: any, ...args: any[]) {
-        langChainInstrumentation._propagateContextOnToolProto(Object.getPrototypeOf(this));
-        return original.apply(this, args);
-      };
-    });
+    const wrapped = tryWrap(
+      () =>
+        this._wrap(proto, 'call', (original: any) => {
+          return function (this: any, ...args: any[]) {
+            langChainInstrumentation._propagateContextOnToolProto(Object.getPrototypeOf(this));
+            return original.apply(this, args);
+          };
+        }),
+      'StructuredTool.prototype.call'
+    );
+    if (!wrapped) return modExports;
 
     this._patchedToolsProtos.add(proto);
     this._diag.debug('Patched StructuredTool.prototype.call');
@@ -194,9 +243,11 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
     const proto = modExports?.StructuredTool?.prototype;
     if (!proto || !this._patchedToolsProtos.has(proto)) return modExports;
 
-    this._unwrap(proto, 'call');
+    tryUnwrap(() => this._unwrap(proto, 'call'), 'StructuredTool.prototype.call');
     for (const p of this._wrappedToolProtos) {
-      if (typeof p._call === 'function') this._unwrap(p, '_call');
+      if (typeof p._call === 'function') {
+        tryUnwrap(() => this._unwrap(p, '_call'), `${p.constructor?.name || 'tool'}._call`);
+      }
     }
     this._wrappedToolProtos.clear();
     this._patchedToolsProtos.clear();
@@ -210,51 +261,69 @@ export class LangChainInstrumentation extends InstrumentationBase<LangChainInstr
   // see: _streamResponseChunks: https://github.com/langchain-ai/langchainjs/blob/0bf9d7e/libs/langchain-core/src/language_models/chat_models.ts#L145
   private _propagateContextOnChatProto(concreteProto: any): void {
     if (!concreteProto || this._wrappedChatProtos.has(concreteProto)) return;
-    this._wrappedChatProtos.add(concreteProto);
     const langChainInstrumentation = this;
+    let wrapped = false;
 
     if (typeof concreteProto._generate === 'function') {
-      this._wrap(concreteProto, '_generate', (original: any) => {
-        return function (this: any, ...genArgs: any[]) {
-          const spanCtx = langChainInstrumentation._handler?.runIdToSpanMap?.get(genArgs[2]?.runId)?.context;
-          if (spanCtx) return context.with(spanCtx, () => original.apply(this, genArgs));
-          return original.apply(this, genArgs);
-        };
-      });
+      wrapped =
+        tryWrap(
+          () =>
+            this._wrap(concreteProto, '_generate', (original: any) => {
+              return function (this: any, ...genArgs: any[]) {
+                const spanCtx = langChainInstrumentation._handler?.runIdToSpanMap?.get(genArgs[2]?.runId)?.context;
+                if (spanCtx) return context.with(spanCtx, () => original.apply(this, genArgs));
+                return original.apply(this, genArgs);
+              };
+            }),
+          `${concreteProto.constructor?.name || 'chat model'}._generate`
+        ) || wrapped;
     }
 
     if (typeof concreteProto._streamResponseChunks === 'function') {
-      this._wrap(concreteProto, '_streamResponseChunks', (original: any) => {
-        return function (this: any, ...streamArgs: any[]) {
-          const spanCtx = langChainInstrumentation._handler?.runIdToSpanMap?.get(streamArgs[2]?.runId)?.context;
-          if (!spanCtx) return original.apply(this, streamArgs);
-          const boundOriginal = context.bind(spanCtx, original.bind(this, ...streamArgs));
-          return boundOriginal();
-        };
-      });
+      wrapped =
+        tryWrap(
+          () =>
+            this._wrap(concreteProto, '_streamResponseChunks', (original: any) => {
+              return function (this: any, ...streamArgs: any[]) {
+                const spanCtx = langChainInstrumentation._handler?.runIdToSpanMap?.get(streamArgs[2]?.runId)?.context;
+                if (!spanCtx) return original.apply(this, streamArgs);
+                const boundOriginal = context.bind(spanCtx, original.bind(this, ...streamArgs));
+                return boundOriginal();
+              };
+            }),
+          `${concreteProto.constructor?.name || 'chat model'}._streamResponseChunks`
+        ) || wrapped;
     }
 
-    this._diag.debug(`Wrapped context propagation on ${concreteProto.constructor?.name || 'unknown'} prototype`);
+    if (wrapped) {
+      this._wrappedChatProtos.add(concreteProto);
+      this._diag.debug(`Wrapped context propagation on ${concreteProto.constructor?.name || 'unknown'} prototype`);
+    }
   }
 
   // for propagating context in tool calls
   // see: _call: https://github.com/langchain-ai/langchainjs/blob/0bf9d7e/libs/langchain-core/src/tools/index.ts#L163
   private _propagateContextOnToolProto(concreteProto: any): void {
     if (!concreteProto || this._wrappedToolProtos.has(concreteProto)) return;
-    this._wrappedToolProtos.add(concreteProto);
     const langChainInstrumentation = this;
 
-    if (typeof concreteProto._call === 'function') {
-      this._wrap(concreteProto, '_call', (original: any) => {
-        return function (this: any, ...callArgs: any[]) {
-          const spanCtx = langChainInstrumentation._handler?.runIdToSpanMap?.get(callArgs[1]?.runId)?.context;
-          if (spanCtx) return context.with(spanCtx, () => original.apply(this, callArgs));
-          return original.apply(this, callArgs);
-        };
-      });
+    if (
+      typeof concreteProto._call === 'function' &&
+      tryWrap(
+        () =>
+          this._wrap(concreteProto, '_call', (original: any) => {
+            return function (this: any, ...callArgs: any[]) {
+              const spanCtx = langChainInstrumentation._handler?.runIdToSpanMap?.get(callArgs[1]?.runId)?.context;
+              if (spanCtx) return context.with(spanCtx, () => original.apply(this, callArgs));
+              return original.apply(this, callArgs);
+            };
+          }),
+        `${concreteProto.constructor?.name || 'tool'}._call`
+      )
+    ) {
+      this._wrappedToolProtos.add(concreteProto);
+      this._diag.debug(`Wrapped context propagation on ${concreteProto.constructor?.name || 'unknown'} tool prototype`);
     }
-
-    this._diag.debug(`Wrapped context propagation on ${concreteProto.constructor?.name || 'unknown'} tool prototype`);
   }
 
   private static _injectHandler(handlersOrManager: unknown, handler: unknown): unknown {

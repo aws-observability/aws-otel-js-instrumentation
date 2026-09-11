@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { diag } from '@opentelemetry/api';
 import {
   GEN_AI_PROVIDER_NAME_VALUE_ANTHROPIC,
   GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,
@@ -16,6 +17,34 @@ import {
   GEN_AI_PROVIDER_NAME_VALUE_PERPLEXITY,
   GEN_AI_PROVIDER_NAME_VALUE_X_AI,
 } from './semconv';
+
+/**
+ * Installs an instrumentation wrapper without allowing a patching failure to interrupt
+ * application module loading. Returns whether the wrapper was installed successfully.
+ */
+export const tryWrap = (wrap: () => void, target: string): boolean => {
+  try {
+    wrap();
+    return true;
+  } catch (error) {
+    diag.debug(`Failed to wrap ${target}, instrumentation may be incomplete`, error);
+    return false;
+  }
+};
+
+/**
+ * Removes an instrumentation wrapper without allowing cleanup failures to propagate into
+ * the application. Returns whether the wrapper was removed successfully.
+ */
+export const tryUnwrap = (unwrap: () => void, target: string): boolean => {
+  try {
+    unwrap();
+    return true;
+  } catch (error) {
+    diag.debug(`Failed to unwrap ${target}`, error);
+    return false;
+  }
+};
 
 export const PROVIDER_MAP: Record<string, string> = {
   bedrock: GEN_AI_PROVIDER_NAME_VALUE_AWS_BEDROCK,

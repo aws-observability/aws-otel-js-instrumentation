@@ -13,6 +13,7 @@ import {
   isInstrumentationDisabled,
   detectConflictingInstrumentation,
 } from '../../utils';
+import { tryWrap, tryUnwrap } from '../common/instrumentation-utils';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-vercel-ai';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_vercel_ai';
@@ -105,14 +106,18 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
 
     for (const fnName of VercelAIInstrumentation.FUNCTIONS_TO_PATCH) {
       if (typeof exports[fnName] === 'function') {
-        this._wrap(exports, fnName, (original: any) => {
-          const instrumentation = this;
-          return function (this: any, options: any) {
-            options = instrumentation._autoInjectTelemetryEnabled(options);
-            return original.call(this, options);
-          };
-        });
-        this._diag.debug(`Patched ai.${fnName}`);
+        const wrapped = tryWrap(
+          () =>
+            this._wrap(exports, fnName, (original: any) => {
+              const instrumentation = this;
+              return function (this: any, options: any) {
+                options = instrumentation._autoInjectTelemetryEnabled(options);
+                return original.call(this, options);
+              };
+            }),
+          `ai.${fnName}`
+        );
+        if (wrapped) this._diag.debug(`Patched ai.${fnName}`);
       }
     }
 
@@ -124,7 +129,7 @@ export class VercelAIInstrumentation extends InstrumentationBase<VercelAIInstrum
     if (this._patchedExports) {
       for (const fnName of VercelAIInstrumentation.FUNCTIONS_TO_PATCH) {
         if (typeof this._patchedExports[fnName] === 'function') {
-          this._unwrap(this._patchedExports, fnName);
+          tryUnwrap(() => this._unwrap(this._patchedExports, fnName), `ai.${fnName}`);
         }
       }
       this._patchedExports = undefined;

@@ -68,6 +68,9 @@ import { createCohere } from '@ai-sdk/cohere';
 import { createXai } from '@ai-sdk/xai';
 import { HttpResponse } from '@smithy/protocol-http';
 import { z } from 'zod';
+import { spawnSync } from 'child_process';
+import * as assert from 'assert';
+import * as path from 'path';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const otelGenAISemconv = require('@opentelemetry/semantic-conventions/incubating');
@@ -181,6 +184,107 @@ function createVercelSpan(
 
 before(() => {
   ensureSpanProcessor();
+});
+
+describe('wrapper failure resilience', function () {
+  this.timeout(60000);
+
+  it('keeps Vercel AI application and agent calls responsive when wrapping or unwrapping fails', function () {
+    const packageRoot = path.resolve(__dirname, '..', '..', '..');
+    const tsNodeRegister = require.resolve('ts-node/register/transpile-only');
+    const supportsAgent = typeof (ai as any).ToolLoopAgent === 'function';
+    const script = `
+const mode = process.argv[1];
+const { VercelAIInstrumentation } = require(${JSON.stringify(
+      path.join(packageRoot, 'src', 'instrumentation', 'instrumentation-vercel-ai', 'instrumentation.ts')
+    )});
+const ai = require('ai');
+const { createOpenAI } = require('@ai-sdk/openai');
+const fixtures = require(${JSON.stringify(path.join(packageRoot, 'test', 'instrumentation', 'test-fixtures.ts'))});
+
+(async () => {
+  const instrumentation = new VercelAIInstrumentation();
+  let forcedFailures = 0;
+  const fail = () => {
+    forcedFailures++;
+    throw new Error('forced ' + mode + ' failure');
+  };
+  let applicationApi;
+
+  if (mode === 'wrap') {
+    instrumentation._wrap = fail;
+    applicationApi = instrumentation._enableTelemetryByDefaultWrapper(ai);
+  } else {
+    applicationApi = instrumentation._enableTelemetryByDefaultWrapper(ai);
+    instrumentation._unwrap = fail;
+    instrumentation._enableTelemetryByDefaultUnwrap();
+  }
+
+  if (forcedFailures === 0) throw new Error('the test did not force a wrapper failure');
+
+  const providerCase = fixtures
+    .getProviderCases()
+    .find(provider => provider.name === fixtures.ProviderName.OPENAI);
+  const provider = createOpenAI({
+    apiKey: fixtures.FAKE_OPENAI_KEY,
+    fetch: fixtures.mockFetchJson(providerCase.chatResponse),
+  });
+  const model = providerCase.useChat
+    ? provider.chat(providerCase.expectedModel)
+    : provider(providerCase.expectedModel);
+
+  const directResult = await applicationApi.generateText({
+    model,
+    prompt: 'What is the capital of France?',
+  });
+  process.stdout.write('__DIRECT__' + directResult.text);
+
+  if (typeof applicationApi.ToolLoopAgent === 'function') {
+    const agent = new applicationApi.ToolLoopAgent({
+      model,
+      instructions: 'Respond directly.',
+    });
+    const agentResult = await agent.generate({ prompt: 'What is the capital of France?' });
+    process.stdout.write('__AGENT__' + agentResult.text);
+  } else {
+    process.stdout.write('__AGENT__unsupported');
+  }
+})().catch(error => {
+  process.stderr.write('APP_ERROR ' + ((error && error.stack) || String(error)) + '\\n');
+  process.exit(1);
+});
+`;
+
+    for (const mode of ['wrap', 'unwrap']) {
+      const result = spawnSync(process.execPath, ['--require', tsNodeRegister, '-e', script, mode], {
+        cwd: packageRoot,
+        timeout: 60000,
+        killSignal: 'SIGKILL',
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TS_NODE_PROJECT: path.join(packageRoot, 'tsconfig.json'),
+          TS_NODE_TRANSPILE_ONLY: 'true',
+          OTEL_NODE_RESOURCE_DETECTORS: 'none',
+          OTEL_TRACES_EXPORTER: 'none',
+          OTEL_METRICS_EXPORTER: 'none',
+          OTEL_LOGS_EXPORTER: 'none',
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'false',
+        },
+      });
+
+      assert.ifError(result.error);
+      assert.strictEqual(
+        result.status,
+        0,
+        `Vercel AI ${mode} failure exited ${result.status}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`
+      );
+      expect(result.stdout).toContain('__DIRECT__Paris is the capital of France.');
+      expect(result.stdout).toContain(
+        supportsAgent ? '__AGENT__Paris is the capital of France.' : '__AGENT__unsupported'
+      );
+    }
+  });
 });
 
 describe('generateText basic chat spans', function () {

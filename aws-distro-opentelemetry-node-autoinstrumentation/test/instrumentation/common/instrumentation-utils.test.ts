@@ -7,7 +7,27 @@ import {
   resolveProviderName,
   serializeToJson,
   toToolAttributeValue,
+  tryUnwrap,
+  tryWrap,
 } from '../../../src/instrumentation/common/instrumentation-utils';
+
+describe('wrapper helpers', function () {
+  it('fails open when wrapping or unwrapping throws', function () {
+    expect(tryWrap(() => {}, 'test.method')).toBeTruthy();
+    expect(
+      tryWrap(() => {
+        throw new Error('wrap failed');
+      }, 'test.method')
+    ).toBeFalsy();
+
+    expect(tryUnwrap(() => {}, 'test.method')).toBeTruthy();
+    expect(
+      tryUnwrap(() => {
+        throw new Error('unwrap failed');
+      }, 'test.method')
+    ).toBeFalsy();
+  });
+});
 
 describe('resolveProviderName', function () {
   it('resolves exact and compound provider names', function () {

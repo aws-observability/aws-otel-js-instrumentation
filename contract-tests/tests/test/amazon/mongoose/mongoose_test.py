@@ -48,7 +48,7 @@ class MongooseTest(DatabaseContractTestBase):
     @override
     @staticmethod
     def get_remote_service() -> str:
-        return "mongoose"
+        return "mongodb"
 
     @override
     @staticmethod
@@ -61,16 +61,16 @@ class MongooseTest(DatabaseContractTestBase):
         return "aws-application-signals-tests-mongoose-app"
 
     def test_find_document_succeeds(self) -> None:
-        self.assert_find_document_succeeds(local_operation='GET /find', span_name='mongoose.Employee.find', db_operation='find')
+        self.assert_find_document_succeeds(local_operation='GET /find', span_name='find employees', db_operation='find')
 
     def test_delete_document_succeeds(self) -> None:
-        self.assert_delete_document_succeeds(local_operation='GET /delete_document', span_name='mongoose.Employee.deleteOne', db_operation='deleteOne')
+        self.assert_delete_document_succeeds(local_operation='GET /delete_document', span_name='deleteOne employees', db_operation='deleteOne')
 
     def test_insert_document_succeeds(self) -> None:
-        self.assert_insert_document_succeeds(local_operation='GET /insert_document', span_name='mongoose.Employee.save', db_operation='save')
+        self.assert_insert_document_succeeds(local_operation='GET /insert_document', span_name='save employees', db_operation='save')
 
     def test_update_document_succeeds(self) -> None:
-        self.assert_update_document_succeeds(local_operation='GET /update_document', span_name='mongoose.Employee.findOneAndUpdate', db_operation='findOneAndUpdate')
+        self.assert_update_document_succeeds(local_operation='GET /update_document', span_name='findOneAndUpdate employees', db_operation='findOneAndUpdate')
     
 
     @override
@@ -91,13 +91,18 @@ class MongooseTest(DatabaseContractTestBase):
     @override
     def _assert_semantic_conventions_attributes(self, attributes_list: List[KeyValue], **kwargs) -> None:
         attributes_dict: Dict[str, AnyValue] = self._get_attributes_dict(attributes_list)
-        self._assert_str_attribute(attributes_dict, "db.mongodb.collection", "employees")
-        self._assert_str_attribute(attributes_dict, "db.system", self.get_remote_service())
-        self._assert_str_attribute(attributes_dict, "db.name", "testdb")
-        self._assert_str_attribute(attributes_dict, "net.peer.name", "mydb")
-        self._assert_int_attribute(attributes_dict, "net.peer.port", self.get_database_port())
-        self._assert_str_attribute(attributes_dict, "db.operation", kwargs.get("db_operation"))
-        self.assertTrue("db.statement" not in attributes_dict)
+        self._assert_str_attribute(attributes_dict, "db.collection.name", "employees")
+        self._assert_str_attribute(attributes_dict, "db.system.name", self.get_remote_service())
+        self._assert_str_attribute(attributes_dict, "db.namespace", "testdb")
+        self._assert_str_attribute(attributes_dict, "server.address", "mydb")
+        self._assert_int_attribute(attributes_dict, "server.port", self.get_database_port())
+        self._assert_str_attribute(attributes_dict, "db.operation.name", kwargs.get("db_operation"))
+        self.assertTrue("db.query.text" not in attributes_dict)
         self.assertTrue("db.user" not in attributes_dict)
-        self.assertTrue("server.address" not in attributes_dict)
-        self.assertTrue("server.port" not in attributes_dict)
+        self.assertTrue("db.mongodb.collection" not in attributes_dict)
+        self.assertTrue("db.system" not in attributes_dict)
+        self.assertTrue("db.name" not in attributes_dict)
+        self.assertTrue("net.peer.name" not in attributes_dict)
+        self.assertTrue("net.peer.port" not in attributes_dict)
+        self.assertTrue("db.operation" not in attributes_dict)
+        self.assertTrue("db.statement" not in attributes_dict)

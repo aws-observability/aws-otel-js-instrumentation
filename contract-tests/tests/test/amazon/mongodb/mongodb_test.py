@@ -61,22 +61,22 @@ class MongodbTest(DatabaseContractTestBase):
         return "aws-application-signals-tests-mongodb-app"
 
     def test_find_document_succeeds(self) -> None:
-        self.assert_find_document_succeeds(local_operation='GET /find', span_name='mongodb.find', db_operation='find', db_statement='statement')
+        self.assert_find_document_succeeds(local_operation='GET /find', span_name='find employees', db_operation='find', db_statement='statement')
 
     def test_delete_document_succeeds(self) -> None:
-        self.assert_delete_document_succeeds(local_operation='GET /delete_document', span_name='mongodb.delete', db_operation='delete')
+        self.assert_delete_document_succeeds(local_operation='GET /delete_document', span_name='delete employees', db_operation='delete')
 
     def test_insert_document_succeeds(self) -> None:
-        self.assert_insert_document_succeeds(local_operation='GET /insert_document', span_name='mongodb.insert', db_operation='insert')
+        self.assert_insert_document_succeeds(local_operation='GET /insert_document', span_name='insert employees', db_operation='insert')
 
     def test_update_document_succeeds(self) -> None:
-        # We don't know why "db.mongodb.collection" is set to "$cmd". It's probably a bug in upstream.
-        self.assert_update_document_succeeds(local_operation='GET /update_document', span_name='mongodb.findAndModify', db_operation='findAndModify', mongodb_collection='$cmd')
+        # We don't know why "db.collection.name" is set to "$cmd". It's probably a bug in upstream.
+        self.assert_update_document_succeeds(local_operation='GET /update_document', span_name='findAndModify $cmd', db_operation='findAndModify', mongodb_collection='$cmd')
 
     
     def test_fault(self) -> None:
-        # We don't know why "db.mongodb.collection" is set to "$cmd". It's probably a bug in upstream.
-        self.assert_fault_non_sql(local_operation='GET /fault', span_name='mongodb.invalidCommand', db_operation='invalidCommand', mongodb_collection='$cmd')
+        # We don't know why "db.collection.name" is set to "$cmd". It's probably a bug in upstream.
+        self.assert_fault_non_sql(local_operation='GET /fault', span_name='invalidCommand $cmd', db_operation='invalidCommand', mongodb_collection='$cmd')
 
     @override
     def _assert_aws_attributes(
@@ -98,15 +98,19 @@ class MongodbTest(DatabaseContractTestBase):
     @override
     def _assert_semantic_conventions_attributes(self, attributes_list: List[KeyValue], **kwargs) -> None:
         attributes_dict: Dict[str, AnyValue] = self._get_attributes_dict(attributes_list)
-        self._assert_str_attribute(attributes_dict, "db.mongodb.collection", kwargs.get("mongodb_collection") or "employees")
-        self._assert_str_attribute(attributes_dict, "db.system", self.get_remote_service())
-        self._assert_str_attribute(attributes_dict, "db.name", "testdb")
-        # the net.peer.name is currently set to be an ip address like '192.168.208.3'
-        # self._assert_str_attribute(attributes_dict, "net.peer.name", "mydb")
-        self.assertTrue("net.peer.name" in attributes_dict) #just checking the existence
-        self._assert_int_attribute(attributes_dict, "net.peer.port", self.get_database_port())
-        self._assert_str_attribute(attributes_dict, "db.operation", kwargs.get("db_operation"))
-        self.assertTrue("db.statement" in attributes_dict) #just checking the existence
+        self._assert_str_attribute(attributes_dict, "db.collection.name", kwargs.get("mongodb_collection") or "employees")
+        self._assert_str_attribute(attributes_dict, "db.system.name", self.get_remote_service())
+        self._assert_str_attribute(attributes_dict, "db.namespace", "testdb")
+        # server.address is currently an IP address rather than the configured hostname.
+        self.assertTrue("server.address" in attributes_dict)
+        self._assert_int_attribute(attributes_dict, "server.port", self.get_database_port())
+        self._assert_str_attribute(attributes_dict, "db.operation.name", kwargs.get("db_operation"))
+        self.assertTrue("db.query.text" in attributes_dict)
         self.assertTrue("db.user" not in attributes_dict)
-        self.assertTrue("server.address" not in attributes_dict)
-        self.assertTrue("server.port" not in attributes_dict)
+        self.assertTrue("db.mongodb.collection" not in attributes_dict)
+        self.assertTrue("db.system" not in attributes_dict)
+        self.assertTrue("db.name" not in attributes_dict)
+        self.assertTrue("net.peer.name" not in attributes_dict)
+        self.assertTrue("net.peer.port" not in attributes_dict)
+        self.assertTrue("db.operation" not in attributes_dict)
+        self.assertTrue("db.statement" not in attributes_dict)

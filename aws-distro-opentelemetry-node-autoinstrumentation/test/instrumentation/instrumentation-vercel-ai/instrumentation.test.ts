@@ -20,8 +20,12 @@ import {
   ATTR_GEN_AI_REQUEST_TOP_P,
   ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY,
   ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY,
+  ATTR_GEN_AI_REQUEST_SEED,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS,
   ATTR_GEN_AI_INPUT_MESSAGES,
   ATTR_GEN_AI_OUTPUT_MESSAGES,
   ATTR_GEN_AI_TOOL_NAME,
@@ -64,12 +68,25 @@ import { createCohere } from '@ai-sdk/cohere';
 import { createXai } from '@ai-sdk/xai';
 import { HttpResponse } from '@smithy/protocol-http';
 import { z } from 'zod';
+import { spawnSync } from 'child_process';
+import * as assert from 'assert';
+import * as path from 'path';
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const otelGenAISemconv = require('@opentelemetry/semantic-conventions/incubating');
 const providerCases = getProviderCases();
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const legacyCohereProvider = (require('@ai-sdk/cohere/package.json').version as string).startsWith('0.');
 // The dependency matrix sets this to false when the installed AI SDK does not emit ai.prompt.tools.
 const expectToolDefinitions = process.env.VERCEL_AI_EXPECT_TOOL_DEFINITIONS !== 'false';
+
+it('uses the pinned OTel semantic convention names for mapped attributes', function () {
+  expect(ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS).toBe(
+    otelGenAISemconv.ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS
+  );
+  expect(ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS).toBe(otelGenAISemconv.ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS);
+  expect(ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS).toBe(otelGenAISemconv.ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS);
+});
 
 function stepLimit(steps: number) {
   if ('stepCountIs' in ai && typeof ai.stepCountIs === 'function') {
@@ -169,6 +186,107 @@ before(() => {
   ensureSpanProcessor();
 });
 
+describe('wrapper failure resilience', function () {
+  this.timeout(60000);
+
+  it('keeps Vercel AI application and agent calls responsive when wrapping or unwrapping fails', function () {
+    const packageRoot = path.resolve(__dirname, '..', '..', '..');
+    const tsNodeRegister = require.resolve('ts-node/register/transpile-only');
+    const supportsAgent = typeof (ai as any).ToolLoopAgent === 'function';
+    const script = `
+const mode = process.argv[1];
+const { VercelAIInstrumentation } = require(${JSON.stringify(
+      path.join(packageRoot, 'src', 'instrumentation', 'instrumentation-vercel-ai', 'instrumentation.ts')
+    )});
+const ai = require('ai');
+const { createOpenAI } = require('@ai-sdk/openai');
+const fixtures = require(${JSON.stringify(path.join(packageRoot, 'test', 'instrumentation', 'test-fixtures.ts'))});
+
+(async () => {
+  const instrumentation = new VercelAIInstrumentation();
+  let forcedFailures = 0;
+  const fail = () => {
+    forcedFailures++;
+    throw new Error('forced ' + mode + ' failure');
+  };
+  let applicationApi;
+
+  if (mode === 'wrap') {
+    instrumentation._wrap = fail;
+    applicationApi = instrumentation._enableTelemetryByDefaultWrapper(ai);
+  } else {
+    applicationApi = instrumentation._enableTelemetryByDefaultWrapper(ai);
+    instrumentation._unwrap = fail;
+    instrumentation._enableTelemetryByDefaultUnwrap();
+  }
+
+  if (forcedFailures === 0) throw new Error('the test did not force a wrapper failure');
+
+  const providerCase = fixtures
+    .getProviderCases()
+    .find(provider => provider.name === fixtures.ProviderName.OPENAI);
+  const provider = createOpenAI({
+    apiKey: fixtures.FAKE_OPENAI_KEY,
+    fetch: fixtures.mockFetchJson(providerCase.chatResponse),
+  });
+  const model = providerCase.useChat
+    ? provider.chat(providerCase.expectedModel)
+    : provider(providerCase.expectedModel);
+
+  const directResult = await applicationApi.generateText({
+    model,
+    prompt: 'What is the capital of France?',
+  });
+  process.stdout.write('__DIRECT__' + directResult.text);
+
+  if (typeof applicationApi.ToolLoopAgent === 'function') {
+    const agent = new applicationApi.ToolLoopAgent({
+      model,
+      instructions: 'Respond directly.',
+    });
+    const agentResult = await agent.generate({ prompt: 'What is the capital of France?' });
+    process.stdout.write('__AGENT__' + agentResult.text);
+  } else {
+    process.stdout.write('__AGENT__unsupported');
+  }
+})().catch(error => {
+  process.stderr.write('APP_ERROR ' + ((error && error.stack) || String(error)) + '\\n');
+  process.exit(1);
+});
+`;
+
+    for (const mode of ['wrap', 'unwrap']) {
+      const result = spawnSync(process.execPath, ['--require', tsNodeRegister, '-e', script, mode], {
+        cwd: packageRoot,
+        timeout: 60000,
+        killSignal: 'SIGKILL',
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TS_NODE_PROJECT: path.join(packageRoot, 'tsconfig.json'),
+          TS_NODE_TRANSPILE_ONLY: 'true',
+          OTEL_NODE_RESOURCE_DETECTORS: 'none',
+          OTEL_TRACES_EXPORTER: 'none',
+          OTEL_METRICS_EXPORTER: 'none',
+          OTEL_LOGS_EXPORTER: 'none',
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'false',
+        },
+      });
+
+      assert.ifError(result.error);
+      assert.strictEqual(
+        result.status,
+        0,
+        `Vercel AI ${mode} failure exited ${result.status}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`
+      );
+      expect(result.stdout).toContain('__DIRECT__Paris is the capital of France.');
+      expect(result.stdout).toContain(
+        supportsAgent ? '__AGENT__Paris is the capital of France.' : '__AGENT__unsupported'
+      );
+    }
+  });
+});
+
 describe('generateText basic chat spans', function () {
   this.timeout(15000);
 
@@ -226,6 +344,36 @@ describe('generateText basic chat spans', function () {
     expect(span.attributes[ATTR_GEN_AI_REQUEST_TOP_P]).toBe(0.95);
     expect(span.attributes[ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY]).toBe(0.5);
     expect(span.attributes[ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY]).toBe(0.3);
+  });
+
+  it('maps seed, cache usage, and reasoning usage', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.settings.seed': 42,
+      'ai.usage.cachedInputTokens': 7,
+      'ai.usage.inputTokenDetails.cacheWriteTokens': 3,
+      'ai.usage.outputTokenDetails.reasoningTokens': 4,
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_REQUEST_SEED]).toBe(42);
+    expect(attributes[ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS]).toBe(7);
+    expect(attributes[ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS]).toBe(3);
+    expect(attributes[ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS]).toBe(4);
+    expect(attributes['gen_ai.usage.cache_read_input_tokens']).toBeUndefined();
+    expect(attributes['gen_ai.usage.cache_creation_input_tokens']).toBeUndefined();
+  });
+
+  it('maps legacy reasoning token usage', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.usage.reasoningTokens': 5,
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(attributes[ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS]).toBe(5);
   });
 });
 
@@ -294,12 +442,14 @@ describe('generateText content capture', function () {
     expect(
       (VercelAISpanProcessor as any)._formatMessageParts([
         { type: 'text', text: 'describe' },
+        { type: 'reasoning', text: 'Use the lookup tool.' },
         { type: 'file', data: 'AAAA', mediaType: 'image/png' },
         { type: 'tool-call', toolCallId: 'call_1', toolName: 'lookup', args: '{"city":"Tokyo"}' },
         { type: 'tool-result', toolCallId: 'call_1', result: { forecast: 'sunny' } },
       ])
     ).toEqual([
       { type: 'text', content: 'describe' },
+      { type: 'reasoning', content: 'Use the lookup tool.' },
       {
         type: 'blob',
         modality: 'image',
@@ -313,6 +463,99 @@ describe('generateText content capture', function () {
         arguments: { city: 'Tokyo' },
       },
       { type: 'tool_call_response', id: 'call_1', response: { forecast: 'sunny' } },
+    ]);
+  });
+
+  it('maps Vercel reasoning and response tool calls to output messages alongside text', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.response.finishReason': 'tool-calls',
+      [ATTR_GEN_AI_RESPONSE_FINISH_REASONS]: ['tool-calls'],
+      'ai.response.reasoning': 'I should use the weather tool.',
+      'ai.response.text': 'Let me check.',
+      'ai.response.toolCalls': JSON.stringify([
+        {
+          toolCallId: 'call_1',
+          toolName: 'get_weather',
+          input: { location: 'Tokyo' },
+        },
+      ]),
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string)).toEqual([
+      {
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', content: 'I should use the weather tool.' },
+          { type: 'text', content: 'Let me check.' },
+          {
+            type: 'tool_call',
+            id: 'call_1',
+            name: 'get_weather',
+            arguments: { location: 'Tokyo' },
+          },
+        ],
+        finish_reason: 'tool_call',
+      },
+    ]);
+    expect(attributes[ATTR_GEN_AI_RESPONSE_FINISH_REASONS]).toEqual(['tool_call']);
+  });
+
+  it('preserves structured reasoning blocks emitted by future AI SDK versions', function () {
+    const attributes: Record<string, unknown> = {
+      'ai.operationId': 'ai.generateText.doGenerate',
+      'ai.response.finishReason': 'stop',
+      'ai.response.reasoning': [
+        { type: 'reasoning', text: 'First thought.' },
+        { type: 'reasoning', text: 'Second thought.' },
+      ],
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string)).toEqual([
+      {
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', content: 'First thought.' },
+          { type: 'reasoning', content: 'Second thought.' },
+        ],
+        finish_reason: 'stop',
+      },
+    ]);
+  });
+
+  it('maps AI SDK v3 result tool calls when the result text is empty', function () {
+    const attributes: Record<string, unknown> = {
+      'operation.name': 'ai.generateText.doGenerate weather_agent',
+      'ai.finishReason': 'tool-calls',
+      'ai.result.text': '',
+      'ai.result.toolCalls': JSON.stringify([
+        {
+          toolCallId: 'call_1',
+          toolName: 'get_weather',
+          args: '{"location":"Tokyo"}',
+        },
+      ]),
+    };
+
+    new VercelAISpanProcessor().onEnd(createVercelSpan(attributes));
+
+    expect(JSON.parse(attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string)).toEqual([
+      {
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool_call',
+            id: 'call_1',
+            name: 'get_weather',
+            arguments: { location: 'Tokyo' },
+          },
+        ],
+        finish_reason: 'tool_call',
+      },
     ]);
   });
 });
@@ -473,8 +716,17 @@ describe('generateText tool calls', function () {
       if (pc.name === ProviderName.COHERE && legacyCohereProvider) {
         expect(reasons[0]).toBe('unknown');
       } else {
-        expect(reasons[0]).toMatch(/tool.call/);
+        expect(reasons[0]).toBe('tool_call');
       }
+
+      const outputMessages = JSON.parse(chatSpans[0].attributes[ATTR_GEN_AI_OUTPUT_MESSAGES] as string);
+      await validateOtelGenaiSchema(outputMessages, 'gen-ai-output-messages');
+      expect(outputMessages[0].parts).toContainEqual(
+        expect.objectContaining({
+          type: 'tool_call',
+          name: 'get_weather',
+        })
+      );
 
       resetMemoryExporter();
     });
@@ -812,7 +1064,7 @@ describe('finish reason mapping', function () {
     [ProviderName.OPENAI]: [
       { nativeReason: 'stop', expected: 'stop' },
       { nativeReason: 'length', expected: 'length' },
-      { nativeReason: 'content_filter', expected: 'content-filter' },
+      { nativeReason: 'content_filter', expected: 'content_filter' },
     ],
     [ProviderName.ANTHROPIC]: [
       { nativeReason: 'end_turn', expected: 'stop' },

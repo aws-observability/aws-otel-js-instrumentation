@@ -14,6 +14,7 @@ import {
   ATTR_GEN_AI_REQUEST_MAX_TOKENS,
   ATTR_GEN_AI_REQUEST_MODEL,
   ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY,
+  ATTR_GEN_AI_REQUEST_SEED,
   ATTR_GEN_AI_REQUEST_STOP_SEQUENCES,
   ATTR_GEN_AI_REQUEST_TEMPERATURE,
   ATTR_GEN_AI_REQUEST_TOP_K,
@@ -31,6 +32,7 @@ import {
   ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS,
   GEN_AI_OPERATION_NAME_VALUE_CHAT,
   GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS,
   GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL,
@@ -73,17 +75,25 @@ export class VercelAISpanProcessor implements SpanProcessor {
     { from: 'ai.usage.tokens', to: ATTR_GEN_AI_USAGE_INPUT_TOKENS },
     { from: 'ai.usage.outputTokens', to: ATTR_GEN_AI_USAGE_OUTPUT_TOKENS },
     { from: 'ai.usage.completionTokens', to: ATTR_GEN_AI_USAGE_OUTPUT_TOKENS },
+    { from: 'ai.usage.outputTokenDetails.reasoningTokens', to: ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS },
+    { from: 'ai.usage.reasoningTokens', to: ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS },
     { from: 'ai.usage.inputTokenDetails.cacheReadTokens', to: ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS },
+    { from: 'ai.usage.cachedInputTokens', to: ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS },
     { from: 'ai.usage.inputTokenDetails.cacheWriteTokens', to: ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS },
-    {
-      from: 'ai.response.finishReason',
-      to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
-      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
-    },
+    // Some AI SDK versions emit both ai.* and gen_ai.* finish-reason attributes,
+    // but copy non-canonical values such as "tool-calls" into the gen_ai.* destination.
+    // Override that destination with the normalized value from the ai.* source.
     {
       from: 'ai.finishReason',
       to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
       transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
+      overrideDestinationIfExists: true,
+    },
+    {
+      from: 'ai.response.finishReason',
+      to: ATTR_GEN_AI_RESPONSE_FINISH_REASONS,
+      transform: (v: string) => [VercelAISpanProcessor.mapFinishReason(v)],
+      overrideDestinationIfExists: true,
     },
     { from: 'ai.response.id', to: ATTR_GEN_AI_RESPONSE_ID },
     { from: 'ai.response.model', to: ATTR_GEN_AI_RESPONSE_MODEL },
@@ -94,6 +104,7 @@ export class VercelAISpanProcessor implements SpanProcessor {
     { from: 'ai.settings.topK', to: ATTR_GEN_AI_REQUEST_TOP_K },
     { from: 'ai.settings.frequencyPenalty', to: ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY },
     { from: 'ai.settings.presencePenalty', to: ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY },
+    { from: 'ai.settings.seed', to: ATTR_GEN_AI_REQUEST_SEED },
     { from: 'ai.settings.stopSequences', to: ATTR_GEN_AI_REQUEST_STOP_SEQUENCES },
     {
       from: 'ai.prompt.messages',
@@ -124,6 +135,24 @@ export class VercelAISpanProcessor implements SpanProcessor {
       from: 'ai.result.object',
       to: ATTR_GEN_AI_OUTPUT_MESSAGES,
       transform: (v: string, attrs: Record<string, unknown>) => VercelAISpanProcessor.formatOutputMessages(v, attrs),
+    },
+    {
+      from: 'ai.response.reasoning',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (_v: string, attrs: Record<string, unknown>) =>
+        VercelAISpanProcessor.formatOutputMessages(undefined, attrs),
+    },
+    {
+      from: 'ai.response.toolCalls',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (_v: string, attrs: Record<string, unknown>) =>
+        VercelAISpanProcessor.formatOutputMessages(undefined, attrs),
+    },
+    {
+      from: 'ai.result.toolCalls',
+      to: ATTR_GEN_AI_OUTPUT_MESSAGES,
+      transform: (_v: string, attrs: Record<string, unknown>) =>
+        VercelAISpanProcessor.formatOutputMessages(undefined, attrs),
     },
     {
       from: 'ai.prompt.tools',
@@ -216,7 +245,8 @@ export class VercelAISpanProcessor implements SpanProcessor {
     for (const mapping of VercelAISpanProcessor.ATTRIBUTE_MAP) {
       if (!mapping.to) continue;
       const value = attrs[mapping.from];
-      if (value != null && !Object.prototype.hasOwnProperty.call(mutableAttrs, mapping.to)) {
+      const destinationExists = Object.prototype.hasOwnProperty.call(mutableAttrs, mapping.to);
+      if (value != null && (mapping.overrideDestinationIfExists || !destinationExists)) {
         const mapped = mapping.transform ? mapping.transform(value, mutableAttrs) : value;
         if (mapped != null) {
           mutableAttrs[mapping.to] = mapped;
@@ -336,10 +366,33 @@ export class VercelAISpanProcessor implements SpanProcessor {
     const rawFinishReason = attrs['ai.response.finishReason'] ?? attrs['ai.finishReason'];
     const finishReason =
       typeof rawFinishReason === 'string' ? VercelAISpanProcessor.mapFinishReason(rawFinishReason) : 'stop';
+    const parts: Array<Record<string, unknown>> = [];
+    const reasoning = attrs['ai.response.reasoning'];
+    if (reasoning != null) {
+      parts.push(
+        ...VercelAISpanProcessor._formatMessageParts(
+          typeof reasoning === 'string' ? { type: 'reasoning', text: reasoning } : reasoning
+        )
+      );
+    }
+
+    const output =
+      attrs['ai.response.text'] ??
+      attrs['ai.result.text'] ??
+      attrs['ai.response.object'] ??
+      attrs['ai.result.object'] ??
+      value;
+    parts.push(...VercelAISpanProcessor._formatMessageParts(output));
+
+    const rawToolCalls = attrs['ai.response.toolCalls'] ?? attrs['ai.result.toolCalls'];
+    const toolCalls = typeof rawToolCalls === 'string' ? tryParseJson(rawToolCalls) : rawToolCalls;
+    if (Array.isArray(toolCalls)) {
+      parts.push(...VercelAISpanProcessor._formatMessageParts(toolCalls));
+    }
     return serializeToJson([
       {
         role: 'assistant',
-        parts: VercelAISpanProcessor._formatMessageParts(value),
+        parts,
         finish_reason: finishReason,
       },
     ]);
@@ -350,8 +403,18 @@ export class VercelAISpanProcessor implements SpanProcessor {
     return blocks.flatMap(block => {
       if (!block || typeof block !== 'object') return contentToParts(block);
       const value = block as Record<string, unknown>;
-      if (value.type === 'tool-call' || value.type === 'tool_call') {
-        const args = value.args ?? value.arguments ?? {};
+      if (value.type === 'reasoning') {
+        return contentToParts({
+          type: 'reasoning',
+          reasoning: value.text ?? value.reasoning ?? value.thinking ?? value.content,
+        });
+      }
+      if (
+        value.type === 'tool-call' ||
+        value.type === 'tool_call' ||
+        (value.type == null && value.toolCallId != null && value.toolName != null)
+      ) {
+        const args = value.input ?? value.args ?? value.arguments ?? {};
         return [
           {
             type: 'tool_call',

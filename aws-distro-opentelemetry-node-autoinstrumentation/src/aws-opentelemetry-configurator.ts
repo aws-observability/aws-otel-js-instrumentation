@@ -63,6 +63,7 @@ import {
 import { SEMRESATTRS_TELEMETRY_AUTO_VERSION } from '@opentelemetry/semantic-conventions';
 import { AlwaysRecordSampler } from './always-record-sampler';
 import { AttributePropagatingSpanProcessorBuilder } from './attribute-propagating-span-processor-builder';
+import { AttributeRedactingSpanProcessor } from './attribute-redacting-span-processor';
 import { AwsBatchUnsampledSpanProcessor } from './aws-batch-unsampled-span-processor';
 import { AwsMetricAttributesSpanExporterBuilder } from './aws-metric-attributes-span-exporter-builder';
 import { AwsSpanMetricsProcessorBuilder } from './aws-span-metrics-processor-builder';
@@ -74,7 +75,7 @@ import { LIB_VERSION } from './version';
 import { AWSCloudWatchEMFExporter } from './exporter/aws/metrics/aws-cloudwatch-emf-exporter';
 import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-exporter';
 import { isAgentObservabilityEnabled, parseOtelBaggageKeysEnvVar } from './utils';
-import { GenAiNestedClientSpanProcessor } from './gen-ai-nested-client-span-processor';
+import { GenAINestedClientSpanProcessor } from './gen-ai-nested-client-span-processor';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
@@ -316,13 +317,20 @@ export class AwsOpentelemetryConfigurator {
   static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
     const baggageKeys: Set<string> = parseOtelBaggageKeysEnvVar();
 
+    // This processor modifies attributes in onEnd, so it must run before exporter
+    // processors to ensure they observe the redacted values.
+    spanProcessors.unshift(new AttributeRedactingSpanProcessor());
+
     if (isAgentObservabilityEnabled()) {
+      // This processor modifies span kind in onEnd, so it must run before exporter
+      // processors to ensure they observe the updated kind.
+      spanProcessors.unshift(new GenAINestedClientSpanProcessor());
+
       // We always send 100% spans to Bedrock AgentCore platform for agent observability because
       // AI applications typically have low throughput traffic patterns and require
       // comprehensive monitoring to catch subtle failure modes like hallucinations
       // and quality degradation that sampling could miss.
       this.exportUnsampledSpanForAgentObservability(spanProcessors, resource);
-      spanProcessors.push(new GenAiNestedClientSpanProcessor());
 
       // Add session.id baggage attribute to span attributes to support AI Agent use cases
       // enabling session ID tracking in spans.

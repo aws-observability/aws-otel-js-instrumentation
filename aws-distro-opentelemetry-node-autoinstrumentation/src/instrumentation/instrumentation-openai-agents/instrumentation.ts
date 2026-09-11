@@ -17,6 +17,7 @@ import {
   isInstrumentationDisabled,
   detectConflictingInstrumentation,
 } from '../../utils';
+import { tryWrap, tryUnwrap } from '../common/instrumentation-utils';
 
 export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentation-openai-agents';
 export const INSTRUMENTATION_SHORT_NAME = 'aws_openai_agents';
@@ -110,25 +111,33 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     // which would remove our processor. We patch it to always keep ours in the list.
     // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/processor.ts#L271-L277
     // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents/src/index.ts#L8
-    this._wrap(provider, 'setProcessors', (original: any) => {
-      return function (this: any, _processors: any[]) {
-        original.call(this, [processor]);
-        processor.enable();
-      };
-    });
+    tryWrap(
+      () =>
+        this._wrap(provider, 'setProcessors', (original: any) => {
+          return function (this: any, _processors: any[]) {
+            original.call(this, [processor]);
+            processor.enable();
+          };
+        }),
+      'OpenAI Agents TraceProvider.setProcessors'
+    );
 
     // The built-in onSpanStart is no-op so we never get notified when spans start.
     // We patch createSpan to call our processor.onSpanStart so we can create OTel spans at the right time.
     // see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/processor.ts#L209-L211
-    this._wrap(provider, 'createSpan', (original: any) => {
-      return function (this: any, spanOptions: any, parent: any) {
-        const span = original.call(this, spanOptions, parent);
-        if (!processor.disabled && span.spanId !== 'no-op') {
-          void processor.onSpanStart(span);
-        }
-        return span;
-      };
-    });
+    tryWrap(
+      () =>
+        this._wrap(provider, 'createSpan', (original: any) => {
+          return function (this: any, spanOptions: any, parent: any) {
+            const span = original.call(this, spanOptions, parent);
+            if (!processor.disabled && span.spanId !== 'no-op') {
+              void processor.onSpanStart(span);
+            }
+            return span;
+          };
+        }),
+      'OpenAI Agents TraceProvider.createSpan'
+    );
 
     this._patchedProvider = provider;
     this._diag.debug('Patched global TraceProvider');
@@ -146,23 +155,27 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
       if (typeof moduleExports[key] !== 'function') continue;
       if (!key.match(/^with\w+Span$/)) continue;
 
-      this._wrap(moduleExports, key, (original: any) => {
-        return function (this: any, fn: any, ...rest: any[]) {
-          return original.call(
-            this,
-            (sdkSpan: any) => {
-              const processor = instrumentation._processor;
-              if (!processor || processor.disabled) return fn(sdkSpan);
+      tryWrap(
+        () =>
+          this._wrap(moduleExports, key, (original: any) => {
+            return function (this: any, fn: any, ...rest: any[]) {
+              return original.call(
+                this,
+                (sdkSpan: any) => {
+                  const processor = instrumentation._processor;
+                  if (!processor || processor.disabled) return fn(sdkSpan);
 
-              const otelCtx = processor.getOtelContext(sdkSpan.spanId);
-              if (!otelCtx) return fn(sdkSpan);
+                  const otelCtx = processor.getOtelContext(sdkSpan.spanId);
+                  if (!otelCtx) return fn(sdkSpan);
 
-              return context.with(otelCtx, () => fn(sdkSpan));
-            },
-            ...rest
-          );
-        };
-      });
+                  return context.with(otelCtx, () => fn(sdkSpan));
+                },
+                ...rest
+              );
+            };
+          }),
+        `OpenAI Agents ${key}`
+      );
     }
 
     return moduleExports;
@@ -172,14 +185,17 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     for (const key of Object.keys(moduleExports)) {
       if (typeof moduleExports[key] !== 'function') continue;
       if (!key.match(/^with\w+Span$/)) continue;
-      this._unwrap(moduleExports, key);
+      tryUnwrap(() => this._unwrap(moduleExports, key), `OpenAI Agents ${key}`);
     }
   }
 
   private _unpatch(): void {
     if (this._patchedProvider) {
-      this._unwrap(this._patchedProvider, 'createSpan');
-      this._unwrap(this._patchedProvider, 'setProcessors');
+      tryUnwrap(() => this._unwrap(this._patchedProvider, 'createSpan'), 'OpenAI Agents TraceProvider.createSpan');
+      tryUnwrap(
+        () => this._unwrap(this._patchedProvider, 'setProcessors'),
+        'OpenAI Agents TraceProvider.setProcessors'
+      );
     }
     if (this._processor) {
       this._processor.disable();

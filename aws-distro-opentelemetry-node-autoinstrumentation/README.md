@@ -12,6 +12,30 @@ Run your application with ADOT NodeJS with:
 node --require '@aws/aws-distro-opentelemetry-node-autoinstrumentation/register' your-application.js
 ```
 
+## Generative AI
+
+Instrumentation is also available for the supported agent frameworks and SDKs
+listed below. These libraries complement the auto-instrumentation already
+included with the distribution, providing comprehensive, end-to-end visibility
+into your agent applications, from incoming requests and framework orchestration
+to model calls, tool invocations, and downstream dependencies.
+
+- [LangChain](src/instrumentation/instrumentation-langchain/README.md) (`@langchain/core >=1.0.0 <2.0.0`)
+- [OpenAI Agents SDK](src/instrumentation/instrumentation-openai-agents/README.md) (`@openai/agents-core >=0.1.0`)
+- [Vercel AI SDK](src/instrumentation/instrumentation-vercel-ai/README.md) (`ai >=3.3.0 <7.0.0`)
+
+> [!NOTE]
+> When agent observability is enabled (`AGENT_OBSERVABILITY_ENABLED=true`),
+> instrumentation is skipped when a conflicting third-party instrumentation is
+> detected for the same framework. You may add `aws_langchain`,
+> `aws_openai_agents`, and `aws_vercel_ai` to
+> `OTEL_NODE_DISABLED_INSTRUMENTATIONS` to disable all of the above
+> instrumentations if you are using another instrumentation source and automatic
+> detection does not work. If another third-party instrumentation is installed,
+> you may set `AWS_AGENTIC_INSTRUMENTATION_OPT_IN=true` to force the above
+> instrumentations to load. We recommend that you do not use this setting because
+> both instrumentations may run and produce duplicate or inconsistent telemetry.
+
 ## Sample Environment Variables for Application Signals
 
 ```shell

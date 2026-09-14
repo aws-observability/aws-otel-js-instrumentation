@@ -37,13 +37,24 @@ import { contentToParts, PROVIDER_MAP, serializeToJson, toToolAttributeValue } f
 import type { Serialized } from '@langchain/core/load/serializable';
 import type { ChatGeneration, Generation, LLMResult } from '@langchain/core/outputs';
 import type { ChainValues } from '@langchain/core/utils/types';
-import type { BaseMessage, BaseMessageLike } from '@langchain/core/messages';
+import type { AIMessage, BaseMessage, BaseMessageLike } from '@langchain/core/messages';
 import type { ToolCall } from '@langchain/core/messages/tool';
-import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
-import { coerceMessageLikeToMessage, isAIMessage } from '@langchain/core/messages';
+import type { CallbackHandlerMethods } from '@langchain/core/callbacks/base';
 
 const LANGGRAPH_STEP_SPAN_ATTR = 'langgraph.step';
 const LANGGRAPH_NODE_SPAN_ATTR = 'langgraph.node';
+
+// Supplied by the instrumentation from the application's own module exports, via the hook. Nothing
+// here may import @langchain/core at runtime: the distro cannot resolve the application's
+// node_modules when mounted elsewhere, as the OpenTelemetry Operator does.
+let coerceMessageLikeToMessage: ((message: BaseMessageLike) => BaseMessage) | undefined;
+let isAIMessage: ((message: BaseMessage) => message is AIMessage) | undefined;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function setLangChainMessagesModule(messagesModule: any): void {
+  coerceMessageLikeToMessage = messagesModule?.coerceMessageLikeToMessage;
+  isAIMessage = messagesModule?.isAIMessage;
+}
 
 interface SpanEntry {
   span?: Span;
@@ -51,26 +62,34 @@ interface SpanEntry {
   agentSpan?: Span; // to track the nearest ancestor invoke_agent span, see _propagateToAgentSpan for why
 }
 
-export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
+// Implements the callback handler contract instead of extending BaseCallbackHandler, which would
+// need the base class as a value and therefore at runtime. LangChain duck-types handlers:
+// isBaseCallbackHandler() requires only `copy`, `name` and `awaitHandlers`.
+// https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/callbacks/base.ts
+export class OpenTelemetryCallbackHandler implements CallbackHandlerMethods {
   name: string = 'otel-callback-handler';
   // Ensures the OTel callback is executed synchronously and not in an async thread.
   // This is to ensure that we are ALWAYS setting this instrumentation's spans as the current span in context to make
   // sure we propagate the trace to downstream spans.
   // https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/callbacks/manager.ts#L124-L143
-  override awaitHandlers: boolean = true;
+  awaitHandlers: boolean = true;
   tracer: Tracer;
   captureMessageContent: boolean;
   shouldSuppressInternalChains: boolean;
   runIdToSpanMap: Map<string, SpanEntry> = new Map();
 
   constructor(tracer: Tracer, captureMessageContent: boolean = false, shouldSuppressInternalChains: boolean = true) {
-    super();
     this.tracer = tracer;
     this.captureMessageContent = captureMessageContent;
     this.shouldSuppressInternalChains = shouldSuppressInternalChains;
   }
 
-  override handleChatModelStart(
+  // Returns `this` so runIdToSpanMap stays shared; the instrumentation reuses a single handler.
+  copy(): OpenTelemetryCallbackHandler {
+    return this;
+  }
+
+  handleChatModelStart(
     serialized: Serialized,
     messages: BaseMessage[][],
     runId: string,
@@ -104,7 +123,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this._propagateToAgentSpan(runId, provider, modelName, extraParams, config);
   }
 
-  override handleLLMStart(
+  handleLLMStart(
     serialized: Serialized,
     prompts: string[],
     runId: string,
@@ -135,7 +154,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this._propagateToAgentSpan(runId, provider, modelName, extraParams, config);
   }
 
-  override handleLLMEnd(response: LLMResult, runId: string, _parentRunId?: string): void {
+  handleLLMEnd(response: LLMResult, runId: string, _parentRunId?: string): void {
     const entry = this.runIdToSpanMap.get(runId);
     if (!entry?.span) return;
     const { span } = entry;
@@ -150,7 +169,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     const firstGeneration = response.generations?.[0]?.[0];
     const message =
       firstGeneration && 'message' in firstGeneration ? (firstGeneration as ChatGeneration).message : undefined;
-    if (message && isAIMessage(message)) {
+    if (message && isAIMessage?.(message)) {
       const usageMeta = message.usage_metadata;
       inputTokens = usageMeta?.input_tokens ?? inputTokens;
       outputTokens = usageMeta?.output_tokens ?? outputTokens;
@@ -179,11 +198,11 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this._endSpan(runId);
   }
 
-  override handleLLMError(err: Error, runId: string, _parentRunId?: string): void {
+  handleLLMError(err: Error, runId: string, _parentRunId?: string): void {
     this._handleError(err, runId);
   }
 
-  override handleChainStart(
+  handleChainStart(
     serialized: Serialized,
     inputs: ChainValues,
     runId: string,
@@ -254,7 +273,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this._setAttribute(span, ATTR_GEN_AI_AGENT_NAME, agentName);
   }
 
-  override handleChainEnd(outputs: ChainValues, runId: string, _parentRunId?: string): void {
+  handleChainEnd(outputs: ChainValues, runId: string, _parentRunId?: string): void {
     const entry = this.runIdToSpanMap.get(runId);
     if (this.captureMessageContent && entry?.span && entry.agentSpan === entry.span) {
       const payload = outputs.messages || outputs.output;
@@ -277,11 +296,11 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this._endSpan(runId);
   }
 
-  override handleChainError(err: Error, runId: string, _parentRunId?: string): void {
+  handleChainError(err: Error, runId: string, _parentRunId?: string): void {
     this._handleError(err, runId);
   }
 
-  override handleToolStart(
+  handleToolStart(
     serialized: Serialized,
     input: string,
     runId: string,
@@ -310,7 +329,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     }
   }
 
-  override handleToolEnd(output: unknown, runId: string, _parentRunId?: string): void {
+  handleToolEnd(output: unknown, runId: string, _parentRunId?: string): void {
     if (this.captureMessageContent) {
       const entry = this.runIdToSpanMap.get(runId);
       if (entry?.span) {
@@ -321,7 +340,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this._endSpan(runId);
   }
 
-  override handleToolError(err: Error, runId: string, _parentRunId?: string): void {
+  handleToolError(err: Error, runId: string, _parentRunId?: string): void {
     this._handleError(err, runId);
   }
 
@@ -548,9 +567,11 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   // Chain callbacks accept untyped values, unlike chat callbacks, so normalize
   // message-like values before passing them to the shared formatter.
   private static _formatChainMessages(payload: unknown): BaseMessage[] {
+    const coerce = coerceMessageLikeToMessage;
+    if (!coerce) return [];
     try {
       const messageLikes = Array.isArray(payload) ? payload : [payload];
-      return messageLikes.map(message => coerceMessageLikeToMessage(message as BaseMessageLike));
+      return messageLikes.map(message => coerce(message as BaseMessageLike));
     } catch {
       return [];
     }
@@ -742,7 +763,7 @@ export class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     const contentParts = contentToParts(contentBlocks).filter(
       part => part.type !== 'tool_call' && part.type !== 'tool-call' && part.type !== 'tool_use'
     );
-    const toolCallParts = isAIMessage(message)
+    const toolCallParts = isAIMessage?.(message)
       ? (message.tool_calls ?? []).map((toolCall: ToolCall) => ({
           type: 'tool_call',
           id: toolCall.id ?? '',

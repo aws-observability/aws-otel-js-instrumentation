@@ -79,6 +79,11 @@ import {
 } from '../test-fixtures';
 import { OpenTelemetryCallbackHandler } from '../../../src/instrumentation/instrumentation-langchain/callback-handler';
 import { LangChainInstrumentation } from '../../../src/instrumentation/instrumentation-langchain/instrumentation';
+import { spawnSync, SpawnSyncReturns } from 'child_process';
+import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 function createModel(
   provider: ProviderName,
@@ -404,6 +409,115 @@ describe('patch and unpatch lifecycle', function () {
     expect(CallbackManager._configureSync).not.toBe(originalConfigure);
     expect(BaseChatModel.prototype._generateUncached).not.toBe(originalGenerate);
     expect(StructuredTool.prototype.call).not.toBe(originalCall);
+  });
+
+  it('calls the original method when callback handler injection fails', function () {
+    const isolatedInstrumentation = new LangChainInstrumentation();
+    const callbackManager = {
+      _configureSync(handlers: unknown): unknown {
+        return handlers;
+      },
+    };
+
+    Object.defineProperty(isolatedInstrumentation, '_handler', {
+      configurable: true,
+      get() {
+        throw new Error('instrumentation setup failed');
+      },
+      set() {},
+    });
+
+    isolatedInstrumentation._patchCallbackManager(callbackManager);
+    const handlers = ['application-handler'];
+    expect(callbackManager._configureSync(handlers)).toBe(handlers);
+    isolatedInstrumentation._unpatchCallbackManager(callbackManager);
+  });
+});
+
+describe('wrapper failure resilience', function () {
+  this.timeout(60000);
+
+  it('keeps a real LangChain agent responsive when wrapping or unwrapping fails', function () {
+    const packageRoot = path.resolve(__dirname, '..', '..', '..');
+    const tsNodeRegister = require.resolve('ts-node/register/transpile-only');
+    const script = `
+const mode = process.argv[1];
+const { LangChainInstrumentation } = require(${JSON.stringify(
+      path.join(packageRoot, 'src', 'instrumentation', 'instrumentation-langchain', 'instrumentation.ts')
+    )});
+const { CallbackManager } = require('@langchain/core/callbacks/manager');
+const { BaseChatModel } = require('@langchain/core/language_models/chat_models');
+const { StructuredTool } = require('@langchain/core/tools');
+const { FakeListChatModel } = require('@langchain/core/utils/testing');
+const { createReactAgent } = require('@langchain/langgraph/prebuilt');
+
+(async () => {
+  const instrumentation = new LangChainInstrumentation();
+  const chatExports = { BaseChatModel };
+  const toolExports = { StructuredTool };
+  let forcedFailures = 0;
+  const fail = () => {
+    forcedFailures++;
+    throw new Error('forced ' + mode + ' failure');
+  };
+
+  if (mode === 'wrap') {
+    instrumentation._wrap = fail;
+    instrumentation._patchCallbackManager(CallbackManager);
+    instrumentation._patchChatModelsModule(chatExports);
+    instrumentation._patchToolsModule(toolExports);
+  } else {
+    instrumentation._patchCallbackManager(CallbackManager);
+    instrumentation._patchChatModelsModule(chatExports);
+    instrumentation._patchToolsModule(toolExports);
+    instrumentation._unwrap = fail;
+    instrumentation._unpatchCallbackManager(CallbackManager);
+    instrumentation._unpatchChatModelsModule(chatExports);
+    instrumentation._unpatchToolsModule(toolExports);
+  }
+
+  if (forcedFailures === 0) throw new Error('the test did not force a wrapper failure');
+
+  const model = new FakeListChatModel({ responses: ['langchain agent still works'] });
+  if (typeof model.bindTools !== 'function') {
+    model.bindTools = () => model;
+  }
+  const agent = createReactAgent({ llm: model, tools: [] });
+  const result = await agent.invoke({ messages: [{ role: 'user', content: 'hi' }] });
+  const response = result.messages[result.messages.length - 1];
+  process.stdout.write('__RESULT__' + String(response.content));
+})().catch(error => {
+  process.stderr.write('APP_ERROR ' + ((error && error.stack) || String(error)) + '\\n');
+  process.exit(1);
+});
+`;
+
+    for (const mode of ['wrap', 'unwrap']) {
+      const result = spawnSync(process.execPath, ['--require', tsNodeRegister, '-e', script, mode], {
+        cwd: packageRoot,
+        timeout: 60000,
+        killSignal: 'SIGKILL',
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TS_NODE_PROJECT: path.join(packageRoot, 'tsconfig.json'),
+          TS_NODE_TRANSPILE_ONLY: 'true',
+          OTEL_NODE_RESOURCE_DETECTORS: 'none',
+          OTEL_TRACES_EXPORTER: 'none',
+          OTEL_METRICS_EXPORTER: 'none',
+          OTEL_LOGS_EXPORTER: 'none',
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'false',
+        },
+      });
+
+      assert.ifError(result.error);
+      assert.strictEqual(
+        result.status,
+        0,
+        `LangChain ${mode} failure exited ${result.status}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`
+      );
+      expect(result.stdout).toContain('__RESULT__langchain agent still works');
+    }
   });
 });
 
@@ -1790,5 +1904,162 @@ describe('_handleError cleans up skipped chain entries', function () {
     handler.handleChainError(new Error('test error'), 'skipped-run-id');
 
     expect(handler.runIdToSpanMap.has('skipped-run-id')).toBe(false);
+  });
+});
+
+describe('sidecar layout', function () {
+  this.timeout(60000);
+
+  it('instruments application LangChain when the distro is mounted outside application node_modules', () => {
+    const packageRoot = path.resolve(__dirname, '..', '..', '..');
+    const repoRoot = path.resolve(packageRoot, '..');
+    const sourceDir = path.join(packageRoot, 'src');
+    const tsNodeRegister = require.resolve('ts-node/register/transpile-only');
+    const spansPrefix = '__SPANS__';
+    const spansSuffix = '__END__';
+
+    const linkDependencies = (target: string, sources: string[], excludedScopes: Set<string> = new Set()): void => {
+      fs.mkdirSync(target, { recursive: true });
+      for (const source of sources) {
+        if (!fs.existsSync(source)) continue;
+        for (const entry of fs.readdirSync(source)) {
+          if (excludedScopes.has(entry)) continue;
+
+          const sourcePath = path.join(source, entry);
+          if (entry.startsWith('@')) {
+            const targetScope = path.join(target, entry);
+            fs.mkdirSync(targetScope, { recursive: true });
+            for (const packageName of fs.readdirSync(sourcePath)) {
+              const linkPath = path.join(targetScope, packageName);
+              if (fs.existsSync(linkPath)) continue;
+              fs.symlinkSync(path.join(sourcePath, packageName), linkPath, 'junction');
+            }
+            continue;
+          }
+
+          const linkPath = path.join(target, entry);
+          if (fs.existsSync(linkPath)) continue;
+          fs.symlinkSync(sourcePath, linkPath, 'junction');
+        }
+      }
+    };
+
+    const runIsolatedScript = (scriptPath: string, cwd: string): SpawnSyncReturns<string> =>
+      spawnSync(process.execPath, ['--require', tsNodeRegister, scriptPath], {
+        cwd,
+        timeout: 60000,
+        killSignal: 'SIGKILL',
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TS_NODE_PROJECT: path.join(packageRoot, 'tsconfig.json'),
+          TS_NODE_TRANSPILE_ONLY: 'true',
+          OTEL_NODE_RESOURCE_DETECTORS: 'none',
+          OTEL_TRACES_EXPORTER: 'none',
+          OTEL_METRICS_EXPORTER: 'none',
+          OTEL_LOGS_EXPORTER: 'none',
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'false',
+        },
+      });
+
+    assert.ok(fs.existsSync(sourceDir), `expected source at ${sourceDir}`);
+
+    const tmpRoot = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'adot-sidecar-layout-'));
+    const mountDir = path.join(tmpRoot, 'otel-auto-instrumentation-nodejs');
+    const appDir = path.join(tmpRoot, 'app');
+
+    try {
+      // The sidecar mount contains the distro source and its runtime dependencies, but not
+      // LangChain. The sibling application has its normal dependency tree, including LangChain.
+      fs.cpSync(sourceDir, path.join(mountDir, 'distro'), { recursive: true });
+      linkDependencies(
+        path.join(mountDir, 'node_modules'),
+        [path.join(packageRoot, 'node_modules'), path.join(repoRoot, 'node_modules')],
+        new Set(['@langchain'])
+      );
+      linkDependencies(path.join(appDir, 'node_modules'), [
+        path.join(repoRoot, 'node_modules'),
+        path.join(packageRoot, 'node_modules'),
+      ]);
+
+      fs.writeFileSync(
+        path.join(mountDir, 'bootstrap.js'),
+        `
+const path = require('path');
+const { trace } = require('@opentelemetry/api');
+const { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base');
+const { LangChainInstrumentation } = require(
+  path.join(__dirname, 'distro', 'instrumentation', 'instrumentation-langchain', 'instrumentation.ts')
+);
+
+const exporter = new InMemorySpanExporter();
+const provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
+trace.setGlobalTracerProvider(provider);
+
+const instrumentation = new LangChainInstrumentation({ captureMessageContent: true });
+instrumentation.setTracerProvider(provider);
+instrumentation.enable();
+
+process.on('exit', () => {
+  const spans = exporter.getFinishedSpans().map(span => ({ name: span.name, attributes: span.attributes }));
+  process.stdout.write(${JSON.stringify(spansPrefix)} + JSON.stringify(spans) + ${JSON.stringify(spansSuffix)});
+});
+`
+      );
+
+      fs.writeFileSync(
+        path.join(appDir, 'main.js'),
+        `
+require(require('path').join(${JSON.stringify(mountDir)}, 'bootstrap.js'));
+const { FakeListChatModel } = require('@langchain/core/utils/testing');
+
+(async () => {
+  const model = new FakeListChatModel({ responses: ['hello from the fake model'] });
+  const result = await model.invoke([{ role: 'user', content: 'hi' }]);
+  process.stdout.write('__INVOKED__' + String(result && result.content) + '\\n');
+})().catch(err => {
+  process.stderr.write('APP_ERROR ' + ((err && err.stack) || String(err)) + '\\n');
+  process.exit(3);
+});
+`
+      );
+
+      // Prove the mount cannot resolve the runtime import that caused the original failure.
+      fs.writeFileSync(
+        path.join(mountDir, 'probe.js'),
+        `
+try {
+  require('@langchain/core/callbacks/base');
+  process.stdout.write('RESOLVED\\n');
+} catch (err) {
+  process.stdout.write((err && err.code) + ' ' + (err && err.message) + '\\n');
+}
+`
+      );
+
+      const probe = runIsolatedScript(path.join(mountDir, 'probe.js'), mountDir);
+      assert.ifError(probe.error);
+      expect(probe.stdout).toContain('MODULE_NOT_FOUND');
+      expect(probe.stdout).not.toContain('RESOLVED');
+
+      const app = runIsolatedScript(path.join(appDir, 'main.js'), appDir);
+      assert.ifError(app.error);
+      expect(app.stderr).not.toContain('MODULE_NOT_FOUND');
+      expect(app.stderr).not.toContain("Cannot find module '@langchain/core");
+      assert.strictEqual(app.status, 0, `exit ${app.status}\nstdout: ${app.stdout}\nstderr: ${app.stderr}`);
+      expect(app.stdout).toContain('__INVOKED__hello from the fake model');
+
+      const start = app.stdout.indexOf(spansPrefix);
+      assert.ok(start >= 0, `no span payload in stdout: ${app.stdout}`);
+      const raw = app.stdout.slice(start + spansPrefix.length, app.stdout.indexOf(spansSuffix, start));
+      const spans: Array<{ name: string; attributes: Record<string, unknown> }> = JSON.parse(raw);
+      const chatSpans = spans.filter(span => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
+
+      assert.ok(chatSpans.length > 0, `expected a GenAI chat span, got ${JSON.stringify(spans.map(s => s.name))}`);
+      expect(String(chatSpans[0].attributes[ATTR_GEN_AI_OUTPUT_MESSAGES])).toContain('hello from the fake model');
+      expect(String(chatSpans[0].attributes[ATTR_GEN_AI_OUTPUT_MESSAGES])).toContain('assistant');
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
   });
 });

@@ -85,6 +85,9 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createXai } from '@ai-sdk/xai';
 import OpenAI from 'openai';
 import { z } from 'zod';
+import { spawnSync } from 'child_process';
+import * as assert from 'assert';
+import * as path from 'path';
 
 let aisdk: (model: any) => any;
 try {
@@ -154,6 +157,103 @@ describe('OpenAI Agents Instrumentation', function () {
   beforeEach(() => {
     resetMemoryExporter();
     setCaptureContent(true);
+  });
+
+  it('keeps a real OpenAI agent responsive when wrapping or unwrapping fails', function () {
+    this.timeout(60000);
+    const packageRoot = path.resolve(__dirname, '..', '..', '..');
+    const tsNodeRegister = require.resolve('ts-node/register/transpile-only');
+    const script = `
+const path = require('path');
+const mode = process.argv[1];
+const { OpenAIAgentsInstrumentation } = require(${JSON.stringify(
+      path.join(packageRoot, 'src', 'instrumentation', 'instrumentation-openai-agents', 'instrumentation.ts')
+    )});
+const agentsCore = require('@openai/agents-core');
+const createSpansPath = path.join(
+  path.dirname(require.resolve('@openai/agents-core')),
+  'tracing',
+  'createSpans.js'
+);
+const createSpans = require(createSpansPath);
+const { Agent, Runner, OpenAIProvider } = require('@openai/agents');
+const OpenAIImport = require('openai');
+const OpenAI = OpenAIImport.default || OpenAIImport;
+const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
+      path.join(packageRoot, 'test', 'instrumentation', 'test-fixtures.ts')
+    )});
+
+(async () => {
+  const instrumentation = new OpenAIAgentsInstrumentation();
+  let forcedFailures = 0;
+  const fail = () => {
+    forcedFailures++;
+    throw new Error('forced ' + mode + ' failure');
+  };
+
+  if (mode === 'wrap') {
+    instrumentation._wrap = fail;
+    instrumentation._wrapSdkTraceProvider(agentsCore);
+    instrumentation._wrapCreateSpansWithOtelContext(createSpans);
+  } else {
+    instrumentation._wrapSdkTraceProvider(agentsCore);
+    instrumentation._wrapCreateSpansWithOtelContext(createSpans);
+    instrumentation._unwrap = fail;
+    instrumentation._unwrapCreateSpansWithOtelContext(createSpans);
+    instrumentation._unpatch();
+  }
+
+  if (forcedFailures === 0) throw new Error('the test did not force a wrapper failure');
+
+  const client = new OpenAI({
+    apiKey: 'test',
+    fetch: async () =>
+      new Response(JSON.stringify(OPENAI_RESPONSES_API_CHAT_RESPONSE), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+  });
+  const provider = new OpenAIProvider({ openAIClient: client, useResponses: true });
+  const runner = new Runner({ modelProvider: provider, tracingDisabled: false });
+  const agent = new Agent({
+    name: 'ResilienceAgent',
+    instructions: 'Respond directly.',
+    model: 'gpt-4o-mini',
+  });
+  const result = await runner.run(agent, 'What is the capital of France?');
+  process.stdout.write('__RESULT__' + String(result.finalOutput));
+})().catch(error => {
+  process.stderr.write('APP_ERROR ' + ((error && error.stack) || String(error)) + '\\n');
+  process.exit(1);
+});
+`;
+
+    for (const mode of ['wrap', 'unwrap']) {
+      const result = spawnSync(process.execPath, ['--require', tsNodeRegister, '-e', script, mode], {
+        cwd: packageRoot,
+        timeout: 60000,
+        killSignal: 'SIGKILL',
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TS_NODE_PROJECT: path.join(packageRoot, 'tsconfig.json'),
+          TS_NODE_TRANSPILE_ONLY: 'true',
+          OTEL_NODE_RESOURCE_DETECTORS: 'none',
+          OTEL_TRACES_EXPORTER: 'none',
+          OTEL_METRICS_EXPORTER: 'none',
+          OTEL_LOGS_EXPORTER: 'none',
+          OTEL_AWS_SERVICE_EVENTS_ENABLED: 'false',
+        },
+      });
+
+      assert.ifError(result.error);
+      assert.strictEqual(
+        result.status,
+        0,
+        `OpenAI Agents ${mode} failure exited ${result.status}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`
+      );
+      expect(result.stdout).toContain('__RESULT__Paris is the capital of France.');
+    }
   });
 
   describe('agent spans', function () {

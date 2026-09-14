@@ -13,7 +13,7 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
-- feat: redact span, span event, and span link attributes via ADOT_REDACT_SPAN_ATTRIBUTES
+- feat: redact span, span event, and span link attributes via AWS_REDACT_SPAN_ATTRIBUTES
   ([#550](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/550))
 - fix(agentic): fail open when instrumentation wrapping fails
   ([#553](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/553))

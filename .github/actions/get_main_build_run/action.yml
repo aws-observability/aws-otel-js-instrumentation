@@ -1,0 +1,63 @@
+## Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+## SPDX-License-Identifier: Apache-2.0
+name: Get successful main build run
+description: Find the latest successful run of a workflow on a branch.
+
+inputs:
+  github-token:
+    required: true
+    description: GitHub token used to query workflow runs.
+  branch:
+    required: true
+    description: Branch whose latest workflow run should be used.
+  workflow-file:
+    required: false
+    default: main-build.yml
+    description: File name of the workflow to query. A file path is unambiguous, unlike the display name.
+
+outputs:
+  run_id:
+    description: ID of the latest successful workflow run.
+    value: ${{ steps.main_build.outputs.run_id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Get successful main build run
+      id: main_build
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        TARGET_BRANCH: ${{ inputs.branch }}
+        WORKFLOW_FILE: ${{ inputs.workflow-file }}
+      run: |
+        set -euo pipefail
+        # Reference the workflow by file path (unique) and filter to the target branch (works for
+        # main and release/v*) server-side; the API returns runs newest-first, so per_page=100
+        # guarantees the most recent run is on this single page. All filtering runs inside gh's
+        # built-in --jq, which tolerates the control characters GitHub sometimes embeds in commit
+        # messages (external jq would reject them). Emit id/status/conclusion as a TSV line.
+        RESULT=$(gh api \
+          "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?branch=$TARGET_BRANCH&per_page=100" \
+          --jq '(.workflow_runs | sort_by(.created_at) | last) as $r
+                | if $r == null then empty else [$r.id, $r.status, $r.conclusion] | @tsv end')
+
+        if [ -z "$RESULT" ]; then
+          echo "No $WORKFLOW_FILE run found on branch $TARGET_BRANCH. Cannot proceed with release."
+          exit 1
+        fi
+
+        RUN_ID=$(printf '%s' "$RESULT" | cut -f1)
+        STATUS=$(printf '%s' "$RESULT" | cut -f2)
+        CONCLUSION=$(printf '%s' "$RESULT" | cut -f3)
+
+        if [ "$STATUS" = "in_progress" ] || [ "$STATUS" = "queued" ]; then
+          echo "Main build is still running (status: $STATUS). Cannot proceed with release."
+          exit 1
+        elif [ "$CONCLUSION" != "success" ]; then
+          echo "Latest main build on branch $TARGET_BRANCH conclusion: $CONCLUSION"
+          exit 1
+        fi
+
+        echo "Main build succeeded (run ID: $RUN_ID)."
+        echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"

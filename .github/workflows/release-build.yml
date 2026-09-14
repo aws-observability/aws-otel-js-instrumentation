@@ -14,10 +14,13 @@ env:
   AWS_DEFAULT_REGION: us-east-1
   AWS_PUBLIC_ECR_REGION: us-east-1
   AWS_PRIVATE_ECR_REGION: us-west-2
+  AWS_STAGING_ECR_REGION: us-east-1
   RELEASE_PUBLIC_REPOSITORY: public.ecr.aws/aws-observability/adot-autoinstrumentation-node
   RELEASE_PRIVATE_REPOSITORY: 020628701572.dkr.ecr.us-west-2.amazonaws.com/adot-autoinstrumentation-node
   RELEASE_PRIVATE_REGISTRY: 020628701572.dkr.ecr.us-west-2.amazonaws.com
-  PACKAGE_NAME: aws-distro-opentelemetry-node-autoinstrumentation
+  # Main build pushes the validated multi-arch image here (a different AWS account); release promotes it.
+  STAGING_ECR_REGISTRY: 637423224110.dkr.ecr.us-east-1.amazonaws.com
+  STAGING_ECR_REPOSITORY: aws-observability/adot-autoinstrumentation-node-staging
   ARTIFACT_NAME: aws-aws-distro-opentelemetry-node-autoinstrumentation-${{ github.event.inputs.version }}.tgz
   # Legacy list of commercial regions to deploy to. New regions should NOT be added here, and instead should be added to the `aws_region` default input to the workflow.
   LEGACY_COMMERCIAL_REGIONS: us-east-1, us-east-2, us-west-1, us-west-2, ap-south-1, ap-northeast-3, ap-northeast-2, ap-southeast-1, ap-southeast-2, ap-northeast-1, ca-central-1, eu-central-1, eu-west-1, eu-west-2, eu-west-3, eu-north-1, sa-east-1
@@ -36,43 +39,27 @@ jobs:
       - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
 
-      - name: Check main build status
+      # Reuse the tarball from the main build that already validated this commit instead of
+      # rebuilding it. get_main_build_run gates on that build having succeeded; the tarball is
+      # pulled cross-run and re-uploaded to this run so downstream jobs consume it by name unchanged.
+      - name: Get successful main build run
+        id: main_build
+        uses: ./.github/actions/get_main_build_run
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref_name }}
+
+      - name: Download main build tarball
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          WORKFLOW_ID=$(gh api repos/${{ github.repository }}/actions/workflows --jq '.workflows[] | select(.name=="NodeJS Instrumentation Main Build") | .id')
-          LATEST_RUN=$(gh api repos/${{ github.repository }}/actions/workflows/$WORKFLOW_ID/runs --jq '[.workflow_runs[] | select(.head_branch=="${{ github.ref_name }}")] | sort_by(.created_at) | .[-1] | {conclusion, status}')
-          STATUS=$(echo "$LATEST_RUN" | jq -r '.status')
-          CONCLUSION=$(echo "$LATEST_RUN" | jq -r '.conclusion')
-          
-          if [ "$STATUS" = "in_progress" ] || [ "$STATUS" = "queued" ]; then
-            echo "Main build is still running (status: $STATUS). Cannot proceed with release."
-            exit 1
-          elif [ "$CONCLUSION" != "success" ]; then
-            echo "Latest main build on branch ${{ github.ref_name }} conclusion: $CONCLUSION"
-            exit 1
-          fi
-          echo "Main build succeeded, proceeding with release"
-
-      - name: Build Tarball and Image Files
-        uses: ./.github/actions/artifacts_build
-        with:
-          image_uri_with_tag: "adot-autoinstrumentation-node:test"
-          push_image: false
-          load_image: true
-          node_version: "24"
-          package_name: aws-distro-opentelemetry-node-autoinstrumentation
-          os: ubuntu-latest
+          RUN_ID: ${{ steps.main_build.outputs.run_id }}
+        run: gh run download "$RUN_ID" -n "${{ env.ARTIFACT_NAME }}" -D staging
 
       - name: Upload SDK Tarball
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: aws-distro-opentelemetry-node-autoinstrumentation/${{ env.ARTIFACT_NAME }}
-
-      # TODO: Add some sort of smoke/integration testing before we go
-      # release the artifacts. adot java for reference:
-      # https://github.com/aws-observability/aws-otel-java-instrumentation/tree/93870a550ac30988fbdd5d3bf1e8f9f1b37916f5/smoke-tests
+          path: staging/${{ env.ARTIFACT_NAME }}
   
   build-layer:
     needs: build-sdk
@@ -120,25 +107,34 @@ jobs:
       - name: Checkout Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
 
-      - name: Build Tarball and Image Files
-        uses: ./.github/actions/artifacts_build
+      # Reuse the tarball the main build already validated (downloaded + re-uploaded by build-sdk)
+      # and publish it directly to npm, instead of rebuilding.
+      - name: Download SDK tarball
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
-          image_uri_with_tag: "adot-autoinstrumentation-node:test"
-          push_image: false
-          load_image: true
-          node_version: "24"
-          package_name: aws-distro-opentelemetry-node-autoinstrumentation
-          os: ubuntu-latest
+          name: ${{ env.ARTIFACT_NAME }}
 
       - name: Upgrade npm
         run: npm install -g npm@latest
 
-      # Publish '@aws/aws-distro-opentelemetry-node-autoinstrumentation' to npm
       - name: Publish autoinstrumentation to npm
-        working-directory: aws-distro-opentelemetry-node-autoinstrumentation
         env:
           NPM_CONFIG_PROVENANCE: true
-        run: npm publish
+        run: npm publish "${{ env.ARTIFACT_NAME }}"
+
+      # Promotion source: assume the role that main-build uses to push to the staging ECR, so we can
+      # pull the validated image back. NOTE: this needs pull (ecr:BatchGetImage /
+      # GetDownloadUrlForLayer) on the staging repo -- push perms alone are not enough.
+      - name: Configure AWS credentials for staging ECR (image source)
+        uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
+          aws-region: ${{ env.AWS_STAGING_ECR_REGION }}
+
+      - name: Log in to staging ECR
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 #v3.5.0
+        with:
+          registry: ${{ env.STAGING_ECR_REGISTRY }}
 
       - name: Configure AWS credentials for private ECR
         uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
@@ -162,16 +158,32 @@ jobs:
         with:
           registry: public.ecr.aws
 
-      - name: Build and push multi-arch image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 #v6.18.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 #v3.11.1
+
+      # Promote the exact multi-arch image the main build already built, scanned, and verified:
+      # copy its manifest (all arches + attestations) from staging to the release registries by
+      # reference -- no rebuild, no re-verify. The staging tag is reconstructed the same way
+      # main-build.yml builds it: <root package.json version>-<short sha> of this (same) commit.
+      - name: Promote staging image to release ECRs
+        run: |
+          set -euo pipefail
+          PKG_VERSION=$(jq -r '.version' package.json)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          STAGING_IMAGE="${{ env.STAGING_ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}:${PKG_VERSION}-${SHORT_SHA}"
+          echo "Promoting $STAGING_IMAGE"
+          docker buildx imagetools create \
+            -t "${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}" \
+            -t "${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}" \
+            "$STAGING_IMAGE"
+
+      - name: Perform image scan
+        uses: ./.github/actions/image_scan
         with:
-          push: true
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}
-            ${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}
+          image-ref: ${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
+          logout: 'false'
+          trivyignore-file: .github/trivy/daily-scan.trivyignore.yaml
 
       - name: Tag platform images in private ECR
         env:

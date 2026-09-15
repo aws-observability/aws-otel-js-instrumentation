@@ -21,6 +21,46 @@ import { context as otelContext, diag, propagation, trace, defaultTextMapSetter 
 const XRAY_TRACE_ID_HEADER = 'x-amzn-trace-id';
 const XRAY_TRACE_ID_HEADER_CAPITALIZED = 'X-Amzn-Trace-Id';
 
+// Fields of the tracing header that carry the trace, and so are ours to replace.
+// Everything else on it belongs to the platform and has to survive the replacement.
+const OWNED_TRACE_HEADER_FIELDS = ['Root', 'Parent', 'Sampled'];
+
+/**
+ * Fields of a tracing header that belong to the platform rather than to the tracer.
+ *
+ * `Lineage` is how Lambda counts the hops of one triggering event; it stops invoking a
+ * function after roughly sixteen in a chain, through Lambda, S3, SQS and SNS. `Self` is
+ * the trace id an Application Load Balancer stamps for the hop it handled. Injecting
+ * builds a fresh `Root=..;Parent=..;Sampled=..` and replaces the header with it, so these
+ * only survive if they are carried across deliberately.
+ *
+ * Unrecognised fields are carried too. That is the convention on this header - an ALB
+ * documents that "an application can add arbitrary fields for its own purposes. The load
+ * balancer preserves these fields but does not use them" - and it means a field added
+ * later needs no change here.
+ */
+function carriedTraceHeaderFields(header?: string): string[] {
+  return (header ?? '')
+    .split(';')
+    .map(part => part.trim())
+    .filter(part => part.length > 0 && !OWNED_TRACE_HEADER_FIELDS.some(key => part.startsWith(`${key}=`)));
+}
+
+/**
+ * The tracing header this request would have gone out with, had this not replaced it.
+ *
+ * The AWS SDK's own `recursionDetectionMiddleware` sits on the same `build` step at
+ * `low` priority - after this one, which defaults to `normal` - and only sets the header
+ * `if (!request.headers.hasOwnProperty(traceIdHeader))`. Writing the header here means it
+ * never runs, so what it would have forwarded has to be read from where it reads it.
+ *
+ * A header already on the request wins, so a caller that set one explicitly is respected.
+ */
+function replacedTraceHeader(headers: Record<string, string>): string | undefined {
+  const existing = Object.keys(headers ?? {}).find(name => name.toLowerCase() === XRAY_TRACE_ID_HEADER);
+  return (existing && headers[existing]) || process.env['_X_AMZN_TRACE_ID'];
+}
+
 const isLiteMode = (): boolean => (process.env.OTEL_AWS_LAMBDA_FAST_START || 'false').toLowerCase() === 'true';
 
 // Symbol to prevent infinite recursion during credential capture in full mode.
@@ -61,10 +101,13 @@ export function applySmithySendPatch(awsInstrumentation: any): void {
           // Middleware 1: Inject X-Ray trace context into outgoing HTTP headers
           this.middlewareStack?.add(
             (next: any) => async (middlewareArgs: any) => {
+              // Read before injecting: inject replaces the header rather than merging
+              // into it, so anything already there is gone by the time it returns.
+              const carried = carriedTraceHeaderFields(replacedTraceHeader(middlewareArgs.request.headers));
               propagation.inject(otelContext.active(), middlewareArgs.request.headers, defaultTextMapSetter);
               const xrayId = middlewareArgs.request.headers[XRAY_TRACE_ID_HEADER];
               if (xrayId) {
-                middlewareArgs.request.headers[XRAY_TRACE_ID_HEADER_CAPITALIZED] = xrayId;
+                middlewareArgs.request.headers[XRAY_TRACE_ID_HEADER_CAPITALIZED] = [xrayId, ...carried].join(';');
                 delete middlewareArgs.request.headers[XRAY_TRACE_ID_HEADER];
               }
               return await next(middlewareArgs);

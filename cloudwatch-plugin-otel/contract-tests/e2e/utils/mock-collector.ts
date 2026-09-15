@@ -74,6 +74,16 @@ export class MockCollector {
     return this.callsByName.get(name)?.[0]?.attributes;
   }
 
+  // Attributes of the first calls datapoint for a span name that matches the predicate. Needed when a
+  // single span name has more than one series (e.g. gRPC emits a CLIENT and a SERVER span with the
+  // same name); callsAttributes() only surfaces one of them.
+  findCallsAttributes(
+    name: string,
+    predicate: (attributes: Record<string, string | number | boolean>) => boolean
+  ): Record<string, string | number | boolean> | undefined {
+    return this.callsByName.get(name)?.find(dp => predicate(dp.attributes))?.attributes;
+  }
+
   hasDuration(name: string): boolean {
     return this.durationSpanNames.has(name);
   }
@@ -113,8 +123,19 @@ export class MockCollector {
               const attributes = decodeAttributes(dp.attributes ?? []);
               const value = Number(dp.asInt ?? dp.asDouble ?? 0);
               const name = String(attributes['span.name'] ?? '');
-              // Replace prior datapoints for this span name (cumulative running total).
-              this.callsByName.set(name, [{ attributes, value }]);
+              // Cumulative temporality: the latest datapoint per distinct series holds the running
+              // total. One span name can carry more than one series (e.g. gRPC emits a CLIENT and a
+              // SERVER span with the same name), so key series by (span.name, span.kind) and replace
+              // the matching series rather than the whole span-name entry.
+              const kind = String(attributes['span.kind'] ?? '');
+              const series = this.callsByName.get(name) ?? [];
+              const existing = series.findIndex(dp2 => String(dp2.attributes['span.kind'] ?? '') === kind);
+              if (existing >= 0) {
+                series[existing] = { attributes, value };
+              } else {
+                series.push({ attributes, value });
+              }
+              this.callsByName.set(name, series);
             }
           } else if (m.name === 'traces.span.metrics.duration') {
             this.durationUnit = m.unit;

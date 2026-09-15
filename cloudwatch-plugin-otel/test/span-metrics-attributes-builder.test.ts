@@ -174,4 +174,109 @@ describe('SpanMetricsAttributesBuilder', () => {
     );
     assert.ok(!('messaging.destination.name' in anon));
   });
+
+  it('copies messaging operation type and consumer group', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.CONSUMER,
+        attributes: {
+          'messaging.system': 'kafka',
+          'messaging.operation.type': 'receive',
+          'messaging.consumer.group.name': 'order-processors',
+        },
+      })
+    );
+    assert.strictEqual(attrs['messaging.operation.type'], 'receive');
+    assert.strictEqual(attrs['messaging.consumer.group.name'], 'order-processors');
+  });
+
+  it('copies peer attributes and keeps server.port a number', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.CLIENT,
+        attributes: {
+          'server.address': 'payments.example.com',
+          'server.port': 8443,
+          'network.peer.address': '10.0.0.1', // not allowlisted
+        },
+      })
+    );
+    assert.strictEqual(attrs['server.address'], 'payments.example.com');
+    // server.port is an int per semconv, kept as a number dimension rather than a string.
+    assert.strictEqual(attrs['server.port'], 8443);
+    assert.strictEqual(typeof attrs['server.port'], 'number');
+    assert.ok(!('network.peer.address' in attrs));
+  });
+
+  it('copies gen_ai attributes', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.CLIENT,
+        attributes: {
+          'gen_ai.request.model': 'claude-sonnet-4',
+          'gen_ai.provider.name': 'aws.bedrock',
+          'gen_ai.operation.name': 'chat',
+        },
+      })
+    );
+    assert.strictEqual(attrs['gen_ai.request.model'], 'claude-sonnet-4');
+    assert.strictEqual(attrs['gen_ai.provider.name'], 'aws.bedrock');
+    assert.strictEqual(attrs['gen_ai.operation.name'], 'chat');
+  });
+
+  it('copies AWS resource-identity attributes and preserves the dynamodb table_names array', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.CLIENT,
+        attributes: {
+          'aws.s3.bucket': 'my-bucket',
+          'aws.dynamodb.table_names': ['orders', 'items'],
+          'aws.lambda.invoked_arn': 'arn:aws:lambda:us-east-1:123:function:fn',
+          'aws.sns.topic.arn': 'arn:aws:sns:us-east-1:123:topic',
+          'aws.sqs.queue.url': 'https://sqs.us-east-1.amazonaws.com/123/queue',
+        },
+      })
+    );
+    assert.strictEqual(attrs['aws.s3.bucket'], 'my-bucket');
+    // table_names stays a string array per semconv; copied through unchanged, not normalized to a scalar.
+    assert.ok(Array.isArray(attrs['aws.dynamodb.table_names']));
+    assert.deepStrictEqual(attrs['aws.dynamodb.table_names'], ['orders', 'items']);
+    assert.strictEqual(attrs['aws.lambda.invoked_arn'], 'arn:aws:lambda:us-east-1:123:function:fn');
+    assert.strictEqual(attrs['aws.sns.topic.arn'], 'arn:aws:sns:us-east-1:123:topic');
+    assert.strictEqual(attrs['aws.sqs.queue.url'], 'https://sqs.us-east-1.amazonaws.com/123/queue');
+  });
+
+  it('copies faas attributes', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.CLIENT,
+        attributes: {
+          'faas.invoked_name': 'my-function',
+          'faas.invoked_provider': 'aws',
+          'faas.invoked_region': 'us-east-1',
+          'faas.trigger': 'http',
+        },
+      })
+    );
+    assert.strictEqual(attrs['faas.invoked_name'], 'my-function');
+    assert.strictEqual(attrs['faas.invoked_provider'], 'aws');
+    assert.strictEqual(attrs['faas.invoked_region'], 'us-east-1');
+    assert.strictEqual(attrs['faas.trigger'], 'http');
+  });
+
+  it('does not copy non-allowlisted keys from the new families', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.CLIENT,
+        attributes: {
+          'server.address': 'payments.example.com',
+          'gen_ai.request.temperature': 0.7, // not allowlisted (high-cardinality)
+          'aws.dynamodb.item_collection_metrics': 'x', // not allowlisted
+        },
+      })
+    );
+    assert.strictEqual(attrs['server.address'], 'payments.example.com');
+    assert.ok(!('gen_ai.request.temperature' in attrs));
+    assert.ok(!('aws.dynamodb.item_collection_metrics' in attrs));
+  });
 });

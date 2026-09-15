@@ -58,4 +58,15 @@ describe('Contract: RPC attributes family (gRPC)', function () {
     assert.strictEqual(attrs!['rpc.service'], 'contract.Echoer');
     assert.strictEqual(attrs!['rpc.method'], 'Echo');
   });
+
+  // Peer attributes on the client span. server.address is copied as a string dimension; the gRPC
+  // client span reliably carries it (derived from the channel target), so this is the end-to-end
+  // check for the peer family. The remaining new families (GenAI, FaaS, and the AWS resource-identity
+  // keys) are exercised by the pure unit tests instead, because real instrumentation cannot produce
+  // those spans in this harness.
+  it('copies server.address from the gRPC client span', () => {
+    const clientAttrs = collector.findCallsAttributes(RPC_SPAN_NAME, a => a['span.kind'] === 'CLIENT');
+    assert.ok(clientAttrs, `CLIENT calls datapoint for "${RPC_SPAN_NAME}" present`);
+    assert.strictEqual(clientAttrs!['server.address'], 'localhost');
+  });
 });

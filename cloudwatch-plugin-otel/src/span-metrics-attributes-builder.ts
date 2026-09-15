@@ -7,20 +7,47 @@ import { LIB_VERSION, LIB_VERSION_ATTR, SCHEMA_ATTR, SCHEMA_VERSION } from './id
 
 // Copied when present, regardless of span family (a span only carries the keys of its own family,
 // so no family branching is needed). Value TYPES are preserved as the span carries them:
-// http.response.status_code stays a number per semconv; everything else is a string.
+// http.response.status_code and server.port stay numbers (int semconv type), aws.dynamodb.table_names
+// stays a string array, and everything else is a string. Values are copied through unchanged — no
+// synthesis and no normalization. These are the current semconv keys; legacy predecessors are handled
+// by LEGACY_FALLBACKS below.
 const ALLOWLIST: string[] = [
+  // HTTP (https://opentelemetry.io/docs/specs/semconv/http/http-metrics/)
   'http.request.method',
   'http.response.status_code',
   'http.route',
   'error.type',
+  // RPC (https://opentelemetry.io/docs/specs/semconv/rpc/rpc-metrics/)
   'rpc.system.name',
   'rpc.service',
   'rpc.method',
+  // Database (https://opentelemetry.io/docs/specs/semconv/db/database-metrics/)
   'db.system.name',
   'db.operation.name',
   'db.collection.name',
+  // Messaging (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-metrics/)
   'messaging.system',
   'messaging.operation.name',
+  'messaging.operation.type',
+  'messaging.consumer.group.name',
+  // Peer (https://opentelemetry.io/docs/specs/semconv/registry/attributes/server/)
+  'server.address',
+  'server.port',
+  // GenAI (https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/)
+  'gen_ai.request.model',
+  'gen_ai.provider.name',
+  'gen_ai.operation.name',
+  // AWS resource identity (https://opentelemetry.io/docs/specs/semconv/registry/attributes/aws/)
+  'aws.s3.bucket',
+  'aws.dynamodb.table_names',
+  'aws.lambda.invoked_arn',
+  'aws.sns.topic.arn',
+  'aws.sqs.queue.url',
+  // FaaS (https://opentelemetry.io/docs/specs/semconv/registry/attributes/faas/)
+  'faas.invoked_name',
+  'faas.invoked_provider',
+  'faas.invoked_region',
+  'faas.trigger',
 ];
 
 // Current semconv key -> legacy key, checked when the current key is absent (spec §4). When only the

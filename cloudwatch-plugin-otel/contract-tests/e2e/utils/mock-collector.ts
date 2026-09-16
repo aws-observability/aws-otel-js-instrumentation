@@ -7,8 +7,12 @@ import * as http from 'http';
 // datapoints so tests can assert the 100%-metrics-vs-sampled-traces contract and attribute shapes.
 // Mirrors the role of the Java contract tests' MockCollector.
 
+// An attribute value as decoded from OTLP JSON. Arrays (e.g. aws.dynamodb.table_names) decode to a
+// homogeneous array of the scalar types.
+export type AttributeValue = string | number | boolean | string[] | number[] | boolean[];
+
 export interface MetricDataPoint {
-  attributes: Record<string, string | number | boolean>;
+  attributes: Record<string, AttributeValue>;
   value: number;
 }
 
@@ -19,7 +23,7 @@ export class MockCollector {
   private durationSpanNames: Set<string> = new Set<string>();
   private durationUnit: string | undefined;
   private callsUnit: string | undefined;
-  private metricResource: Record<string, string | number | boolean> | undefined;
+  private metricResource: Record<string, AttributeValue> | undefined;
 
   async start(port: number): Promise<void> {
     this.server = http.createServer((req, res) => {
@@ -77,7 +81,7 @@ export class MockCollector {
       .reduce((acc, dp) => acc + dp.value, 0);
   }
 
-  callsAttributes(name: string): Record<string, string | number | boolean> | undefined {
+  callsAttributes(name: string): Record<string, AttributeValue> | undefined {
     return this.callsByName.get(name)?.[0]?.attributes;
   }
 
@@ -86,8 +90,8 @@ export class MockCollector {
   // same name); callsAttributes() only surfaces one of them.
   findCallsAttributes(
     name: string,
-    predicate: (attributes: Record<string, string | number | boolean>) => boolean
-  ): Record<string, string | number | boolean> | undefined {
+    predicate: (attributes: Record<string, AttributeValue>) => boolean
+  ): Record<string, AttributeValue> | undefined {
     return this.callsByName.get(name)?.find(dp => predicate(dp.attributes))?.attributes;
   }
 
@@ -105,7 +109,7 @@ export class MockCollector {
 
   // Resource attributes of the ResourceMetrics that carried the span metrics (service.name lives
   // here, not on datapoints).
-  metricResourceAttributes(): Record<string, string | number | boolean> | undefined {
+  metricResourceAttributes(): Record<string, AttributeValue> | undefined {
     return this.metricResource;
   }
 
@@ -164,21 +168,48 @@ export class MockCollector {
 // A stable identity for a metric series: its full, attribute-sorted key/value set. Two datapoints
 // with the same signature are the same series across cumulative exports (replace); differing on any
 // attribute (e.g. span.kind or net.peer.port) makes them distinct series (keep both).
-function seriesSignature(attributes: Record<string, string | number | boolean>): string {
+function seriesSignature(attributes: Record<string, AttributeValue>): string {
   return Object.keys(attributes)
     .sort()
     .map(k => `${k}=${String(attributes[k])}`)
     .join('|');
 }
 
-function decodeAttributes(kvs: any[]): Record<string, string | number | boolean> {
-  const out: Record<string, string | number | boolean> = {};
+// A minimal shape of an OTLP JSON AnyValue: exactly one of the scalar fields, or an arrayValue whose
+// values are themselves AnyValues (e.g. aws.dynamodb.table_names).
+interface AnyValue {
+  stringValue?: string;
+  intValue?: string | number;
+  doubleValue?: number;
+  boolValue?: boolean;
+  arrayValue?: { values?: AnyValue[] };
+}
+
+function decodeAttributes(kvs: { key: string; value?: AnyValue }[]): Record<string, AttributeValue> {
+  const out: Record<string, AttributeValue> = {};
   for (const kv of kvs) {
-    const v = kv.value ?? {};
-    if (v.stringValue !== undefined) out[kv.key] = v.stringValue;
-    else if (v.intValue !== undefined) out[kv.key] = Number(v.intValue);
-    else if (v.doubleValue !== undefined) out[kv.key] = v.doubleValue;
-    else if (v.boolValue !== undefined) out[kv.key] = v.boolValue;
+    const decoded = decodeAnyValue(kv.value ?? {});
+    if (decoded !== undefined) out[kv.key] = decoded;
   }
   return out;
+}
+
+function decodeScalarValue(v: AnyValue): string | number | boolean | undefined {
+  if (v.stringValue !== undefined) return v.stringValue;
+  else if (v.intValue !== undefined) return Number(v.intValue);
+  else if (v.doubleValue !== undefined) return v.doubleValue;
+  else if (v.boolValue !== undefined) return v.boolValue;
+  return undefined;
+}
+
+// Decode a single OTLP JSON AnyValue. Arrays ({ arrayValue: { values: AnyValue[] } }, e.g.
+// aws.dynamodb.table_names) decode element-wise via the same scalar rules; without this an array
+// attribute would be silently dropped from test assertions.
+function decodeAnyValue(v: AnyValue): AttributeValue | undefined {
+  if (v.arrayValue !== undefined) {
+    return (v.arrayValue.values ?? [])
+      .map(element => decodeScalarValue(element))
+      .filter((element): element is string | number | boolean => element !== undefined) as AttributeValue;
+  }
+  return decodeScalarValue(v);
 }

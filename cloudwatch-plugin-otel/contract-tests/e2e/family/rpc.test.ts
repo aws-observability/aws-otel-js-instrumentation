@@ -64,9 +64,13 @@ describe('Contract: RPC attributes family (gRPC)', function () {
   // check for the peer family. The remaining new families (GenAI, FaaS, and the AWS resource-identity
   // keys) are exercised by the pure unit tests instead, because real instrumentation cannot produce
   // those spans in this harness.
-  it('copies server.address from the gRPC client span', () => {
+  it('copies the peer host from the gRPC client span', () => {
     const clientAttrs = collector.findCallsAttributes(RPC_SPAN_NAME, a => a['span.kind'] === 'CLIENT');
     assert.ok(clientAttrs, `CLIENT calls datapoint for "${RPC_SPAN_NAME}" present`);
-    assert.strictEqual(clientAttrs!['server.address'], 'localhost');
+    // Current instrumentation emits server.address; older field-floor instrumentation emits the legacy
+    // net.peer.name pass-through. Accept whichever the installed version produced.
+    const peerKey = 'server.address' in clientAttrs! ? 'server.address' : 'net.peer.name';
+    assert.ok(peerKey in clientAttrs!, `peer host (server.address or net.peer.name) present for "${RPC_SPAN_NAME}"`);
+    assert.strictEqual(clientAttrs![peerKey], 'localhost');
   });
 });

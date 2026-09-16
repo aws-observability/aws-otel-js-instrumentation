@@ -208,6 +208,45 @@ describe('SpanMetricsAttributesBuilder', () => {
     assert.ok(!('network.peer.address' in attrs));
   });
 
+  it('passes legacy client-span peer keys (net.peer.*) through unchanged when current keys are absent', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.CLIENT,
+        attributes: { 'net.peer.name': 'payments.example.com', 'net.peer.port': 8443 },
+      })
+    );
+    assert.strictEqual(attrs['net.peer.name'], 'payments.example.com');
+    assert.strictEqual(attrs['net.peer.port'], 8443);
+    assert.strictEqual(typeof attrs['net.peer.port'], 'number', 'legacy peer port stays an int');
+    assert.ok(!('server.address' in attrs), 'never re-homed to the current key');
+    assert.ok(!('server.port' in attrs));
+  });
+
+  it('passes legacy server-span peer keys (net.host.*) through unchanged when current keys are absent', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.SERVER,
+        attributes: { 'net.host.name': 'orders.example.com', 'net.host.port': 8080 },
+      })
+    );
+    assert.strictEqual(attrs['net.host.name'], 'orders.example.com');
+    assert.strictEqual(attrs['net.host.port'], 8080);
+    assert.strictEqual(typeof attrs['net.host.port'], 'number', 'legacy host port stays an int');
+    assert.ok(!('server.address' in attrs), 'never re-homed to the current key');
+    assert.ok(!('server.port' in attrs));
+  });
+
+  it('prefers current peer keys and does not add the legacy ones', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.CLIENT,
+        attributes: { 'server.address': 'payments.example.com', 'net.peer.name': 'payments.example.com' },
+      })
+    );
+    assert.strictEqual(attrs['server.address'], 'payments.example.com');
+    assert.ok(!('net.peer.name' in attrs));
+  });
+
   it('copies gen_ai attributes', () => {
     const attrs = buildAttributes(
       fakeSpan({

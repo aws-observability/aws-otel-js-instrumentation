@@ -63,11 +63,18 @@ export class MockCollector {
     return this.exportedSpanNames.filter(n => n === name).length;
   }
 
+  // How many times a SERVER endpoint (one logical server span name) was called. Cumulative
+  // temporality means each series' stored value is its running total, so summing the SERVER-kind
+  // series gives the request count. Summing only SERVER-kind is deliberate: a name may carry
+  // non-SERVER series too (the gRPC CLIENT span shares its SERVER span's name), and summing those in
+  // would double-count. It also correctly re-aggregates a SERVER endpoint that older instrumentation
+  // split into per-request series by a high-cardinality dimension (e.g. net.peer.port): 60 series of
+  // value 1 sum back to 60, exactly as a single series of value 60 would.
   callsValue(name: string): number {
     const dps = this.callsByName.get(name) ?? [];
-    // cumulative temporality: latest datapoint per (name) holds the running total; sum across series
-    // for that span name is what the tests assert against a known request count.
-    return dps.reduce((acc, dp) => acc + dp.value, 0);
+    return dps
+      .filter(dp => String(dp.attributes['span.kind'] ?? '') === 'SERVER')
+      .reduce((acc, dp) => acc + dp.value, 0);
   }
 
   callsAttributes(name: string): Record<string, string | number | boolean> | undefined {
@@ -124,12 +131,16 @@ export class MockCollector {
               const value = Number(dp.asInt ?? dp.asDouble ?? 0);
               const name = String(attributes['span.name'] ?? '');
               // Cumulative temporality: the latest datapoint per distinct series holds the running
-              // total. One span name can carry more than one series (e.g. gRPC emits a CLIENT and a
-              // SERVER span with the same name), so key series by (span.name, span.kind) and replace
-              // the matching series rather than the whole span-name entry.
-              const kind = String(attributes['span.kind'] ?? '');
+              // total. One span name can carry more than one series that must be kept separate — the
+              // gRPC CLIENT and SERVER spans share a name (the rpc test selects the CLIENT series by
+              // span.kind), and on older instrumentation a single SERVER endpoint fans out into one
+              // series per value of a high-cardinality dimension (e.g. net.peer.port, the ephemeral
+              // client port, differs per request). Key each series by its FULL attribute signature so
+              // genuinely-distinct series are all retained, and replace on an exact-signature match so
+              // repeated cumulative exports of the same series overwrite (not accumulate).
+              const signature = seriesSignature(attributes);
               const series = this.callsByName.get(name) ?? [];
-              const existing = series.findIndex(dp2 => String(dp2.attributes['span.kind'] ?? '') === kind);
+              const existing = series.findIndex(dp2 => seriesSignature(dp2.attributes) === signature);
               if (existing >= 0) {
                 series[existing] = { attributes, value };
               } else {
@@ -148,6 +159,16 @@ export class MockCollector {
       }
     }
   }
+}
+
+// A stable identity for a metric series: its full, attribute-sorted key/value set. Two datapoints
+// with the same signature are the same series across cumulative exports (replace); differing on any
+// attribute (e.g. span.kind or net.peer.port) makes them distinct series (keep both).
+function seriesSignature(attributes: Record<string, string | number | boolean>): string {
+  return Object.keys(attributes)
+    .sort()
+    .map(k => `${k}=${String(attributes[k])}`)
+    .join('|');
 }
 
 function decodeAttributes(kvs: any[]): Record<string, string | number | boolean> {

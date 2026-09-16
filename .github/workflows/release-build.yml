@@ -48,18 +48,29 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ github.ref_name }}
+          # Pin to the main build of the exact commit being released (not just "latest on branch"),
+          # so the tarball + image promoted are the ones built from this commit.
+          head-sha: ${{ github.sha }}
 
-      - name: Download main build tarball
+      - name: Download main build tarball and image reference
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ steps.main_build.outputs.run_id }}
-        run: gh run download "$RUN_ID" -n "${{ env.ARTIFACT_NAME }}" -D staging
+        run: |
+          gh run download "$RUN_ID" -n "${{ env.ARTIFACT_NAME }}" -D staging
+          gh run download "$RUN_ID" -n staging-image -D staging
 
       - name: Upload SDK Tarball
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: staging/${{ env.ARTIFACT_NAME }}
+
+      - name: Upload staging image reference
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
+        with:
+          name: staging-image
+          path: staging/staging-image.txt
   
   build-layer:
     needs: build-sdk
@@ -161,21 +172,30 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 #v3.11.1
 
-      # Promote the exact multi-arch image the main build already built, scanned, and verified:
-      # copy its manifest (all arches + attestations) from staging to the release registries by
-      # reference -- no rebuild, no re-verify. The staging tag is reconstructed the same way
-      # main-build.yml builds it: <root package.json version>-<short sha> of this (same) commit.
-      - name: Promote staging image to release ECRs
+      # The digest of the image main-build already built, scanned, and E2E-tested -- recorded by that
+      # same run and downloaded above. Promoting this exact digest (not a rebuild) is what lets us
+      # ship precisely the validated image.
+      - name: Download validated image reference
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
+        with:
+          name: staging-image
+          path: staging-image
+
+      - name: Promote validated main-build image to release ECRs
         run: |
           set -euo pipefail
-          PKG_VERSION=$(jq -r '.version' package.json)
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          STAGING_IMAGE="${{ env.STAGING_ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}:${PKG_VERSION}-${SHORT_SHA}"
-          echo "Promoting $STAGING_IMAGE"
+
+          # e.g. 637...amazonaws.com/aws-observability/adot-autoinstrumentation-node-staging@sha256:<digest>
+          validated_image="$(cat staging-image/staging-image.txt)"
+          echo "Promoting validated image: $validated_image"
+
+          # Copy that one multi-arch image (all architectures + attestations) into both release
+          # repos under the v<version> tag. imagetools copies the manifest by reference, so no
+          # rebuild happens and the released bits are identical to what main-build validated.
           docker buildx imagetools create \
-            -t "${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}" \
-            -t "${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}" \
-            "$STAGING_IMAGE"
+            --tag "${{ env.RELEASE_PUBLIC_REPOSITORY }}:v${{ env.VERSION }}" \
+            --tag "${{ env.RELEASE_PRIVATE_REPOSITORY }}:v${{ env.VERSION }}" \
+            "$validated_image"
 
       - name: Perform image scan
         uses: ./.github/actions/image_scan

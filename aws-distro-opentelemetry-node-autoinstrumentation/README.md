@@ -40,18 +40,18 @@ dependencies.
       <td>
         <p>Set to <code>true</code> to enable agent-observability defaults. The default is <code>false</code>.</p>
         <p>When enabled, the following environment variable defaults are applied unless you have already configured them:</p>
-        <p><code>OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf<br>
-OTEL_PROPAGATORS=baggage,<wbr>xray,<wbr>tracecontext<br>
-OTEL_NODE_DISABLED_INSTRUMENTATIONS=fs,<wbr>dns<br>
-OTEL_NODE_ENABLED_INSTRUMENTATIONS=aws-lambda,<wbr>aws-sdk,<wbr>http,<wbr>undici,<wbr>aws_langchain,<wbr>aws_openai_agents,<wbr>aws_vercel_ai<br>
-OTEL_TRACES_EXPORTER=otlp<br>
-OTEL_LOGS_EXPORTER=otlp<br>
-OTEL_METRICS_EXPORTER=awsemf<br>
-OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true<br>
-OTEL_TRACES_SAMPLER=parentbased_always_on<br>
-OTEL_AWS_APPLICATION_SIGNALS_ENABLED=false<br>
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://xray.&lt;region&gt;.amazonaws.com/v1/traces<br>
-OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://logs.&lt;region&gt;.amazonaws.com/v1/logs</code></p>
+        <pre><code>OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_PROPAGATORS=baggage,xray,tracecontext
+OTEL_NODE_DISABLED_INSTRUMENTATIONS=fs,dns
+OTEL_NODE_ENABLED_INSTRUMENTATIONS=aws-lambda,aws-sdk,http,undici,aws_langchain,aws_openai_agents,aws_vercel_ai
+OTEL_TRACES_EXPORTER=otlp
+OTEL_LOGS_EXPORTER=otlp
+OTEL_METRICS_EXPORTER=awsemf
+OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
+OTEL_TRACES_SAMPLER=parentbased_always_on
+OTEL_AWS_APPLICATION_SIGNALS_ENABLED=false
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://xray.&lt;region&gt;.amazonaws.com/v1/traces
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://logs.&lt;region&gt;.amazonaws.com/v1/logs</code></pre>
         <blockquote>
           <p>[!NOTE]</p>
           <p>The trace and log endpoints are configured only when <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> is not set and an AWS Region can be determined.</p>
@@ -66,9 +66,9 @@ OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://logs.&lt;region&gt;.amazonaws.com/v1/lo
         <p>Supports wildcard patterns.</p>
         <p><strong>Examples:</strong></p>
         <p>To redact specific sensitive data GenAI attributes:</p>
-        <p><code>export AWS_REDACT_SPAN_ATTRIBUTES='gen_ai.input.messages,<wbr>gen_ai.output.messages'</code></p>
+        <pre><code>export AWS_REDACT_SPAN_ATTRIBUTES='gen_ai.input.messages,gen_ai.output.messages'</code></pre>
         <p>To redact multiple attributes matching a pattern:</p>
-        <p><code>export AWS_REDACT_SPAN_ATTRIBUTES='gen_ai.*.messages'</code></p>
+        <pre><code>export AWS_REDACT_SPAN_ATTRIBUTES='gen_ai.*.messages'</code></pre>
         <blockquote>
           <p>[!WARNING]</p>
           <p>Redaction occurs in-process within the agent, before telemetry is exported. This may affect other integrations that rely on these attribute values.</p>
@@ -80,7 +80,7 @@ OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://logs.&lt;region&gt;.amazonaws.com/v1/lo
       <td><code>OTEL_NODE_DISABLED_INSTRUMENTATIONS</code></td>
       <td>
         <p>Add <code>aws_langchain</code>, <code>aws_openai_agents</code>, or <code>aws_vercel_ai</code> to the comma-separated value to force-disable individual instrumentations. To force-disable all three:</p>
-        <p><code>export OTEL_NODE_DISABLED_INSTRUMENTATIONS=fs,<wbr>dns,<wbr>aws_langchain,<wbr>aws_openai_agents,<wbr>aws_vercel_ai</code></p>
+        <pre><code>export OTEL_NODE_DISABLED_INSTRUMENTATIONS=fs,dns,aws_langchain,aws_openai_agents,aws_vercel_ai</code></pre>
         <blockquote>
           <p>[!NOTE]</p>
           <p>An instrumentation is skipped when a conflicting third-party instrumentation is detected for the same framework.</p>

@@ -100,17 +100,6 @@ OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://logs.&lt;region&gt;.amazonaws.com/v1/lo
         <br>
       </td>
     </tr>
-    <tr>
-      <td><code>AWS_AGENTIC_INSTRUMENTATION_OPT_IN</code></td>
-      <td>
-        <p>Set to <code>true</code> to force an instrumentation to load when it would otherwise be skipped because a conflicting third-party instrumentation was detected.</p>
-        <blockquote>
-          <p>[!WARNING]</p>
-          <p>We recommend that you do not use this setting when third-party instrumentation for the same framework is enabled, because both instrumentations may run and produce duplicate or inconsistent telemetry.</p>
-        </blockquote>
-        <br>
-      </td>
-    </tr>
   </tbody>
 </table>
 

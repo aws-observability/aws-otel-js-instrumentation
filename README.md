@@ -91,7 +91,9 @@ OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://logs.&lt;region&gt;.amazonaws.com/v1/lo
       <td><code>OTEL_NODE_DISABLED_INSTRUMENTATIONS</code></td>
       <td>
         <p>Add <code>aws_langchain</code>, <code>aws_openai_agents</code>, or <code>aws_vercel_ai</code> to the comma-separated value to force-disable individual instrumentations. To force-disable all three:</p>
-        <p><code>export OTEL_NODE_DISABLED_INSTRUMENTATIONS=fs,<wbr>dns,<wbr>aws_langchain,<wbr>aws_openai_agents,<wbr>aws_vercel_ai</code></p>
+        <pre><code>export OTEL_NODE_DISABLED_INSTRUMENTATIONS=\
+fs,dns,aws_langchain,\
+aws_openai_agents,aws_vercel_ai</code></pre>
         <blockquote>
           <p>[!NOTE]</p>
           <p>An instrumentation is skipped when a conflicting third-party instrumentation is detected for the same framework.</p>

@@ -153,13 +153,17 @@ jobs:
           os: ubuntu-latest
           trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
 
-      - name: Upgrade npm
-        run: npm install -g npm@latest
-
-      - name: Publish autoinstrumentation to npm
-        env:
-          NPM_CONFIG_PROVENANCE: true
-        run: npm publish "${{ env.ARTIFACT_NAME }}"
+      # Guard against a mis-typed version: the tarball built by the selected run must carry the exact
+      # version we're releasing, before anything is published.
+      - name: Assert tarball version matches release version
+        run: |
+          set -euo pipefail
+          built=$(tar -xzOf "${ARTIFACT_NAME}" package/package.json | jq -r .version)
+          if [ "$built" != "${VERSION}" ]; then
+            echo "ERROR: main-build tarball version ($built) != requested release version (${VERSION})"
+            exit 1
+          fi
+          echo "Tarball version matches requested release version: ${VERSION}"
 
       # Promotion source: assume the role that main-build uses to push to the staging ECR, so we can
       # pull the validated image back. NOTE: this needs pull (ecr:BatchGetImage /
@@ -208,6 +212,14 @@ jobs:
         with:
           name: staging-image
           path: staging-image
+
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
+      - name: Publish autoinstrumentation to npm
+        env:
+          NPM_CONFIG_PROVENANCE: true
+        run: npm publish "${{ env.ARTIFACT_NAME }}"
 
       - name: Promote validated main-build image to release ECRs
         run: |

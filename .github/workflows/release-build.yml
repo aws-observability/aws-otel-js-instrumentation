@@ -57,8 +57,30 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ steps.main_build.outputs.run_id }}
         run: |
-          gh run download "$RUN_ID" -n "${{ env.ARTIFACT_NAME }}" -D staging
-          gh run download "$RUN_ID" -n staging-image -D staging
+          WORKFLOW_ID=$(gh api repos/${{ github.repository }}/actions/workflows --jq '.workflows[] | select(.name=="NodeJS Instrumentation Main Build") | .id')
+          LATEST_RUN=$(gh api repos/${{ github.repository }}/actions/workflows/$WORKFLOW_ID/runs --jq '[.workflow_runs[] | select(.head_branch=="${{ github.ref_name }}")] | sort_by(.created_at) | .[-1] | {conclusion, status}')
+          STATUS=$(echo "$LATEST_RUN" | jq -r '.status')
+          CONCLUSION=$(echo "$LATEST_RUN" | jq -r '.conclusion')
+          
+          if [ "$STATUS" = "in_progress" ] || [ "$STATUS" = "queued" ]; then
+            echo "Main build is still running (status: $STATUS). Cannot proceed with release."
+            exit 1
+          elif [ "$CONCLUSION" != "success" ]; then
+            echo "Latest main build on branch ${{ github.ref_name }} conclusion: $CONCLUSION"
+            exit 1
+          fi
+          echo "Main build succeeded, proceeding with release"
+
+      - name: Build Tarball and Image Files
+        uses: ./.github/actions/artifacts_build
+        with:
+          image_uri_with_tag: "adot-autoinstrumentation-node:test"
+          push_image: false
+          load_image: true
+          node_version: "24"
+          package_name: aws-distro-opentelemetry-node-autoinstrumentation
+          os: ubuntu-latest
+          trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
 
       - name: Upload SDK Tarball
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
@@ -123,7 +145,13 @@ jobs:
       - name: Download SDK tarball
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
         with:
-          name: ${{ env.ARTIFACT_NAME }}
+          image_uri_with_tag: "adot-autoinstrumentation-node:test"
+          push_image: false
+          load_image: true
+          node_version: "24"
+          package_name: aws-distro-opentelemetry-node-autoinstrumentation
+          os: ubuntu-latest
+          trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
 
       - name: Upgrade npm
         run: npm install -g npm@latest

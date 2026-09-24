@@ -208,26 +208,6 @@ jobs:
         with:
           registry: public.ecr.aws
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 #v3.11.1
-
-      # The digest of the image main-build already built, scanned, and E2E-tested -- recorded by that
-      # same run and downloaded above. Promoting this exact digest (not a rebuild) is what lets us
-      # ship precisely the validated image.
-      - name: Download validated image reference
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
-        with:
-          name: staging-image
-          path: staging-image
-
-      - name: Upgrade npm
-        run: npm install -g npm@latest
-
-      - name: Publish autoinstrumentation to npm
-        env:
-          NPM_CONFIG_PROVENANCE: true
-        run: npm publish "${{ env.ARTIFACT_NAME }}"
-
       - name: Promote validated main-build image to release ECRs
         run: |
           set -euo pipefail
@@ -251,6 +231,27 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
           logout: 'false'
           trivyignore-file: .github/trivy/daily-scan.trivyignore.yaml
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 #v3.11.1
+
+      # The digest of the image main-build already built, scanned, and E2E-tested -- recorded by that
+      # same run and downloaded above. Promoting this exact digest (not a rebuild) is what lets us
+      # ship precisely the validated image.
+      - name: Download validated image reference
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 #v5.0.0
+        with:
+          name: staging-image
+          path: staging-image
+
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
+      - name: Publish autoinstrumentation to npm
+        env:
+          NPM_CONFIG_PROVENANCE: true
+        run: npm publish "${{ env.ARTIFACT_NAME }}"
+
 
       - name: Tag platform images in private ECR
         env:

@@ -1,0 +1,81 @@
+name: Release E2E 006 (build -> promote, one workflow)
+on:
+  push:
+    branches: [fork-006-all]
+  workflow_dispatch:
+permissions:
+  id-token: write
+  contents: read
+env:
+  STAGING_ECR_REGISTRY: 006233413485.dkr.ecr.us-west-2.amazonaws.com
+  STAGING_ECR_REPOSITORY: aws-observability/adot-autoinstrumentation-node-staging
+  RELEASE_REPO: 006233413485.dkr.ecr.us-west-2.amazonaws.com/adot-autoinstrumentation-node
+  ROLE: arn:aws:iam::006233413485:role/adot-release-rehearsal
+  REGION: us-west-2
+jobs:
+  main-build:
+    runs-on: ubuntu-latest
+    outputs:
+      digest_ref: ${{ steps.record.outputs.ref }}
+      version: ${{ steps.node_output.outputs.version }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
+      - name: Get Node Distro Output
+        id: node_output
+        run: |
+          pkg_version=$(jq -r '.version' ./package.json)
+          echo "version=$pkg_version" >> "$GITHUB_OUTPUT"
+          echo "stagingImage=${STAGING_ECR_REGISTRY}/${STAGING_ECR_REPOSITORY}:${pkg_version}-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Build and Push Tarball and Image Files
+        uses: ./.github/actions/artifacts_build
+        with:
+          aws-region: ${{ env.REGION }}
+          image_uri_with_tag: ${{ steps.node_output.outputs.stagingImage }}
+          image_registry: ${{ env.STAGING_ECR_REGISTRY }}
+          snapshot-ecr-role: ${{ env.ROLE }}
+          push_image: true
+          load_image: false
+          node_version: "24"
+          package_name: aws-distro-opentelemetry-node-autoinstrumentation
+          os: ubuntu-latest
+          trivyignore-file: .github/trivy/pr-build.trivyignore.yaml
+      - name: Record staging image digest for release promotion
+        id: record
+        run: |
+          DIGEST=$(docker buildx imagetools inspect "${{ steps.node_output.outputs.stagingImage }}" --format '{{.Manifest.Digest}}')
+          ref="${STAGING_ECR_REGISTRY}/${STAGING_ECR_REPOSITORY}@${DIGEST}"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "=== MAIN BUILD ARTIFACT IDENTITY ==="
+          echo "commit:            ${GITHUB_SHA}"
+          echo "node version:      ${{ steps.node_output.outputs.version }}"
+          echo "staging image ref: $ref"
+  release:
+    needs: main-build
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.main-build.outputs.version }}
+      VALIDATED_IMAGE: ${{ needs.main-build.outputs.digest_ref }}
+    steps:
+      - name: Configure AWS credentials (OIDC -> 006)
+        uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
+        with:
+          role-to-assume: ${{ env.ROLE }}
+          aws-region: ${{ env.REGION }}
+      - name: Log in to 006 ECR
+        run: aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$STAGING_ECR_REGISTRY"
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 #v3.11.1
+      - name: Promote validated main-build image to release ECRs
+        run: |
+          set -euo pipefail
+          echo "=== PROMOTED ARTIFACT IDENTITY ==="
+          echo "promoting: $VALIDATED_IMAGE"
+          echo "as:        ${RELEASE_REPO}:v${VERSION}"
+          docker buildx imagetools create --tag "${RELEASE_REPO}:v${VERSION}" "$VALIDATED_IMAGE"
+      - name: Verify released image == main-build image
+        run: |
+          set -euo pipefail
+          src="${VALIDATED_IMAGE#*@}"
+          dst=$(docker buildx imagetools inspect "${RELEASE_REPO}:v${VERSION}" --format '{{.Manifest.Digest}}')
+          echo "main-build digest: $src"
+          echo "released  digest: $dst"
+          [ "$src" = "$dst" ] && echo "PASS: release promoted the exact main-build image" || { echo "FAIL"; exit 1; }

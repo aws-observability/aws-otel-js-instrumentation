@@ -92,6 +92,21 @@ jobs:
           name: ${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
           path: aws-distro-opentelemetry-node-autoinstrumentation/${{ steps.staging_tarball_output.outputs.STAGING_TARBALL}}
 
+      # Record the exact multi-arch image digest so release-build promotes precisely the image this
+      # run built, pushed, scanned, and E2E-tested. A digest is immutable, so (unlike a tag) a later
+      # rerun cannot repoint it -- release ships exactly what was validated here.
+      - name: Record staging image digest for release promotion
+        run: |
+          DIGEST=$(docker buildx imagetools inspect "${{ steps.node_output.outputs.stagingImage }}" --format '{{.Manifest.Digest}}')
+          if [ -z "$DIGEST" ]; then echo "ERROR: could not resolve staging image digest"; exit 1; fi
+          echo "${{ env.STAGING_ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}@${DIGEST}" | tee staging-image.txt
+
+      - name: Upload staging image reference
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
+        with:
+          name: staging-image
+          path: staging-image.txt
+
       - name: Build and Publish Lambda Staging Layer
         uses: ./.github/actions/lambda_artifacts_build
         with:

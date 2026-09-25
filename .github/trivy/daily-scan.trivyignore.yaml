@@ -24,8 +24,8 @@ vulnerabilities:
     expired_at: 2026-08-31
 
   - id: CVE-2026-59892
-    statement: "@opentelemetry/propagator-jaeger DoS via malformed HTTP header decoding. Fix: bump to 2.9.0. https://avd.aquasec.com/nvd/cve-2026-59892"
-    expired_at: 2026-08-31
+    statement: "Temporary suppression while the OTel 2.9.0 upgrade is blocked by upstream semantic convention breaking changes. @opentelemetry/propagator-jaeger DoS via malformed HTTP header decoding. Fix: bump to 2.9.0. https://avd.aquasec.com/nvd/cve-2026-59892"
+    expired_at: 2026-10-31
 
   - id: CVE-2026-13149
     statement: "brace-expansion DoS via exponential-time complexity. Fix: bump to 2.1.2. https://avd.aquasec.com/nvd/cve-2026-13149"

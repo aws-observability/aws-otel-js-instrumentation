@@ -39,12 +39,6 @@ runs:
         WORKFLOW_FILE: ${{ inputs.workflow-file }}
       run: |
         set -euo pipefail
-        # Reference the workflow by file path (unique) and filter to the target branch (works for
-        # main and release/v*) server-side; the API returns runs newest-first, so per_page=100
-        # guarantees the most recent run is on this single page. If head-sha is set, only accept a
-        # run built from that exact commit -- this pins the release to the main build of the commit
-        # being released. All filtering runs inside gh's built-in --jq, which tolerates the control
-        # characters GitHub sometimes embeds in commit messages. Emit id/status/conclusion as a TSV line.
         RESULT=$(gh api \
           "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?branch=$TARGET_BRANCH&per_page=100" \
           --jq '[.workflow_runs[] | select(env.TARGET_HEAD_SHA == "" or .head_sha == env.TARGET_HEAD_SHA)]

@@ -416,6 +416,32 @@ describe('Register', function () {
       expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.us-east-2.amazonaws.com/v1/logs');
     });
 
+    it('Configures with AgentObservabilityEnabled with a China region', () => {
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      process.env.AWS_REGION = 'cn-north-1';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual(
+        'https://xray.cn-north-1.amazonaws.com.cn/v1/traces'
+      );
+      expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.cn-north-1.amazonaws.com.cn/v1/logs');
+
+      delete process.env.AWS_REGION;
+      delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+      delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+      process.env.AWS_DEFAULT_REGION = 'cn-northwest-1';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual(
+        'https://xray.cn-northwest-1.amazonaws.com.cn/v1/traces'
+      );
+      expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual(
+        'https://logs.cn-northwest-1.amazonaws.com.cn/v1/logs'
+      );
+    });
+
     it('Does not set signal-specific endpoints when OTEL_EXPORTER_OTLP_ENDPOINT is set', () => {
       process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
       process.env.AWS_REGION = 'us-west-2';

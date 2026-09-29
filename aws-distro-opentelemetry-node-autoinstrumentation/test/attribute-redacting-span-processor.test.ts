@@ -6,7 +6,7 @@ import { BatchSpanProcessor, InMemorySpanExporter, NodeTracerProvider } from '@o
 import expect from 'expect';
 import {
   AttributeRedactingSpanProcessor,
-  ENV_ADOT_REDACT_SPAN_ATTRIBUTES,
+  ENV_AWS_REDACT_SPAN_ATTRIBUTES,
   REDACTED_VALUE,
 } from '../src/attribute-redacting-span-processor';
 
@@ -27,7 +27,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'configured attribute names',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: ' user.email, request.body, db.statement, gen_ai.prompt, user.email ',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: ' user.email, request.body, db.statement, gen_ai.prompt, user.email ',
         },
         spanAttributes: {
           'user.email': 'user@example.com',
@@ -77,7 +77,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'wildcard only',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: '*',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: '*',
         },
         spanAttributes: { first: 'secret', second: 42, third: true },
         spanEventAttributes: { 'event.first': 'secret', 'event.second': 42 },
@@ -100,7 +100,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'prefix wildcard',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: 'http.*',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: 'http.*',
         },
         spanAttributes: {
           'http.request.method': 'GET',
@@ -132,7 +132,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'suffix wildcard',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: '*.body',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: '*.body',
         },
         spanAttributes: {
           'request.body': 'secret',
@@ -164,7 +164,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'multiple wildcard segments',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: 'gen_ai.*.content',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: 'gen_ai.*.content',
         },
         spanAttributes: {
           'gen_ai.input.content': 'secret input',
@@ -196,7 +196,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'wildcard mixed with explicit names',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: 'user.email,http.*',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: 'user.email,http.*',
         },
         spanAttributes: {
           'user.email': 'user@example.com',
@@ -241,7 +241,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'empty configuration',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: '',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: '',
         },
         spanAttributes: { 'user.email': 'user@example.com' },
         spanEventAttributes: { 'user.email': 'event-user@example.com' },
@@ -253,7 +253,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'empty comma-separated entries',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: ' , , ',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: ' , , ',
         },
         spanAttributes: { 'request.body': 'secret' },
         spanEventAttributes: { 'request.body': 'event secret' },
@@ -265,7 +265,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'whitespace-only configuration',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: ' \t ',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: ' \t ',
         },
         spanAttributes: { 'db.statement': 'SELECT * FROM users' },
         spanEventAttributes: { 'db.statement': 'DELETE FROM users' },
@@ -277,7 +277,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'unsupported regular expression',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: 'http\\.request\\..+',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: 'http\\.request\\..+',
         },
         spanAttributes: { 'http.request.method': 'POST' },
         spanEventAttributes: { 'http.request.body': 'secret' },
@@ -289,7 +289,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'unsupported regular expression anchors',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: '^user.email$',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: '^user.email$',
         },
         spanAttributes: { 'user.email': 'user@example.com' },
         spanEventAttributes: { 'user.email': 'event-user@example.com' },
@@ -301,7 +301,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'unsupported regular expression character class',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: 'http.request.[a-z]+',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: 'http.request.[a-z]+',
         },
         spanAttributes: { 'http.request.method': 'POST' },
         spanEventAttributes: { 'http.request.body': 'secret' },
@@ -313,7 +313,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'unsupported regular expression alternation',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: 'user.email|request.body',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: 'user.email|request.body',
         },
         spanAttributes: {
           'user.email': 'user@example.com',
@@ -343,7 +343,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'unsupported question mark wildcard',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: 'http.request.?',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: 'http.request.?',
         },
         spanAttributes: { 'http.request.method': 'POST' },
         spanEventAttributes: { 'http.request.body': 'secret' },
@@ -355,7 +355,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'malformed bracket pattern',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: 'http.request.[',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: 'http.request.[',
         },
         spanAttributes: { 'http.request.method': 'POST' },
         spanEventAttributes: { 'http.request.body': 'secret' },
@@ -367,7 +367,7 @@ describe('AttributeRedactingSpanProcessorTest', () => {
       {
         name: 'attribute name containing comma',
         environmentVariables: {
-          [ENV_ADOT_REDACT_SPAN_ATTRIBUTES]: 'custom,attribute',
+          [ENV_AWS_REDACT_SPAN_ATTRIBUTES]: 'custom,attribute',
         },
         spanAttributes: { 'custom,attribute': 'secret' },
         spanEventAttributes: { 'custom,attribute': 'event secret' },

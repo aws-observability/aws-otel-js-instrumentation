@@ -48,6 +48,7 @@
   },
   "license": "Apache-2.0",
   "devDependencies": {
+    "@opentelemetry/core": "2.10.0",
     "@types/mocha": "7.0.2",
     "@typescript-eslint/eslint-plugin": "5.8.1",
     "@typescript-eslint/parser": "5.8.1",

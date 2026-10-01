@@ -17,6 +17,20 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
   private authenticator: AwsAuthenticator;
   private parentSerializer: ISerializer<Payload, Response>;
 
+  // Serializes exports so that only one is in flight at a time.
+  //
+  // An export stores its serialized body on the shared serializer and its signed headers on the
+  // shared transport, and those are read back later - the body when the upstream export is invoked,
+  // the headers when the transport sends. Overlapping exports therefore clobber each other: a
+  // request can go out with another batch's body (silently losing a batch and duplicating another),
+  // or with a body and a signature that disagree, which the endpoint rejects as a signature
+  // mismatch.
+  //
+  // Exports overlap whenever a batch processor flushes, because BatchSpanProcessorBase._flushAll()
+  // exports every queued batch in parallel. Steady-state exports are already serialized by the
+  // processor's own in-flight guard.
+  private exportQueue: Promise<void> = Promise.resolve();
+
   constructor(
     endpoint: string,
     service: string,
@@ -44,10 +58,50 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
    * Overrides the upstream implementation of export.
    * All behaviors are the same except if the endpoint is an AWS OTLP endpoint, we will sign the request with SigV4
    * in headers before sending it to the endpoint.
+   *
+   * Exports are queued so that each one completes before the next begins, because the signing step
+   * keeps per-request state on objects shared across exports. See {@link exportQueue}.
+   *
    * @param items - Array of signal data to export
    * @param resultCallback - Callback function to handle export result
    */
-  override async export(items: Payload, resultCallback: (result: ExportResult) => void): Promise<void> {
+  override export(items: Payload, resultCallback: (result: ExportResult) => void): Promise<void> {
+    const previousExport = this.exportQueue;
+
+    // Released once this export has produced a result, which is what lets the next one start.
+    let releaseQueue!: () => void;
+    const thisExportSettled = new Promise<void>(resolve => (releaseQueue = resolve));
+
+    // `previousExport` never rejects (see below), so the chain cannot be broken by a failed export.
+    this.exportQueue = previousExport.then(() => thisExportSettled);
+
+    return previousExport.then(() => {
+      let settled = false;
+
+      const settle = (result: ExportResult) => {
+        // Upstream invokes the callback exactly once on every branch, including its rejection
+        // handler. Guard anyway: releasing twice is harmless, but never releasing would wedge the
+        // queue permanently, which would be worse than the defect this fixes.
+        if (settled) {
+          return;
+        }
+        settled = true;
+        releaseQueue();
+        resultCallback(result);
+      };
+
+      // Catch rather than propagate, so an unexpected throw still releases the queue and is
+      // reported through the callback like every other failure.
+      return this.doExport(items, settle).catch(error => {
+        settle({
+          code: ExportResultCode.FAILED,
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      });
+    });
+  }
+
+  private async doExport(items: Payload, resultCallback: (result: ExportResult) => void): Promise<void> {
     // In OTel 2.x, headers() is an async function that returns a Promise
     const headersGetter = this.parentExporter['_delegate']._transport?._transport?._parameters?.headers;
 
@@ -111,11 +165,15 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
     this.parentExporter.export(items, resultCallback);
   }
 
-  override shutdown(): Promise<void> {
+  override async shutdown(): Promise<void> {
+    // Let queued exports finish before tearing the parent down, so they are not abandoned.
+    await this.exportQueue;
     return this.parentExporter.shutdown();
   }
 
-  override forceFlush(): Promise<void> {
+  override async forceFlush(): Promise<void> {
+    // A flush must not report completion while exports are still waiting their turn.
+    await this.exportQueue;
     return this.parentExporter.forceFlush();
   }
 }

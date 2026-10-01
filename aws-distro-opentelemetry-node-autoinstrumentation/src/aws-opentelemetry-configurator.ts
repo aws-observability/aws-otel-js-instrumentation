@@ -83,8 +83,11 @@ import { ConsoleEMFExporter } from './exporter/aws/metrics/console-emf-exporter'
 import { EMFExporterBase } from './exporter/aws/metrics/emf-exporter-base';
 import { CompactConsoleLogRecordExporter } from './exporter/console/logs/compact-console-log-exporter';
 
-const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/traces$';
-const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com/v1/logs$';
+// The optional `.cn` suffix matches endpoints in the AWS China partition, which serves them under
+// amazonaws.com.cn. The patterns stay anchored, so the optional group does not loosen matching:
+// a lookalike host such as `xray.cn-north-1.amazonaws.com.cn.example.com` is still rejected.
+const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?/v1/traces$';
+const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?/v1/logs$';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';

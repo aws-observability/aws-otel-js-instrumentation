@@ -13,6 +13,20 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix(exporter): serialize SigV4 exports so that overlapping exports no longer send one batch's body
+  with another batch's signature, which silently dropped and duplicated telemetry on every flush and
+  shutdown
+  ([#566](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/566))
+- fix: support AWS China partition endpoints (`amazonaws.com.cn`) for collector-less X-Ray and
+  CloudWatch Logs OTLP export
+  ([#566](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/566))
+- feat(metrics): sign collector-less OTLP metrics with SigV4 when exporting to the CloudWatch metrics
+  endpoint. Requires `OTEL_METRICS_EXPORTER=otlp`,
+  `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/protobuf` and
+  `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://monitoring.<region>.amazonaws.com/v1/metrics`, plus
+  the `cloudwatch:PutMetricData` permission
+  ([#566](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/566))
+
 ## v0.13.0 - 2026-09-14
 
 - feat: redact span, span event, and span link attributes via AWS_REDACT_SPAN_ATTRIBUTES

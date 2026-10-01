@@ -5,7 +5,7 @@
 import { TextMapPropagator, diag } from '@opentelemetry/api';
 import { getPropagator } from '@opentelemetry/auto-configuration-propagators';
 import { getResourceDetectors as getResourceDetectorsFromEnv } from '@opentelemetry/auto-instrumentations-node';
-import { getStringFromEnv, getStringListFromEnv } from '@opentelemetry/core';
+import { getStringFromEnv, getStringListFromEnv, parseKeyPairsIntoRecord } from '@opentelemetry/core';
 import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import { CompressionAlgorithm } from '@opentelemetry/otlp-exporter-base';
 import {
@@ -36,12 +36,13 @@ import {
 import {
   AggregationType,
   AggregationSelector,
+  ConsoleMetricExporter,
   InstrumentType,
   MeterProvider,
   PeriodicExportingMetricReader,
   PushMetricExporter,
 } from '@opentelemetry/sdk-metrics';
-import type { AggregationOption } from '@opentelemetry/sdk-metrics';
+import type { AggregationOption, IMetricReader } from '@opentelemetry/sdk-metrics';
 import { NodeSDKConfiguration } from '@opentelemetry/sdk-node';
 import {
   AlwaysOffSampler,
@@ -74,6 +75,7 @@ import { AwsXRayRemoteSampler } from './sampler/aws-xray-remote-sampler';
 import { LIB_VERSION } from './version';
 import { AWSCloudWatchEMFExporter } from './exporter/aws/metrics/aws-cloudwatch-emf-exporter';
 import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-exporter';
+import { OTLPAwsMetricExporter } from './exporter/otlp/aws/metrics/otlp-aws-metric-exporter';
 import { isAgentObservabilityEnabled, parseOtelBaggageKeysEnvVar } from './utils';
 import { GenAINestedClientSpanProcessor } from './gen-ai-nested-client-span-processor';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
@@ -88,6 +90,12 @@ import { CompactConsoleLogRecordExporter } from './exporter/console/logs/compact
 // a lookalike host such as `xray.cn-north-1.amazonaws.com.cn.example.com` is still rejected.
 const AWS_TRACES_OTLP_ENDPOINT_PATTERN = '^https://xray\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?/v1/traces$';
 const AWS_LOGS_OTLP_ENDPOINT_PATTERN = '^https://logs\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?/v1/logs$';
+// CloudWatch metrics OTLP ingestion is not available in the China partition yet, so the `.cn` form
+// is accepted for consistency with the other signals and will sign correctly once it is.
+const AWS_METRICS_OTLP_ENDPOINT_PATTERN = '^https://monitoring\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?/v1/metrics$';
+
+// SigV4 signing service for the CloudWatch metrics OTLP endpoint.
+const AWS_METRICS_OTLP_SERVICE = 'monitoring';
 
 const APPLICATION_SIGNALS_ENABLED_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_ENABLED';
 const APPLICATION_SIGNALS_EXPORTER_ENDPOINT_CONFIG: string = 'OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT';
@@ -135,7 +143,7 @@ export class AwsOpentelemetryConfigurator {
   private spanProcessors: SpanProcessor[];
   private logRecordProcessors: LogRecordProcessor[];
   private propagator: TextMapPropagator;
-  private metricReader: PeriodicExportingMetricReader | undefined;
+  private metricReaders: IMetricReader[] | undefined;
 
   /**
    * The constructor will setup the AwsOpentelemetryConfigurator object to be able to provide a
@@ -266,8 +274,10 @@ export class AwsOpentelemetryConfigurator {
       textMapPropagator: this.propagator,
     };
 
-    if (this.metricReader) {
-      config.metricReader = this.metricReader;
+    // Passing any reader means upstream stops building readers from OTEL_METRICS_EXPORTER, so
+    // customizeMetricReader is responsible for everything it needs to cover.
+    if (this.metricReaders) {
+      config.metricReaders = this.metricReaders;
     }
 
     return config;
@@ -391,17 +401,26 @@ export class AwsOpentelemetryConfigurator {
   }
 
   private customizeMetricReader(isEmfEnabled: boolean) {
-    let exporter: PushMetricExporter | undefined = undefined;
+    const readers: IMetricReader[] = [];
 
-    if (isEmfEnabled) {
-      exporter = createEmfExporter();
+    const emfExporter: PushMetricExporter | undefined = isEmfEnabled ? createEmfExporter() : undefined;
+
+    if (emfExporter) {
+      readers.push(new PeriodicExportingMetricReader({ exporter: emfExporter }));
     }
 
-    if (exporter) {
-      const periodicExportingMetricReader = new PeriodicExportingMetricReader({
-        exporter: exporter,
-      });
-      this.metricReader = periodicExportingMetricReader;
+    const awsMetricExporter = createAwsOtlpMetricExporter();
+
+    if (awsMetricExporter) {
+      readers.push(new PeriodicExportingMetricReader({ exporter: awsMetricExporter }));
+
+      // Supplying a reader stops upstream reading OTEL_METRICS_EXPORTER at all, so the remaining
+      // entries have to be honoured here or they would be silently dropped.
+      readers.push(...createRemainingMetricReadersFromEnv());
+    }
+
+    if (readers.length > 0) {
+      this.metricReaders = readers;
     }
   }
 
@@ -934,11 +953,147 @@ export function isAwsOtlpEndpoint(otlpEndpoint: string, service: string): boolea
     pattern = AWS_TRACES_OTLP_ENDPOINT_PATTERN;
   } else if (service === 'logs') {
     pattern = AWS_LOGS_OTLP_ENDPOINT_PATTERN;
+  } else if (service === AWS_METRICS_OTLP_SERVICE) {
+    pattern = AWS_METRICS_OTLP_ENDPOINT_PATTERN;
   } else {
     return false;
   }
 
   return new RegExp(pattern).test(otlpEndpoint.toLowerCase());
+}
+
+/**
+ * Checks whether an Authorization header is configured in the given OTLP headers environment
+ * variable, which indicates the user has chosen bearer authentication for that signal.
+ *
+ * Only the variable named here is consulted. In particular, callers pass the signal-specific
+ * variable: a global OTEL_EXPORTER_OTLP_HEADERS is a catch-all that may be intended for an unrelated
+ * backend, so treating it as consent would let it silently disable SigV4 against an AWS endpoint.
+ *
+ * Header names are case-insensitive, so the comparison is too.
+ */
+export function hasExplicitAuthorizationHeader(signalHeadersEnvVar: string): boolean {
+  const rawHeaders = process.env[signalHeadersEnvVar];
+
+  if (!rawHeaders) {
+    return false;
+  }
+
+  return Object.keys(parseKeyPairsIntoRecord(rawHeaders)).some(key => key.toLowerCase() === 'authorization');
+}
+
+/**
+ * Builds the SigV4-signing metrics exporter when the configuration targets the CloudWatch metrics
+ * OTLP endpoint, and returns undefined otherwise so that upstream's own exporter is left alone.
+ *
+ * Checks run in the same order as the traces and logs paths, with the bearer check last, so that
+ * configuration diagnostics are reported before authentication is decided.
+ */
+export function createAwsOtlpMetricExporter(): PushMetricExporter | undefined {
+  const enabledExporters = getStringListFromEnv('OTEL_METRICS_EXPORTER') ?? [];
+
+  if (!enabledExporters.includes('otlp')) {
+    return undefined;
+  }
+
+  const otlpMetricsEndpoint = process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT;
+
+  // Only the signal-specific endpoint is considered, matching the traces and logs paths. A global
+  // OTEL_EXPORTER_OTLP_ENDPOINT does not activate SigV4 for any signal today.
+  if (!otlpMetricsEndpoint || !isAwsOtlpEndpoint(otlpMetricsEndpoint, AWS_METRICS_OTLP_SERVICE)) {
+    return undefined;
+  }
+
+  const protocol = (
+    getStringFromEnv('OTEL_EXPORTER_OTLP_METRICS_PROTOCOL') ?? getStringFromEnv('OTEL_EXPORTER_OTLP_PROTOCOL')
+  )?.trim();
+
+  // CloudWatch OTLP endpoints accept HTTP with protobuf only. Leave any other exporter untouched
+  // rather than signing it, so the misconfiguration surfaces as upstream's own failure.
+  if (protocol !== undefined && protocol !== '' && protocol !== 'http/protobuf') {
+    diag.warn(
+      `Detected CloudWatch metrics OTLP endpoint with unsupported protocol "${protocol}". ` +
+        'The CloudWatch OTLP endpoints require http/protobuf, so SigV4 signing was not applied. ' +
+        'Set OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/protobuf to export metrics directly to CloudWatch.'
+    );
+    return undefined;
+  }
+
+  // An explicit bearer token for this signal wins over automatic SigV4. CloudWatch metrics accepts
+  // bearer API keys, so this is a legitimate configuration, and signing would discard the token.
+  if (hasExplicitAuthorizationHeader('OTEL_EXPORTER_OTLP_METRICS_HEADERS')) {
+    diag.info(
+      'An Authorization header is set in OTEL_EXPORTER_OTLP_METRICS_HEADERS, so bearer authentication ' +
+        'is preserved and SigV4 signing was not applied to metrics.'
+    );
+    return undefined;
+  }
+
+  if (hasExplicitAuthorizationHeader('OTEL_EXPORTER_OTLP_HEADERS')) {
+    diag.info(
+      'An Authorization header is set in the global OTEL_EXPORTER_OTLP_HEADERS. It is not treated as a ' +
+        'choice of bearer authentication for metrics, so SigV4 signing is still applied. Set ' +
+        'OTEL_EXPORTER_OTLP_METRICS_HEADERS instead to use a bearer token for metrics.'
+    );
+  }
+
+  if (AwsOpentelemetryConfigurator.isApplicationSignalsEnabled()) {
+    diag.warn(
+      'Application Signals is enabled alongside a CloudWatch metrics OTLP endpoint. Application Signals ' +
+        'metrics continue to use their own pipeline; only metrics from OTEL_METRICS_EXPORTER=otlp are sent ' +
+        'to the CloudWatch metrics endpoint.'
+    );
+  }
+
+  const compression = getMetricsCompressionFromEnv();
+
+  diag.debug('Detected CloudWatch metrics OTLP endpoint. Switching exporter to OTLPAwsMetricExporter');
+
+  return new OTLPAwsMetricExporter(otlpMetricsEndpoint.toLowerCase(), { compression });
+}
+
+/**
+ * Builds readers for the OTEL_METRICS_EXPORTER entries other than `otlp`, which the AWS metrics path
+ * handles, and `awsemf`, which is stripped from the variable and handled before this runs.
+ *
+ * This is only used once ADOT has taken over metric readers. Upstream would otherwise have built
+ * these, and because it stops looking at the variable entirely, not rebuilding them here would drop
+ * them. That is the existing behaviour when `awsemf` is combined with another exporter; this
+ * corrects it on the AWS metrics path only.
+ */
+function createRemainingMetricReadersFromEnv(): IMetricReader[] {
+  const readers: IMetricReader[] = [];
+  const enabledExporters = Array.from(new Set(getStringListFromEnv('OTEL_METRICS_EXPORTER') ?? []));
+
+  for (const exporter of enabledExporters) {
+    if (exporter === 'otlp' || exporter === 'none') {
+      continue;
+    }
+
+    if (exporter === 'console') {
+      readers.push(new PeriodicExportingMetricReader({ exporter: new ConsoleMetricExporter() }));
+      continue;
+    }
+
+    diag.warn(
+      `OTEL_METRICS_EXPORTER value "${exporter}" is not supported alongside the CloudWatch metrics OTLP ` +
+        'endpoint and was not initialized. Supported values on this path are: otlp, console, awsemf.'
+    );
+  }
+
+  return readers;
+}
+
+/**
+ * Resolves the metrics compression preference, defaulting to none as upstream does. Unlike the logs
+ * exporter, gzip is not forced on, so the user's configuration is respected.
+ */
+function getMetricsCompressionFromEnv(): CompressionAlgorithm {
+  const compression = (
+    getStringFromEnv('OTEL_EXPORTER_OTLP_METRICS_COMPRESSION') ?? getStringFromEnv('OTEL_EXPORTER_OTLP_COMPRESSION')
+  )?.trim();
+
+  return compression === 'gzip' ? CompressionAlgorithm.GZIP : CompressionAlgorithm.NONE;
 }
 
 /**

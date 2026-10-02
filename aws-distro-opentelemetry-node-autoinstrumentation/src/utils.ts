@@ -83,6 +83,18 @@ export const getAwsRegionFromEnvironment = (): string | undefined => {
   return undefined;
 };
 
+/**
+ * Get the DNS suffix for the partition the given region belongs to.
+ * The AWS China partition (cn-north-1, cn-northwest-1) serves its endpoints under amazonaws.com.cn;
+ * the other partitions this distro targets (aws, aws-us-gov) use amazonaws.com.
+ */
+export const getAwsDnsSuffix = (region: string | undefined): string => {
+  if (region && region.startsWith('cn-')) {
+    return 'amazonaws.com.cn';
+  }
+  return 'amazonaws.com';
+};
+
 export const parseOtelBaggageKeysEnvVar = (): Set<string> => {
   const raw = process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] ?? '';
   const keys = new Set<string>();

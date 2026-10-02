@@ -95,6 +95,25 @@ describe('AwsAuthenticator', () => {
     }
   });
 
+  it('should sign China partition endpoints with the China region', async () => {
+    const AwsAuthenticatorWithMock = proxyquire('../../../../../src/exporter/otlp/aws/common/aws-authenticator', {
+      '@aws-sdk/credential-provider-node': {
+        defaultProvider: sandbox.stub().resolves(mockCredentials),
+      },
+    }).AwsAuthenticator;
+
+    const result = await new AwsAuthenticatorWithMock(
+      'https://xray.cn-north-1.amazonaws.com.cn/v1/traces',
+      'xray'
+    ).authenticate({ test: 'test' }, new Uint8Array());
+
+    if (version >= 16) {
+      expect(result[AUTHORIZATION_HEADER]).toContain('/cn-north-1/xray/aws4_request');
+    } else {
+      expect(result).toBe(undefined);
+    }
+  });
+
   it('should clear SigV4 headers if already present ', async () => {
     const oldHeaders = {
       [AUTHORIZATION_HEADER]: 'notExpectedAuth',

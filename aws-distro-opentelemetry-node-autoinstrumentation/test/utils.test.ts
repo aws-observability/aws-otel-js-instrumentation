@@ -3,6 +3,7 @@
 
 import expect from 'expect';
 import {
+  getAwsDnsSuffix,
   getAwsRegionFromEnvironment,
   isAgentObservabilityEnabled,
   isAgenticInstrumentationOptIn,
@@ -68,6 +69,18 @@ describe('Utils', function () {
     delete process.env.AWS_REGION;
     process.env.AWS_DEFAULT_REGION = 'eu-west-1';
     expect(getAwsRegionFromEnvironment()).toEqual('eu-west-1');
+  });
+
+  it('Test getAwsDnsSuffix for China regions', () => {
+    expect(getAwsDnsSuffix('cn-north-1')).toEqual('amazonaws.com.cn');
+    expect(getAwsDnsSuffix('cn-northwest-1')).toEqual('amazonaws.com.cn');
+  });
+
+  it('Test getAwsDnsSuffix for non-China regions', () => {
+    expect(getAwsDnsSuffix('us-east-1')).toEqual('amazonaws.com');
+    expect(getAwsDnsSuffix('eu-west-1')).toEqual('amazonaws.com');
+    expect(getAwsDnsSuffix('us-gov-west-1')).toEqual('amazonaws.com');
+    expect(getAwsDnsSuffix(undefined)).toEqual('amazonaws.com');
   });
 
   it('Test isAgenticInstrumentationOptIn to be True', () => {

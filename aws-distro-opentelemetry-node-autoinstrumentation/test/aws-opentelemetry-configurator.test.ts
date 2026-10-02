@@ -1118,6 +1118,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         'https://xray.us-east-1.amazonaws.com/V1/TRACES',
         'https://XRAY.US-EAST-1.AMAZONAWS.COM/v1/traces',
         'https://xray.us-east-1.AMAZONAWS.COM/V1/traces',
+        'https://xray.cn-north-1.amazonaws.com.cn/v1/traces',
+        'https://XRAY.CN-NORTHWEST-1.AMAZONAWS.COM.CN/V1/TRACES',
       ];
 
       const tracesBadEndpoints = [
@@ -1144,6 +1146,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         'https://xray.us-east-1.amazonaws.com:443/v1/traces',
         'https:/xray.us-east-1.amazonaws.com/v1/traces',
         'https:://xray.us-east-1.amazonaws.com/v1/traces',
+        'https://xray.cn-north-1.amazonaws.cn/v1/traces',
+        'https://xray.cn-north-1.amazonaws.com.cn.example.com/v1/traces',
       ];
 
       const goodConfigs = [];
@@ -1266,6 +1270,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         'https://logs.us-east-1.amazonaws.com/V1/LOGS',
         'https://LOGS.US-EAST-1.AMAZONAWS.COM/v1/logs',
         'https://logs.us-east-1.AMAZONAWS.COM/V1/logs',
+        'https://logs.cn-north-1.amazonaws.com.cn/v1/logs',
+        'https://LOGS.CN-NORTHWEST-1.AMAZONAWS.COM.CN/V1/LOGS',
       ];
 
       const logsBadEndpoints = [
@@ -1295,6 +1301,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         'https://logs.us-east-1.amazonaws.com/v1/logging',
         'https://logs.us-east-1.amazonaws.com/v1/cloudwatchlogs',
         'https://logs.us-east-1.amazonaws.com/v1/cwlogs',
+        'https://logs.cn-north-1.amazonaws.cn/v1/logs',
+        'https://logs.cn-north-1.amazonaws.com.cn.example.com/v1/logs',
       ];
 
       const logsBadHeaders = [

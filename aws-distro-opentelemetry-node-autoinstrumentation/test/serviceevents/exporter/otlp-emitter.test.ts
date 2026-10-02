@@ -599,6 +599,16 @@ describe('buildLogOtlpExporter', function () {
     expect(exp).toBeInstanceOf(OTLPAwsLogExporter);
   });
 
+  it('returns a SigV4-signed OTLPAwsLogExporter for China partition CloudWatch OTLP endpoints', function () {
+    const exp = buildLogOtlpExporter(
+      'https://logs.cn-north-1.amazonaws.com.cn/v1/logs',
+      '/my/group',
+      'my-stream',
+      CompressionAlgorithm.GZIP
+    );
+    expect(exp).toBeInstanceOf(OTLPAwsLogExporter);
+  });
+
   it('returns a plain OTLPLogExporter for any non-CW https endpoint', function () {
     const exp = buildLogOtlpExporter(
       'https://my-collector.example.com/v1/logs',

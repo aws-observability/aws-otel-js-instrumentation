@@ -41,7 +41,12 @@ import {
   INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
 } from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
-import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, REDACTED_QUERY_PARAMS } from './utils';
+import {
+  getAwsDnsSuffix,
+  getAwsRegionFromEnvironment,
+  isAgentObservabilityEnabled,
+  REDACTED_QUERY_PARAMS,
+} from './utils';
 
 // Upstream logs an error for every name in OTEL_NODE_{ENABLED,DISABLED}_INSTRUMENTATIONS that
 // isn't in its own instrumentation map, which includes our GenAI instrumentations:
@@ -170,12 +175,13 @@ export function setAwsDefaultEnvironmentVariables() {
     if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
       const region = getAwsRegionFromEnvironment();
       if (region) {
+        const dnsSuffix = getAwsDnsSuffix(region);
         if (!process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
-          process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = `https://xray.${region}.amazonaws.com/v1/traces`;
+          process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = `https://xray.${region}.${dnsSuffix}/v1/traces`;
         }
 
         if (!process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT) {
-          process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = `https://logs.${region}.amazonaws.com/v1/logs`;
+          process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = `https://logs.${region}.${dnsSuffix}/v1/logs`;
         }
       } else {
         diag.error(

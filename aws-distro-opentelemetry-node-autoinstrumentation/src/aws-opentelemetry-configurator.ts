@@ -364,7 +364,7 @@ export class AwsOpentelemetryConfigurator {
       const configuredExporter = AwsMetricAttributesSpanExporterBuilder.create(udpSpanExporter, resource).build();
       spanProcessors.push(
         new AwsBatchUnsampledSpanProcessor(configuredExporter, {
-          maxExportBatchSize: getSpanExportBatchSize(),
+          maxExportBatchSize: getSpanExportBatchSize(udpSpanExporter),
         })
       );
       diag.info('Enabled batch unsampled span processor for Lambda environment.');
@@ -791,8 +791,10 @@ export class AwsSpanProcessorProvider {
       if (exporter instanceof ConsoleSpanExporter) {
         return new SimpleSpanProcessor(configuredExporter);
       } else {
+        // Pass the raw exporter, not the wrapped one: the batch size depends on the transport, and
+        // customizeSpanExporter may wrap it in AwsMetricAttributesSpanExporter.
         return new BatchSpanProcessor(configuredExporter, {
-          maxExportBatchSize: getSpanExportBatchSize(),
+          maxExportBatchSize: getSpanExportBatchSize(exporter),
         });
       }
     });
@@ -902,8 +904,16 @@ function getSamplerProbabilityFromEnv(): number | undefined {
 
 // END The OpenTelemetry Authors code
 
-function getSpanExportBatchSize() {
-  if (isLambdaEnvironment()) {
+/**
+ * The reduced Lambda batch size exists to keep UDP datagrams under the 64KB limit, so it applies
+ * only to the UDP exporter. Applying it to an HTTP exporter splits a flush into many small signed
+ * requests for no benefit: in Lambda with a custom traces endpoint it turned a 2048-span buffer into
+ * roughly 205 batches instead of 4. Because SigV4 exports are serialized (see OTLPAwsBaseExporter),
+ * that many sequential batches can also exceed OTEL_BSP_EXPORT_TIMEOUT during a flush, and a
+ * rejected flush makes BatchSpanProcessorBase skip exporter.shutdown() entirely.
+ */
+function getSpanExportBatchSize(exporter: SpanExporter) {
+  if (isLambdaEnvironment() && exporter instanceof OTLPUdpSpanExporter) {
     return LAMBDA_SPAN_EXPORT_BATCH_SIZE;
   }
   return undefined;

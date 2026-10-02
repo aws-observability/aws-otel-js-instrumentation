@@ -13,6 +13,18 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix(exporter): serialize SigV4 exports so that overlapping exports no longer send one batch's body
+  with another batch's signature, which silently dropped and duplicated telemetry on every flush and
+  shutdown
+  ([#PR1](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/PR1))
+- fix: apply the reduced Lambda span export batch size only to the UDP exporter. It exists to keep
+  UDP datagrams under 64KB and does not apply over HTTPS, so in Lambda with a custom
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` batches now hold up to 512 spans instead of 10
+  ([#PR1](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/PR1))
+- fix(exporter): clear a stale `x-amz-security-token` before signing, which could previously survive
+  from one signed request into the next
+  ([#PR1](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/PR1))
+
 ## v0.13.0 - 2026-09-14
 
 - feat: redact span, span event, and span link attributes via AWS_REDACT_SPAN_ATTRIBUTES

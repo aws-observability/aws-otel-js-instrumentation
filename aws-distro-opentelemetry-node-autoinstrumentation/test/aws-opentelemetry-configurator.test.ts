@@ -853,6 +853,61 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     delete process.env.AWS_XRAY_DAEMON_ADDRESS;
   });
 
+  describe('Lambda span export batch size', () => {
+    const LAMBDA_ENV = [
+      'AWS_LAMBDA_FUNCTION_NAME',
+      'OTEL_AWS_APPLICATION_SIGNALS_ENABLED',
+      'OTEL_TRACES_EXPORTER',
+      'AWS_XRAY_DAEMON_ADDRESS',
+      'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+    ];
+
+    const clearEnv = () => LAMBDA_ENV.forEach(name => delete process.env[name]);
+
+    beforeEach(clearEnv);
+    afterEach(clearEnv);
+
+    const batchProcessorFor = (config: { spanProcessors?: unknown }): any =>
+      (config.spanProcessors as any[]).find(processor => processor instanceof BatchSpanProcessor);
+
+    // The reduced batch size keeps UDP datagrams under 64KB, so it must still apply to UDP.
+    it('applies the reduced batch size to the UDP exporter in Lambda', () => {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+      process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'False';
+      process.env.OTEL_TRACES_EXPORTER = 'otlp';
+      process.env.AWS_XRAY_DAEMON_ADDRESS = 'www.test.com:2222';
+
+      const processor = batchProcessorFor(new AwsOpentelemetryConfigurator([]).configure());
+
+      expect(processor._exporter).toBeInstanceOf(OTLPUdpSpanExporter);
+      expect(processor._maxExportBatchSize).toEqual(10);
+    });
+
+    // The 64KB datagram limit does not apply over HTTPS. Keeping the reduced size here split a
+    // 2048-span buffer into ~205 serialized SigV4 requests per flush instead of 4, which risks
+    // exceeding OTEL_BSP_EXPORT_TIMEOUT and skipping exporter shutdown.
+    it('does not apply the reduced batch size to the SigV4 exporter in Lambda', () => {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+      process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'False';
+      process.env.OTEL_TRACES_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'https://xray.us-east-1.amazonaws.com/v1/traces';
+
+      const processor = batchProcessorFor(new AwsOpentelemetryConfigurator([]).configure());
+
+      expect(processor._exporter).toBeInstanceOf(OTLPAwsSpanExporter);
+      expect(processor._maxExportBatchSize).toEqual(512);
+    });
+
+    it('leaves the batch size at the upstream default outside Lambda', () => {
+      process.env.OTEL_TRACES_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'https://xray.us-east-1.amazonaws.com/v1/traces';
+
+      const processor = batchProcessorFor(new AwsOpentelemetryConfigurator([]).configure());
+
+      expect(processor._maxExportBatchSize).toEqual(512);
+    });
+  });
+
   it('Test CustomizeSpanProcessors for Lambda', () => {
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
     process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';

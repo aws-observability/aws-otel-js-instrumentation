@@ -28,7 +28,25 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
   //
   // Exports overlap whenever a batch processor flushes, because BatchSpanProcessorBase._flushAll()
   // exports every queued batch in parallel. Steady-state exports are already serialized by the
-  // processor's own in-flight guard.
+  // processor's own in-flight guard, and the upstream logs processor already flushes its batches
+  // sequentially for the same reason ("flush all batches sequentially to avoid race conditions").
+  //
+  // KNOWN TRADE-OFF. Serializing is a workaround, not the ideal design. The root cause is that
+  // per-request state lives on objects shared across exports; signing each request inside its own
+  // transport would remove the problem outright, because IExporterTransport.send() receives the
+  // exact bytes for one request. That is not affordable today: createOtlpNetworkExportDelegate
+  // accepts a transport, but createHttpExporterTransport, createRetryingTransport and sendWithHttp
+  // are all absent from the package's exports map, so wrapping the HTTP transport would mean
+  // reimplementing it along with its retry and timeout semantics. Revisit if upstream exports it.
+  //
+  // The cost of serializing is that a flush of N batches takes N times as long, and each batch
+  // carries its own OTEL_BSP_EXPORT_TIMEOUT timer started when the flush began, so a large enough N
+  // makes later batches time out. A rejected flush is worse than a late one: BatchSpanProcessorBase
+  // chains .then(() => this._exporter.shutdown()), so a rejection skips exporter shutdown entirely.
+  // With default settings N is at most 4 (2048 queue / 512 batch), leaving a 7.5s budget per export.
+  // See getSpanExportBatchSize in aws-opentelemetry-configurator.ts for the Lambda case that made N
+  // much larger. Raise OTEL_BSP_EXPORT_TIMEOUT if a deployment configures an unusually large queue
+  // or an unusually small batch size.
   private exportQueue: Promise<void> = Promise.resolve();
 
   constructor(

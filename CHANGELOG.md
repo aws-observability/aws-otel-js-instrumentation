@@ -17,6 +17,10 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   with another batch's signature, which silently dropped and duplicated telemetry on every flush and
   shutdown
   ([#566](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/566))
+- fix: apply the reduced Lambda span export batch size only to the UDP exporter. It exists to keep
+  UDP datagrams under 64KB and does not apply over HTTPS, so in Lambda with a custom
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` batches now hold up to 512 spans instead of 10
+  ([#566](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/566))
 - fix: support AWS China partition endpoints (`amazonaws.com.cn`) for collector-less X-Ray and
   CloudWatch Logs OTLP export
   ([#566](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/566))

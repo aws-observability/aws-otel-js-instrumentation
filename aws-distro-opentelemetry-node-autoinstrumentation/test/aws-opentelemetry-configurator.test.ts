@@ -1869,10 +1869,16 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       process.env.OTEL_METRICS_EXPORTER = 'otlp';
       process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
 
-      expect(createAwsOtlpMetricExporter()!['compression']).toEqual(CompressionAlgorithm.NONE);
+      // The factory returns the PushMetricExporter interface, so narrow to the concrete class to read
+      // the compression setting it was constructed with.
+      expect((createAwsOtlpMetricExporter() as OTLPAwsMetricExporter)['compression']).toEqual(
+        CompressionAlgorithm.NONE
+      );
 
       process.env.OTEL_EXPORTER_OTLP_METRICS_COMPRESSION = 'gzip';
-      expect(createAwsOtlpMetricExporter()!['compression']).toEqual(CompressionAlgorithm.GZIP);
+      expect((createAwsOtlpMetricExporter() as OTLPAwsMetricExporter)['compression']).toEqual(
+        CompressionAlgorithm.GZIP
+      );
     });
 
     it('still creates the exporter when Application Signals is enabled', () => {

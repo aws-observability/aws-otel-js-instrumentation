@@ -48,6 +48,7 @@ import {
 } from '../src/aws-opentelemetry-configurator';
 import { OTLPAwsMetricExporter } from '../src/exporter/otlp/aws/metrics/otlp-aws-metric-exporter';
 import { CompressionAlgorithm } from '@opentelemetry/otlp-exporter-base';
+import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
 import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
 let setAwsDefaultEnvironmentVariables: () => void;
@@ -1807,7 +1808,31 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     it('does nothing when OTEL_METRICS_EXPORTER does not include otlp', () => {
       process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
 
-      for (const value of ['none', 'console', 'awsemf', '']) {
+      for (const value of ['none', 'console', 'awsemf']) {
+        process.env.OTEL_METRICS_EXPORTER = value;
+        expect(createAwsOtlpMetricExporter()).toBeUndefined();
+      }
+    });
+
+    // Upstream treats an unset or empty OTEL_METRICS_EXPORTER as otlp. Missing that default meant
+    // declining to sign the configuration the CloudWatch docs show - endpoint only - so upstream
+    // exported unsigned and every request was rejected with 403.
+    it('treats an unset or empty OTEL_METRICS_EXPORTER as otlp', () => {
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+
+      delete process.env.OTEL_METRICS_EXPORTER;
+      expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+
+      process.env.OTEL_METRICS_EXPORTER = '';
+      expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+    });
+
+    // An explicit "none" disables metrics. Ignoring it would publish billable custom metrics against
+    // the user's stated intent.
+    it('honors an explicit none even when otlp is also listed', () => {
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+
+      for (const value of ['otlp,none', 'none,otlp', 'console,none,otlp']) {
         process.env.OTEL_METRICS_EXPORTER = value;
         expect(createAwsOtlpMetricExporter()).toBeUndefined();
       }
@@ -1897,6 +1922,8 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
       'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
       'OTEL_AWS_APPLICATION_SIGNALS_ENABLED',
+      'OTEL_METRIC_EXPORT_INTERVAL',
+      'OTEL_METRIC_EXPORT_TIMEOUT',
     ];
 
     const clearEnv = () => METRICS_ENV_VARS.forEach(name => delete process.env[name]);
@@ -1942,6 +1969,63 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       const config = new AwsOpentelemetryConfigurator([]).configure();
 
       expect(config.metricReaders).toHaveLength(2);
+    });
+
+    // PrometheusExporter is itself a MetricReader, so it must survive the takeover or the user's
+    // scrape endpoint would never start.
+    it('keeps a prometheus reader alongside the AWS metrics reader', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp,prometheus';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toHaveLength(2);
+      expect((config.metricReaders as any[]).some(reader => reader instanceof PrometheusExporter)).toBe(true);
+
+      // PrometheusExporter starts an HTTP server; close it so the test does not leak a listener.
+      const prometheusReader = (config.metricReaders as any[]).find(reader => reader instanceof PrometheusExporter);
+      return prometheusReader.shutdown();
+    });
+
+    // Rather than dropping an entry it cannot reproduce, the AWS path declines entirely and lets
+    // upstream build every reader. Unsigned metrics are visible; a missing reader is not.
+    it('declines the takeover when an entry cannot be reproduced', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp,some-future-exporter';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toBeUndefined();
+    });
+
+    it('honors OTEL_METRIC_EXPORT_INTERVAL and OTEL_METRIC_EXPORT_TIMEOUT', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = '10000';
+      process.env.OTEL_METRIC_EXPORT_TIMEOUT = '5000';
+
+      const reader = (new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[])[0];
+
+      expect(reader._exportInterval).toEqual(10000);
+      expect(reader._exportTimeout).toEqual(5000);
+
+      delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
+      delete process.env.OTEL_METRIC_EXPORT_TIMEOUT;
+    });
+
+    it('clamps the export timeout to the interval', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = '5000';
+      process.env.OTEL_METRIC_EXPORT_TIMEOUT = '20000';
+
+      const reader = (new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[])[0];
+
+      expect(reader._exportInterval).toEqual(5000);
+      expect(reader._exportTimeout).toEqual(5000);
+
+      delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
+      delete process.env.OTEL_METRIC_EXPORT_TIMEOUT;
     });
   });
 });

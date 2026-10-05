@@ -27,6 +27,14 @@ export abstract class OTLPAwsBaseExporterTest {
   protected abstract getEndpointPath(): string;
   protected abstract getExporter(): any;
 
+  /**
+   * The payload handed to export(). Signals differ: traces and logs take an array, whereas the
+   * metrics serializer requires a ResourceMetrics object and throws on an array.
+   */
+  protected getPayload(): any {
+    return [];
+  }
+
   public beforeEach() {
     this.sandbox = sinon.createSandbox();
 
@@ -92,7 +100,7 @@ export abstract class OTLPAwsBaseExporterTest {
     const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
 
     exporter
-      .export([], (result: ExportResult) => {
+      .export(this.getPayload(), (result: ExportResult) => {
         expect(result.code).toBe(ExportResultCode.SUCCESS);
         expect(result.error?.message).toBe(undefined);
       })
@@ -112,7 +120,7 @@ export abstract class OTLPAwsBaseExporterTest {
     });
 
     exporter
-      .export([], (result: ExportResult) => {
+      .export(this.getPayload(), (result: ExportResult) => {
         expect(result.code).toBe(ExportResultCode.SUCCESS);
         expect(result.error?.message).toBe(undefined);
       })
@@ -144,7 +152,7 @@ export abstract class OTLPAwsBaseExporterTest {
     const gzipStub = this.sandbox.stub(require('zlib'), 'gzipSync').returns(new Uint8Array([0x1f, 0x8b, 1, 2, 3]));
 
     exporter
-      .export([], (result: ExportResult) => {
+      .export(this.getPayload(), (result: ExportResult) => {
         expect(result.code).toBe(ExportResultCode.SUCCESS);
         expect(serializeStub.callCount).toBe(1);
         expect(gzipStub.callCount).toBe(1);
@@ -166,7 +174,7 @@ export abstract class OTLPAwsBaseExporterTest {
     const exporterClass = this.getExporter();
     const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
 
-    exporter.export([], (result: ExportResult) => {
+    exporter.export(this.getPayload(), (result: ExportResult) => {
       expect(result.code).toBe(ExportResultCode.FAILED);
       expect(this.scope.isDone()).toBe(false);
       done();
@@ -181,7 +189,7 @@ export abstract class OTLPAwsBaseExporterTest {
       deserializeResponse: this.sandbox.stub(),
     };
 
-    exporter.export([], (result: ExportResult) => {
+    exporter.export(this.getPayload(), (result: ExportResult) => {
       expect(result.code).toBe(ExportResultCode.FAILED);
       expect(result.error?.message).toBe('Nothing to send');
       expect(this.scope.isDone()).toBe(false);
@@ -197,7 +205,7 @@ export abstract class OTLPAwsBaseExporterTest {
       compression: CompressionAlgorithm.GZIP,
     });
 
-    exporter.export([], (result: ExportResult) => {
+    exporter.export(this.getPayload(), (result: ExportResult) => {
       expect(result.code).toBe(ExportResultCode.FAILED);
       expect(result.error?.message).toContain('Failed to compress');
       expect(this.scope.isDone()).toBe(false);
@@ -214,7 +222,7 @@ export abstract class OTLPAwsBaseExporterTest {
       .stub()
       .resolves(undefined);
 
-    exporter.export([], (result: ExportResult) => {
+    exporter.export(this.getPayload(), (result: ExportResult) => {
       expect(result.code).toBe(ExportResultCode.FAILED);
       expect(this.scope.isDone()).toBe(false);
       done();

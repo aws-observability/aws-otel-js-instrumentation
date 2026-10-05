@@ -95,6 +95,31 @@ describe('AwsAuthenticator', () => {
     }
   });
 
+  // The strip list previously named x-amz-content-sha256 twice and omitted the security token, so a
+  // stale token from a previous signing could survive into the next request. Credentials without a
+  // session token do not get it overwritten by the signer, which is where it would have shown.
+  it('should clear a stale security token when credentials carry no session token', async () => {
+    const AwsAuthenticatorWithMock = proxyquire('../../../../../src/exporter/otlp/aws/common/aws-authenticator', {
+      '@aws-sdk/credential-provider-node': {
+        defaultProvider: sandbox.stub().resolves({
+          accessKeyId: 'test_access_key',
+          secretAccessKey: 'test_secret_key',
+        }),
+      },
+    }).AwsAuthenticator;
+
+    const result = await new AwsAuthenticatorWithMock(
+      'https://xray.us-east-1.amazonaws.com/v1/traces',
+      'xray'
+    ).authenticate({ [X_AMZ_SECURITY_TOKEN_HEADER]: 'stale_token_from_previous_export' }, new Uint8Array());
+
+    if (version >= 16) {
+      expect(result[X_AMZ_SECURITY_TOKEN_HEADER]).toBeUndefined();
+    } else {
+      expect(result).toBe(undefined);
+    }
+  });
+
   it('should sign China partition endpoints with the China region', async () => {
     const AwsAuthenticatorWithMock = proxyquire('../../../../../src/exporter/otlp/aws/common/aws-authenticator', {
       '@aws-sdk/credential-provider-node': {

@@ -13,6 +13,10 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix: support AWS China partition endpoints (`amazonaws.com.cn`) for collector-less X-Ray and
+  CloudWatch Logs OTLP export
+  ([#569](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/569))
+
 ## v0.13.0 - 2026-09-14
 
 - feat: redact span, span event, and span link attributes via AWS_REDACT_SPAN_ATTRIBUTES

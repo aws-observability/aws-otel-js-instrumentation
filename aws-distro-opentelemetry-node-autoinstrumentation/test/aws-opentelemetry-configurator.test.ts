@@ -1118,10 +1118,19 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         'https://xray.us-east-1.amazonaws.com/V1/TRACES',
         'https://XRAY.US-EAST-1.AMAZONAWS.COM/v1/traces',
         'https://xray.us-east-1.AMAZONAWS.COM/V1/traces',
+        // AWS China partition
+        'https://xray.cn-north-1.amazonaws.com.cn/v1/traces',
+        'https://xray.cn-northwest-1.amazonaws.com.cn/v1/traces',
+        'https://XRAY.CN-NORTH-1.AMAZONAWS.COM.CN/V1/TRACES',
       ];
 
       const tracesBadEndpoints = [
         'http://localhost:4318/v1/traces',
+        // China lookalikes: the optional .cn group must not loosen the anchored pattern
+        'https://xray.cn-north-1.amazonaws.cn/v1/traces',
+        'https://xray.cn-north-1.amazonaws.com.cn.example.com/v1/traces',
+        'https://xray.cn-north-1.amazonaws.com.c/v1/traces',
+        'https://xray.cn-north-1.amazonaws.comcn/v1/traces',
         'http://xray.us-east-1.amazonaws.com/v1/traces',
         'ftp://xray.us-east-1.amazonaws.com/v1/traces',
         'https://ray.us-east-1.amazonaws.com/v1/traces',
@@ -1266,10 +1275,19 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         'https://logs.us-east-1.amazonaws.com/V1/LOGS',
         'https://LOGS.US-EAST-1.AMAZONAWS.COM/v1/logs',
         'https://logs.us-east-1.AMAZONAWS.COM/V1/logs',
+        // AWS China partition
+        'https://logs.cn-north-1.amazonaws.com.cn/v1/logs',
+        'https://logs.cn-northwest-1.amazonaws.com.cn/v1/logs',
+        'https://LOGS.CN-NORTH-1.AMAZONAWS.COM.CN/V1/LOGS',
       ];
 
       const logsBadEndpoints = [
         'http://localhost:4318/v1/logs',
+        // China lookalikes: the optional .cn group must not loosen the anchored pattern
+        'https://logs.cn-north-1.amazonaws.cn/v1/logs',
+        'https://logs.cn-north-1.amazonaws.com.cn.example.com/v1/logs',
+        'https://logs.cn-north-1.amazonaws.com.c/v1/logs',
+        'https://logs.cn-north-1.amazonaws.comcn/v1/logs',
         'http://logs.us-east-1.amazonaws.com/v1/logs',
         'ftp://logs.us-east-1.amazonaws.com/v1/logs',
         'https://log.us-east-1.amazonaws.com/v1/logs',
@@ -1487,6 +1505,13 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(isAwsOtlpEndpoint('https://xray.us-east-1.amazonaws.com/v1/logs', 'xray')).toBeFalsy();
     expect(isAwsOtlpEndpoint('https://logs.us-east-1.amazonaws.com/v1/logs', 'logs')).toBeTruthy();
     expect(isAwsOtlpEndpoint('https://lambda.us-east-1.amazonaws.com/v1/logs', 'logs')).toBeFalsy();
+
+    // AWS China partition
+    expect(isAwsOtlpEndpoint('https://xray.cn-north-1.amazonaws.com.cn/v1/traces', 'xray')).toBeTruthy();
+    expect(isAwsOtlpEndpoint('https://logs.cn-northwest-1.amazonaws.com.cn/v1/logs', 'logs')).toBeTruthy();
+    // The optional .cn group must not match a lookalike host.
+    expect(isAwsOtlpEndpoint('https://xray.cn-north-1.amazonaws.com.cn.example.com/v1/traces', 'xray')).toBeFalsy();
+    expect(isAwsOtlpEndpoint('https://logs.cn-north-1.amazonaws.cn/v1/logs', 'logs')).toBeFalsy();
     expect(isAwsOtlpEndpoint('https://logs.us-east-1.amazonaws.com/v1/traces', 'logs')).toBeFalsy();
   });
 

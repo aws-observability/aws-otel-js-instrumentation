@@ -1998,6 +1998,94 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       expect(config.metricReaders).toBeUndefined();
     });
 
+    // awsemf is stripped from OTEL_METRICS_EXPORTER before the metrics path runs, and an empty
+    // variable means otlp. Reading it after the strip turned "EMF only" into "sign metrics to
+    // CloudWatch" and published billable custom metrics nobody asked for.
+    it('does not create an AWS metrics reader when only awsemf was requested', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'awsemf';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-log-group=test-group,x-aws-log-stream=test-stream';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      // The EMF reader only. No signed OTLP metrics reader.
+      expect(config.metricReaders).toHaveLength(1);
+    });
+
+    // PeriodicExportingMetricReader throws on a non-positive interval or timeout, and the
+    // configurator is constructed at preload before the SDK's own try/catch, so an unvalidated value
+    // would stop the application from starting.
+    it('falls back to defaults for non-positive interval and timeout instead of throwing', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      for (const [interval, timeout] of [
+        ['0', '30000'],
+        ['60000', '0'],
+        ['-1', '30000'],
+        ['60000', '-1'],
+      ]) {
+        process.env.OTEL_METRIC_EXPORT_INTERVAL = interval;
+        process.env.OTEL_METRIC_EXPORT_TIMEOUT = timeout;
+
+        const reader = (new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[])[0];
+
+        expect(reader._exportInterval).toBeGreaterThan(0);
+        expect(reader._exportTimeout).toBeGreaterThan(0);
+      }
+
+      delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
+      delete process.env.OTEL_METRIC_EXPORT_TIMEOUT;
+    });
+
+    // PrometheusExporter binds its port in the constructor, so building one and then declining would
+    // leave the port held by a reader with no metric producer attached.
+    it('does not construct any reader on the decline path', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp,prometheus,some-future-exporter';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toBeUndefined();
+
+      // Nothing should be listening on the Prometheus port.
+      return new Promise<void>((resolve, reject) => {
+        const socket = require('net').connect(9464, '127.0.0.1');
+        socket.on('connect', () => {
+          socket.destroy();
+          reject(new Error('an orphaned PrometheusExporter is holding port 9464'));
+        });
+        socket.on('error', () => resolve());
+      });
+    });
+
+    // EMF has no upstream equivalent, so readers must be supplied and an unsupported entry cannot be
+    // handed back to upstream. The EMF reader must still be built.
+    it('keeps the EMF reader when an entry cannot be reproduced', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'awsemf,otlp,some-future-exporter';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-log-group=test-group,x-aws-log-stream=test-stream';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      // EMF plus the signed AWS reader; the unsupported entry is reported, not silently dropped.
+      expect(config.metricReaders).toHaveLength(2);
+    });
+
+    // The EMF reader has always used the default interval. Making it env-aware would silently change
+    // existing export cadence and PutLogEvents volume.
+    it('leaves the EMF reader on the default interval', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'awsemf';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-log-group=test-group,x-aws-log-stream=test-stream';
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = '5000';
+
+      const reader = (new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[])[0];
+
+      expect(reader._exportInterval).toEqual(60000);
+
+      delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
+    });
+
     it('honors OTEL_METRIC_EXPORT_INTERVAL and OTEL_METRIC_EXPORT_TIMEOUT', () => {
       process.env.OTEL_METRICS_EXPORTER = 'otlp';
       process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';

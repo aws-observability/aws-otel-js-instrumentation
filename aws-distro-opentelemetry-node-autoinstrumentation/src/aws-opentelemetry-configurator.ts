@@ -225,8 +225,13 @@ export class AwsOpentelemetryConfigurator {
     this.logRecordProcessors = AwsLoggerProcessorProvider.getlogRecordProcessors();
     AwsOpentelemetryConfigurator.customizeSpanProcessors(this.spanProcessors, this.resource);
 
+    // Capture what the user actually asked for BEFORE checkEmfExporterEnabled strips `awsemf` from
+    // the variable. It deletes the variable outright when `awsemf` was the only entry, and an empty
+    // variable means `otlp`, so reading it afterwards would turn "EMF only" into "sign metrics to
+    // CloudWatch" and publish billable custom metrics nobody requested.
+    const requestedMetricsExporters = getEnabledMetricsExportersFromEnv();
     const isEmfEnabled = checkEmfExporterEnabled();
-    this.customizeMetricReader(isEmfEnabled);
+    this.customizeMetricReader(isEmfEnabled, requestedMetricsExporters);
   }
 
   private customizeVersions(autoResource: Resource): Resource {
@@ -401,31 +406,65 @@ export class AwsOpentelemetryConfigurator {
     }
   }
 
-  private customizeMetricReader(isEmfEnabled: boolean) {
+  /**
+   * Decides whether ADOT supplies the metric readers, and builds them if so.
+   *
+   * Supplying any reader stops the upstream SDK reading OTEL_METRICS_EXPORTER at all, so this either
+   * reproduces every requested exporter or supplies nothing. The decision is made before anything is
+   * constructed, because some readers (PrometheusExporter) bind a port in their constructor and an
+   * abandoned one would hold the port with no metric producer attached.
+   *
+   * @param isEmfEnabled - whether `awsemf` was requested, as reported by checkEmfExporterEnabled
+   * @param requestedExporters - the exporters the user asked for, captured before `awsemf` was
+   *   stripped from the environment variable
+   */
+  private customizeMetricReader(isEmfEnabled: boolean, requestedExporters: string[]) {
+    const emfExporter: PushMetricExporter | undefined = isEmfEnabled ? createEmfExporter() : undefined;
+    const awsMetricExporter = createAwsOtlpMetricExporter(requestedExporters);
+
+    // Nothing AWS-specific is needed, so leave metric readers entirely to the upstream SDK.
+    if (!emfExporter && !awsMetricExporter) {
+      return;
+    }
+
+    const unsupported = requestedExporters.filter(exporter => !REPRODUCIBLE_METRICS_EXPORTERS.includes(exporter));
+
+    // An entry we cannot reproduce would be lost once ADOT supplies readers. Where the upstream SDK
+    // can still build everything itself, hand the whole job back rather than dropping one: metrics
+    // that are not signed are visible, a reader that never starts is not.
+    if (unsupported.length > 0 && !emfExporter) {
+      diag.warn(
+        `OTEL_METRICS_EXPORTER value "${unsupported[0]}" cannot be reproduced by the CloudWatch metrics OTLP ` +
+          'path, so SigV4 signing was not applied to metrics and metric readers were left to the upstream SDK. ' +
+          'Remove it to export metrics directly to CloudWatch.'
+      );
+      return;
+    }
+
+    // EMF has no upstream equivalent, so readers must be supplied and an unsupported entry cannot be
+    // handed back. Report it as not initialized instead.
+    if (unsupported.length > 0) {
+      diag.warn(
+        `OTEL_METRICS_EXPORTER value "${unsupported[0]}" was not initialized: ADOT supplies the metric ` +
+          'readers when the EMF exporter is enabled, and this value has no equivalent on that path.'
+      );
+    }
+
     const readers: IMetricReader[] = [];
 
-    const emfExporter: PushMetricExporter | undefined = isEmfEnabled ? createEmfExporter() : undefined;
-
     if (emfExporter) {
-      readers.push(createPeriodicMetricReaderFromEnv(emfExporter));
+      // Deliberately not env-aware: the EMF reader has always used the default interval, and reading
+      // OTEL_METRIC_EXPORT_INTERVAL here would silently change existing EMF export cadence and the
+      // resulting PutLogEvents volume.
+      readers.push(new PeriodicExportingMetricReader({ exporter: emfExporter }));
     }
-
-    const awsMetricExporter = createAwsOtlpMetricExporter();
 
     if (awsMetricExporter) {
-      // Supplying a reader stops upstream reading OTEL_METRICS_EXPORTER at all, so the remaining
-      // entries have to be rebuilt here or they would be silently dropped. If any of them cannot be
-      // reproduced, decline the takeover entirely rather than losing one.
-      const remainingReaders = createRemainingMetricReadersFromEnv(getEnabledMetricsExportersFromEnv());
-
-      if (remainingReaders) {
-        readers.push(createPeriodicMetricReaderFromEnv(awsMetricExporter), ...remainingReaders);
-      }
+      readers.push(createPeriodicMetricReaderFromEnv(awsMetricExporter));
+      readers.push(...createRemainingMetricReaders(requestedExporters));
     }
 
-    if (readers.length > 0) {
-      this.metricReaders = readers;
-    }
+    this.metricReaders = readers;
   }
 
   static customizeSampler(sampler: Sampler): Sampler {
@@ -986,6 +1025,35 @@ export function hasExplicitAuthorizationHeader(signalHeadersEnvVar: string): boo
   return Object.keys(parseKeyPairsIntoRecord(rawHeaders)).some(key => key.toLowerCase() === 'authorization');
 }
 
+// OTEL_METRICS_EXPORTER values ADOT can reproduce once it supplies the metric readers itself.
+// `awsemf` is ADOT's own; the rest mirror the upstream SDK.
+const REPRODUCIBLE_METRICS_EXPORTERS = ['otlp', 'awsemf', 'console', 'prometheus'];
+
+/**
+ * Reads a strictly positive number from the environment, returning undefined for zero, negatives and
+ * unparseable values so the caller falls back to its default.
+ *
+ * PeriodicExportingMetricReader throws on a non-positive interval or timeout, and the configurator
+ * is constructed at preload before the SDK's own try/catch, so an unvalidated value would turn a
+ * typo in OTEL_METRIC_EXPORT_INTERVAL into a failure to start the application. The upstream SDK
+ * applies the same validation through its internal getNonNegativeNumberFromEnv, which is not
+ * exported.
+ */
+function getPositiveNumberFromEnv(key: string): number | undefined {
+  const value = getNumberFromEnv(key);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value <= 0) {
+    diag.warn(`${key} must be greater than 0, but is "${process.env[key]}". Using the default instead.`);
+    return undefined;
+  }
+
+  return value;
+}
+
 /**
  * Resolves OTEL_METRICS_EXPORTER using upstream's semantics, where an unset or empty value means
  * `otlp`.
@@ -1013,8 +1081,8 @@ function getEnabledMetricsExportersFromEnv(): string[] {
  * Checks run in the same order as the traces and logs paths, with the bearer check last, so that
  * configuration diagnostics are reported before authentication is decided.
  */
-export function createAwsOtlpMetricExporter(): PushMetricExporter | undefined {
-  const enabledExporters = getEnabledMetricsExportersFromEnv();
+export function createAwsOtlpMetricExporter(requestedExporters?: string[]): PushMetricExporter | undefined {
+  const enabledExporters = requestedExporters ?? getEnabledMetricsExportersFromEnv();
 
   // An explicit "none" disables metrics entirely, matching upstream and the logs path. Without this
   // check, `otlp,none` would still build a reader and publish billable custom metrics.
@@ -1079,45 +1147,23 @@ export function createAwsOtlpMetricExporter(): PushMetricExporter | undefined {
 }
 
 /**
- * Builds readers for the OTEL_METRICS_EXPORTER entries other than `otlp`, which the AWS metrics path
- * handles, and `awsemf`, which is stripped from the variable and handled before this runs.
+ * Builds readers for the requested exporters other than `otlp`, which the AWS metrics path handles,
+ * and `awsemf`, which ADOT builds separately.
  *
- * This is only used once ADOT has taken over metric readers. Upstream would otherwise have built
- * these, and because it stops looking at the variable entirely, not rebuilding them here would drop
- * them silently.
- *
- * Returns undefined when an entry cannot be reproduced faithfully. The caller then declines to take
- * over at all, so upstream builds every reader exactly as it would have. Failing that way keeps a
- * future upstream exporter from silently disappearing: the cost is that metrics are not signed,
- * which is visible, rather than a reader vanishing, which is not.
+ * Only called once the caller has decided to supply readers, so that nothing is constructed on a
+ * path that is later abandoned. PrometheusExporter binds its port in the constructor, and an
+ * abandoned instance would hold that port with no metric producer attached.
  */
-function createRemainingMetricReadersFromEnv(enabledExporters: string[]): IMetricReader[] | undefined {
+function createRemainingMetricReaders(requestedExporters: string[]): IMetricReader[] {
   const readers: IMetricReader[] = [];
 
-  for (const exporter of enabledExporters) {
-    // `otlp` is the AWS reader the caller already built. `awsemf` is ADOT's own and is handled
-    // separately, before this runs.
-    if (exporter === 'otlp' || exporter === 'awsemf') {
-      continue;
-    }
-
+  for (const exporter of requestedExporters) {
     if (exporter === 'console') {
       readers.push(createPeriodicMetricReaderFromEnv(new ConsoleMetricExporter()));
-      continue;
-    }
-
-    if (exporter === 'prometheus') {
+    } else if (exporter === 'prometheus') {
       // PrometheusExporter is itself a MetricReader, so it is not wrapped in a periodic reader.
       readers.push(new PrometheusExporter());
-      continue;
     }
-
-    diag.warn(
-      `OTEL_METRICS_EXPORTER value "${exporter}" cannot be reproduced by the CloudWatch metrics OTLP path, ` +
-        'so SigV4 signing was not applied to metrics and metric readers were left to the upstream SDK. ' +
-        'Remove it to export metrics directly to CloudWatch.'
-    );
-    return undefined;
   }
 
   return readers;
@@ -1133,8 +1179,8 @@ function createPeriodicMetricReaderFromEnv(exporter: PushMetricExporter): Period
   const defaultIntervalMillis = 60000;
   const defaultTimeoutMillis = 30000;
 
-  const rawExportIntervalMillis = getNumberFromEnv('OTEL_METRIC_EXPORT_INTERVAL');
-  const rawExportTimeoutMillis = getNumberFromEnv('OTEL_METRIC_EXPORT_TIMEOUT');
+  const rawExportIntervalMillis = getPositiveNumberFromEnv('OTEL_METRIC_EXPORT_INTERVAL');
+  const rawExportTimeoutMillis = getPositiveNumberFromEnv('OTEL_METRIC_EXPORT_TIMEOUT');
 
   const exportIntervalMillis = rawExportIntervalMillis ?? defaultIntervalMillis;
   let exportTimeoutMillis = rawExportTimeoutMillis ?? defaultTimeoutMillis;

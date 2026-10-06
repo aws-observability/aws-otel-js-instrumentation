@@ -97,8 +97,14 @@ jobs:
       # rerun cannot repoint it -- release ships exactly what was validated here.
       - name: Record staging image digest for release promotion
         run: |
-          DIGEST=$(docker buildx imagetools inspect "${{ steps.node_output.outputs.stagingImage }}" --format '{{.Manifest.Digest}}')
-          if [ -z "$DIGEST" ]; then echo "ERROR: could not resolve staging image digest"; exit 1; fi
+          set -euo pipefail
+          # printf forces buildx to render the template; some buildx versions ignore a bare
+          # {{.Manifest.Digest}} and print the full inspect output instead.
+          DIGEST=$(docker buildx imagetools inspect "${{ steps.node_output.outputs.stagingImage }}" --format '{{printf "%s" .Manifest.Digest}}')
+          if ! [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "ERROR: invalid staging image digest: $DIGEST"
+            exit 1
+          fi
           echo "${{ env.STAGING_ECR_REGISTRY }}/${{ env.STAGING_ECR_REPOSITORY }}@${DIGEST}" | tee staging-image.txt
 
       - name: Upload staging image reference

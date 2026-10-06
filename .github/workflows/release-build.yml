@@ -224,6 +224,15 @@ jobs:
           name: staging-image
           path: staging-image
 
+      # publish-sdk no longer runs artifacts_build (which set this up via set_up), so pin Node and the
+      # npm registry explicitly. Tokenless (provenance) npm publish depends on the Node/npm version and
+      # on the .npmrc that registry-url writes; don't rely on the runner's default Node.
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 #v5.0.0
+        with:
+          node-version: "24"
+          registry-url: 'https://registry.npmjs.org'
+
       - name: Upgrade npm
         run: npm install -g npm@latest
 

@@ -9,7 +9,6 @@ from amazon.base.contract_test_base import ContractTestBase
 from amazon.utils.application_signals_constants import (
     AWS_LOCAL_OPERATION,
     AWS_LOCAL_SERVICE,
-    AWS_REMOTE_DB_USER,
     AWS_REMOTE_OPERATION,
     AWS_REMOTE_RESOURCE_IDENTIFIER,
     AWS_REMOTE_RESOURCE_TYPE,
@@ -122,14 +121,14 @@ class DatabaseContractTestBase(ContractTestBase):
     def _assert_semantic_conventions_attributes(self, attributes_list: List[KeyValue], **kwargs) -> None:
         attributes_dict: Dict[str, AnyValue] = self._get_attributes_dict(attributes_list)
         command = kwargs.get("db_operation") or kwargs.get("sql_command")
-        self.assertTrue(attributes_dict.get("db.statement").string_value.startswith(command))
-        self._assert_str_attribute(attributes_dict, "db.system", self.get_remote_service())
-        self._assert_str_attribute(attributes_dict, "db.name", DATABASE_NAME)
-        self._assert_str_attribute(attributes_dict, "net.peer.name", DATABASE_HOST)
-        self._assert_int_attribute(attributes_dict, "net.peer.port", self.get_database_port())
-        self.assertTrue("server.address" not in attributes_dict)
-        self.assertTrue("server.port" not in attributes_dict)
-        self.assertTrue("db.operation" not in attributes_dict)
+        self.assertTrue(attributes_dict.get("db.query.text").string_value.startswith(command))
+        self._assert_str_attribute(attributes_dict, "db.system.name", self.get_remote_service())
+        self._assert_str_attribute(attributes_dict, "db.namespace", DATABASE_NAME)
+        self._assert_str_attribute(attributes_dict, "server.address", DATABASE_HOST)
+        self._assert_int_attribute(attributes_dict, "server.port", self.get_database_port())
+        self.assertTrue("net.peer.name" not in attributes_dict)
+        self.assertTrue("net.peer.port" not in attributes_dict)
+        self.assertTrue("db.operation.name" not in attributes_dict)
 
     @override
     def _assert_aws_attributes(
@@ -141,7 +140,6 @@ class DatabaseContractTestBase(ContractTestBase):
         self._assert_str_attribute(attributes_dict, AWS_REMOTE_SERVICE, self.get_remote_service())
         self._assert_str_attribute(attributes_dict, AWS_REMOTE_OPERATION, kwargs.get("sql_command"))
         self._assert_str_attribute(attributes_dict, AWS_REMOTE_RESOURCE_TYPE, "DB::Connection")
-        self._assert_str_attribute(attributes_dict, AWS_REMOTE_DB_USER, DATABASE_USER)
         self._assert_str_attribute(
             attributes_dict, AWS_REMOTE_RESOURCE_IDENTIFIER, self.get_remote_resource_identifier()
         )

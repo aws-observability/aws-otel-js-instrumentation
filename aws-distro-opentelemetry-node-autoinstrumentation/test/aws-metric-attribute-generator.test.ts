@@ -6,6 +6,10 @@ import type { InstrumentationScope } from '@opentelemetry/core';
 import { Resource, emptyResource, defaultResource } from '@opentelemetry/resources';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
+  ATTR_DB_NAMESPACE,
+  ATTR_DB_OPERATION_NAME,
+  ATTR_DB_QUERY_TEXT,
+  ATTR_DB_SYSTEM_NAME,
   MESSAGINGOPERATIONVALUES_PROCESS,
   SEMATTRS_DB_CONNECTION_STRING,
   SEMATTRS_DB_NAME,
@@ -643,6 +647,17 @@ describe('AwsMetricAttributeGeneratorTest', () => {
 
     // Validate behaviour of various combinations of DB attributes, then remove them.
     validateAndRemoveRemoteAttributes(SEMATTRS_DB_SYSTEM, 'DB system', SEMATTRS_DB_OPERATION, 'DB operation');
+    validateAndRemoveRemoteAttributes(ATTR_DB_SYSTEM_NAME, 'DB system', ATTR_DB_OPERATION_NAME, 'DB operation');
+
+    mockAttribute(ATTR_DB_SYSTEM_NAME, 'stable system');
+    mockAttribute(ATTR_DB_OPERATION_NAME, 'stable operation');
+    mockAttribute(SEMATTRS_DB_SYSTEM, 'legacy system');
+    mockAttribute(SEMATTRS_DB_OPERATION, 'legacy operation');
+    validateExpectedRemoteAttributes('legacy system', 'legacy operation');
+    mockAttribute(ATTR_DB_SYSTEM_NAME, undefined);
+    mockAttribute(ATTR_DB_OPERATION_NAME, undefined);
+    mockAttribute(SEMATTRS_DB_SYSTEM, undefined);
+    mockAttribute(SEMATTRS_DB_OPERATION, undefined);
 
     // Validate db.operation not exist, but db.statement exist, where SpanAttributes.SEMATTRS_DB_STATEMENT is
     // invalid
@@ -883,6 +898,17 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(SEMATTRS_DB_STATEMENT, 'SELECT FROM *');
     mockAttribute(SEMATTRS_DB_OPERATION, 'DB operation');
     validateExpectedRemoteAttributes('DB system', 'DB operation');
+
+    mockAttribute(SEMATTRS_DB_SYSTEM, undefined);
+    mockAttribute(SEMATTRS_DB_STATEMENT, undefined);
+    mockAttribute(SEMATTRS_DB_OPERATION, undefined);
+    mockAttribute(ATTR_DB_SYSTEM_NAME, 'DB system');
+    mockAttribute(ATTR_DB_QUERY_TEXT, 'SELECT * FROM users');
+    validateExpectedRemoteAttributes('DB system', 'SELECT');
+    mockAttribute(ATTR_DB_QUERY_TEXT, 'invalid query text');
+    validateExpectedRemoteAttributes('DB system', UNKNOWN_REMOTE_OPERATION);
+    mockAttribute(ATTR_DB_QUERY_TEXT, undefined);
+    validateExpectedRemoteAttributes('DB system', UNKNOWN_REMOTE_OPERATION);
   });
 
   it('testPeerServiceDoesOverrideOtherRemoteServices', () => {
@@ -1564,6 +1590,14 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(_SERVER_PORT, 3306);
     validateRemoteResourceAttributes('DB::Connection', 'db_name|abc.com|3306');
     mockAttribute(SEMATTRS_DB_NAME, undefined);
+    mockAttribute(_SERVER_ADDRESS, undefined);
+    mockAttribute(_SERVER_PORT, undefined);
+
+    mockAttribute(ATTR_DB_NAMESPACE, 'db_name');
+    mockAttribute(_SERVER_ADDRESS, 'abc.com');
+    mockAttribute(_SERVER_PORT, 3306);
+    validateRemoteResourceAttributes('DB::Connection', 'db_name|abc.com|3306');
+    mockAttribute(ATTR_DB_NAMESPACE, undefined);
     mockAttribute(_SERVER_ADDRESS, undefined);
     mockAttribute(_SERVER_PORT, undefined);
 

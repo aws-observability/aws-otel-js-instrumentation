@@ -21,7 +21,7 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
   beforeEach(function () {
     inMemoryExporter = new InMemoryLogRecordExporter();
     loggerProvider = new LoggerProvider({
-      processors: [new SimpleLogRecordProcessor(inMemoryExporter)],
+      processors: [new SimpleLogRecordProcessor({ exporter: inMemoryExporter })],
     });
     emitter = new SnapshotOtlpEmitter('http://localhost:4321/v1/logs', 'test-service', 'test-env');
     (emitter as any).logger = loggerProvider.getLogger('aws.dynamic_instrumentation', '1.0');
@@ -246,7 +246,7 @@ describe('SnapshotOtlpEmitter body and attributes', function () {
           'service.name': 'test-service',
           'deployment.environment': 'test-env',
         }),
-        processors: [new SimpleLogRecordProcessor(exporter)],
+        processors: [new SimpleLogRecordProcessor({ exporter })],
       });
       const e = new SnapshotOtlpEmitter('http://localhost:4321/v1/logs', 'test-service', 'test-env');
       (e as any).logger = provider.getLogger('aws.dynamic_instrumentation', '1.0');

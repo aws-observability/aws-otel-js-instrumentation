@@ -87,7 +87,10 @@ export class AwsAuthenticator {
       AUTHORIZATION_HEADER,
       X_AMZ_CONTENT_SHA256_HEADER,
       X_AMZ_DATE_HEADER,
-      X_AMZ_CONTENT_SHA256_HEADER,
+      // Previously X_AMZ_CONTENT_SHA256_HEADER was listed twice and the security token was missing,
+      // so a stale token could survive into the next signed request. The signer overwrites it
+      // whenever the credentials carry a session token, which kept this latent.
+      X_AMZ_SECURITY_TOKEN_HEADER,
     ];
 
     for (const key in headers) {

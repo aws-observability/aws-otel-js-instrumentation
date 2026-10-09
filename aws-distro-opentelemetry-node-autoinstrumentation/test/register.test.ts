@@ -11,7 +11,7 @@ import type { resolveServiceEventsBootstrap as ResolveServiceEventsBootstrapFn }
 let resolveServiceEventsBootstrap: typeof ResolveServiceEventsBootstrapFn;
 import * as opentelemetry from '@opentelemetry/sdk-node';
 import * as sinon from 'sinon';
-import { trace } from '@opentelemetry/api';
+import { diag, trace } from '@opentelemetry/api';
 import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base';
 import {
   LangChainInstrumentation,
@@ -414,6 +414,100 @@ describe('Register', function () {
 
       expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual('https://xray.us-east-2.amazonaws.com/v1/traces');
       expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.us-east-2.amazonaws.com/v1/logs');
+    });
+
+    describe('OTLP metrics endpoint warning', () => {
+      let warnSpy: sinon.SinonSpy;
+
+      beforeEach(() => {
+        warnSpy = sinon.spy(diag, 'warn');
+        delete process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT;
+      });
+
+      afterEach(() => {
+        warnSpy.restore();
+        delete process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT;
+      });
+
+      const metricsWarnings = () =>
+        warnSpy
+          .getCalls()
+          .map(call => String(call.args[0]))
+          .filter(message => message.includes('OTEL_METRICS_EXPORTER includes "otlp"'));
+
+      // No default metrics endpoint is set on purpose: that would start publishing billable custom
+      // metrics to a destination the user never named. Warning instead keeps the case diagnosable.
+      it('warns when otlp metrics are requested without an endpoint', () => {
+        process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+        process.env.AWS_REGION = 'us-east-1';
+        process.env.OTEL_METRICS_EXPORTER = 'otlp';
+
+        setAwsDefaultEnvironmentVariables();
+
+        const warnings = metricsWarnings();
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toContain('https://monitoring.us-east-1.amazonaws.com/v1/metrics');
+        // The endpoint itself must not be set for the user.
+        expect(process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT).toBeUndefined();
+      });
+
+      it('suggests the China endpoint for cn- regions', () => {
+        process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+        process.env.AWS_REGION = 'cn-north-1';
+        process.env.OTEL_METRICS_EXPORTER = 'otlp';
+
+        setAwsDefaultEnvironmentVariables();
+
+        expect(metricsWarnings()[0]).toContain('https://monitoring.cn-north-1.amazonaws.com.cn/v1/metrics');
+      });
+
+      it('does not warn when a metrics endpoint is already configured', () => {
+        process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+        process.env.AWS_REGION = 'us-east-1';
+        process.env.OTEL_METRICS_EXPORTER = 'otlp';
+        process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+        setAwsDefaultEnvironmentVariables();
+
+        expect(metricsWarnings()).toHaveLength(0);
+      });
+
+      it('does not warn when metrics are not exported over otlp', () => {
+        process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+        process.env.AWS_REGION = 'us-east-1';
+
+        // awsemf is the default under agent observability, so the common case must stay quiet.
+        setAwsDefaultEnvironmentVariables();
+
+        expect(process.env.OTEL_METRICS_EXPORTER).toEqual('awsemf');
+        expect(metricsWarnings()).toHaveLength(0);
+      });
+    });
+
+    it('Configures China partition endpoints for cn- regions', () => {
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      process.env.AWS_REGION = 'cn-north-1';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual(
+        'https://xray.cn-north-1.amazonaws.com.cn/v1/traces'
+      );
+      expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual('https://logs.cn-north-1.amazonaws.com.cn/v1/logs');
+
+      delete process.env.AWS_REGION;
+      delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+      delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+      process.env.AWS_DEFAULT_REGION = 'cn-northwest-1';
+
+      setAwsDefaultEnvironmentVariables();
+
+      expect(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).toEqual(
+        'https://xray.cn-northwest-1.amazonaws.com.cn/v1/traces'
+      );
+      expect(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toEqual(
+        'https://logs.cn-northwest-1.amazonaws.com.cn/v1/logs'
+      );
     });
 
     it('Does not set signal-specific endpoints when OTEL_EXPORTER_OTLP_ENDPOINT is set', () => {

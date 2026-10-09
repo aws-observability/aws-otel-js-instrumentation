@@ -1,5 +1,9 @@
 # Release History: @aws/cloudwatch-plugin-otel
 
+## Unreleased
+
+* Fix unbounded span metrics cardinality on SERVER spans: the legacy fallback for `server.address`/`server.port` now uses `net.host.name`/`net.host.port` on SERVER spans instead of `net.peer.name`/`net.peer.port`, which describe the client (including its ephemeral port) ([#571](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/571))
+
 ## v0.1.1 - 2026-09-18
 
 * Add peer, GenAI, AWS resource-identity, FaaS, and messaging derived dimensions, with legacy net.peer.*/net.host.* fallbacks for server.address/server.port ([#557](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/557))

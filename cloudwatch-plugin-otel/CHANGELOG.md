@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-* Fix unbounded span metrics cardinality on SERVER spans: the legacy fallback for `server.address`/`server.port` now uses `net.host.name`/`net.host.port` on SERVER spans instead of `net.peer.name`/`net.peer.port`, which describe the client (including its ephemeral port) ([#PR_NUMBER](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/PR_NUMBER))
+* Fix unbounded span metrics cardinality on SERVER spans: the legacy fallback for `server.address`/`server.port` now uses `net.host.name`/`net.host.port` on SERVER spans instead of `net.peer.name`/`net.peer.port`, which describe the client (including its ephemeral port) ([#571](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/571))
 
 ## v0.1.1 - 2026-09-18
 

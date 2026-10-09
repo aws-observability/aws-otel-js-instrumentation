@@ -81,6 +81,11 @@ export class MockCollector {
       .reduce((acc, dp) => acc + dp.value, 0);
   }
 
+  // Every distinct calls series (latest cumulative datapoint each) recorded for a span name.
+  callsSeries(name: string): MetricDataPoint[] {
+    return this.callsByName.get(name) ?? [];
+  }
+
   callsAttributes(name: string): Record<string, AttributeValue> | undefined {
     return this.callsByName.get(name)?.[0]?.attributes;
   }

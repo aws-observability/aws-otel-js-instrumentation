@@ -247,6 +247,91 @@ describe('SpanMetricsAttributesBuilder', () => {
     assert.ok(!('net.peer.name' in attrs));
   });
 
+  it('on a SERVER span, prefers legacy net.host.* over net.peer.* (which describes the client)', () => {
+    // On a SERVER span net.peer.port is the client's ephemeral port and would make every connection a
+    // new metric series.
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.SERVER,
+        attributes: {
+          'net.peer.name': 'client.example.com',
+          'net.peer.port': 54321,
+          'net.host.name': 'payments.example.com',
+          'net.host.port': 8443,
+        },
+      })
+    );
+    assert.strictEqual(attrs['net.host.name'], 'payments.example.com');
+    assert.strictEqual(attrs['net.host.port'], 8443);
+    assert.ok(!('net.peer.name' in attrs));
+    assert.ok(!('net.peer.port' in attrs));
+    assert.ok(!('server.address' in attrs));
+    assert.ok(!('server.port' in attrs));
+  });
+
+  it('on a SERVER span with only net.peer.*, emits no peer or server dimension', () => {
+    const attrs = buildAttributes(
+      fakeSpan({
+        kind: SpanKind.SERVER,
+        attributes: { 'net.peer.name': 'client.example.com', 'net.peer.port': 54321 },
+      })
+    );
+    for (const key of [
+      'net.peer.name',
+      'net.peer.port',
+      'net.host.name',
+      'net.host.port',
+      'server.address',
+      'server.port',
+    ]) {
+      assert.ok(!(key in attrs), `${key} must not be a dimension`);
+    }
+  });
+
+  it('keeps legacy net.peer.* on CLIENT, PRODUCER, CONSUMER and INTERNAL spans', () => {
+    // On these kinds net.peer.* is the remote server or broker, so it is the right fallback.
+    for (const kind of [SpanKind.CLIENT, SpanKind.PRODUCER, SpanKind.CONSUMER, SpanKind.INTERNAL]) {
+      const attrs = buildAttributes(
+        fakeSpan({
+          kind,
+          attributes: {
+            'net.peer.name': 'payments.example.com',
+            'net.peer.port': 8443,
+            'net.host.name': 'local.example.com',
+            'net.host.port': 54321,
+          },
+        })
+      );
+      assert.strictEqual(attrs['net.peer.name'], 'payments.example.com', SpanKind[kind]);
+      assert.strictEqual(attrs['net.peer.port'], 8443, SpanKind[kind]);
+      assert.ok(!('net.host.name' in attrs), SpanKind[kind]);
+      assert.ok(!('net.host.port' in attrs), SpanKind[kind]);
+    }
+  });
+
+  it('prefers stable server.* over every legacy key on SERVER and CLIENT spans', () => {
+    for (const kind of [SpanKind.SERVER, SpanKind.CLIENT]) {
+      const attrs = buildAttributes(
+        fakeSpan({
+          kind,
+          attributes: {
+            'server.address': 'payments.example.com',
+            'server.port': 8443,
+            'net.peer.name': 'other.example.com',
+            'net.peer.port': 54321,
+            'net.host.name': 'local.example.com',
+            'net.host.port': 8080,
+          },
+        })
+      );
+      assert.strictEqual(attrs['server.address'], 'payments.example.com', SpanKind[kind]);
+      assert.strictEqual(attrs['server.port'], 8443, SpanKind[kind]);
+      for (const key of ['net.peer.name', 'net.peer.port', 'net.host.name', 'net.host.port']) {
+        assert.ok(!(key in attrs), `${SpanKind[kind]}: ${key} must not be a dimension`);
+      }
+    }
+  });
+
   it('copies gen_ai attributes', () => {
     const attrs = buildAttributes(
       fakeSpan({

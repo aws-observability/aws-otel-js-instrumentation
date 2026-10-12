@@ -108,6 +108,9 @@ jobs:
       - name: Checkout to get workflow file
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #5.0.0
 
+      - name: Set up CodeBuild runner
+        uses: ./.github/actions/codebuild-runner-setup
+
       - name: Check all jobs succeeded and none missing
         run: |
           # Check if all needed jobs succeeded

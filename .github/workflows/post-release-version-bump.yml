@@ -89,6 +89,9 @@ jobs:
           fetch-depth: 0
           token: ${{ env.BOT_TOKEN_GITHUB_RW_PATOKEN }}
 
+      - name: Set up CodeBuild runner
+        uses: ./.github/actions/codebuild-runner-setup
+
       - name: Configure Git
         run: |
           git config user.name "github-actions"

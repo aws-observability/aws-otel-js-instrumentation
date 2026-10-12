@@ -45,6 +45,8 @@ runs:
           if [ -n "$gateway" ]; then
             echo "TC_HOST=$gateway" >> "$GITHUB_ENV"
             echo "TESTCONTAINERS_HOST_OVERRIDE=$gateway" >> "$GITHUB_ENV"
+            # The machine is discarded after the job, so Ryuk cleanup is unneeded; its image comes from Docker Hub.
+            echo "TESTCONTAINERS_RYUK_DISABLED=true" >> "$GITHUB_ENV"
             sudo rm -f /.dockerenv
           fi
         fi

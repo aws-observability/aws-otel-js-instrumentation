@@ -32,7 +32,7 @@ export async function startPostgres(): Promise<StartedBackend & { database: stri
   const database = 'contract';
   const user = 'contract';
   const password = 'contract';
-  const container = await new GenericContainer('postgres:16-alpine')
+  const container = await new GenericContainer('public.ecr.aws/docker/library/postgres:16-alpine')
     .withEnvironment({ POSTGRES_DB: database, POSTGRES_USER: user, POSTGRES_PASSWORD: password })
     .withExposedPorts(5432)
     .withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))

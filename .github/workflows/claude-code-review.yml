@@ -20,7 +20,10 @@ jobs:
     if: >-
       !github.event.pull_request.draft &&
       !contains(github.event.pull_request.title, '[skip-claude]')
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     permissions:
       contents: read
     outputs:
@@ -49,7 +52,10 @@ jobs:
     needs: check-author
     if: needs.check-author.outputs.is_trusted == 'true'
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     permissions:
       contents: read
       pull-requests: write

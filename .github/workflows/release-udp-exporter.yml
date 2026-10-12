@@ -22,7 +22,10 @@ jobs:
 
   build:
     environment: Release
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     needs: validate-udp-exporter-e2e-test
     steps:
       - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}

@@ -32,7 +32,10 @@ defaults:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -45,7 +48,10 @@ jobs:
 
   unit-tests:
     name: Unit tests
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -58,7 +64,10 @@ jobs:
 
   compat-tests:
     name: Unit + contract (OTel ${{ matrix.channel }})
-    runs-on: ubuntu-latest # provides a Docker daemon for the DB/messaging Testcontainers suites
+    runs-on: # provides a Docker daemon for the DB/messaging Testcontainers suites
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     strategy:
       fail-fast: false
       matrix:

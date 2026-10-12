@@ -22,7 +22,10 @@ permissions:
 
 jobs:
   select-tests:
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     outputs:
       tests: ${{ steps.filter.outputs.tests }}
     steps:
@@ -43,7 +46,10 @@ jobs:
 
   contract-test:
     needs: select-tests
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     strategy:
       fail-fast: false
       matrix:

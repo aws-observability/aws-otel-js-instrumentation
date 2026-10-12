@@ -27,7 +27,10 @@ env:
 
 jobs:
   static-code-checks:
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
         with:
@@ -119,7 +122,10 @@ jobs:
           echo "No github.event usage found in run steps"
 
   build:
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     env:
       NPM_CONFIG_UNSAFE_PERM: true
     steps:
@@ -150,7 +156,10 @@ jobs:
           retention-days: 1
 
   build-and-scan-image:
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     steps:
       - name: Checkout Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
@@ -167,7 +176,10 @@ jobs:
           run_unit_tests: false
 
   build-lambda:
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     steps:
       - name: Checkout Repo @ SHA - ${{ github.sha }}
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
@@ -183,7 +195,10 @@ jobs:
         run: npm run build-lambda
 
   unit-tests:
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     strategy:
       fail-fast: false
       matrix:
@@ -227,7 +242,10 @@ jobs:
     uses: ./.github/workflows/contract-tests.yml
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 #v5.0.0
@@ -242,7 +260,10 @@ jobs:
           npm run lint:readme
 
   all-pr-checks-pass:
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     needs: [static-code-checks, contract-tests, instrumentation-tests, lint, build, unit-tests, build-and-scan-image, build-lambda]
     if: always()
     steps:

@@ -15,7 +15,10 @@ permissions:
 jobs:
   run-tests:
     name: Node ${{ matrix.node-version }} / ${{ matrix.tav-target }}
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     timeout-minutes: 60
     strategy:
       fail-fast: false

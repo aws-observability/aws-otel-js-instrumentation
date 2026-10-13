@@ -5,7 +5,7 @@
 // copies onto span metrics, driven by real HTTP/Express instrumentation end-to-end.
 import * as assert from 'assert';
 import { MockCollector } from '../utils/mock-collector';
-import { SERVER_SPAN_NAME } from '../../apps/workload';
+import { REQUEST_COUNT, SERVER_SPAN_NAME } from '../../apps/workload';
 import { startFamilyApp } from './family-test-base';
 
 describe('Contract: HTTP attributes family', function () {
@@ -45,6 +45,16 @@ describe('Contract: HTTP attributes family', function () {
     // High-cardinality raw URL/target are never copied, in any semconv.
     assert.ok(!('http.url' in attrs), 'raw url not copied');
     assert.ok(!('http.target' in attrs), 'raw target not copied');
+  });
+
+  it('server: client address/port are not dimensions, so requests from many client ports form one series', () => {
+    // Each request opens a new connection from a different ephemeral client port. Under the legacy
+    // HTTP semconv the SERVER span carries that port as net.peer.port; it must not split the series.
+    const serverSeries = collector.callsSeries(SERVER_SPAN_NAME).filter(dp => dp.attributes['span.kind'] === 'SERVER');
+    assert.strictEqual(serverSeries.length, 1, 'one SERVER series for the endpoint');
+    assert.strictEqual(serverSeries[0].value, REQUEST_COUNT);
+    assert.ok(!('net.peer.port' in serverSeries[0].attributes), 'client port is not a dimension');
+    assert.ok(!('net.peer.name' in serverSeries[0].attributes), 'client address is not a dimension');
   });
 
   it('client: downstream call is metered without a route (client has no http.route)', () => {

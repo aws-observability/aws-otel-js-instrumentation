@@ -28,7 +28,11 @@ export async function runWorkload(): Promise<void> {
   const drivePath = process.env.DRIVE_PATH ?? '/items/42';
   for (let i = 0; i < REQUEST_COUNT; i++) {
     await new Promise<void>(resolve => {
-      const req = http.get(`http://localhost:${port}${drivePath}`, (r: any) => r.resume().on('end', () => resolve()));
+      // agent: false opens a new connection per request, so each request comes from a different
+      // client port regardless of the Node version's default keep-alive behavior.
+      const req = http.get(`http://localhost:${port}${drivePath}`, { agent: false }, (r: any) =>
+        r.resume().on('end', () => resolve())
+      );
       req.on('error', () => resolve());
     });
   }

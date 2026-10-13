@@ -53,9 +53,7 @@ const ALLOWLIST: string[] = [
 // Current semconv key -> legacy keys, checked when the current key is absent (spec §4). Each entry
 // lists its legacy predecessors in first-present-wins order. When only a legacy key is present it is
 // passed through under its own key/value, unchanged — never re-homed to the current key, because some
-// migrations also changed the value vocabulary. The peer keys have two legacy spellings: net.peer.*
-// (client spans) and net.host.* (server spans), per the server semconv
-// (https://opentelemetry.io/docs/specs/semconv/registry/attributes/server/).
+// migrations also changed the value vocabulary. The peer keys are in PEER_LEGACY_FALLBACKS below.
 const LEGACY_FALLBACKS: Array<{ currentKey: string; legacyKeys: string[] }> = [
   { currentKey: 'http.request.method', legacyKeys: ['http.method'] },
   { currentKey: 'http.response.status_code', legacyKeys: ['http.status_code'] },
@@ -63,6 +61,18 @@ const LEGACY_FALLBACKS: Array<{ currentKey: string; legacyKeys: string[] }> = [
   { currentKey: 'db.system.name', legacyKeys: ['db.system'] },
   { currentKey: 'db.operation.name', legacyKeys: ['db.operation'] },
   { currentKey: 'db.collection.name', legacyKeys: ['db.sql.table'] },
+];
+
+// server.* always describes the server, but the legacy net.* fallback depends on span kind:
+// net.peer.* is the remote end of the connection and net.host.* the local end. On SERVER spans the
+// server is therefore net.host.*, while net.peer.* is the client (net.peer.port is its ephemeral
+// port), which must never become a dimension. See the HTTP semconv migration guide:
+// https://opentelemetry.io/docs/specs/semconv/non-normative/http-migration/
+const SERVER_SPAN_PEER_LEGACY_FALLBACKS: Array<{ currentKey: string; legacyKeys: string[] }> = [
+  { currentKey: 'server.address', legacyKeys: ['net.host.name'] },
+  { currentKey: 'server.port', legacyKeys: ['net.host.port'] },
+];
+const PEER_LEGACY_FALLBACKS: Array<{ currentKey: string; legacyKeys: string[] }> = [
   { currentKey: 'server.address', legacyKeys: ['net.peer.name', 'net.host.name'] },
   { currentKey: 'server.port', legacyKeys: ['net.peer.port', 'net.host.port'] },
 ];
@@ -107,13 +117,22 @@ export function buildAttributes(span: ReadableSpan): Attributes {
       attributes[key] = value;
     }
   }
-  applyLegacyFallbacks(attributes, spanAttributes);
+  applyLegacyFallbacks(attributes, spanAttributes, LEGACY_FALLBACKS);
+  applyLegacyFallbacks(
+    attributes,
+    spanAttributes,
+    span.kind === SpanKind.SERVER ? SERVER_SPAN_PEER_LEGACY_FALLBACKS : PEER_LEGACY_FALLBACKS
+  );
   copyDestinationIfNamed(attributes, spanAttributes);
   return attributes;
 }
 
-function applyLegacyFallbacks(out: Attributes, source: Attributes): void {
-  for (const { currentKey, legacyKeys } of LEGACY_FALLBACKS) {
+function applyLegacyFallbacks(
+  out: Attributes,
+  source: Attributes,
+  fallbacks: Array<{ currentKey: string; legacyKeys: string[] }>
+): void {
+  for (const { currentKey, legacyKeys } of fallbacks) {
     if (source[currentKey] !== undefined) {
       continue;
     }

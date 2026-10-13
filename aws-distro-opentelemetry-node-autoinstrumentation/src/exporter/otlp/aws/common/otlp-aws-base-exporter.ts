@@ -17,39 +17,21 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
   private authenticator: AwsAuthenticator;
   private parentSerializer: ISerializer<Payload, Response>;
 
-  // Serializes exports so that only one is in flight at a time.
+  // Serializes exports so that only one is in flight at a time. Per-request state (the serialized
+  // body, the signed headers) lives on objects shared across exports, so overlapping exports clobber
+  // each other. Both spans and logs can overlap. See #565 for the mechanism and failure modes, and
+  // #568 for timing measurements.
   //
-  // An export stores its serialized body on the shared serializer and its signed headers on the
-  // shared transport, and those are read back later - the body when the upstream export is invoked,
-  // the headers when the transport sends. Overlapping exports therefore clobber each other: a
-  // request can go out with another batch's body (silently losing a batch and duplicating another),
-  // or with a body and a signature that disagree, which the endpoint rejects as a signature
-  // mismatch.
+  // KNOWN TRADE-OFF. Signing each request inside its own transport would fix this properly, because
+  // IExporterTransport.send() receives the exact bytes for one request. That is not affordable
+  // today: createOtlpNetworkExportDelegate accepts a transport, but createHttpExporterTransport,
+  // createRetryingTransport and sendWithHttp are all absent from the package's exports map. Revisit
+  // if upstream exports them.
   //
-  // Exports overlap on both signals. BatchSpanProcessorBase._flushAll() exports every queued batch
-  // in parallel, and AwsCloudWatchOtlpBatchLogRecordProcessor awaits each sub-batch but abandons
-  // that wait on its own timeout, so the next sub-batch starts while the previous export is still
-  // in flight. See #565 for the full analysis.
-  //
-  // KNOWN TRADE-OFF. Serializing is a workaround. The root cause is that per-request state lives on
-  // objects shared across exports; signing each request inside its own transport would remove the
-  // problem outright, because IExporterTransport.send() receives the exact bytes for one request.
-  // That is not affordable today: createOtlpNetworkExportDelegate accepts a transport, but
-  // createHttpExporterTransport, createRetryingTransport and sendWithHttp are all absent from the
-  // package's exports map, so wrapping the HTTP transport would mean reimplementing it along with
-  // its retry and timeout semantics. Revisit if upstream exports them.
-  //
-  // The cost is that a flush of N batches now takes N times as long, while each batch still carries
-  // its own OTEL_BSP_EXPORT_TIMEOUT timer started when the flush began. Against an endpoint that is
-  // slow but still succeeding, that turns a flush which used to pass into one that times out: four
-  // concurrent exports to an unreachable endpoint measured ~7.3/7.3/8.1/8.6s before and
-  // ~8.3/15.4/23.8/31.6s after. A single export's own OTEL_EXPORTER_OTLP_TIMEOUT is 10s by default,
-  // which already exceeds the per-export budget a 4-batch flush has under a 30s
-  // OTEL_BSP_EXPORT_TIMEOUT. Shutdown is affected the same way and can approach the 30s grace period
-  // that ECS and Kubernetes allow by default, and a rejected flush is worse than a late one, because
-  // BatchSpanProcessorBase chains .then(() => this._exporter.shutdown()) and so skips exporter
-  // shutdown entirely. Raise OTEL_BSP_EXPORT_TIMEOUT for a slow endpoint, an unusually large queue,
-  // or an unusually small batch size.
+  // Cost: serializing lengthens a flush, so an endpoint that is slow but still succeeding can time
+  // out a flush that previously passed, and shutdown can approach the 30s grace period ECS and
+  // Kubernetes allow by default. Raise OTEL_BSP_EXPORT_TIMEOUT for a slow endpoint, an unusually
+  // large queue, or an unusually small batch size.
   private exportQueue: Promise<void> = Promise.resolve();
 
   constructor(

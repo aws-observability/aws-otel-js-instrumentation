@@ -13,6 +13,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix: with `OTEL_AWS_HTTP_OPERATION_PATHS` set, child spans now inherit the overridden operation from their server
+  span, so dependency metrics are reported under the same operation as the service metrics instead of the original span name
+
 ## v0.13.0 - 2026-09-14
 
 - feat: redact span, span event, and span link attributes via AWS_REDACT_SPAN_ATTRIBUTES

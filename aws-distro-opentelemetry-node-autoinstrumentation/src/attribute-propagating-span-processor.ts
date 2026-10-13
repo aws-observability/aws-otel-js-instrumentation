@@ -121,14 +121,14 @@ export class AttributePropagatingSpanProcessor implements SpanProcessor {
     let propagationData: AttributeValue | undefined = undefined;
     if (AwsSpanProcessingUtil.isLocalRoot(span)) {
       if (!this.isServerKind(span)) {
-        propagationData = this.propagationDataExtractor(span);
+        propagationData = this.extractPropagationData(span);
       }
     } else if (parentReadableSpan !== undefined && this.isServerKind(parentReadableSpan)) {
       // In TypeScript, perform `parentReadableSpan !== undefined` check
       // This should be done in Python and Java as well, but is not as of now
       // If parentReadableSpan is not defined, the first `if statement` should occur,
       // so that is why it is not a problem for Java/Python...
-      propagationData = this.propagationDataExtractor(parentReadableSpan);
+      propagationData = this.extractPropagationData(parentReadableSpan);
     } else {
       // In TypeScript, perform `parentReadableSpan?` check (returns undefined if undefined)
       // This should be done in Python and Java as well, but is not as of now
@@ -138,6 +138,25 @@ export class AttributePropagatingSpanProcessor implements SpanProcessor {
     if (propagationData !== undefined) {
       span.setAttribute(this.propagationDataKey, propagationData);
     }
+  }
+
+  /**
+   * Apply the OTEL_AWS_HTTP_OPERATION_PATHS span name override (if configured and matching) before
+   * extracting the propagation data, so that children inherit the same operation that the parent's
+   * own metrics use (the override is otherwise only applied at span end). This is a no-op when the
+   * env var is unset or no pattern matches the span's URL path.
+   *
+   * applyOperationPathSpanName renames the span it is given, so it is applied to a view of the span
+   * here. The span is still in progress and its own name must not change at this point.
+   */
+  private extractPropagationData(span: ReadableSpan): string {
+    if (AwsSpanProcessingUtil.getOperationPaths().length === 0) {
+      return this.propagationDataExtractor(span);
+    }
+    const spanView: ReadableSpan = Object.create(span, {
+      name: { value: span.name, writable: true, enumerable: true, configurable: true },
+    });
+    return this.propagationDataExtractor(AwsSpanProcessingUtil.applyOperationPathSpanName(spanView));
   }
 
   private isConsumerKind(span: ReadableSpan): boolean {

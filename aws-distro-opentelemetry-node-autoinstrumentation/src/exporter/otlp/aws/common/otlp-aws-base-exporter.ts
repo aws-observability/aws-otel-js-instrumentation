@@ -26,26 +26,29 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
   // or with a body and a signature that disagree, which the endpoint rejects as a signature
   // mismatch.
   //
-  // Exports overlap whenever a batch processor flushes, because BatchSpanProcessorBase._flushAll()
-  // exports every queued batch in parallel. Steady-state exports are already serialized by the
-  // processor's own in-flight guard, and the upstream logs processor already flushes its batches
-  // sequentially for the same reason ("flush all batches sequentially to avoid race conditions").
+  // Exports overlap on both signals. BatchSpanProcessorBase._flushAll() exports every queued batch
+  // in parallel, and AwsCloudWatchOtlpBatchLogRecordProcessor awaits each sub-batch but abandons
+  // that wait on its own timeout, so the next sub-batch starts while the previous export is still
+  // in flight. See #565 for the full analysis.
   //
-  // KNOWN TRADE-OFF. Serializing is a workaround, not the ideal design. The root cause is that
-  // per-request state lives on objects shared across exports; signing each request inside its own
-  // transport would remove the problem outright, because IExporterTransport.send() receives the
-  // exact bytes for one request. That is not affordable today: createOtlpNetworkExportDelegate
-  // accepts a transport, but createHttpExporterTransport, createRetryingTransport and sendWithHttp
-  // are all absent from the package's exports map, so wrapping the HTTP transport would mean
-  // reimplementing it along with its retry and timeout semantics. Revisit if upstream exports it.
+  // KNOWN TRADE-OFF. Serializing is a workaround. The root cause is that per-request state lives on
+  // objects shared across exports; signing each request inside its own transport would remove the
+  // problem outright, because IExporterTransport.send() receives the exact bytes for one request.
+  // That is not affordable today: createOtlpNetworkExportDelegate accepts a transport, but
+  // createHttpExporterTransport, createRetryingTransport and sendWithHttp are all absent from the
+  // package's exports map, so wrapping the HTTP transport would mean reimplementing it along with
+  // its retry and timeout semantics. Revisit if upstream exports them.
   //
-  // The cost of serializing is that a flush of N batches takes N times as long, and each batch
-  // carries its own OTEL_BSP_EXPORT_TIMEOUT timer started when the flush began, so a large enough N
-  // makes later batches time out. A rejected flush is worse than a late one: BatchSpanProcessorBase
-  // chains .then(() => this._exporter.shutdown()), so a rejection skips exporter shutdown entirely.
-  // With default settings N is at most 4 (2048 queue / 512 batch), leaving a 7.5s budget per export.
-  // See getSpanExportBatchSize in aws-opentelemetry-configurator.ts for the Lambda case that made N
-  // much larger. Raise OTEL_BSP_EXPORT_TIMEOUT if a deployment configures an unusually large queue
+  // The cost is that a flush of N batches now takes N times as long, while each batch still carries
+  // its own OTEL_BSP_EXPORT_TIMEOUT timer started when the flush began. Against an endpoint that is
+  // slow but still succeeding, that turns a flush which used to pass into one that times out: four
+  // concurrent exports to an unreachable endpoint measured ~7.3/7.3/8.1/8.6s before and
+  // ~8.3/15.4/23.8/31.6s after. A single export's own OTEL_EXPORTER_OTLP_TIMEOUT is 10s by default,
+  // which already exceeds the per-export budget a 4-batch flush has under a 30s
+  // OTEL_BSP_EXPORT_TIMEOUT. Shutdown is affected the same way and can approach the 30s grace period
+  // that ECS and Kubernetes allow by default, and a rejected flush is worse than a late one, because
+  // BatchSpanProcessorBase chains .then(() => this._exporter.shutdown()) and so skips exporter
+  // shutdown entirely. Raise OTEL_BSP_EXPORT_TIMEOUT for a slow endpoint, an unusually large queue,
   // or an unusually small batch size.
   private exportQueue: Promise<void> = Promise.resolve();
 

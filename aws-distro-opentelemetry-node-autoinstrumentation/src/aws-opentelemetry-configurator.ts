@@ -905,12 +905,18 @@ function getSamplerProbabilityFromEnv(): number | undefined {
 // END The OpenTelemetry Authors code
 
 /**
- * The reduced Lambda batch size exists to keep UDP datagrams under the 64KB limit, so it applies
- * only to the UDP exporter. Applying it to an HTTP exporter splits a flush into many small signed
- * requests for no benefit: in Lambda with a custom traces endpoint it turned a 2048-span buffer into
- * roughly 205 batches instead of 4. Because SigV4 exports are serialized (see OTLPAwsBaseExporter),
- * that many sequential batches can also exceed OTEL_BSP_EXPORT_TIMEOUT during a flush, and a
- * rejected flush makes BatchSpanProcessorBase skip exporter.shutdown() entirely.
+ * The reduced Lambda batch size exists to keep UDP datagrams under the 64KB limit (#68), so it
+ * applies only to the UDP exporter.
+ *
+ * Note this is not SigV4-specific: every non-UDP exporter in Lambda is affected, including gRPC or
+ * protobuf exporters sending to a local collector, which also go from 10 spans per batch to the
+ * upstream default of 512. That is the intended behaviour, since the 64KB datagram limit never
+ * applied to them in the first place.
+ *
+ * The SigV4 exporter is simply where it mattered most: because its exports are serialized (see
+ * OTLPAwsBaseExporter), a 2048-span buffer split into roughly 205 batches instead of 4 could exceed
+ * OTEL_BSP_EXPORT_TIMEOUT during a flush, and a rejected flush makes BatchSpanProcessorBase skip
+ * exporter.shutdown() entirely.
  */
 function getSpanExportBatchSize(exporter: SpanExporter) {
   if (isLambdaEnvironment() && exporter instanceof OTLPUdpSpanExporter) {

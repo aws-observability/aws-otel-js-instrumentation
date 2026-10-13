@@ -221,6 +221,68 @@ describe('OTLPAwsBaseExporter concurrency', () => {
     }
   });
 
+  // The queue is released when an export produces a result, so a failed export must not hold it.
+  // Nothing else covers that, and it is the guarantee that keeps a failure from wedging the exporter
+  // permanently - which would be worse than the defect this fixes.
+  it('should still run the next export when signing fails', async () => {
+    // Replace the beforeEach stub: the first signing fails, later ones succeed.
+    let call = 0;
+    (AwsAuthenticator.prototype.authenticate as sinon.SinonStub).callsFake(async (headers: Record<string, string>) =>
+      call++ === 0 ? undefined : { ...headers }
+    );
+
+    const server = await startServer();
+    const spans = createSpans(2);
+
+    try {
+      const exporter = new OTLPAwsSpanExporter(server.url);
+
+      const results = await Promise.all(
+        [[spans[0]], [spans[1]]].map(
+          batch => new Promise<ExportResult>(resolve => void exporter.export(batch, result => resolve(result)))
+        )
+      );
+
+      expect(results.map(result => result.code)).toEqual([ExportResultCode.FAILED, ExportResultCode.SUCCESS]);
+      // Only the second export reached the wire; the first failed before sending.
+      expect(server.received).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  // Same guarantee for the other failure mode: an exception rather than a returned failure. These
+  // take different paths out of the export - the catch in export() versus an early return in
+  // doExport - and both must release the queue.
+  it('should still run the next export when signing throws', async () => {
+    let call = 0;
+    (AwsAuthenticator.prototype.authenticate as sinon.SinonStub).callsFake(async (headers: Record<string, string>) => {
+      if (call++ === 0) {
+        throw new Error('credential resolution failed');
+      }
+      return { ...headers };
+    });
+
+    const server = await startServer();
+    const spans = createSpans(2);
+
+    try {
+      const exporter = new OTLPAwsSpanExporter(server.url);
+
+      const results = await Promise.all(
+        [[spans[0]], [spans[1]]].map(
+          batch => new Promise<ExportResult>(resolve => void exporter.export(batch, result => resolve(result)))
+        )
+      );
+
+      expect(results.map(result => result.code)).toEqual([ExportResultCode.FAILED, ExportResultCode.SUCCESS]);
+      expect(results[0].error?.message).toContain('credential resolution failed');
+      expect(server.received).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('should finish queued exports before forceFlush resolves', async () => {
     const server = await startServer();
     const spans = createSpans(2);

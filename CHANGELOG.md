@@ -15,6 +15,7 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 - fix: with `OTEL_AWS_HTTP_OPERATION_PATHS` set, child spans now inherit the overridden operation from their server
   span, so dependency metrics are reported under the same operation as the service metrics instead of the original span name
+  ([#573](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/573))
 
 ## v0.13.0 - 2026-09-14
 

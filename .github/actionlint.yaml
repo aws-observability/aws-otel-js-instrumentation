@@ -1,0 +1,7 @@
+# Labels used by CodeBuild-hosted GitHub Actions runners (project adot-js-runner).
+# See https://docs.aws.amazon.com/codebuild/latest/userguide/sample-github-action-runners-update-labels.html
+self-hosted-runner:
+  labels:
+    - codebuild-*
+    - image:*
+    - instance-size:*

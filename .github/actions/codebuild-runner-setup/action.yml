@@ -10,6 +10,8 @@ runs:
       shell: bash
       env:
         YQ_VERSION: v4.54.1
+        YQ_SHA256_AMD64: 8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f
+        YQ_SHA256_ARM64: 189088da0c6429ec5178dfaab1a114805f6cab0b61b165ab236efedf1d57a71b
       run: |
         set -euo pipefail
         packages=()
@@ -28,8 +30,14 @@ runs:
         fi
         if ! yq --version 2>/dev/null | grep -q mikefarah; then
           arch=$(dpkg --print-architecture 2>/dev/null || uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
-          sudo curl -fsSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${arch}"
-          sudo chmod +x /usr/local/bin/yq
+          case "$arch" in
+            amd64) sha256=$YQ_SHA256_AMD64 ;;
+            arm64) sha256=$YQ_SHA256_ARM64 ;;
+            *) echo "No pinned yq checksum for $arch" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o "$RUNNER_TEMP/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${arch}"
+          echo "$sha256  $RUNNER_TEMP/yq" | sha256sum -c --quiet
+          sudo install -m 0755 "$RUNNER_TEMP/yq" /usr/local/bin/yq
         fi
 
     # CodeBuild runs the job in a container (/.dockerenv exists) next to the Docker daemon, not on it.

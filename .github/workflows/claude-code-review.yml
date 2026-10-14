@@ -23,7 +23,7 @@ jobs:
     runs-on:
       - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
       - image:ubuntu-8.0
-      - instance-size:large
+      - instance-size:small
     permissions:
       contents: read
     outputs:

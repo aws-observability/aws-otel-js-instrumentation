@@ -149,7 +149,7 @@ jobs:
     runs-on:
       - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
       - image:ubuntu-8.0
-      - instance-size:large
+      - instance-size:small
     if: always() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/v'))
     steps:
       - name: Configure AWS Credentials for emitting metrics

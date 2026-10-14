@@ -266,7 +266,7 @@ jobs:
     runs-on:
       - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
       - image:ubuntu-8.0
-      - instance-size:large
+      - instance-size:small
     needs: [static-code-checks, contract-tests, instrumentation-tests, lint, build, unit-tests, build-and-scan-image, build-lambda]
     if: always()
     steps:

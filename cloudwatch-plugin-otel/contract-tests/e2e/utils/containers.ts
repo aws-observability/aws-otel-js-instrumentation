@@ -51,7 +51,8 @@ export async function startPostgres(): Promise<StartedBackend & { database: stri
 // advertised-listener mapping so a host-side client (kafkajs) can connect on the mapped port.
 export async function startKafka(): Promise<StartedBackend> {
   const { KafkaContainer } = await import('@testcontainers/kafka');
-  const container = await new KafkaContainer('mirror.gcr.io/confluentinc/cp-kafka:7.7.1')
+  // Docker Hub's confluentinc/cp-kafka has no ECR Public mirror, so we keep a copy in our own ECR Public registry.
+  const container = await new KafkaContainer('public.ecr.aws/v6t6x3y1/cp-kafka:7.7.1')
     .withStartupTimeout(180000)
     .start();
   return { host: container.getHost(), port: container.getMappedPort(9093), container };

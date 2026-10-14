@@ -34,7 +34,7 @@ jobs:
     #   - https://gh.io/using-larger-runners (GitHub.com only)
     # Consider using larger runners or machines with greater resources for possible analysis time improvements.
     # Fork PRs run on GitHub-hosted runners; the CodeBuild webhook requires approval for them.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && ((matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest') || (matrix.language == 'swift' && 'macos-latest' || fromJSON(format('["codebuild-adot-js-runner-{0}-{1}", "image:ubuntu-8.0", "instance-size:large"]', github.run_id, github.run_attempt))) }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || (fromJSON(format('["codebuild-adot-js-runner-{0}-{1}", "image:ubuntu-8.0", "instance-size:large"]', github.run_id, github.run_attempt))) }}
     permissions:
       # required for all workflows
       security-events: write

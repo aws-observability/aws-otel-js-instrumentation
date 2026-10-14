@@ -20,10 +20,8 @@ jobs:
     if: >-
       !github.event.pull_request.draft &&
       !contains(github.event.pull_request.title, '[skip-claude]')
-    runs-on:
-      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
-      - image:ubuntu-8.0
-      - instance-size:small
+    # Fork PRs run on GitHub-hosted runners; the CodeBuild webhook requires approval for them.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(format('["codebuild-adot-js-runner-{0}-{1}", "image:ubuntu-8.0", "instance-size:small"]', github.run_id, github.run_attempt)) }}
     permissions:
       contents: read
     outputs:
@@ -52,10 +50,8 @@ jobs:
     needs: check-author
     if: needs.check-author.outputs.is_trusted == 'true'
     timeout-minutes: 30
-    runs-on:
-      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
-      - image:ubuntu-8.0
-      - instance-size:large
+    # Fork PRs run on GitHub-hosted runners; the CodeBuild webhook requires approval for them.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(format('["codebuild-adot-js-runner-{0}-{1}", "image:ubuntu-8.0", "instance-size:large"]', github.run_id, github.run_attempt)) }}
     permissions:
       contents: read
       pull-requests: write

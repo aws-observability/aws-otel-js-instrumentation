@@ -32,10 +32,8 @@ defaults:
 jobs:
   lint:
     name: Lint
-    runs-on:
-      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
-      - image:ubuntu-8.0
-      - instance-size:large
+    # Fork PRs run on GitHub-hosted runners; the CodeBuild webhook requires approval for them.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(format('["codebuild-adot-js-runner-{0}-{1}", "image:ubuntu-8.0", "instance-size:large"]', github.run_id, github.run_attempt)) }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -48,10 +46,8 @@ jobs:
 
   unit-tests:
     name: Unit tests
-    runs-on:
-      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
-      - image:ubuntu-8.0
-      - instance-size:large
+    # Fork PRs run on GitHub-hosted runners; the CodeBuild webhook requires approval for them.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(format('["codebuild-adot-js-runner-{0}-{1}", "image:ubuntu-8.0", "instance-size:large"]', github.run_id, github.run_attempt)) }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -64,10 +60,9 @@ jobs:
 
   compat-tests:
     name: Unit + contract (OTel ${{ matrix.channel }})
-    runs-on: # provides a Docker daemon for the DB/messaging Testcontainers suites
-      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
-      - image:ubuntu-8.0
-      - instance-size:large
+    # provides a Docker daemon for the DB/messaging Testcontainers suites
+    # Fork PRs run on GitHub-hosted runners; the CodeBuild webhook requires approval for them.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON(format('["codebuild-adot-js-runner-{0}-{1}", "image:ubuntu-8.0", "instance-size:large"]', github.run_id, github.run_attempt)) }}
     strategy:
       fail-fast: false
       matrix:

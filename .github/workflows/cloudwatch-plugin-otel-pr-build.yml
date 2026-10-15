@@ -110,5 +110,15 @@ jobs:
         run: |
           npm exec --workspaces=false -- tsc -p .
           npm exec --workspaces=false -- tsc -p tsconfig.apps.json
+      - name: Pull contract-test images
+        uses: ./.github/actions/retry
+        with:
+          timeout-minutes: 10
+          max-attempts: 4
+          retry-wait-seconds: 60
+          retry-backoff-multiplier: 2
+          command: |
+            docker pull public.ecr.aws/docker/library/postgres:16-alpine
+            docker pull public.ecr.aws/v6t6x3y1/cp-kafka:7.7.1
       - name: Unit + contract suites (all modes and families)
         run: npm exec --workspaces=false -- ts-mocha --timeout 300000 -p tsconfig.json 'test/**/*.test.ts' 'contract-tests/**/*.test.ts'

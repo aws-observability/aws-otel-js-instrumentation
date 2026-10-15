@@ -1,0 +1,66 @@
+name: Retry command
+description: Retry any Bash command or script on failure or timeout.
+
+inputs:
+  command:
+    description: Bash command or multiline script to run.
+    required: true
+  max-attempts:
+    description: Maximum number of attempts.
+    default: "3"
+  retry-wait-seconds:
+    description: Initial delay in seconds between attempts.
+    default: "10"
+  retry-backoff-multiplier:
+    description: Multiplier applied to each subsequent retry delay; 1 uses a constant delay.
+    default: "2"
+  timeout-minutes:
+    description: Timeout for each attempt.
+    default: "10"
+  working-directory:
+    description: Directory in which to run the command.
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: Retry command
+      shell: bash
+      env:
+        RETRY_COMMAND: ${{ inputs.command }}
+        RETRY_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        RETRY_WAIT_SECONDS: ${{ inputs.retry-wait-seconds }}
+        RETRY_BACKOFF_MULTIPLIER: ${{ inputs.retry-backoff-multiplier }}
+        RETRY_TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+        RETRY_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        if [[ ! "$RETRY_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] ||
+           [[ ! "$RETRY_WAIT_SECONDS" =~ ^(0|[1-9][0-9]*)$ ]] ||
+           [[ ! "$RETRY_BACKOFF_MULTIPLIER" =~ ^[1-9][0-9]*$ ]] ||
+           [[ ! "$RETRY_TIMEOUT_MINUTES" =~ ^[1-9][0-9]*$ ]]; then
+          echo "::error::Attempts, timeout, and backoff multiplier must be positive integers; retry delay must be a nonnegative integer"
+          exit 2
+        fi
+
+        retry_script=$(mktemp "$RUNNER_TEMP/retry-command.XXXXXX")
+        trap 'rm -f "$retry_script"' EXIT
+        printf '%s\n' "$RETRY_COMMAND" > "$retry_script"
+        cd "$RETRY_WORKING_DIRECTORY"
+        retry_delay=$RETRY_WAIT_SECONDS
+
+        for ((attempt=1; attempt<=RETRY_MAX_ATTEMPTS; attempt++)); do
+          echo "Running command (attempt $attempt/$RETRY_MAX_ATTEMPTS)"
+          if timeout --kill-after=30s "${RETRY_TIMEOUT_MINUTES}m" bash -e -o pipefail "$retry_script"; then
+            exit 0
+          else
+            status=$?
+          fi
+          if [ "$attempt" -eq "$RETRY_MAX_ATTEMPTS" ]; then
+            echo "::error::Command failed after $attempt attempts (exit code $status)"
+            exit "$status"
+          fi
+          echo "::warning::Command failed (exit code $status); retrying in $retry_delay seconds"
+          sleep "$retry_delay"
+          retry_delay=$((retry_delay * RETRY_BACKOFF_MULTIPLIER))
+        done

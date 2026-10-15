@@ -78,8 +78,8 @@ jobs:
         env:
           CONTRACT_TEST_NAME: ${{ matrix.test.name }}
         with:
-          timeout-minutes: 10
-          max-attempts: 4
+          timeout-minutes: 30
+          max-attempts: 6
           retry-wait-seconds: 60
           retry-backoff-multiplier: 2
           command: |

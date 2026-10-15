@@ -41,7 +41,12 @@ import {
   INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME,
 } from './instrumentation/instrumentation-vercel-ai/instrumentation';
 import { applyInstrumentationPatches, customExtractor } from './patches/instrumentation-patch';
-import { getAwsRegionFromEnvironment, isAgentObservabilityEnabled, REDACTED_QUERY_PARAMS } from './utils';
+import {
+  getAwsDnsSuffix,
+  getAwsRegionFromEnvironment,
+  isAgentObservabilityEnabled,
+  REDACTED_QUERY_PARAMS,
+} from './utils';
 
 // Upstream logs an error for every name in OTEL_NODE_{ENABLED,DISABLED}_INSTRUMENTATIONS that
 // isn't in its own instrumentation map, which includes our GenAI instrumentations:
@@ -170,18 +175,46 @@ export function setAwsDefaultEnvironmentVariables() {
     if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
       const region = getAwsRegionFromEnvironment();
       if (region) {
+        // The AWS China partition serves these endpoints under a different DNS suffix, so build the
+        // default from the region's partition rather than hardcoding amazonaws.com.
+        const dnsSuffix = getAwsDnsSuffix(region);
+
         if (!process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
-          process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = `https://xray.${region}.amazonaws.com/v1/traces`;
+          process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = `https://xray.${region}.${dnsSuffix}/v1/traces`;
         }
 
         if (!process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT) {
-          process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = `https://logs.${region}.amazonaws.com/v1/logs`;
+          process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = `https://logs.${region}.${dnsSuffix}/v1/logs`;
         }
       } else {
         diag.error(
           'AWS region could not be determined. OTLP endpoints will not be automatically configured. Please set AWS_REGION environment variable or configure OTLP endpoints manually.'
         );
       }
+    }
+
+    // No metrics endpoint is defaulted here on purpose. Metrics default to awsemf under agent
+    // observability, and pointing OTLP metrics at CloudWatch without being asked would start
+    // publishing billable custom metrics to a destination the user never named. Warn instead, so the
+    // case where someone opts into OTLP metrics without an endpoint is diagnosable rather than a
+    // silent failure loop against upstream's localhost default.
+    const metricsExporters = (process.env.OTEL_METRICS_EXPORTER ?? '').split(',').map(exporter => exporter.trim());
+
+    if (
+      metricsExporters.includes('otlp') &&
+      !process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT &&
+      !process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+    ) {
+      const region = getAwsRegionFromEnvironment();
+      const example = region
+        ? `https://monitoring.${region}.${getAwsDnsSuffix(region)}/v1/metrics`
+        : 'https://monitoring.<region>.amazonaws.com/v1/metrics';
+
+      diag.warn(
+        'OTEL_METRICS_EXPORTER includes "otlp" but no metrics endpoint is configured, so metrics will be ' +
+          'exported to the default http://localhost:4318/v1/metrics. To send metrics directly to CloudWatch, ' +
+          `set OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=${example}`
+      );
     }
   }
 }

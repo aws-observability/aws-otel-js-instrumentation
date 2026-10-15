@@ -39,11 +39,16 @@ import {
   AwsOpentelemetryConfigurator,
   AwsSpanProcessorProvider,
   checkEmfExporterEnabled,
+  createAwsOtlpMetricExporter,
   createEmfExporter,
   customBuildSamplerFromEnv,
+  hasExplicitAuthorizationHeader,
   isAwsOtlpEndpoint,
   validateAndFetchLogsHeader,
 } from '../src/aws-opentelemetry-configurator';
+import { OTLPAwsMetricExporter } from '../src/exporter/otlp/aws/metrics/otlp-aws-metric-exporter';
+import { CompressionAlgorithm } from '@opentelemetry/otlp-exporter-base';
+import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
 import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
 let setAwsDefaultEnvironmentVariables: () => void;
@@ -853,6 +858,61 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     delete process.env.AWS_XRAY_DAEMON_ADDRESS;
   });
 
+  describe('Lambda span export batch size', () => {
+    const LAMBDA_ENV = [
+      'AWS_LAMBDA_FUNCTION_NAME',
+      'OTEL_AWS_APPLICATION_SIGNALS_ENABLED',
+      'OTEL_TRACES_EXPORTER',
+      'AWS_XRAY_DAEMON_ADDRESS',
+      'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+    ];
+
+    const clearEnv = () => LAMBDA_ENV.forEach(name => delete process.env[name]);
+
+    beforeEach(clearEnv);
+    afterEach(clearEnv);
+
+    const batchProcessorFor = (config: { spanProcessors?: unknown }): any =>
+      (config.spanProcessors as any[]).find(processor => processor instanceof BatchSpanProcessor);
+
+    // The reduced batch size keeps UDP datagrams under 64KB, so it must still apply to UDP.
+    it('applies the reduced batch size to the UDP exporter in Lambda', () => {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+      process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'False';
+      process.env.OTEL_TRACES_EXPORTER = 'otlp';
+      process.env.AWS_XRAY_DAEMON_ADDRESS = 'www.test.com:2222';
+
+      const processor = batchProcessorFor(new AwsOpentelemetryConfigurator([]).configure());
+
+      expect(processor._exporter).toBeInstanceOf(OTLPUdpSpanExporter);
+      expect(processor._maxExportBatchSize).toEqual(10);
+    });
+
+    // The 64KB datagram limit does not apply over HTTPS. Keeping the reduced size here split a
+    // 2048-span buffer into ~205 serialized SigV4 requests per flush instead of 4, which risks
+    // exceeding OTEL_BSP_EXPORT_TIMEOUT and skipping exporter shutdown.
+    it('does not apply the reduced batch size to the SigV4 exporter in Lambda', () => {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+      process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'False';
+      process.env.OTEL_TRACES_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'https://xray.us-east-1.amazonaws.com/v1/traces';
+
+      const processor = batchProcessorFor(new AwsOpentelemetryConfigurator([]).configure());
+
+      expect(processor._exporter).toBeInstanceOf(OTLPAwsSpanExporter);
+      expect(processor._maxExportBatchSize).toEqual(512);
+    });
+
+    it('leaves the batch size at the upstream default outside Lambda', () => {
+      process.env.OTEL_TRACES_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'https://xray.us-east-1.amazonaws.com/v1/traces';
+
+      const processor = batchProcessorFor(new AwsOpentelemetryConfigurator([]).configure());
+
+      expect(processor._maxExportBatchSize).toEqual(512);
+    });
+  });
+
   it('Test CustomizeSpanProcessors for Lambda', () => {
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
     process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
@@ -1118,10 +1178,19 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         'https://xray.us-east-1.amazonaws.com/V1/TRACES',
         'https://XRAY.US-EAST-1.AMAZONAWS.COM/v1/traces',
         'https://xray.us-east-1.AMAZONAWS.COM/V1/traces',
+        // AWS China partition
+        'https://xray.cn-north-1.amazonaws.com.cn/v1/traces',
+        'https://xray.cn-northwest-1.amazonaws.com.cn/v1/traces',
+        'https://XRAY.CN-NORTH-1.AMAZONAWS.COM.CN/V1/TRACES',
       ];
 
       const tracesBadEndpoints = [
         'http://localhost:4318/v1/traces',
+        // China lookalikes: the optional .cn group must not loosen the anchored pattern
+        'https://xray.cn-north-1.amazonaws.cn/v1/traces',
+        'https://xray.cn-north-1.amazonaws.com.cn.example.com/v1/traces',
+        'https://xray.cn-north-1.amazonaws.com.c/v1/traces',
+        'https://xray.cn-north-1.amazonaws.comcn/v1/traces',
         'http://xray.us-east-1.amazonaws.com/v1/traces',
         'ftp://xray.us-east-1.amazonaws.com/v1/traces',
         'https://ray.us-east-1.amazonaws.com/v1/traces',
@@ -1266,10 +1335,19 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         'https://logs.us-east-1.amazonaws.com/V1/LOGS',
         'https://LOGS.US-EAST-1.AMAZONAWS.COM/v1/logs',
         'https://logs.us-east-1.AMAZONAWS.COM/V1/logs',
+        // AWS China partition
+        'https://logs.cn-north-1.amazonaws.com.cn/v1/logs',
+        'https://logs.cn-northwest-1.amazonaws.com.cn/v1/logs',
+        'https://LOGS.CN-NORTH-1.AMAZONAWS.COM.CN/V1/LOGS',
       ];
 
       const logsBadEndpoints = [
         'http://localhost:4318/v1/logs',
+        // China lookalikes: the optional .cn group must not loosen the anchored pattern
+        'https://logs.cn-north-1.amazonaws.cn/v1/logs',
+        'https://logs.cn-north-1.amazonaws.com.cn.example.com/v1/logs',
+        'https://logs.cn-north-1.amazonaws.com.c/v1/logs',
+        'https://logs.cn-north-1.amazonaws.comcn/v1/logs',
         'http://logs.us-east-1.amazonaws.com/v1/logs',
         'ftp://logs.us-east-1.amazonaws.com/v1/logs',
         'https://log.us-east-1.amazonaws.com/v1/logs',
@@ -1487,6 +1565,21 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     expect(isAwsOtlpEndpoint('https://xray.us-east-1.amazonaws.com/v1/logs', 'xray')).toBeFalsy();
     expect(isAwsOtlpEndpoint('https://logs.us-east-1.amazonaws.com/v1/logs', 'logs')).toBeTruthy();
     expect(isAwsOtlpEndpoint('https://lambda.us-east-1.amazonaws.com/v1/logs', 'logs')).toBeFalsy();
+
+    // AWS China partition
+    expect(isAwsOtlpEndpoint('https://xray.cn-north-1.amazonaws.com.cn/v1/traces', 'xray')).toBeTruthy();
+    expect(isAwsOtlpEndpoint('https://logs.cn-northwest-1.amazonaws.com.cn/v1/logs', 'logs')).toBeTruthy();
+    // The optional .cn group must not match a lookalike host.
+    expect(isAwsOtlpEndpoint('https://xray.cn-north-1.amazonaws.com.cn.example.com/v1/traces', 'xray')).toBeFalsy();
+    expect(isAwsOtlpEndpoint('https://logs.cn-north-1.amazonaws.cn/v1/logs', 'logs')).toBeFalsy();
+
+    // CloudWatch metrics
+    expect(isAwsOtlpEndpoint('https://monitoring.us-east-1.amazonaws.com/v1/metrics', 'monitoring')).toBeTruthy();
+    expect(isAwsOtlpEndpoint('https://monitoring.cn-north-1.amazonaws.com.cn/v1/metrics', 'monitoring')).toBeTruthy();
+    expect(isAwsOtlpEndpoint('https://monitoring.us-east-1.amazonaws.com/v1/traces', 'monitoring')).toBeFalsy();
+    expect(isAwsOtlpEndpoint('https://logs.us-east-1.amazonaws.com/v1/metrics', 'monitoring')).toBeFalsy();
+    // The service must be matched explicitly; an unknown service never matches.
+    expect(isAwsOtlpEndpoint('https://monitoring.us-east-1.amazonaws.com/v1/metrics', 'cloudwatch')).toBeFalsy();
     expect(isAwsOtlpEndpoint('https://logs.us-east-1.amazonaws.com/v1/traces', 'logs')).toBeFalsy();
   });
 
@@ -1652,6 +1745,430 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
       const result = createEmfExporter();
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe('Test hasExplicitAuthorizationHeader', () => {
+    const ENV_VAR = 'OTEL_EXPORTER_OTLP_METRICS_HEADERS';
+
+    afterEach(() => {
+      delete process.env[ENV_VAR];
+    });
+
+    it('returns false when the variable is unset or empty', () => {
+      expect(hasExplicitAuthorizationHeader(ENV_VAR)).toBeFalsy();
+
+      process.env[ENV_VAR] = '';
+      expect(hasExplicitAuthorizationHeader(ENV_VAR)).toBeFalsy();
+    });
+
+    it('returns false when no Authorization header is present', () => {
+      process.env[ENV_VAR] = 'x-aws-log-group=g,x-custom=value';
+      expect(hasExplicitAuthorizationHeader(ENV_VAR)).toBeFalsy();
+    });
+
+    it('detects an Authorization header regardless of case', () => {
+      for (const name of ['Authorization', 'authorization', 'AUTHORIZATION', 'AuThOrIzAtIoN']) {
+        process.env[ENV_VAR] = `${name}=Bearer%20token`;
+        expect(hasExplicitAuthorizationHeader(ENV_VAR)).toBeTruthy();
+      }
+    });
+
+    it('detects an Authorization header alongside other headers', () => {
+      process.env[ENV_VAR] = 'x-custom=value,Authorization=Bearer%20token,x-other=value';
+      expect(hasExplicitAuthorizationHeader(ENV_VAR)).toBeTruthy();
+    });
+
+    it('only inspects the variable it is given', () => {
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = 'Authorization=Bearer%20global';
+      expect(hasExplicitAuthorizationHeader(ENV_VAR)).toBeFalsy();
+      expect(hasExplicitAuthorizationHeader('OTEL_EXPORTER_OTLP_HEADERS')).toBeTruthy();
+
+      delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    });
+  });
+
+  describe('Test createAwsOtlpMetricExporter', () => {
+    const METRICS_ENV_VARS = [
+      'OTEL_METRICS_EXPORTER',
+      'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
+      'OTEL_EXPORTER_OTLP_METRICS_PROTOCOL',
+      'OTEL_EXPORTER_OTLP_PROTOCOL',
+      'OTEL_EXPORTER_OTLP_METRICS_HEADERS',
+      'OTEL_EXPORTER_OTLP_HEADERS',
+      'OTEL_EXPORTER_OTLP_METRICS_COMPRESSION',
+      'OTEL_AWS_APPLICATION_SIGNALS_ENABLED',
+    ];
+
+    const clearEnv = () => METRICS_ENV_VARS.forEach(name => delete process.env[name]);
+
+    beforeEach(clearEnv);
+    afterEach(clearEnv);
+
+    const metricsGoodEndpoints = [
+      'https://monitoring.us-east-1.amazonaws.com/v1/metrics',
+      'https://monitoring.us-west-2.amazonaws.com/v1/metrics',
+      'https://MONITORING.US-EAST-1.AMAZONAWS.COM/V1/METRICS',
+      'https://Monitoring.Us-East-1.amazonaws.com/v1/metrics',
+      // AWS China partition
+      'https://monitoring.cn-north-1.amazonaws.com.cn/v1/metrics',
+      'https://monitoring.cn-northwest-1.amazonaws.com.cn/v1/metrics',
+    ];
+
+    const metricsBadEndpoints = [
+      'http://localhost:4318/v1/metrics',
+      'http://monitoring.us-east-1.amazonaws.com/v1/metrics',
+      'https://monitor.us-east-1.amazonaws.com/v1/metrics',
+      'https://cloudwatch.us-east-1.amazonaws.com/v1/metrics',
+      'https://monitoring.amazonaws.com/v1/metrics',
+      'https://monitoring.us-east-1.amazon.com/v1/metrics',
+      'https://monitoring.us_east_1.amazonaws.com/v1/metrics',
+      'https://monitoring.us-east-1.amazonaws.com/metrics',
+      'https://monitoring.us-east-1.amazonaws.com/v2/metrics',
+      'https://monitoring.us-east-1.amazonaws.com/v1/metric',
+      'https://monitoring.us-east-1.amazonaws.com/v1/metrics/',
+      'https://monitoring.us-east-1.amazonaws.com/v1/metrics?param=value',
+      'https://monitoring.us-east-1.amazonaws.com:443/v1/metrics',
+      // China lookalikes
+      'https://monitoring.cn-north-1.amazonaws.cn/v1/metrics',
+      'https://monitoring.cn-north-1.amazonaws.com.cn.example.com/v1/metrics',
+    ];
+
+    it('returns the AWS metrics exporter for recognized endpoints', () => {
+      for (const endpoint of metricsGoodEndpoints) {
+        clearEnv();
+        process.env.OTEL_METRICS_EXPORTER = 'otlp';
+        process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = endpoint;
+
+        expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+      }
+    });
+
+    it('leaves the upstream exporter alone for unrecognized endpoints', () => {
+      for (const endpoint of metricsBadEndpoints) {
+        clearEnv();
+        process.env.OTEL_METRICS_EXPORTER = 'otlp';
+        process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = endpoint;
+
+        expect(createAwsOtlpMetricExporter()).toBeUndefined();
+      }
+    });
+
+    it('does nothing when no metrics endpoint is configured', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+
+      expect(createAwsOtlpMetricExporter()).toBeUndefined();
+    });
+
+    it('does nothing when OTEL_METRICS_EXPORTER does not include otlp', () => {
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+
+      for (const value of ['none', 'console', 'awsemf']) {
+        process.env.OTEL_METRICS_EXPORTER = value;
+        expect(createAwsOtlpMetricExporter()).toBeUndefined();
+      }
+    });
+
+    // Upstream treats an unset or empty OTEL_METRICS_EXPORTER as otlp. Missing that default meant
+    // declining to sign the configuration the CloudWatch docs show - endpoint only - so upstream
+    // exported unsigned and every request was rejected with 403.
+    it('treats an unset or empty OTEL_METRICS_EXPORTER as otlp', () => {
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+
+      delete process.env.OTEL_METRICS_EXPORTER;
+      expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+
+      process.env.OTEL_METRICS_EXPORTER = '';
+      expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+    });
+
+    // An explicit "none" disables metrics. Ignoring it would publish billable custom metrics against
+    // the user's stated intent.
+    it('honors an explicit none even when otlp is also listed', () => {
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+
+      for (const value of ['otlp,none', 'none,otlp', 'console,none,otlp']) {
+        process.env.OTEL_METRICS_EXPORTER = value;
+        expect(createAwsOtlpMetricExporter()).toBeUndefined();
+      }
+    });
+
+    it('accepts http/protobuf, whether set for the signal or globally, and when unset', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+
+      expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+
+      process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'http/protobuf';
+      expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+
+      delete process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL;
+      process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
+      expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+    });
+
+    it('passes through untouched for protocols CloudWatch does not accept', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+
+      for (const protocol of ['grpc', 'http/json']) {
+        process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = protocol;
+        expect(createAwsOtlpMetricExporter()).toBeUndefined();
+      }
+    });
+
+    it('preserves bearer authentication configured for metrics', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+      process.env.OTEL_EXPORTER_OTLP_METRICS_HEADERS = 'Authorization=Bearer%20my-api-key';
+
+      expect(createAwsOtlpMetricExporter()).toBeUndefined();
+    });
+
+    // Load-bearing: a global Authorization is a catch-all that may target an unrelated backend, so it
+    // must not silently disable SigV4 against an AWS endpoint. This is the case that would regress if
+    // the rule were ever changed to consult the global variable.
+    it('still applies SigV4 when only the global Authorization header is set', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = 'Authorization=Bearer%20unrelated-backend';
+
+      expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+    });
+
+    it('still applies SigV4 when signal-specific headers exist without an Authorization header', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+      process.env.OTEL_EXPORTER_OTLP_METRICS_HEADERS = 'x-custom=value';
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = 'Authorization=Bearer%20unrelated-backend';
+
+      expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+    });
+
+    it('honors the metrics compression preference, defaulting to none', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+
+      // The factory returns the PushMetricExporter interface, so narrow to the concrete class to read
+      // the compression setting it was constructed with.
+      expect((createAwsOtlpMetricExporter() as OTLPAwsMetricExporter)['compression']).toEqual(
+        CompressionAlgorithm.NONE
+      );
+
+      process.env.OTEL_EXPORTER_OTLP_METRICS_COMPRESSION = 'gzip';
+      expect((createAwsOtlpMetricExporter() as OTLPAwsMetricExporter)['compression']).toEqual(
+        CompressionAlgorithm.GZIP
+      );
+    });
+
+    it('still creates the exporter when Application Signals is enabled', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = metricsGoodEndpoints[0];
+      process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'true';
+
+      // Application Signals keeps its own pipeline; this path only warns rather than overriding it.
+      expect(createAwsOtlpMetricExporter()).toBeInstanceOf(OTLPAwsMetricExporter);
+    });
+  });
+
+  describe('Test metric readers for the AWS metrics path', () => {
+    const METRICS_ENV_VARS = [
+      'OTEL_METRICS_EXPORTER',
+      'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
+      'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
+      'OTEL_AWS_APPLICATION_SIGNALS_ENABLED',
+      'OTEL_METRIC_EXPORT_INTERVAL',
+      'OTEL_METRIC_EXPORT_TIMEOUT',
+    ];
+
+    const clearEnv = () => METRICS_ENV_VARS.forEach(name => delete process.env[name]);
+
+    beforeEach(clearEnv);
+    afterEach(clearEnv);
+
+    it('configures a reader for the AWS metrics endpoint', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toHaveLength(1);
+    });
+
+    it('does not take over metric readers when the endpoint is not an AWS metrics endpoint', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'http://localhost:4318/v1/metrics';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      // Leaving metricReaders unset is what lets upstream build its own from OTEL_METRICS_EXPORTER.
+      expect(config.metricReaders).toBeUndefined();
+    });
+
+    // Supplying any reader stops upstream reading OTEL_METRICS_EXPORTER, so entries beyond the AWS
+    // one have to be rebuilt here or they would be silently dropped.
+    it('keeps the EMF reader alongside the AWS metrics reader', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'awsemf,otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-log-group=test-group,x-aws-log-stream=test-stream';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toHaveLength(2);
+    });
+
+    it('keeps a console reader alongside the AWS metrics reader', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp,console';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toHaveLength(2);
+    });
+
+    // PrometheusExporter is itself a MetricReader, so it must survive the takeover or the user's
+    // scrape endpoint would never start.
+    it('keeps a prometheus reader alongside the AWS metrics reader', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp,prometheus';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toHaveLength(2);
+      expect((config.metricReaders as any[]).some(reader => reader instanceof PrometheusExporter)).toBe(true);
+
+      // PrometheusExporter starts an HTTP server; close it so the test does not leak a listener.
+      const prometheusReader = (config.metricReaders as any[]).find(reader => reader instanceof PrometheusExporter);
+      return prometheusReader.shutdown();
+    });
+
+    // Rather than dropping an entry it cannot reproduce, the AWS path declines entirely and lets
+    // upstream build every reader. Unsigned metrics are visible; a missing reader is not.
+    it('declines the takeover when an entry cannot be reproduced', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp,some-future-exporter';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toBeUndefined();
+    });
+
+    // awsemf is stripped from OTEL_METRICS_EXPORTER before the metrics path runs, and an empty
+    // variable means otlp. Reading it after the strip turned "EMF only" into "sign metrics to
+    // CloudWatch" and published billable custom metrics nobody asked for.
+    it('does not create an AWS metrics reader when only awsemf was requested', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'awsemf';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-log-group=test-group,x-aws-log-stream=test-stream';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      // The EMF reader only. No signed OTLP metrics reader.
+      expect(config.metricReaders).toHaveLength(1);
+    });
+
+    // PeriodicExportingMetricReader throws on a non-positive interval or timeout, and the
+    // configurator is constructed at preload before the SDK's own try/catch, so an unvalidated value
+    // would stop the application from starting.
+    it('falls back to defaults for non-positive interval and timeout instead of throwing', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      for (const [interval, timeout] of [
+        ['0', '30000'],
+        ['60000', '0'],
+        ['-1', '30000'],
+        ['60000', '-1'],
+      ]) {
+        process.env.OTEL_METRIC_EXPORT_INTERVAL = interval;
+        process.env.OTEL_METRIC_EXPORT_TIMEOUT = timeout;
+
+        const reader = (new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[])[0];
+
+        expect(reader._exportInterval).toBeGreaterThan(0);
+        expect(reader._exportTimeout).toBeGreaterThan(0);
+      }
+
+      delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
+      delete process.env.OTEL_METRIC_EXPORT_TIMEOUT;
+    });
+
+    // PrometheusExporter binds its port in the constructor, so building one and then declining would
+    // leave the port held by a reader with no metric producer attached.
+    it('does not construct any reader on the decline path', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp,prometheus,some-future-exporter';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toBeUndefined();
+
+      // Nothing should be listening on the Prometheus port.
+      return new Promise<void>((resolve, reject) => {
+        const socket = require('net').connect(9464, '127.0.0.1');
+        socket.on('connect', () => {
+          socket.destroy();
+          reject(new Error('an orphaned PrometheusExporter is holding port 9464'));
+        });
+        socket.on('error', () => resolve());
+      });
+    });
+
+    // EMF has no upstream equivalent, so readers must be supplied and an unsupported entry cannot be
+    // handed back to upstream. The EMF reader must still be built.
+    it('keeps the EMF reader when an entry cannot be reproduced', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'awsemf,otlp,some-future-exporter';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-log-group=test-group,x-aws-log-stream=test-stream';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      // EMF plus the signed AWS reader; the unsupported entry is reported, not silently dropped.
+      expect(config.metricReaders).toHaveLength(2);
+    });
+
+    // The EMF reader has always used the default interval. Making it env-aware would silently change
+    // existing export cadence and PutLogEvents volume.
+    it('leaves the EMF reader on the default interval', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'awsemf';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'x-aws-log-group=test-group,x-aws-log-stream=test-stream';
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = '5000';
+
+      const reader = (new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[])[0];
+
+      expect(reader._exportInterval).toEqual(60000);
+
+      delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
+    });
+
+    it('honors OTEL_METRIC_EXPORT_INTERVAL and OTEL_METRIC_EXPORT_TIMEOUT', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = '10000';
+      process.env.OTEL_METRIC_EXPORT_TIMEOUT = '5000';
+
+      const reader = (new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[])[0];
+
+      expect(reader._exportInterval).toEqual(10000);
+      expect(reader._exportTimeout).toEqual(5000);
+
+      delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
+      delete process.env.OTEL_METRIC_EXPORT_TIMEOUT;
+    });
+
+    it('clamps the export timeout to the interval', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = '5000';
+      process.env.OTEL_METRIC_EXPORT_TIMEOUT = '20000';
+
+      const reader = (new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[])[0];
+
+      expect(reader._exportInterval).toEqual(5000);
+      expect(reader._exportTimeout).toEqual(5000);
+
+      delete process.env.OTEL_METRIC_EXPORT_INTERVAL;
+      delete process.env.OTEL_METRIC_EXPORT_TIMEOUT;
     });
   });
 });

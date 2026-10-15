@@ -42,6 +42,17 @@ jobs:
 
       # The release runner provides a Docker daemon (same as the PR build's compat-tests job), so
       # the full contract suite — all wiring modes and attribute families — gates the release.
+      - name: Pull contract-test images
+        uses: ./.github/actions/retry
+        with:
+          timeout-minutes: 10
+          max-attempts: 4
+          retry-wait-seconds: 60
+          retry-backoff-multiplier: 2
+          command: |
+            docker pull public.ecr.aws/docker/library/postgres:16-alpine
+            docker pull public.ecr.aws/v6t6x3y1/cp-kafka:7.7.1
+
       - name: Run contract tests
         working-directory: cloudwatch-plugin-otel
         run: npm run test:contract

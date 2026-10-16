@@ -1,4 +1,4 @@
-FROM python:3.10
+FROM public.ecr.aws/docker/library/python:3.10
 WORKDIR /mock-collector
 COPY . /mock-collector
 

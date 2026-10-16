@@ -432,14 +432,14 @@ describe('AwsSpanProcessingUtilTest', () => {
     });
 
     it('is idempotent', () => {
-      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/smart/v1/getAppraisers,/smart/v1';
-      (spanDataMock as any).name = 'POST /smart/v1/*';
-      attributesMock[ATTR_URL_PATH] = '/smart/v1/getAppraisers';
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/v1/orders,/api/v1';
+      (spanDataMock as any).name = 'POST /api/v1/*';
+      attributesMock[ATTR_URL_PATH] = '/api/v1/orders';
       attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'POST';
       const once = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
-      expect(once.name).toEqual('POST /smart/v1/getAppraisers');
+      expect(once.name).toEqual('POST /api/v1/orders');
       const twice = AwsSpanProcessingUtil.applyOperationPathSpanName(once);
-      expect(twice.name).toEqual('POST /smart/v1/getAppraisers');
+      expect(twice.name).toEqual('POST /api/v1/orders');
     });
 
     it('falls back to http.target when url.path is absent', () => {

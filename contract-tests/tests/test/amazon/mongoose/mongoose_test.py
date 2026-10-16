@@ -32,7 +32,7 @@ class MongooseTest(DatabaseContractTestBase):
     @classmethod
     def set_up_dependency_container(cls) -> None:
         cls.container = (
-            DockerContainer("mongo:7.0.9")
+            DockerContainer("public.ecr.aws/docker/library/mongo:7.0.9")
             .with_env("MONGO_INITDB_ROOT_USERNAME", DATABASE_USER)
             .with_env("MONGO_INITDB_ROOT_PASSWORD", DATABASE_PASSWORD)
             .with_kwargs(network=NETWORK_NAME)

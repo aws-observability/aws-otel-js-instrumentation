@@ -13,6 +13,13 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix: support AWS China partition endpoints (`amazonaws.com.cn`) for collector-less X-Ray and
+  CloudWatch Logs OTLP export
+  ([#569](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/569))
+- fix: with `OTEL_AWS_HTTP_OPERATION_PATHS` set, child spans now inherit the overridden operation from their server
+  span, so dependency metrics are reported under the same operation as the service metrics instead of the original span name
+  ([#573](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/573))
+
 ## v0.13.0 - 2026-09-14
 
 - feat: redact span, span event, and span link attributes via AWS_REDACT_SPAN_ATTRIBUTES

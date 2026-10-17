@@ -19,7 +19,7 @@ import { hrTimeDuration } from '@opentelemetry/core';
 import { resourceFromAttributes, emptyResource, Resource } from '@opentelemetry/resources';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 import { ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
-import { SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
+import { ATTR_HTTP_RESPONSE_STATUS_CODE, SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
 import expect from 'expect';
 import * as sinon from 'sinon';
 import { AWS_ATTRIBUTE_KEYS } from '../src/aws-attribute-keys';
@@ -534,40 +534,44 @@ describe('AwsSpanMetricsProcessorTest', () => {
     httpStatusCode: number | undefined,
     expectedStatusMetric: ExpectedStatusMetric
   ): void {
-    const spanAttributes: Attributes = { [SEMATTRS_HTTP_STATUS_CODE]: httpStatusCode };
-    const readableSpanMock: ReadableSpan = buildReadableSpanMock(spanAttributes, SpanKind.PRODUCER, undefined, {
-      code: SpanStatusCode.UNSET,
-    });
-    const metricAttributesMap: AttributeMap = buildMetricAttributes(CONTAINS_ATTRIBUTES, readableSpanMock);
-    configureMocksForOnEnd(readableSpanMock, metricAttributesMap);
+    for (const statusCodeKey of [SEMATTRS_HTTP_STATUS_CODE, ATTR_HTTP_RESPONSE_STATUS_CODE]) {
+      const spanAttributes: Attributes = { [statusCodeKey]: httpStatusCode };
+      const readableSpanMock: ReadableSpan = buildReadableSpanMock(spanAttributes, SpanKind.PRODUCER, undefined, {
+        code: SpanStatusCode.UNSET,
+      });
+      const metricAttributesMap: AttributeMap = buildMetricAttributes(CONTAINS_ATTRIBUTES, readableSpanMock);
+      configureMocksForOnEnd(readableSpanMock, metricAttributesMap);
 
-    awsSpanMetricsProcessor.onEnd(readableSpanMock);
-    validateMetrics(metricAttributesMap, expectedStatusMetric);
+      awsSpanMetricsProcessor.onEnd(readableSpanMock);
+      validateMetrics(metricAttributesMap, expectedStatusMetric);
+    }
   }
 
   function validateMetricsGeneratedForAttributeStatusCode(
     awsStatusCode: number | undefined,
     expectedStatusMetric: ExpectedStatusMetric
   ): void {
-    // Testing Dependency Metric
-    const attributes: Attributes = { 'new key': 'new value' };
-    const readableSpanMock: ReadableSpan = buildReadableSpanMock(attributes, SpanKind.PRODUCER, undefined, {
-      code: SpanStatusCode.UNSET,
-    });
-    const metricAttributesMap: AttributeMap = buildMetricAttributes(CONTAINS_ATTRIBUTES, readableSpanMock);
-    if (awsStatusCode !== undefined) {
-      metricAttributesMap[SERVICE_METRIC] = {
-        'new service key': 'new service value',
-        [SEMATTRS_HTTP_STATUS_CODE]: awsStatusCode,
-      };
-      metricAttributesMap[DEPENDENCY_METRIC] = {
-        'new dependency key': 'new dependency value',
-        [SEMATTRS_HTTP_STATUS_CODE]: awsStatusCode,
-      };
+    for (const statusCodeKey of [SEMATTRS_HTTP_STATUS_CODE, ATTR_HTTP_RESPONSE_STATUS_CODE]) {
+      // Testing Dependency Metric
+      const attributes: Attributes = { 'new key': 'new value' };
+      const readableSpanMock: ReadableSpan = buildReadableSpanMock(attributes, SpanKind.PRODUCER, undefined, {
+        code: SpanStatusCode.UNSET,
+      });
+      const metricAttributesMap: AttributeMap = buildMetricAttributes(CONTAINS_ATTRIBUTES, readableSpanMock);
+      if (awsStatusCode !== undefined) {
+        metricAttributesMap[SERVICE_METRIC] = {
+          'new service key': 'new service value',
+          [statusCodeKey]: awsStatusCode,
+        };
+        metricAttributesMap[DEPENDENCY_METRIC] = {
+          'new dependency key': 'new dependency value',
+          [statusCodeKey]: awsStatusCode,
+        };
+      }
+      configureMocksForOnEnd(readableSpanMock, metricAttributesMap);
+      awsSpanMetricsProcessor.onEnd(readableSpanMock);
+      validateMetrics(metricAttributesMap, expectedStatusMetric);
     }
-    configureMocksForOnEnd(readableSpanMock, metricAttributesMap);
-    awsSpanMetricsProcessor.onEnd(readableSpanMock);
-    validateMetrics(metricAttributesMap, expectedStatusMetric);
   }
 
   function validateMetricsGeneratedForStatusDataError(

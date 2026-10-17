@@ -3,19 +3,16 @@
 // Modifications Copyright The OpenTelemetry Authors. Licensed under the Apache License 2.0 License.
 
 import { Context, TraceFlags } from '@opentelemetry/api';
-import { ReadableSpan, BufferConfig, Span } from '@opentelemetry/sdk-trace-base';
+import { BatchSpanProcessor, ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
-import { BatchSpanProcessorBase } from '@opentelemetry/sdk-trace-base/build/src/export/BatchSpanProcessorBase';
 
 /**
- * This class is a customized version of the `BatchSpanProcessorBase` from the
- * OpenTelemetry SDK (`@opentelemetry/sdk-trace-base/build/src/export/BatchSpanProcessorBase`).
- * It inherits much of the behavior of the `BatchSpanProcessorBase` while adding
- * specific logic to handle unsampled spans.
+ * This class is a customized version of the `BatchSpanProcessor` from the
+ * OpenTelemetry SDK (`@opentelemetry/sdk-trace-base`). It inherits much of the behavior of
+ * the `BatchSpanProcessor` while adding specific logic to handle unsampled spans.
  *
- * It can't directly be inherited `BatchSpanProcessorBase` as child class because
- * a few stateful fields are private in `BatchSpanProcessorBase` which need to be accessed
- * in `AwsBatchUnsampledSpanProcessor` and we don't plan to update upstream code for it.
+ * A few stateful fields of the upstream processor are private and need to be accessed here,
+ * so they are reached through `(this as any)` rather than by updating upstream code.
  *
  * In particular, the following methods are modified:
  *
@@ -24,7 +21,7 @@ import { BatchSpanProcessorBase } from '@opentelemetry/sdk-trace-base/build/src/
  *    is unsampled. This is done by checking the `traceFlags` of the span.
  *
  * 2. `onEnd`: The logic here is changed to handle unsampled spans. While the
- *    default behavior of `BatchSpanProcessorBase` is to ignore unsampled spans,
+ *    default behavior of `BatchSpanProcessor` is to ignore unsampled spans,
  *    this version adds them to the buffer for export. The unsampled spans are
  *    queued and processed similarly to sampled spans.
  *
@@ -34,7 +31,7 @@ import { BatchSpanProcessorBase } from '@opentelemetry/sdk-trace-base/build/src/
  * The rest of the behavior—batch processing, queuing, and exporting spans in
  * batches—is inherited from the base class and remains largely the same.
  */
-export class AwsBatchUnsampledSpanProcessor extends BatchSpanProcessorBase<BufferConfig> {
+export class AwsBatchUnsampledSpanProcessor extends BatchSpanProcessor {
   override onStart(span: Span, _parentContext: Context): void {
     if ((span.spanContext().traceFlags & TraceFlags.SAMPLED) === 0) {
       span.setAttribute(AWS_ATTRIBUTE_KEYS.AWS_TRACE_FLAG_SAMPLED, false);
@@ -54,5 +51,5 @@ export class AwsBatchUnsampledSpanProcessor extends BatchSpanProcessorBase<Buffe
     (this as any)._addToBuffer(span);
   }
 
-  onShutdown(): void {}
+  override onShutdown(): void {}
 }

@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
-import type { SdkLogRecord, BufferConfig } from '@opentelemetry/sdk-logs';
+import type { SdkLogRecord, BatchLogRecordProcessorOptions } from '@opentelemetry/sdk-logs';
 import { AnyValue } from '@opentelemetry/api-logs';
 import { ExportResultCode, globalErrorHandler } from '@opentelemetry/core';
 import { OTLPAwsLogExporter } from './otlp-aws-log-exporter';
@@ -64,8 +64,8 @@ export const MAX_LOG_REQUEST_BYTE_SIZE: number = 1048576;
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 export class AwsCloudWatchOtlpBatchLogRecordProcessor extends BatchLogRecordProcessor {
-  constructor(exporter: OTLPAwsLogExporter, config?: BufferConfig) {
-    super(exporter, config);
+  constructor(exporter: OTLPAwsLogExporter, config?: Omit<BatchLogRecordProcessorOptions, 'exporter'>) {
+    super({ ...config, exporter });
   }
 
   /**

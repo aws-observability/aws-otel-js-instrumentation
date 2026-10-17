@@ -1392,7 +1392,7 @@ class AWSSDKTest(ContractTestBase):
         self._assert_str_attribute(attributes_dict, SpanAttributes.RPC_METHOD, operation)
         self._assert_str_attribute(attributes_dict, SpanAttributes.RPC_SYSTEM, "aws-api")
         self._assert_str_attribute(attributes_dict, SpanAttributes.RPC_SERVICE, service.split("::")[-1])
-        self._assert_int_attribute(attributes_dict, SpanAttributes.HTTP_STATUS_CODE, status_code)
+        self._assert_int_attribute(attributes_dict, SpanAttributes.HTTP_RESPONSE_STATUS_CODE, status_code)
         # TODO: aws sdk instrumentation is not respecting PEER_SERVICE
         # self._assert_str_attribute(attributes_dict, SpanAttributes.PEER_SERVICE, "backend:8080")
         for key, value in request_specific_attributes.items():

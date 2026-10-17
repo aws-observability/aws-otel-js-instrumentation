@@ -100,11 +100,11 @@ class HttpTest(ContractTestBase):
         self, attributes_list: List[KeyValue], method: str, endpoint: str, status_code: int
     ) -> None:
         attributes_dict: Dict[str, AnyValue] = self._get_attributes_dict(attributes_list)
-        self._assert_str_attribute(attributes_dict, SpanAttributes.NET_PEER_NAME, "backend")
-        self._assert_int_attribute(attributes_dict, SpanAttributes.NET_PEER_PORT, 8080)
-        self._assert_int_attribute(attributes_dict, SpanAttributes.HTTP_STATUS_CODE, status_code)
-        self._assert_str_attribute(attributes_dict, SpanAttributes.HTTP_URL, f"http://backend:8080/backend/{endpoint}")
-        self._assert_str_attribute(attributes_dict, SpanAttributes.HTTP_METHOD, method)
+        self._assert_str_attribute(attributes_dict, SpanAttributes.SERVER_ADDRESS, "backend")
+        self._assert_int_attribute(attributes_dict, SpanAttributes.SERVER_PORT, 8080)
+        self._assert_int_attribute(attributes_dict, SpanAttributes.HTTP_RESPONSE_STATUS_CODE, status_code)
+        self._assert_str_attribute(attributes_dict, SpanAttributes.URL_FULL, f"http://backend:8080/backend/{endpoint}")
+        self._assert_str_attribute(attributes_dict, SpanAttributes.HTTP_REQUEST_METHOD, method)
         # http instrumentation is not respecting PEER_SERVICE
         # self._assert_str_attribute(attributes_dict, SpanAttributes.PEER_SERVICE, "backend:8080")
 

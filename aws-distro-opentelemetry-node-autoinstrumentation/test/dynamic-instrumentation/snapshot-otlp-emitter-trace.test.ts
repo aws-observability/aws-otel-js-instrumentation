@@ -16,7 +16,7 @@ describe('SnapshotOtlpEmitter trace context', function () {
   beforeEach(function () {
     inMemoryExporter = new InMemoryLogRecordExporter();
     loggerProvider = new LoggerProvider({
-      processors: [new SimpleLogRecordProcessor(inMemoryExporter)],
+      processors: [new SimpleLogRecordProcessor({ exporter: inMemoryExporter })],
     });
 
     // Create emitter and inject the test logger provider

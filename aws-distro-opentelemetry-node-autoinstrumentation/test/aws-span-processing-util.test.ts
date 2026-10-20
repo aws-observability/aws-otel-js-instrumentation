@@ -431,6 +431,17 @@ describe('AwsSpanProcessingUtilTest', () => {
       expect(result.name).toEqual('GET /api/contests/{id}/leaderboard');
     });
 
+    it('is idempotent', () => {
+      process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/v1/orders,/api/v1';
+      (spanDataMock as any).name = 'POST /api/v1/*';
+      attributesMock[ATTR_URL_PATH] = '/api/v1/orders';
+      attributesMock[ATTR_HTTP_REQUEST_METHOD] = 'POST';
+      const once = AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+      expect(once.name).toEqual('POST /api/v1/orders');
+      const twice = AwsSpanProcessingUtil.applyOperationPathSpanName(once);
+      expect(twice.name).toEqual('POST /api/v1/orders');
+    });
+
     it('falls back to http.target when url.path is absent', () => {
       process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] = '/api/teams/{id},/api/teams';
       (spanDataMock as any).name = 'GET /api';

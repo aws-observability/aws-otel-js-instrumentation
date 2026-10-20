@@ -77,6 +77,9 @@ jobs:
 
       - name: Set up CodeBuild runner
         uses: ./.github/actions/codebuild-runner-setup
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "18"
@@ -118,7 +121,7 @@ jobs:
           retry-wait-seconds: 60
           retry-backoff-multiplier: 2
           command: |
-            docker pull public.ecr.aws/docker/library/postgres:16-alpine
-            docker pull public.ecr.aws/v6t6x3y1/cp-kafka:7.7.1
+            docker pull postgres:16-alpine
+            docker pull confluentinc/cp-kafka:7.7.1
       - name: Unit + contract suites (all modes and families)
         run: npm exec --workspaces=false -- ts-mocha --timeout 300000 -p tsconfig.json 'test/**/*.test.ts' 'contract-tests/**/*.test.ts'

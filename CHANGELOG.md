@@ -19,6 +19,19 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 - fix: with `OTEL_AWS_HTTP_OPERATION_PATHS` set, child spans now inherit the overridden operation from their server
   span, so dependency metrics are reported under the same operation as the service metrics instead of the original span name
   ([#573](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/573))
+- fix(exporter): serialize SigV4 exports so that overlapping exports no longer send one batch's body
+  with another batch's signature. This affected flushes that produced two or more batches, and
+  flushes that overlapped an export already in flight, where telemetry was silently dropped or
+  duplicated
+  ([#568](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/568))
+- fix: apply the reduced Lambda span export batch size only to the UDP exporter, since it exists to
+  keep UDP datagrams under 64KB. In Lambda, every non-UDP exporter is affected, including gRPC and
+  protobuf exporters sending to a local collector: batches now hold up to the upstream default of
+  512 spans instead of 10
+  ([#568](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/568))
+- fix(exporter): clear a stale `x-amz-security-token` before signing, which could previously survive
+  from one signed request into the next
+  ([#568](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/568))
 
 ## v0.13.0 - 2026-09-14
 

@@ -95,7 +95,7 @@ jobs:
           retry-backoff-multiplier: 2
           command: |
             docker pull python:3.10
-            docker pull public.ecr.aws/docker/library/node:20-alpine
+            docker pull node:20-alpine
             case "$CONTRACT_TEST_NAME" in
               aws-sdk)
                 docker pull localstack/localstack:3.5.0

@@ -5,7 +5,14 @@ import * as http from 'http';
 import * as nock from 'nock';
 import * as sinon from 'sinon';
 import { ExportResult, ExportResultCode } from '@opentelemetry/core';
-import { AggregationTemporality, AggregationType, InstrumentType, ResourceMetrics } from '@opentelemetry/sdk-metrics';
+import {
+  AggregationTemporality,
+  AggregationType,
+  DataPointType,
+  InstrumentType,
+  ResourceMetrics,
+} from '@opentelemetry/sdk-metrics';
+import { ValueType } from '@opentelemetry/api';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { OTLPAwsBaseExporterTest } from '../common/otlp-aws-base-exporter.test';
 import { OTLPAwsMetricExporter } from '../../../../../src/exporter/otlp/aws/metrics/otlp-aws-metric-exporter';
@@ -22,7 +29,26 @@ const emptyResourceMetrics = (): ResourceMetrics => ({
   scopeMetrics: [],
 });
 
-class OTLPAwsMetricExporterTest extends OTLPAwsBaseExporterTest {
+class OTLPAwsMetricExporterTest extends OTLPAwsBaseExporterTest<ResourceMetrics> {
+  // One cumulative counter data point per name, so each payload serializes to distinct bytes.
+  protected override createPayload(names: string[]): ResourceMetrics {
+    return {
+      resource: resourceFromAttributes({}),
+      scopeMetrics: [
+        {
+          scope: { name: 'exporter-test' },
+          metrics: names.map(name => ({
+            descriptor: { name, description: '', unit: '', type: InstrumentType.COUNTER, valueType: ValueType.INT },
+            aggregationTemporality: AggregationTemporality.CUMULATIVE,
+            dataPointType: DataPointType.SUM,
+            isMonotonic: true,
+            dataPoints: [{ startTime: [0, 0], endTime: [1, 0], attributes: {}, value: 1 }],
+          })),
+        },
+      ],
+    };
+  }
+
   protected override getExporter() {
     return OTLPAwsMetricExporter;
   }
@@ -33,11 +59,6 @@ class OTLPAwsMetricExporterTest extends OTLPAwsBaseExporterTest {
 
   protected getEndpointPath(): string {
     return METRICS_PATH;
-  }
-
-  // The metrics serializer requires a ResourceMetrics object; an array throws.
-  protected override getPayload(): any {
-    return emptyResourceMetrics();
   }
 }
 

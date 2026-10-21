@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import expect from 'expect';
+import { createHash } from 'crypto';
 import { CompressionAlgorithm } from '@opentelemetry/otlp-exporter-base';
 import * as sinon from 'sinon';
 import * as nock from 'nock';
@@ -19,30 +20,33 @@ const EXPECTED_X_AMZ_DATE = 'some_date';
 const EXPECTED_X_AMZ_SECURITY_TOKEN = 'test_token';
 const EXPECTED_X_AMZ_SHA_256 = 'test_sha256';
 
-export abstract class OTLPAwsBaseExporterTest {
+export abstract class OTLPAwsBaseExporterTest<Payload> {
   protected sandbox!: sinon.SinonSandbox;
   protected scope!: nock.Scope;
+  private requestInterceptor!: nock.Interceptor;
+  private unmatchedRequests: string[] = [];
+  private readonly recordUnmatchedRequest = (req: { method?: string; path?: string }) => {
+    this.unmatchedRequests.push(`${req.method} ${req.path}`);
+  };
 
   protected abstract getEndpoint(): string;
   protected abstract getEndpointPath(): string;
   protected abstract getExporter(): any;
 
   /**
-   * The payload handed to export(). Signals differ: traces and logs take an array, whereas the
-   * metrics serializer requires a ResourceMetrics object and throws on an array.
+   * Builds the payload handed to export(), holding one real SDK record per name. This works at the
+   * payload level rather than per record because signals differ in shape: traces and logs export an
+   * array of records, whereas metrics export a single ResourceMetrics object.
    */
-  protected getPayload(): any {
-    return [];
-  }
+  protected abstract createPayload(names: string[]): Payload;
 
   public beforeEach() {
     this.sandbox = sinon.createSandbox();
 
-    this.scope = nock(this.getEndpoint())
-      .post(this.getEndpointPath())
-      .reply((uri: any, requestBody: any) => {
-        return [200, ''];
-      });
+    this.requestInterceptor = nock(this.getEndpoint()).post(this.getEndpointPath());
+    this.scope = this.requestInterceptor.reply(200, '');
+    this.unmatchedRequests = [];
+    nock.emitter.on('no match', this.recordUnmatchedRequest);
 
     // Stub AWS authenticator
     this.sandbox
@@ -60,9 +64,11 @@ export abstract class OTLPAwsBaseExporterTest {
 
   public afterEach() {
     this.sandbox.restore();
+    nock.emitter.removeListener('no match', this.recordUnmatchedRequest);
+    nock.cleanAll();
   }
 
-  public testCommon(): Array<{ description: string; test: (done: () => void) => void }> {
+  public testCommon(): Array<{ description: string; test: (done: Mocha.Done) => void }> {
     return [
       {
         description: 'Should inject SigV4 Headers successfully',
@@ -92,6 +98,56 @@ export abstract class OTLPAwsBaseExporterTest {
         description: 'Should continue when authenticate returns undefined',
         test: (done: () => void) => this.testSigningFails(done),
       },
+      {
+        description: 'Should not mix bodies or signatures when two exports overlap',
+        test: done => {
+          void this.testExportWithConcurrentBatchesDeliversEachBatchOnce([['first'], ['second']]).then(
+            () => done(),
+            done
+          );
+        },
+      },
+      {
+        description: 'Should deliver every batch once when three batches export concurrently',
+        test: done => {
+          const names = Array.from({ length: 30 }, (_, index) => `item-${index}`);
+          void this.testExportWithConcurrentBatchesDeliversEachBatchOnce([
+            names.slice(0, 10),
+            names.slice(10, 20),
+            names.slice(20),
+          ]).then(() => done(), done);
+        },
+      },
+      {
+        description: 'Should deliver every batch once when exports do not overlap',
+        test: done => {
+          void this.testExportWithSequentialBatchesDeliversEachBatchOnce([['first'], ['second'], ['third']]).then(
+            () => done(),
+            done
+          );
+        },
+      },
+      {
+        description: 'Should still run the next export when signing returns undefined',
+        test: done => {
+          void this.testExportWhenSigningReturnsUndefinedContinuesWithNextBatch([['failed'], ['next']]).then(
+            () => done(),
+            done
+          );
+        },
+      },
+      {
+        description: 'Should still run the next export when signing throws',
+        test: done => {
+          void this.testExportWhenSigningThrowsContinuesWithNextBatch([['failed'], ['next']]).then(() => done(), done);
+        },
+      },
+      {
+        description: 'Should finish queued exports before forceFlush resolves',
+        test: done => {
+          void this.testForceFlushWithQueuedExportsWaitsForCompletion([['first'], ['second']]).then(() => done(), done);
+        },
+      },
     ];
   }
 
@@ -100,7 +156,7 @@ export abstract class OTLPAwsBaseExporterTest {
     const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
 
     exporter
-      .export(this.getPayload(), (result: ExportResult) => {
+      .export(this.createPayload([]), (result: ExportResult) => {
         expect(result.code).toBe(ExportResultCode.SUCCESS);
         expect(result.error?.message).toBe(undefined);
       })
@@ -120,7 +176,7 @@ export abstract class OTLPAwsBaseExporterTest {
     });
 
     exporter
-      .export(this.getPayload(), (result: ExportResult) => {
+      .export(this.createPayload([]), (result: ExportResult) => {
         expect(result.code).toBe(ExportResultCode.SUCCESS);
         expect(result.error?.message).toBe(undefined);
       })
@@ -152,7 +208,7 @@ export abstract class OTLPAwsBaseExporterTest {
     const gzipStub = this.sandbox.stub(require('zlib'), 'gzipSync').returns(new Uint8Array([0x1f, 0x8b, 1, 2, 3]));
 
     exporter
-      .export(this.getPayload(), (result: ExportResult) => {
+      .export(this.createPayload([]), (result: ExportResult) => {
         expect(result.code).toBe(ExportResultCode.SUCCESS);
         expect(serializeStub.callCount).toBe(1);
         expect(gzipStub.callCount).toBe(1);
@@ -174,7 +230,7 @@ export abstract class OTLPAwsBaseExporterTest {
     const exporterClass = this.getExporter();
     const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
 
-    exporter.export(this.getPayload(), (result: ExportResult) => {
+    exporter.export(this.createPayload([]), (result: ExportResult) => {
       expect(result.code).toBe(ExportResultCode.FAILED);
       expect(this.scope.isDone()).toBe(false);
       done();
@@ -189,7 +245,7 @@ export abstract class OTLPAwsBaseExporterTest {
       deserializeResponse: this.sandbox.stub(),
     };
 
-    exporter.export(this.getPayload(), (result: ExportResult) => {
+    exporter.export(this.createPayload([]), (result: ExportResult) => {
       expect(result.code).toBe(ExportResultCode.FAILED);
       expect(result.error?.message).toBe('Nothing to send');
       expect(this.scope.isDone()).toBe(false);
@@ -205,7 +261,7 @@ export abstract class OTLPAwsBaseExporterTest {
       compression: CompressionAlgorithm.GZIP,
     });
 
-    exporter.export(this.getPayload(), (result: ExportResult) => {
+    exporter.export(this.createPayload([]), (result: ExportResult) => {
       expect(result.code).toBe(ExportResultCode.FAILED);
       expect(result.error?.message).toContain('Failed to compress');
       expect(this.scope.isDone()).toBe(false);
@@ -222,11 +278,94 @@ export abstract class OTLPAwsBaseExporterTest {
       .stub()
       .resolves(undefined);
 
-    exporter.export(this.getPayload(), (result: ExportResult) => {
+    exporter.export(this.createPayload([]), (result: ExportResult) => {
       expect(result.code).toBe(ExportResultCode.FAILED);
       expect(this.scope.isDone()).toBe(false);
       done();
     });
+  }
+
+  // The scenarios below cover a concurrency defect in OTLPAwsBaseExporter. Exports overlap whenever a
+  // batch processor flushes, because BatchSpanProcessorBase._flushAll() exports every queued batch in
+  // parallel on forceFlush() and shutdown(). Per-request state used to live on objects shared by every
+  // export, so overlapping exports could send one batch's body with another batch's signature, or send
+  // one batch twice and drop another. Exports are now queued, and the queue must be released when an
+  // export fails, since a queue that stays held would block every later export.
+
+  private async testExportWithConcurrentBatchesDeliversEachBatchOnce(batchNames: string[][]) {
+    const batches = batchNames.map(names => this.createPayload(names));
+    const exporterClass = this.getExporter();
+    const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
+    this.assertSignedBatches(exporter, batches);
+
+    const results = await Promise.all(
+      batches.map(batch => new Promise<ExportResult>(resolve => void exporter.export(batch, resolve)))
+    );
+
+    expect(results.map(result => result.code)).toEqual(batches.map(() => ExportResultCode.SUCCESS));
+    this.assertOnlyExpectedRequestsSent();
+  }
+
+  private async testExportWithSequentialBatchesDeliversEachBatchOnce(batchNames: string[][]) {
+    const batches = batchNames.map(names => this.createPayload(names));
+    const exporterClass = this.getExporter();
+    const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
+    this.assertSignedBatches(exporter, batches);
+
+    for (const batch of batches) {
+      const result = await new Promise<ExportResult>(resolve => void exporter.export(batch, resolve));
+      expect(result.code).toBe(ExportResultCode.SUCCESS);
+    }
+
+    this.assertOnlyExpectedRequestsSent();
+  }
+
+  private async testExportWhenSigningReturnsUndefinedContinuesWithNextBatch(batchNames: string[][]) {
+    const batches = batchNames.map(names => this.createPayload(names));
+    const exporterClass = this.getExporter();
+    const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
+    this.assertSignedBatches(exporter, batches.slice(1));
+    (AwsAuthenticator.prototype.authenticate as sinon.SinonStub).onFirstCall().resolves(undefined);
+
+    const results = await Promise.all(
+      batches.map(batch => new Promise<ExportResult>(resolve => void exporter.export(batch, resolve)))
+    );
+
+    expect(results.map(result => result.code)).toEqual([ExportResultCode.FAILED, ExportResultCode.SUCCESS]);
+    this.assertOnlyExpectedRequestsSent();
+  }
+
+  private async testExportWhenSigningThrowsContinuesWithNextBatch(batchNames: string[][]) {
+    const batches = batchNames.map(names => this.createPayload(names));
+    const exporterClass = this.getExporter();
+    const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
+    this.assertSignedBatches(exporter, batches.slice(1));
+    (AwsAuthenticator.prototype.authenticate as sinon.SinonStub)
+      .onFirstCall()
+      .rejects(new Error('credential resolution failed'));
+
+    const results = await Promise.all(
+      batches.map(batch => new Promise<ExportResult>(resolve => void exporter.export(batch, resolve)))
+    );
+
+    expect(results.map(result => result.code)).toEqual([ExportResultCode.FAILED, ExportResultCode.SUCCESS]);
+    expect(results[0].error?.message).toContain('credential resolution failed');
+    this.assertOnlyExpectedRequestsSent();
+  }
+
+  private async testForceFlushWithQueuedExportsWaitsForCompletion(batchNames: string[][]) {
+    const batches = batchNames.map(names => this.createPayload(names));
+    const exporterClass = this.getExporter();
+    const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath());
+    this.assertSignedBatches(exporter, batches);
+    const completed = this.sandbox.spy();
+
+    batches.forEach(batch => void exporter.export(batch, completed));
+    await exporter.forceFlush();
+
+    expect(completed.callCount).toBe(batches.length);
+    expect(completed.args.map(([result]) => result.code)).toEqual(batches.map(() => ExportResultCode.SUCCESS));
+    this.assertOnlyExpectedRequestsSent();
   }
 
   private assertHeaders(headers: Record<string, string>) {
@@ -242,5 +381,39 @@ export abstract class OTLPAwsBaseExporterTest {
 
     expect(headers['content-type']).toBe('application/x-protobuf');
     expect(headers['user-agent']).toMatch(/^OTel-OTLP-Exporter-JavaScript\/\d+\.\d+\.\d+$/);
+  }
+
+  /**
+   * Asserts that every expected request was sent exactly once and that nothing else was sent. Nock
+   * would otherwise only fail the export that made an unexpected request, which goes unnoticed when
+   * that export was expected to fail anyway, such as a batch whose signing failed.
+   */
+  private assertOnlyExpectedRequestsSent() {
+    this.scope.done();
+    expect(this.unmatchedRequests).toEqual([]);
+  }
+
+  private assertSignedBatches(exporter: any, batches: Payload[]) {
+    // Replace the default catch-all request with one exact expectation per batch.
+    nock.removeInterceptor(this.requestInterceptor);
+    const hash = (data: Uint8Array) => createHash('sha256').update(data).digest('hex');
+
+    (AwsAuthenticator.prototype.authenticate as sinon.SinonStub).callsFake(
+      async (headers: Record<string, string>, serializedData: Uint8Array | undefined) => {
+        await Promise.resolve();
+        return {
+          ...headers,
+          [AUTHORIZATION_HEADER]: EXPECTED_AUTH_HEADER,
+          [X_AMZ_DATE_HEADER]: EXPECTED_X_AMZ_DATE,
+          [X_AMZ_SECURITY_TOKEN_HEADER]: EXPECTED_X_AMZ_SECURITY_TOKEN,
+          [X_AMZ_CONTENT_SHA256_HEADER]: hash(serializedData!),
+        };
+      }
+    );
+
+    for (const batch of batches) {
+      const body = Buffer.from(exporter.parentSerializer.serializeRequest(batch));
+      this.scope.post(this.getEndpointPath(), body).matchHeader(X_AMZ_CONTENT_SHA256_HEADER, hash(body)).reply(200, '');
+    }
   }
 }

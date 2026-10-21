@@ -189,7 +189,10 @@ describe('OTLPAwsMetricExporter wire behavior', () => {
     process.env.AWS_SECRET_ACCESS_KEY = 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY';
     process.env.AWS_EC2_METADATA_DISABLED = 'true';
 
-    // These tests need real sockets.
+    // These tests need a real server rather than nock, because nock handles repeated header names
+    // differently from Node. When names differ only by case, such as `Authorization` and
+    // `authorization`, Node sends just the last value whereas nock throws. Only a real server shows
+    // which Authorization value actually reaches the wire.
     nock.cleanAll();
     if (nock.isActive()) {
       nock.restore();

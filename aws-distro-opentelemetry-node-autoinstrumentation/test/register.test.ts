@@ -361,6 +361,7 @@ describe('Register', function () {
       delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
       delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
       delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+      delete process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT;
       delete process.env.OTEL_TRACES_EXPORTER;
       delete process.env.OTEL_LOGS_EXPORTER;
       delete process.env.OTEL_METRICS_EXPORTER;
@@ -421,12 +422,10 @@ describe('Register', function () {
 
       beforeEach(() => {
         warnSpy = sinon.spy(diag, 'warn');
-        delete process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT;
       });
 
       afterEach(() => {
         warnSpy.restore();
-        delete process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT;
       });
 
       const metricsWarnings = () =>
@@ -437,7 +436,7 @@ describe('Register', function () {
 
       // No default metrics endpoint is set on purpose: that would start publishing billable custom
       // metrics to a destination the user never named. Warning instead keeps the case diagnosable.
-      it('warns when otlp metrics are requested without an endpoint', () => {
+      it('Warns when otlp metrics are requested without an endpoint', () => {
         process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
         process.env.AWS_REGION = 'us-east-1';
         process.env.OTEL_METRICS_EXPORTER = 'otlp';
@@ -451,7 +450,7 @@ describe('Register', function () {
         expect(process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT).toBeUndefined();
       });
 
-      it('suggests the China endpoint for cn- regions', () => {
+      it('Suggests the China endpoint for cn- regions', () => {
         process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
         process.env.AWS_REGION = 'cn-north-1';
         process.env.OTEL_METRICS_EXPORTER = 'otlp';
@@ -461,7 +460,7 @@ describe('Register', function () {
         expect(metricsWarnings()[0]).toContain('https://monitoring.cn-north-1.amazonaws.com.cn/v1/metrics');
       });
 
-      it('does not warn when a metrics endpoint is already configured', () => {
+      it('Does not warn when a metrics endpoint is already configured', () => {
         process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
         process.env.AWS_REGION = 'us-east-1';
         process.env.OTEL_METRICS_EXPORTER = 'otlp';
@@ -472,7 +471,7 @@ describe('Register', function () {
         expect(metricsWarnings()).toHaveLength(0);
       });
 
-      it('does not warn when metrics are not exported over otlp', () => {
+      it('Does not warn when metrics are not exported over otlp', () => {
         process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
         process.env.AWS_REGION = 'us-east-1';
 

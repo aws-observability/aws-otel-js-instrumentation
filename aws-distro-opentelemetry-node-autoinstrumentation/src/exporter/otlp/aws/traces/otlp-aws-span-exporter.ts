@@ -4,7 +4,7 @@ import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/expo
 import { CompressionAlgorithm, OTLPExporterNodeConfigBase } from '@opentelemetry/otlp-exporter-base';
 import { IExportTraceServiceResponse, ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer';
 import { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base';
-import { OTLPAwsBaseExporter } from '../common/otlp-aws-base-exporter';
+import { OTLPAwsBaseExporter, OTLPAwsSigV4Options } from '../common/otlp-aws-base-exporter';
 import { ExportResult } from '@opentelemetry/core';
 
 /**
@@ -17,19 +17,27 @@ import { ExportResult } from '@opentelemetry/core';
  *
  * @param endpoint - The AWS X-Ray OTLP endpoint URL
  * @param config - Optional OTLP exporter configuration
+ * @param sigV4Options - Optional signing service and region, overriding the defaults
  */
 export class OTLPAwsSpanExporter
   extends OTLPAwsBaseExporter<ReadableSpan[], IExportTraceServiceResponse>
   implements SpanExporter
 {
-  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase) {
+  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase, sigV4Options?: OTLPAwsSigV4Options) {
     const modifiedConfig: OTLPExporterNodeConfigBase = {
       ...config,
       url: endpoint,
       compression: CompressionAlgorithm.NONE,
     };
 
-    super(endpoint, 'xray', new OTLPProtoTraceExporter(modifiedConfig), ProtobufTraceSerializer, config?.compression);
+    super(
+      endpoint,
+      sigV4Options?.service ?? 'xray',
+      new OTLPProtoTraceExporter(modifiedConfig),
+      ProtobufTraceSerializer,
+      config?.compression,
+      sigV4Options?.region
+    );
   }
 
   override async export(items: ReadableSpan[], resultCallback: (result: ExportResult) => void): Promise<void> {

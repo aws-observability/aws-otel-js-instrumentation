@@ -192,6 +192,30 @@ export function setAwsDefaultEnvironmentVariables() {
         );
       }
     }
+
+    // No metrics endpoint is defaulted here on purpose. Metrics default to awsemf under agent
+    // observability, and pointing OTLP metrics at CloudWatch without being asked would start
+    // publishing billable custom metrics to a destination the user never named. Warn instead, so the
+    // case where someone opts into OTLP metrics without an endpoint is diagnosable rather than a
+    // silent failure loop against upstream's localhost default.
+    const metricsExporters = (process.env.OTEL_METRICS_EXPORTER ?? '').split(',').map(exporter => exporter.trim());
+
+    if (
+      metricsExporters.includes('otlp') &&
+      !process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT &&
+      !process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+    ) {
+      const region = getAwsRegionFromEnvironment();
+      const example = region
+        ? `https://monitoring.${region}.${getAwsDnsSuffix(region)}/v1/metrics`
+        : 'https://monitoring.<region>.amazonaws.com/v1/metrics';
+
+      diag.warn(
+        'OTEL_METRICS_EXPORTER includes "otlp" but no metrics endpoint is configured, so metrics will be ' +
+          'exported to the default http://localhost:4318/v1/metrics. To send metrics directly to CloudWatch, ' +
+          `set OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=${example}`
+      );
+    }
   }
 }
 setAwsDefaultEnvironmentVariables();

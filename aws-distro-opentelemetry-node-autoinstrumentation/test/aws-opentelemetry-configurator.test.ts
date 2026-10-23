@@ -2014,6 +2014,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
       'OTEL_EXPORTER_OTLP_METRICS_PROTOCOL',
       'OTEL_EXPORTER_OTLP_PROTOCOL',
+      'OTEL_EXPORTER_OTLP_METRICS_HEADERS',
       'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
       'OTEL_AWS_APPLICATION_SIGNALS_ENABLED',
       'OTEL_METRIC_EXPORT_INTERVAL',
@@ -2289,6 +2290,113 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       const config = new AwsOpentelemetryConfigurator([]).configure();
 
       expect(config.metricReaders).toBeUndefined();
+    });
+
+    // With EMF enabled ADOT supplies every reader, so a requested `otlp` that the automatic path does
+    // not sign must still be built, the way upstream would build it.
+    describe('alongside the EMF reader', () => {
+      const EMF_LOG_HEADERS = 'x-aws-log-group=test-group,x-aws-log-stream=test-stream';
+      const MONITORING_ENDPOINT = 'https://monitoring.us-east-1.amazonaws.com/v1/metrics';
+
+      beforeEach(() => {
+        process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = EMF_LOG_HEADERS;
+      });
+
+      it('builds the requested otlp reader when a bearer token is kept', () => {
+        const infoSpy = sinon.spy(diag, 'info');
+        process.env.OTEL_METRICS_EXPORTER = 'awsemf,otlp';
+        process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = MONITORING_ENDPOINT;
+        process.env.OTEL_EXPORTER_OTLP_METRICS_HEADERS = 'Authorization=Bearer%20my-api-key';
+
+        try {
+          const readers = new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[];
+
+          expect(readers).toHaveLength(2);
+          expect(exporterOf(readers[0])).toBeInstanceOf(AWSCloudWatchEMFExporter);
+          expect(exporterOf(readers[1])).toBeInstanceOf(OTLPProtoOTLPMetricExporter);
+          // The message now describes what happens: an unsigned reader carrying the bearer token.
+          expect(
+            infoSpy.getCalls().some(call => String(call.args[0]).includes('bearer authentication is preserved'))
+          ).toBe(true);
+        } finally {
+          infoSpy.restore();
+        }
+      });
+
+      it('builds the requested otlp reader for the configured protocol', () => {
+        const cases: Array<[string, string, unknown]> = [
+          ['OTEL_EXPORTER_OTLP_METRICS_PROTOCOL', 'grpc', OTLPGrpcOTLPMetricExporter],
+          ['OTEL_EXPORTER_OTLP_METRICS_PROTOCOL', 'http/json', OTLPHttpOTLPMetricExporter],
+          ['OTEL_EXPORTER_OTLP_PROTOCOL', 'grpc', OTLPGrpcOTLPMetricExporter],
+          ['OTEL_EXPORTER_OTLP_PROTOCOL', 'http/json', OTLPHttpOTLPMetricExporter],
+        ];
+
+        for (const [variable, protocol, exporterType] of cases) {
+          delete process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL;
+          delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
+          process.env.OTEL_METRICS_EXPORTER = 'awsemf,otlp';
+          process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = MONITORING_ENDPOINT;
+          process.env[variable] = protocol;
+
+          const readers = new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[];
+
+          expect(readers).toHaveLength(2);
+          expect(exporterOf(readers[1])).toBeInstanceOf(exporterType as any);
+        }
+      });
+
+      it('builds the requested otlp reader for a non-AWS endpoint', () => {
+        process.env.OTEL_METRICS_EXPORTER = 'awsemf,otlp';
+        process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'http://collector.example.com:4318/v1/metrics';
+
+        const readers = new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[];
+
+        expect(readers).toHaveLength(2);
+        expect(exporterOf(readers[0])).toBeInstanceOf(AWSCloudWatchEMFExporter);
+        expect(exporterOf(readers[1])).toBeInstanceOf(OTLPProtoOTLPMetricExporter);
+      });
+
+      it('falls back to http/protobuf for an unsupported protocol, as upstream does', () => {
+        process.env.OTEL_METRICS_EXPORTER = 'awsemf,otlp';
+        process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'http://collector.example.com:4318/v1/metrics';
+        process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'unsupported-protocol';
+
+        const readers = new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[];
+
+        expect(readers).toHaveLength(2);
+        expect(exporterOf(readers[1])).toBeInstanceOf(OTLPProtoOTLPMetricExporter);
+        expect(warnings().some(message => message.includes('Unsupported OTLP metrics protocol'))).toBe(true);
+      });
+
+      it('keeps console and prometheus readers', () => {
+        process.env.OTEL_METRICS_EXPORTER = 'awsemf,console';
+
+        let readers = new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[];
+
+        expect(readers).toHaveLength(2);
+        expect(exporterOf(readers[0])).toBeInstanceOf(AWSCloudWatchEMFExporter);
+        expect(exporterOf(readers[1])).toBeInstanceOf(ConsoleMetricExporter);
+
+        process.env.OTEL_METRICS_EXPORTER = 'awsemf,prometheus';
+
+        readers = new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[];
+
+        expect(readers).toHaveLength(2);
+        expect(readers[1]).toBeInstanceOf(PrometheusExporter);
+
+        // PrometheusExporter starts an HTTP server; close it so the test does not leak a listener.
+        return readers[1].shutdown();
+      });
+
+      it('builds only the EMF reader when none is listed', () => {
+        process.env.OTEL_METRICS_EXPORTER = 'awsemf,otlp,console,none';
+        process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'http://collector.example.com:4318/v1/metrics';
+
+        const readers = new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[];
+
+        expect(readers).toHaveLength(1);
+        expect(exporterOf(readers[0])).toBeInstanceOf(AWSCloudWatchEMFExporter);
+      });
     });
   });
 

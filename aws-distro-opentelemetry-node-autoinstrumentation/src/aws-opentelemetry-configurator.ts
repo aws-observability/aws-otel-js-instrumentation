@@ -476,19 +476,24 @@ export class AwsOpentelemetryConfigurator {
       readers.push(new PeriodicExportingMetricReader({ exporter: emfExporter }));
     }
 
+    // An explicit "none" disables the OTLP and remaining readers, matching upstream. The EMF reader is
+    // built separately from `awsemf` and is unaffected, as before.
+    const metricsDisabled = requestedExporters.includes('none');
+
     if (awsMetricExporter) {
       readers.push(createPeriodicMetricReaderFromEnv(awsMetricExporter));
-    } else if (sigV4MetricExporter && requestedExporters.includes('otlp')) {
-      // otlp/sigv4 only starts with http/protobuf, and the protocol setting is shared with `otlp`, so
-      // a plain `otlp` entry alongside it is upstream's protobuf exporter.
-      readers.push(createPeriodicMetricReaderFromEnv(new OTLPProtoOTLPMetricExporter()));
+    } else if (requestedExporters.includes('otlp') && !metricsDisabled) {
+      // Once ADOT supplies any reader, upstream builds none, so a requested `otlp` that the automatic
+      // path did not sign - a bearer token, an unsupported protocol, a non-AWS endpoint - is built
+      // here the way upstream would build it.
+      readers.push(createPeriodicMetricReaderFromEnv(getOtlpMetricExporterFromEnv()));
     }
 
     if (sigV4MetricExporter) {
       readers.push(createPeriodicMetricReaderFromEnv(sigV4MetricExporter));
     }
 
-    if (awsMetricExporter || sigV4MetricExporter) {
+    if (!metricsDisabled) {
       readers.push(...createRemainingMetricReaders(requestedExporters));
     }
 
@@ -1290,7 +1295,7 @@ export function createAwsOtlpMetricExporter(requestedExporters?: string[]): Push
   )?.trim();
 
   // CloudWatch OTLP endpoints accept HTTP with protobuf only. Leave any other exporter untouched
-  // rather than signing it, so the misconfiguration surfaces as upstream's own failure.
+  // rather than signing it, so the misconfiguration surfaces as that exporter's own failure.
   if (protocol !== undefined && protocol !== '' && protocol !== 'http/protobuf') {
     diag.warn(
       `Detected CloudWatch metrics OTLP endpoint with unsupported protocol "${protocol}". ` +
@@ -1333,9 +1338,35 @@ export function createAwsOtlpMetricExporter(requestedExporters?: string[]): Push
   return new OTLPAwsMetricExporter(otlpMetricsEndpoint.toLowerCase(), { compression });
 }
 
+// The OpenTelemetry Authors code
+//
+// Mirrors upstream's getOtlpMetricExporterFromEnv, which @opentelemetry/sdk-node does not export, so
+// that a plain `otlp` entry rebuilt by ADOT uses the same exporter upstream would have built.
+//
+// https://github.com/open-telemetry/opentelemetry-js/blob/main/experimental/packages/opentelemetry-sdk-node/src/utils.ts
+function getOtlpMetricExporterFromEnv(): PushMetricExporter {
+  const protocol =
+    (
+      getStringFromEnv('OTEL_EXPORTER_OTLP_METRICS_PROTOCOL') ?? getStringFromEnv('OTEL_EXPORTER_OTLP_PROTOCOL')
+    )?.trim() || 'http/protobuf';
+
+  switch (protocol) {
+    case 'grpc':
+      return new OTLPGrpcOTLPMetricExporter();
+    case 'http/json':
+      return new OTLPHttpOTLPMetricExporter();
+    case 'http/protobuf':
+      return new OTLPProtoOTLPMetricExporter();
+  }
+
+  diag.warn(`Unsupported OTLP metrics protocol: "${protocol}". Using http/protobuf.`);
+  return new OTLPProtoOTLPMetricExporter();
+}
+// END The OpenTelemetry Authors code
+
 /**
- * Builds readers for the requested exporters other than `otlp`, which the AWS metrics path handles,
- * and `awsemf`, which ADOT builds separately.
+ * Builds readers for the requested exporters other than `otlp` and `otlp/sigv4`, which are built
+ * separately, and `awsemf`, which ADOT builds separately too.
  *
  * Only called once the caller has decided to supply readers, so that nothing is constructed on a
  * path that is later abandoned. PrometheusExporter binds its port in the constructor, and an

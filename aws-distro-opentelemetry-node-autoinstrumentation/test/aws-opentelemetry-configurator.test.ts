@@ -1442,6 +1442,103 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         );
       }
     });
+
+    describe('CloudWatch Logs OTLP authentication', () => {
+      let infoSpy: sinon.SinonSpy;
+      let warnSpy: sinon.SinonSpy;
+
+      isolateEnvironmentVariables([
+        'OTEL_LOGS_EXPORTER',
+        'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT',
+        'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
+        'OTEL_EXPORTER_OTLP_HEADERS',
+        'OTEL_EXPORTER_OTLP_LOGS_PROTOCOL',
+        'OTEL_EXPORTER_OTLP_PROTOCOL',
+      ]);
+
+      beforeEach(() => {
+        infoSpy = sinon.spy(diag, 'info');
+        warnSpy = sinon.spy(diag, 'warn');
+      });
+
+      afterEach(() => {
+        infoSpy.restore();
+        warnSpy.restore();
+      });
+
+      const messages = (spy: sinon.SinonSpy) => spy.getCalls().map(call => String(call.args[0]));
+      const LOG_GROUP_HEADERS = 'x-aws-log-group=test-group,x-aws-log-stream=test-stream';
+
+      // Both protocol branches build the CloudWatch Logs exporter: http/protobuf, and an unsupported
+      // protocol, which falls back to http/protobuf.
+      for (const protocol of ['http/protobuf', 'unsupported-protocol']) {
+        describe(`with protocol ${protocol}`, () => {
+          beforeEach(() => {
+            process.env.OTEL_LOGS_EXPORTER = 'otlp';
+            process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = 'https://logs.us-east-1.amazonaws.com/v1/logs';
+            process.env.OTEL_EXPORTER_OTLP_LOGS_PROTOCOL = protocol;
+          });
+
+          // CloudWatch Logs accepts bearer API keys, so a bearer token chosen for logs must be sent
+          // as configured rather than discarded in favor of SigV4.
+          it('preserves bearer authentication configured for logs', () => {
+            process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = `${LOG_GROUP_HEADERS},Authorization=Bearer%20my-api-key`;
+
+            const exporters = AwsLoggerProcessorProvider.configureLogExportersFromEnv();
+
+            expect(exporters).toHaveLength(1);
+            expect(exporters[0]).toBeInstanceOf(OTLPProtoLogExporter);
+            expect(exporters[0]).not.toBeInstanceOf(OTLPAwsLogExporter);
+            expect(
+              messages(infoSpy).filter(message =>
+                message.includes('OTEL_EXPORTER_OTLP_LOGS_HEADERS, so bearer authentication is preserved')
+              )
+            ).toHaveLength(1);
+          });
+
+          // A global Authorization is a catch-all that may target an unrelated backend, so it must not
+          // silently disable SigV4 against the CloudWatch Logs endpoint. Matches the metrics path.
+          it('still applies SigV4 when only the global Authorization header is set', () => {
+            process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = LOG_GROUP_HEADERS;
+            process.env.OTEL_EXPORTER_OTLP_HEADERS = 'Authorization=Bearer%20unrelated-backend';
+
+            const exporters = AwsLoggerProcessorProvider.configureLogExportersFromEnv();
+
+            expect(exporters).toHaveLength(1);
+            expect(exporters[0]).toBeInstanceOf(OTLPAwsLogExporter);
+            expect(
+              messages(infoSpy).filter(message =>
+                message.includes('not treated as a choice of bearer authentication for logs')
+              )
+            ).toHaveLength(1);
+          });
+
+          it('still applies SigV4 when the logs headers have no Authorization header', () => {
+            process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = LOG_GROUP_HEADERS;
+
+            const exporters = AwsLoggerProcessorProvider.configureLogExportersFromEnv();
+
+            expect(exporters).toHaveLength(1);
+            expect(exporters[0]).toBeInstanceOf(OTLPAwsLogExporter);
+            expect(messages(infoSpy).filter(message => message.includes('bearer authentication'))).toEqual([]);
+          });
+
+          // Missing log group or stream headers are reported before authentication is decided.
+          it('reports missing log group headers before deciding authentication', () => {
+            process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'Authorization=Bearer%20my-api-key';
+
+            const exporters = AwsLoggerProcessorProvider.configureLogExportersFromEnv();
+
+            expect(exporters).toHaveLength(1);
+            expect(exporters[0]).toBeInstanceOf(OTLPProtoLogExporter);
+            expect(
+              messages(warnSpy).some(message => message.includes('Invalid configuration for OTLPAwsLogExporter'))
+            ).toBe(true);
+            expect(messages(infoSpy).filter(message => message.includes('bearer authentication'))).toEqual([]);
+          });
+        });
+      }
+    });
   });
 
   it('ExportUnsampledSpanForAgentObservabilityTest', () => {

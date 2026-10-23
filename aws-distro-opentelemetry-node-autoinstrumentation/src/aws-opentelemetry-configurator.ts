@@ -657,52 +657,16 @@ export class AwsLoggerProcessorProvider {
           case 'http/json':
             exporters.push(new OTLPHttpLogExporter());
             break;
-          case 'http/protobuf': {
-            let logExporter: LogRecordExporter | undefined = undefined;
-            if (otlpExporterLogsEndpoint && isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs')) {
-              diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
-              if (validateAndFetchLogsHeader().isValid) {
-                logExporter = new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
-                  compression: CompressionAlgorithm.GZIP,
-                });
-              } else {
-                diag.warn(
-                  `Invalid configuration for OTLPAwsLogExporter, please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. Falling back to OTLPProtoLogExporter`
-                );
-              }
-            }
-
-            if (!logExporter) {
-              logExporter = new OTLPProtoLogExporter();
-            }
-            exporters.push(logExporter);
+          case 'http/protobuf':
+            exporters.push(AwsLoggerProcessorProvider.configureOtlpProtoLogExporter(otlpExporterLogsEndpoint));
             break;
-          }
           case undefined:
           case '':
             exporters.push(new OTLPProtoLogExporter());
             break;
-          default: {
+          default:
             diag.warn(`Unsupported OTLP logs protocol: "${protocol}". Using http/protobuf.`);
-            let logExporter: LogRecordExporter | undefined = undefined;
-            if (otlpExporterLogsEndpoint && isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs')) {
-              diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
-              if (validateAndFetchLogsHeader().isValid) {
-                logExporter = new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
-                  compression: CompressionAlgorithm.GZIP,
-                });
-              } else {
-                diag.warn(
-                  `Invalid configuration for OTLPAwsLogExporter, please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. Falling back to OTLPProtoLogExporter`
-                );
-              }
-            }
-
-            if (!logExporter) {
-              logExporter = new OTLPProtoLogExporter();
-            }
-            exporters.push(logExporter);
-          }
+            exporters.push(AwsLoggerProcessorProvider.configureOtlpProtoLogExporter(otlpExporterLogsEndpoint));
         }
       } else if (exporter === OTLP_SIGV4_EXPORTER) {
         const logExporter = createOtlpSigV4LogExporter();
@@ -728,6 +692,47 @@ export class AwsLoggerProcessorProvider {
     });
 
     return exporters;
+  }
+
+  /**
+   * Builds the http/protobuf logs exporter: the SigV4-signing exporter for the CloudWatch Logs OTLP
+   * endpoint, or upstream's protobuf exporter when the endpoint is not one or the configuration rules
+   * signing out.
+   *
+   * Checks run in the same order as the metrics path, with the bearer check last, so that
+   * configuration diagnostics are reported before authentication is decided.
+   */
+  private static configureOtlpProtoLogExporter(otlpExporterLogsEndpoint: string | undefined): LogRecordExporter {
+    if (otlpExporterLogsEndpoint && isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs')) {
+      diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
+
+      if (!validateAndFetchLogsHeader().isValid) {
+        diag.warn(
+          `Invalid configuration for OTLPAwsLogExporter, please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. Falling back to OTLPProtoLogExporter`
+        );
+      } else if (hasExplicitAuthorizationHeader('OTEL_EXPORTER_OTLP_LOGS_HEADERS')) {
+        // An explicit bearer token for this signal wins over automatic SigV4. CloudWatch Logs accepts
+        // bearer API keys, so this is a legitimate configuration, and signing would discard the token.
+        diag.info(
+          'An Authorization header is set in OTEL_EXPORTER_OTLP_LOGS_HEADERS, so bearer authentication ' +
+            'is preserved and SigV4 signing was not applied to logs.'
+        );
+      } else {
+        if (hasExplicitAuthorizationHeader('OTEL_EXPORTER_OTLP_HEADERS')) {
+          diag.info(
+            'An Authorization header is set in the global OTEL_EXPORTER_OTLP_HEADERS. It is not treated as a ' +
+              'choice of bearer authentication for logs, so SigV4 signing is still applied. Set ' +
+              'OTEL_EXPORTER_OTLP_LOGS_HEADERS instead to use a bearer token for logs.'
+          );
+        }
+
+        return new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
+          compression: CompressionAlgorithm.GZIP,
+        });
+      }
+    }
+
+    return new OTLPProtoLogExporter();
   }
 }
 // END The OpenTelemetry Authors code

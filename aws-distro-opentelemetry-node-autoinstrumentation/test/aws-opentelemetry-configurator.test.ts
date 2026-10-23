@@ -2374,15 +2374,44 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
           expect(authenticatorOf(exporter)['region']).toBe('us-west-2');
         });
 
-        it('takes the signing service from the signal variable, then the shared one, then the default', () => {
-          expect(getOtlpSigV4Service(signal)).toBe(defaultService);
+        // Every combination of the signal-specific and shared variables being unset, empty, blank or
+        // set. The rule is the first non-blank of signal-specific, shared, then the signal's default,
+        // checked both on the resolved value and on the exporter actually built.
+        it('resolves the signing service for every combination of the signal and shared variables', () => {
+          const states: Array<[string, string | undefined]> = [
+            ['unset', undefined],
+            ['empty', ''],
+            ['blank', '   '],
+            ['set', 'set'],
+          ];
+          const mismatches: string[] = [];
 
-          process.env.AWS_EXPORTER_SERVICE = 'shared-service';
-          expect(getOtlpSigV4Service(signal)).toBe('shared-service');
+          for (const [signalState, signalValue] of states) {
+            for (const [sharedState, sharedValue] of states) {
+              const assign = (variable: string, value: string | undefined, setValue: string) => {
+                if (value === undefined) {
+                  delete process.env[variable];
+                } else {
+                  process.env[variable] = value === 'set' ? setValue : value;
+                }
+              };
+              assign(`AWS_${name}_EXPORTER_SERVICE`, signalValue, 'signal-service');
+              assign('AWS_EXPORTER_SERVICE', sharedValue, 'shared-service');
 
-          process.env[`AWS_${name}_EXPORTER_SERVICE`] = 'signal-service';
-          expect(getOtlpSigV4Service(signal)).toBe('signal-service');
-          expect(authenticatorOf(create())['service']).toBe('signal-service');
+              const expected =
+                signalState === 'set' ? 'signal-service' : sharedState === 'set' ? 'shared-service' : defaultService;
+              const resolved = getOtlpSigV4Service(signal);
+              const built = authenticatorOf(create())['service'];
+
+              if (resolved !== expected || built !== expected) {
+                mismatches.push(
+                  `signal ${signalState}, shared ${sharedState}: resolved ${resolved}, built ${built}, expected ${expected}`
+                );
+              }
+            }
+          }
+
+          expect(mismatches).toEqual([]);
         });
 
         it('takes the region from the endpoint hostname, and otherwise looks it up when signing', () => {
@@ -2478,6 +2507,31 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
         });
       });
     }
+
+    // A signal-specific variable must only affect its own signal; the others keep the shared value.
+    it('keeps each signal-specific service to its own signal', () => {
+      const mismatches: string[] = [];
+
+      for (const target of signals) {
+        for (const { name } of signals) {
+          delete process.env[`AWS_${name}_EXPORTER_SERVICE`];
+        }
+        process.env.AWS_EXPORTER_SERVICE = 'shared-service';
+        process.env[`AWS_${target.name}_EXPORTER_SERVICE`] = 'signal-service';
+
+        for (const other of signals) {
+          const expected = other === target ? 'signal-service' : 'shared-service';
+          const built = authenticatorOf(other.create())['service'];
+          if (getOtlpSigV4Service(other.signal) !== expected || built !== expected) {
+            mismatches.push(
+              `AWS_${target.name}_EXPORTER_SERVICE set: ${other.signal} built ${built}, expected ${expected}`
+            );
+          }
+        }
+      }
+
+      expect(mismatches).toEqual([]);
+    });
 
     it('adds the otlp/sigv4 span exporter alongside otlp, and skips only it when misconfigured', () => {
       process.env.AWS_REGION = 'us-west-2';

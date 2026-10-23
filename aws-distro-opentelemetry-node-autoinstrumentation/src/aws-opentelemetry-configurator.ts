@@ -476,19 +476,24 @@ export class AwsOpentelemetryConfigurator {
       readers.push(new PeriodicExportingMetricReader({ exporter: emfExporter }));
     }
 
+    // An explicit "none" disables the OTLP and remaining readers, matching upstream. The EMF reader is
+    // built separately from `awsemf` and is unaffected, as before.
+    const metricsDisabled = requestedExporters.includes('none');
+
     if (awsMetricExporter) {
       readers.push(createPeriodicMetricReaderFromEnv(awsMetricExporter));
-    } else if (sigV4MetricExporter && requestedExporters.includes('otlp')) {
-      // otlp/sigv4 only starts with http/protobuf, and the protocol setting is shared with `otlp`, so
-      // a plain `otlp` entry alongside it is upstream's protobuf exporter.
-      readers.push(createPeriodicMetricReaderFromEnv(new OTLPProtoOTLPMetricExporter()));
+    } else if (requestedExporters.includes('otlp') && !metricsDisabled) {
+      // Once ADOT supplies any reader, upstream builds none, so a requested `otlp` that the automatic
+      // path did not sign - a bearer token, an unsupported protocol, a non-AWS endpoint - is built
+      // here the way upstream would build it.
+      readers.push(createPeriodicMetricReaderFromEnv(getOtlpMetricExporterFromEnv()));
     }
 
     if (sigV4MetricExporter) {
       readers.push(createPeriodicMetricReaderFromEnv(sigV4MetricExporter));
     }
 
-    if (awsMetricExporter || sigV4MetricExporter) {
+    if (!metricsDisabled) {
       readers.push(...createRemainingMetricReaders(requestedExporters));
     }
 
@@ -652,52 +657,16 @@ export class AwsLoggerProcessorProvider {
           case 'http/json':
             exporters.push(new OTLPHttpLogExporter());
             break;
-          case 'http/protobuf': {
-            let logExporter: LogRecordExporter | undefined = undefined;
-            if (otlpExporterLogsEndpoint && isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs')) {
-              diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
-              if (validateAndFetchLogsHeader().isValid) {
-                logExporter = new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
-                  compression: CompressionAlgorithm.GZIP,
-                });
-              } else {
-                diag.warn(
-                  `Invalid configuration for OTLPAwsLogExporter, please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. Falling back to OTLPProtoLogExporter`
-                );
-              }
-            }
-
-            if (!logExporter) {
-              logExporter = new OTLPProtoLogExporter();
-            }
-            exporters.push(logExporter);
+          case 'http/protobuf':
+            exporters.push(AwsLoggerProcessorProvider.configureOtlpProtoLogExporter(otlpExporterLogsEndpoint));
             break;
-          }
           case undefined:
           case '':
             exporters.push(new OTLPProtoLogExporter());
             break;
-          default: {
+          default:
             diag.warn(`Unsupported OTLP logs protocol: "${protocol}". Using http/protobuf.`);
-            let logExporter: LogRecordExporter | undefined = undefined;
-            if (otlpExporterLogsEndpoint && isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs')) {
-              diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
-              if (validateAndFetchLogsHeader().isValid) {
-                logExporter = new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
-                  compression: CompressionAlgorithm.GZIP,
-                });
-              } else {
-                diag.warn(
-                  `Invalid configuration for OTLPAwsLogExporter, please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. Falling back to OTLPProtoLogExporter`
-                );
-              }
-            }
-
-            if (!logExporter) {
-              logExporter = new OTLPProtoLogExporter();
-            }
-            exporters.push(logExporter);
-          }
+            exporters.push(AwsLoggerProcessorProvider.configureOtlpProtoLogExporter(otlpExporterLogsEndpoint));
         }
       } else if (exporter === OTLP_SIGV4_EXPORTER) {
         const logExporter = createOtlpSigV4LogExporter();
@@ -723,6 +692,47 @@ export class AwsLoggerProcessorProvider {
     });
 
     return exporters;
+  }
+
+  /**
+   * Builds the http/protobuf logs exporter: the SigV4-signing exporter for the CloudWatch Logs OTLP
+   * endpoint, or upstream's protobuf exporter when the endpoint is not one or the configuration rules
+   * signing out.
+   *
+   * Checks run in the same order as the metrics path, with the bearer check last, so that
+   * configuration diagnostics are reported before authentication is decided.
+   */
+  private static configureOtlpProtoLogExporter(otlpExporterLogsEndpoint: string | undefined): LogRecordExporter {
+    if (otlpExporterLogsEndpoint && isAwsOtlpEndpoint(otlpExporterLogsEndpoint, 'logs')) {
+      diag.debug('Detected CloudWatch Logs OTLP endpoint. Switching exporter to OTLPAwsLogExporter');
+
+      if (!validateAndFetchLogsHeader().isValid) {
+        diag.warn(
+          `Invalid configuration for OTLPAwsLogExporter, please configure the environment variable OTEL_EXPORTER_OTLP_LOGS_HEADERS to have values for ${AWS_OTLP_LOGS_GROUP_HEADER} and ${AWS_OTLP_LOGS_STREAM_HEADER}. Falling back to OTLPProtoLogExporter`
+        );
+      } else if (hasExplicitAuthorizationHeader('OTEL_EXPORTER_OTLP_LOGS_HEADERS')) {
+        // An explicit bearer token for this signal wins over automatic SigV4. CloudWatch Logs accepts
+        // bearer API keys, so this is a legitimate configuration, and signing would discard the token.
+        diag.info(
+          'An Authorization header is set in OTEL_EXPORTER_OTLP_LOGS_HEADERS, so bearer authentication ' +
+            'is preserved and SigV4 signing was not applied to logs.'
+        );
+      } else {
+        if (hasExplicitAuthorizationHeader('OTEL_EXPORTER_OTLP_HEADERS')) {
+          diag.info(
+            'An Authorization header is set in the global OTEL_EXPORTER_OTLP_HEADERS. It is not treated as a ' +
+              'choice of bearer authentication for logs, so SigV4 signing is still applied. Set ' +
+              'OTEL_EXPORTER_OTLP_LOGS_HEADERS instead to use a bearer token for logs.'
+          );
+        }
+
+        return new OTLPAwsLogExporter(otlpExporterLogsEndpoint.toLowerCase(), {
+          compression: CompressionAlgorithm.GZIP,
+        });
+      }
+    }
+
+    return new OTLPProtoLogExporter();
   }
 }
 // END The OpenTelemetry Authors code
@@ -1290,7 +1300,7 @@ export function createAwsOtlpMetricExporter(requestedExporters?: string[]): Push
   )?.trim();
 
   // CloudWatch OTLP endpoints accept HTTP with protobuf only. Leave any other exporter untouched
-  // rather than signing it, so the misconfiguration surfaces as upstream's own failure.
+  // rather than signing it, so the misconfiguration surfaces as that exporter's own failure.
   if (protocol !== undefined && protocol !== '' && protocol !== 'http/protobuf') {
     diag.warn(
       `Detected CloudWatch metrics OTLP endpoint with unsupported protocol "${protocol}". ` +
@@ -1333,9 +1343,35 @@ export function createAwsOtlpMetricExporter(requestedExporters?: string[]): Push
   return new OTLPAwsMetricExporter(otlpMetricsEndpoint.toLowerCase(), { compression });
 }
 
+// The OpenTelemetry Authors code
+//
+// Mirrors upstream's getOtlpMetricExporterFromEnv, which @opentelemetry/sdk-node does not export, so
+// that a plain `otlp` entry rebuilt by ADOT uses the same exporter upstream would have built.
+//
+// https://github.com/open-telemetry/opentelemetry-js/blob/main/experimental/packages/opentelemetry-sdk-node/src/utils.ts
+function getOtlpMetricExporterFromEnv(): PushMetricExporter {
+  const protocol =
+    (
+      getStringFromEnv('OTEL_EXPORTER_OTLP_METRICS_PROTOCOL') ?? getStringFromEnv('OTEL_EXPORTER_OTLP_PROTOCOL')
+    )?.trim() || 'http/protobuf';
+
+  switch (protocol) {
+    case 'grpc':
+      return new OTLPGrpcOTLPMetricExporter();
+    case 'http/json':
+      return new OTLPHttpOTLPMetricExporter();
+    case 'http/protobuf':
+      return new OTLPProtoOTLPMetricExporter();
+  }
+
+  diag.warn(`Unsupported OTLP metrics protocol: "${protocol}". Using http/protobuf.`);
+  return new OTLPProtoOTLPMetricExporter();
+}
+// END The OpenTelemetry Authors code
+
 /**
- * Builds readers for the requested exporters other than `otlp`, which the AWS metrics path handles,
- * and `awsemf`, which ADOT builds separately.
+ * Builds readers for the requested exporters other than `otlp` and `otlp/sigv4`, which are built
+ * separately, and `awsemf`, which ADOT builds separately too.
  *
  * Only called once the caller has decided to supply readers, so that nothing is constructed on a
  * path that is later abandoned. PrometheusExporter binds its port in the constructor, and an

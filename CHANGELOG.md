@@ -38,6 +38,11 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://monitoring.<region>.amazonaws.com/v1/metrics`, plus
   the `cloudwatch:PutMetricData` permission
   ([#570](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/570))
+- feat(exporter): add the `otlp/sigv4` exporter for `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER` and
+  `OTEL_LOGS_EXPORTER`, which signs every OTLP request with SigV4 whatever the endpoint and replaces a configured
+  `Authorization` header. The signing service defaults to `xray`, `monitoring` or `logs` and can be overridden with
+  `AWS_<SIGNAL>_EXPORTER_SERVICE` or `AWS_EXPORTER_SERVICE`
+  ([#582](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/582))
 
 ## v0.13.0 - 2026-09-14
 

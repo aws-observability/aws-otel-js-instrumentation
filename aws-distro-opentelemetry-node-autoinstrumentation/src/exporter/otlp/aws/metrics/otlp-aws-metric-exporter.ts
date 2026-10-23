@@ -11,7 +11,7 @@ import {
   ResourceMetrics,
 } from '@opentelemetry/sdk-metrics';
 import { ExportResult } from '@opentelemetry/core';
-import { OTLPAwsBaseExporter } from '../common/otlp-aws-base-exporter';
+import { OTLPAwsBaseExporter, OTLPAwsSigV4Options } from '../common/otlp-aws-base-exporter';
 
 /**
  * This exporter extends the functionality of the OTLPProtoMetricExporter to allow metrics to be
@@ -24,6 +24,7 @@ import { OTLPAwsBaseExporter } from '../common/otlp-aws-base-exporter';
  *
  * @param endpoint - The CloudWatch metrics OTLP endpoint URL
  * @param config - Optional OTLP exporter configuration
+ * @param sigV4Options - Optional signing service and region, overriding the defaults
  */
 export class OTLPAwsMetricExporter
   extends OTLPAwsBaseExporter<ResourceMetrics, IExportMetricsServiceResponse>
@@ -31,7 +32,7 @@ export class OTLPAwsMetricExporter
 {
   private metricParentExporter: OTLPProtoMetricExporter;
 
-  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase) {
+  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase, sigV4Options?: OTLPAwsSigV4Options) {
     const modifiedConfig: OTLPExporterNodeConfigBase = {
       ...config,
       url: endpoint,
@@ -40,7 +41,14 @@ export class OTLPAwsMetricExporter
 
     const parentExporter = new OTLPProtoMetricExporter(modifiedConfig);
 
-    super(endpoint, 'monitoring', parentExporter, ProtobufMetricsSerializer, config?.compression);
+    super(
+      endpoint,
+      sigV4Options?.service ?? 'monitoring',
+      parentExporter,
+      ProtobufMetricsSerializer,
+      config?.compression,
+      sigV4Options?.region
+    );
 
     this.metricParentExporter = parentExporter;
   }

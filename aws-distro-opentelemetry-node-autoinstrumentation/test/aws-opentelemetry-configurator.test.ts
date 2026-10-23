@@ -5,6 +5,7 @@ import { AWSCloudWatchEMFExporter } from '../src/exporter/aws/metrics/aws-cloudw
 import { diag, propagation, ROOT_CONTEXT, Span, TextMapGetter, trace, TraceFlags, Tracer } from '@opentelemetry/api';
 import { OTLPMetricExporter as OTLPGrpcOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import { OTLPMetricExporter as OTLPHttpOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
+import { OTLPMetricExporter as OTLPProtoOTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-proto';
 import { OTLPTraceExporter as OTLPGrpcTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
 import { OTLPTraceExporter as OTLPHttpTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
@@ -17,6 +18,7 @@ import {
   AlwaysOffSampler,
   AlwaysOnSampler,
   BatchSpanProcessor,
+  ConsoleSpanExporter,
   ParentBasedSampler,
   ReadableSpan,
   SpanProcessor,
@@ -41,9 +43,14 @@ import {
   checkEmfExporterEnabled,
   createAwsOtlpMetricExporter,
   createEmfExporter,
+  createOtlpSigV4LogExporter,
+  createOtlpSigV4MetricExporter,
+  createOtlpSigV4SpanExporter,
   customBuildSamplerFromEnv,
+  getOtlpSigV4Service,
   hasExplicitAuthorizationHeader,
   isAwsOtlpEndpoint,
+  resolveOtlpHttpEndpoint,
   validateAndFetchLogsHeader,
 } from '../src/aws-opentelemetry-configurator';
 import { OTLPAwsMetricExporter } from '../src/exporter/otlp/aws/metrics/otlp-aws-metric-exporter';
@@ -2005,10 +2012,14 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     isolateEnvironmentVariables([
       'OTEL_METRICS_EXPORTER',
       'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
+      'OTEL_EXPORTER_OTLP_METRICS_PROTOCOL',
+      'OTEL_EXPORTER_OTLP_PROTOCOL',
       'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
       'OTEL_AWS_APPLICATION_SIGNALS_ENABLED',
       'OTEL_METRIC_EXPORT_INTERVAL',
       'OTEL_METRIC_EXPORT_TIMEOUT',
+      'AWS_REGION',
+      'AWS_DEFAULT_REGION',
     ]);
 
     beforeEach(() => {
@@ -2216,6 +2227,353 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
 
       expect(reader._exportInterval).toEqual(5000);
       expect(reader._exportTimeout).toEqual(5000);
+    });
+
+    it('configures a reader for otlp/sigv4 whatever the endpoint', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp/sigv4';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://collector.example.com/v1/metrics';
+      process.env.AWS_REGION = 'us-west-2';
+
+      const readers = new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[];
+
+      expect(readers).toHaveLength(1);
+      expect(exporterOf(readers[0])).toBeInstanceOf(OTLPAwsMetricExporter);
+    });
+
+    // Upstream does not recognize otlp/sigv4, so once it is requested ADOT supplies every reader,
+    // including a plain `otlp` entry for an endpoint the automatic path does not sign.
+    it('rebuilds plain otlp and the other entries alongside otlp/sigv4', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp,otlp/sigv4,console';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://collector.example.com/v1/metrics';
+      process.env.AWS_REGION = 'us-west-2';
+
+      const readers = new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[];
+
+      expect(readers).toHaveLength(3);
+      expect(exporterOf(readers[0])).toBeInstanceOf(OTLPProtoOTLPMetricExporter);
+      expect(exporterOf(readers[1])).toBeInstanceOf(OTLPAwsMetricExporter);
+      expect(exporterOf(readers[2])).toBeInstanceOf(ConsoleMetricExporter);
+    });
+
+    // A skipped otlp/sigv4 leaves nothing ADOT-specific, so upstream builds the remaining entries.
+    it('leaves readers to upstream when a misconfigured otlp/sigv4 is the only AWS entry', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp,otlp/sigv4';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://collector.example.com/v1/metrics';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'grpc';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toBeUndefined();
+    });
+
+    it('keeps the otlp/sigv4 reader when an entry cannot be reproduced', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp/sigv4,some-future-exporter';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://collector.example.com/v1/metrics';
+      process.env.AWS_REGION = 'us-west-2';
+
+      const readers = new AwsOpentelemetryConfigurator([]).configure().metricReaders as any[];
+
+      expect(readers).toHaveLength(1);
+      expect(exporterOf(readers[0])).toBeInstanceOf(OTLPAwsMetricExporter);
+      expect(
+        warnings().filter(
+          message => message.includes('"some-future-exporter"') && message.includes('was not initialized')
+        )
+      ).toHaveLength(1);
+    });
+
+    it('honors an explicit none alongside otlp/sigv4', () => {
+      process.env.OTEL_METRICS_EXPORTER = 'otlp/sigv4,none';
+      process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'https://collector.example.com/v1/metrics';
+
+      const config = new AwsOpentelemetryConfigurator([]).configure();
+
+      expect(config.metricReaders).toBeUndefined();
+    });
+  });
+
+  describe('Test otlp/sigv4 exporters', () => {
+    let warnSpy: sinon.SinonSpy;
+    let errorSpy: sinon.SinonSpy;
+
+    const SIGNAL_NAMES = ['TRACES', 'METRICS', 'LOGS'];
+
+    isolateEnvironmentVariables([
+      'AWS_REGION',
+      'AWS_DEFAULT_REGION',
+      'AWS_EXPORTER_SERVICE',
+      ...SIGNAL_NAMES.map(name => `AWS_${name}_EXPORTER_SERVICE`),
+      'OTEL_EXPORTER_OTLP_ENDPOINT',
+      'OTEL_EXPORTER_OTLP_PROTOCOL',
+      'OTEL_EXPORTER_OTLP_COMPRESSION',
+      'OTEL_EXPORTER_OTLP_HEADERS',
+      ...SIGNAL_NAMES.flatMap(name => [
+        `OTEL_EXPORTER_OTLP_${name}_ENDPOINT`,
+        `OTEL_EXPORTER_OTLP_${name}_PROTOCOL`,
+        `OTEL_EXPORTER_OTLP_${name}_COMPRESSION`,
+        `OTEL_EXPORTER_OTLP_${name}_HEADERS`,
+      ]),
+      'OTEL_TRACES_EXPORTER',
+      'OTEL_LOGS_EXPORTER',
+    ]);
+
+    beforeEach(() => {
+      warnSpy = sinon.spy(diag, 'warn');
+      errorSpy = sinon.spy(diag, 'error');
+    });
+
+    afterEach(() => {
+      warnSpy.restore();
+      errorSpy.restore();
+    });
+
+    const messages = (spy: sinon.SinonSpy) => spy.getCalls().map(call => String(call.args[0]));
+
+    // The signer keeps what it signs for private. Reading it shows the endpoint, service and region
+    // each request is signed for.
+    const authenticatorOf = (exporter: any) => exporter['authenticator'];
+
+    // One entry per signal, so every shared behavior is checked for traces, metrics and logs.
+    const signals = [
+      {
+        signal: 'traces',
+        name: 'TRACES',
+        create: createOtlpSigV4SpanExporter,
+        exporterType: OTLPAwsSpanExporter,
+        defaultService: 'xray',
+      },
+      {
+        signal: 'metrics',
+        name: 'METRICS',
+        create: createOtlpSigV4MetricExporter,
+        exporterType: OTLPAwsMetricExporter,
+        defaultService: 'monitoring',
+      },
+      {
+        signal: 'logs',
+        name: 'LOGS',
+        create: createOtlpSigV4LogExporter,
+        exporterType: OTLPAwsLogExporter,
+        defaultService: 'logs',
+      },
+    ] as const;
+
+    for (const { signal, name, create, exporterType, defaultService } of signals) {
+      describe(`for ${signal}`, () => {
+        const ENDPOINT_VAR = `OTEL_EXPORTER_OTLP_${name}_ENDPOINT`;
+
+        it('signs any endpoint, not only recognized AWS OTLP endpoints', () => {
+          process.env.AWS_REGION = 'us-west-2';
+          process.env[ENDPOINT_VAR] = `https://collector.example.com:8443/v1/${signal}`;
+
+          const exporter = create();
+
+          expect(exporter).toBeInstanceOf(exporterType);
+          expect(authenticatorOf(exporter)['endpoint'].href).toBe(`https://collector.example.com:8443/v1/${signal}`);
+          expect(authenticatorOf(exporter)['service']).toBe(defaultService);
+          expect(authenticatorOf(exporter)['region']).toBe('us-west-2');
+        });
+
+        // Every combination of the signal-specific and shared variables being unset, empty, blank or
+        // set. The rule is the first non-blank of signal-specific, shared, then the signal's default,
+        // checked both on the resolved value and on the exporter actually built.
+        it('resolves the signing service for every combination of the signal and shared variables', () => {
+          const states: Array<[string, string | undefined]> = [
+            ['unset', undefined],
+            ['empty', ''],
+            ['blank', '   '],
+            ['set', 'set'],
+          ];
+          const mismatches: string[] = [];
+
+          for (const [signalState, signalValue] of states) {
+            for (const [sharedState, sharedValue] of states) {
+              const assign = (variable: string, value: string | undefined, setValue: string) => {
+                if (value === undefined) {
+                  delete process.env[variable];
+                } else {
+                  process.env[variable] = value === 'set' ? setValue : value;
+                }
+              };
+              assign(`AWS_${name}_EXPORTER_SERVICE`, signalValue, 'signal-service');
+              assign('AWS_EXPORTER_SERVICE', sharedValue, 'shared-service');
+
+              const expected =
+                signalState === 'set' ? 'signal-service' : sharedState === 'set' ? 'shared-service' : defaultService;
+              const resolved = getOtlpSigV4Service(signal);
+              const built = authenticatorOf(create())['service'];
+
+              if (resolved !== expected || built !== expected) {
+                mismatches.push(
+                  `signal ${signalState}, shared ${sharedState}: resolved ${resolved}, built ${built}, expected ${expected}`
+                );
+              }
+            }
+          }
+
+          expect(mismatches).toEqual([]);
+        });
+
+        it('takes the region from the endpoint hostname, and otherwise looks it up when signing', () => {
+          process.env[
+            ENDPOINT_VAR
+          ] = `https://vpce-0123-abcd.${defaultService}.eu-west-1.vpce.amazonaws.com/v1/${signal}`;
+          expect(authenticatorOf(create())['region']).toBe('eu-west-1');
+
+          process.env[ENDPOINT_VAR] = `https://collector.example.com/v1/${signal}`;
+          expect(typeof authenticatorOf(create())['region']).toBe('function');
+        });
+
+        it('resolves the endpoint the way upstream does', () => {
+          expect(resolveOtlpHttpEndpoint(signal)).toBe(`http://localhost:4318/v1/${signal}`);
+
+          process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://collector.example.com';
+          expect(resolveOtlpHttpEndpoint(signal)).toBe(`https://collector.example.com/v1/${signal}`);
+
+          process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://collector.example.com/';
+          expect(resolveOtlpHttpEndpoint(signal)).toBe(`https://collector.example.com/v1/${signal}`);
+
+          // The signal-specific endpoint is used as given, without appending a path.
+          process.env[ENDPOINT_VAR] = 'https://other.example.com/custom/path';
+          expect(resolveOtlpHttpEndpoint(signal)).toBe('https://other.example.com/custom/path');
+        });
+
+        it('is not created for a protocol other than http/protobuf, set for the signal or globally', () => {
+          for (const variable of [`OTEL_EXPORTER_OTLP_${name}_PROTOCOL`, 'OTEL_EXPORTER_OTLP_PROTOCOL']) {
+            for (const protocol of ['grpc', 'http/json']) {
+              delete process.env[`OTEL_EXPORTER_OTLP_${name}_PROTOCOL`];
+              delete process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
+              process.env[variable] = protocol;
+
+              expect(create()).toBeUndefined();
+            }
+          }
+
+          expect(
+            messages(errorSpy).filter(
+              message =>
+                message.includes('requires the http/protobuf protocol') &&
+                message.includes(`OTEL_EXPORTER_OTLP_${name}_PROTOCOL=http/protobuf`)
+            )
+          ).toHaveLength(4);
+        });
+
+        it('is not created for compression other than none or gzip, and honors gzip', () => {
+          process.env[`OTEL_EXPORTER_OTLP_${name}_COMPRESSION`] = 'zstd';
+          expect(create()).toBeUndefined();
+          expect(messages(errorSpy).some(message => message.includes('supports only none or gzip'))).toBe(true);
+
+          process.env[`OTEL_EXPORTER_OTLP_${name}_COMPRESSION`] = 'gzip';
+          expect((create() as any)['compression']).toBe(CompressionAlgorithm.GZIP);
+
+          delete process.env[`OTEL_EXPORTER_OTLP_${name}_COMPRESSION`];
+          expect((create() as any)['compression']).toBe(CompressionAlgorithm.NONE);
+        });
+
+        it('is not created for an endpoint that cannot be parsed', () => {
+          process.env[ENDPOINT_VAR] = 'not a url';
+
+          expect(create()).toBeUndefined();
+          expect(messages(errorSpy).some(message => message.includes('could not parse'))).toBe(true);
+        });
+
+        it('warns once that a configured Authorization header is replaced, and still signs', () => {
+          process.env.AWS_REGION = 'us-west-2';
+          process.env[`OTEL_EXPORTER_OTLP_${name}_HEADERS`] = 'Authorization=Bearer%20user-api-key';
+          process.env.OTEL_EXPORTER_OTLP_HEADERS = 'authorization=Bearer%20other-api-key';
+
+          expect(create()).toBeInstanceOf(exporterType);
+          expect(messages(warnSpy).filter(message => message.includes('is replaced by SigV4'))).toEqual([
+            `OTEL_${name}_EXPORTER includes otlp/sigv4, so the Authorization header set in ` +
+              `OTEL_EXPORTER_OTLP_${name}_HEADERS is replaced by SigV4 for ${signal}.`,
+          ]);
+        });
+
+        it('warns about a global Authorization header too, and not when none is set', () => {
+          process.env.AWS_REGION = 'us-west-2';
+          process.env.OTEL_EXPORTER_OTLP_HEADERS = 'Authorization=Bearer%20user-api-key';
+
+          create();
+          expect(messages(warnSpy).filter(message => message.includes('is replaced by SigV4'))).toEqual([
+            `OTEL_${name}_EXPORTER includes otlp/sigv4, so the Authorization header set in ` +
+              `OTEL_EXPORTER_OTLP_HEADERS is replaced by SigV4 for ${signal}.`,
+          ]);
+
+          warnSpy.resetHistory();
+          process.env.OTEL_EXPORTER_OTLP_HEADERS = 'x-custom=value';
+
+          create();
+          expect(messages(warnSpy).filter(message => message.includes('is replaced by SigV4'))).toEqual([]);
+        });
+      });
+    }
+
+    // A signal-specific variable must only affect its own signal; the others keep the shared value.
+    it('keeps each signal-specific service to its own signal', () => {
+      const mismatches: string[] = [];
+
+      for (const target of signals) {
+        for (const { name } of signals) {
+          delete process.env[`AWS_${name}_EXPORTER_SERVICE`];
+        }
+        process.env.AWS_EXPORTER_SERVICE = 'shared-service';
+        process.env[`AWS_${target.name}_EXPORTER_SERVICE`] = 'signal-service';
+
+        for (const other of signals) {
+          const expected = other === target ? 'signal-service' : 'shared-service';
+          const built = authenticatorOf(other.create())['service'];
+          if (getOtlpSigV4Service(other.signal) !== expected || built !== expected) {
+            mismatches.push(
+              `AWS_${target.name}_EXPORTER_SERVICE set: ${other.signal} built ${built}, expected ${expected}`
+            );
+          }
+        }
+      }
+
+      expect(mismatches).toEqual([]);
+    });
+
+    it('adds the otlp/sigv4 span exporter alongside otlp, and skips only it when misconfigured', () => {
+      process.env.AWS_REGION = 'us-west-2';
+      process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'https://collector.example.com/v1/traces';
+      process.env.OTEL_TRACES_EXPORTER = 'otlp,otlp/sigv4';
+
+      let exporters = (new AwsSpanProcessorProvider(emptyResource()) as any)._configuredExporters;
+
+      expect(exporters).toHaveLength(2);
+      expect(exporters[0]).toBeInstanceOf(OTLPProtoTraceExporter);
+      expect(exporters[1]).toBeInstanceOf(OTLPAwsSpanExporter);
+
+      process.env.OTEL_TRACES_EXPORTER = 'otlp/sigv4,console';
+      process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'grpc';
+
+      exporters = (new AwsSpanProcessorProvider(emptyResource()) as any)._configuredExporters;
+
+      expect(exporters).toHaveLength(1);
+      expect(exporters[0]).toBeInstanceOf(ConsoleSpanExporter);
+      // The skipped exporter is reported once, as an error, not also as an unrecognized value.
+      expect(messages(warnSpy).some(message => message.includes('Unrecognized OTEL_TRACES_EXPORTER'))).toBe(false);
+    });
+
+    it('adds the otlp/sigv4 log exporter alongside otlp, and skips only it when misconfigured', () => {
+      process.env.AWS_REGION = 'us-west-2';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = 'https://collector.example.com/v1/logs';
+      process.env.OTEL_LOGS_EXPORTER = 'otlp,otlp/sigv4';
+
+      let exporters = AwsLoggerProcessorProvider.configureLogExportersFromEnv();
+
+      expect(exporters).toHaveLength(2);
+      expect(exporters[0]).toBeInstanceOf(OTLPProtoLogExporter);
+      expect(exporters[1]).toBeInstanceOf(OTLPAwsLogExporter);
+
+      process.env.OTEL_LOGS_EXPORTER = 'otlp/sigv4,console';
+      process.env.OTEL_EXPORTER_OTLP_LOGS_PROTOCOL = 'grpc';
+
+      exporters = AwsLoggerProcessorProvider.configureLogExportersFromEnv();
+
+      expect(exporters).toHaveLength(1);
+      expect(exporters[0]).toBeInstanceOf(ConsoleLogRecordExporter);
+      expect(messages(warnSpy).some(message => message.includes('Unsupported OTEL_LOGS_EXPORTER'))).toBe(false);
     });
   });
 });

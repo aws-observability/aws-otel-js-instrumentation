@@ -3,8 +3,19 @@
 import { CompressionAlgorithm, OTLPExporterBase } from '@opentelemetry/otlp-exporter-base';
 import { gzipSync } from 'zlib';
 import { ExportResult, ExportResultCode } from '@opentelemetry/core';
-import { AwsAuthenticator } from './aws-authenticator';
+import { AwsAuthenticator, SigV4Region } from './aws-authenticator';
 import { ISerializer } from '@opentelemetry/otlp-transformer';
+
+/**
+ * Overrides for how an AWS OTLP exporter signs its requests. Both are optional: by default each
+ * exporter signs for its own service and reads the region from its AWS endpoint hostname.
+ */
+export interface OTLPAwsSigV4Options {
+  /** The SigV4 signing service, such as `xray`, `logs` or `monitoring`. */
+  service?: string;
+  /** The SigV4 signing region, or a function that looks it up when the first request is signed. */
+  region?: SigV4Region;
+}
 
 /**
  * Base class for AWS OTLP exporters
@@ -39,12 +50,13 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
     service: string,
     parentExporter: OTLPExporterBase<Payload>,
     parentSerializer: ISerializer<Payload, Response>,
-    compression?: CompressionAlgorithm
+    compression?: CompressionAlgorithm,
+    region?: SigV4Region
   ) {
     super(parentExporter['_delegate']);
     this.compression = compression;
     this.endpoint = endpoint;
-    this.authenticator = new AwsAuthenticator(this.endpoint, service);
+    this.authenticator = new AwsAuthenticator(this.endpoint, service, region);
     this.parentExporter = parentExporter;
     this.parentSerializer = parentSerializer;
 

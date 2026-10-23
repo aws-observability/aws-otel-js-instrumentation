@@ -4,7 +4,7 @@ import { OTLPLogExporter as OTLPProtoLogExporter } from '@opentelemetry/exporter
 import { CompressionAlgorithm, OTLPExporterNodeConfigBase } from '@opentelemetry/otlp-exporter-base';
 import { IExportLogsServiceResponse, ProtobufLogsSerializer } from '@opentelemetry/otlp-transformer';
 import { LogRecordExporter, ReadableLogRecord } from '@opentelemetry/sdk-logs';
-import { OTLPAwsBaseExporter } from '../common/otlp-aws-base-exporter';
+import { OTLPAwsBaseExporter, OTLPAwsSigV4Options } from '../common/otlp-aws-base-exporter';
 
 /**
  * This exporter extends the functionality of the OTLPProtoLogExporter to allow logs to be exported
@@ -15,18 +15,26 @@ import { OTLPAwsBaseExporter } from '../common/otlp-aws-base-exporter';
  * This only works with version >=16 Node.js environments.
  * @param endpoint - The AWS CloudWatch Logs OTLP endpoint URL
  * @param config - Optional OTLP exporter configuration
+ * @param sigV4Options - Optional signing service and region, overriding the defaults
  */
 export class OTLPAwsLogExporter
   extends OTLPAwsBaseExporter<ReadableLogRecord[], IExportLogsServiceResponse>
   implements LogRecordExporter
 {
-  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase) {
+  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase, sigV4Options?: OTLPAwsSigV4Options) {
     const modifiedConfig: OTLPExporterNodeConfigBase = {
       ...config,
       url: endpoint,
       compression: CompressionAlgorithm.NONE,
     };
 
-    super(endpoint, 'logs', new OTLPProtoLogExporter(modifiedConfig), ProtobufLogsSerializer, config?.compression);
+    super(
+      endpoint,
+      sigV4Options?.service ?? 'logs',
+      new OTLPProtoLogExporter(modifiedConfig),
+      ProtobufLogsSerializer,
+      config?.compression,
+      sigV4Options?.region
+    );
   }
 }

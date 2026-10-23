@@ -6,8 +6,12 @@ let SignatureV4: any;
 let HttpRequest: any;
 let defaultProvider: any;
 let Sha256: any;
+let loadConfig: any;
+let NODE_REGION_CONFIG_OPTIONS: any;
+let NODE_REGION_CONFIG_FILE_OPTIONS: any;
 
 let dependenciesLoaded = false;
+let regionConfigLoaded = false;
 
 if (getNodeVersion() >= 16) {
   try {
@@ -19,6 +23,16 @@ if (getNodeVersion() >= 16) {
   } catch (error) {
     diag.error(`Failed to load required AWS dependency for SigV4 Signing: ${error}`);
   }
+
+  // Loaded separately because they are only needed to find a signing region in the AWS config files
+  // when nothing else names one, so their absence must not disable signing as a whole.
+  try {
+    loadConfig = require('@smithy/node-config-provider').loadConfig;
+    ({ NODE_REGION_CONFIG_OPTIONS, NODE_REGION_CONFIG_FILE_OPTIONS } = require('@smithy/config-resolver'));
+    regionConfigLoaded = true;
+  } catch (error) {
+    diag.debug(`AWS region configuration lookup is unavailable for SigV4 signing: ${error}`);
+  }
 } else {
   diag.error('SigV4 signing requires at least Node major version 16');
 }
@@ -29,16 +43,85 @@ export const X_AMZ_DATE_HEADER = 'x-amz-date';
 export const X_AMZ_SECURITY_TOKEN_HEADER = 'x-amz-security-token';
 export const X_AMZ_CONTENT_SHA256_HEADER = 'x-amz-content-sha256';
 
+/**
+ * A signing region, either known up front or looked up when the first request is signed.
+ */
+export type SigV4Region = string | (() => Promise<string>);
+
+// Matches a region label anywhere within a recognized AWS domain, so that VPC endpoint, OSIS pipeline
+// and other service-specific hostnames resolve as well as the standard `<service>.<region>.<suffix>`
+// form. The suffixes are the AWS partitions, matching the Java and Python distributions.
+const AWS_ENDPOINT_REGION_PATTERN = new RegExp(
+  '^(?:[a-z0-9-]+\\.)*([a-z]+(?:-[a-z]+)+-\\d+)(?:\\.[a-z0-9-]+)*\\.' +
+    '(?:amazonaws\\.com(?:\\.cn)?|api\\.aws|c2s\\.ic\\.gov|sc2s\\.sgov\\.gov|cloud\\.adc-e\\.uk|csp\\.hci\\.ic\\.gov)$',
+  'i'
+);
+
+/**
+ * Resolves a signing region without any I/O: AWS_REGION, then AWS_DEFAULT_REGION, then a region
+ * found in the endpoint hostname. Returns undefined when none of these name one, so the caller can
+ * fall back to {@link loadSigV4RegionFromAwsConfig}.
+ */
+export function resolveSigV4Region(endpoint: string): string | undefined {
+  const fromEnv = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION;
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  let hostname: string;
+  try {
+    hostname = new URL(endpoint).hostname;
+  } catch {
+    return undefined;
+  }
+
+  return AWS_ENDPOINT_REGION_PATTERN.exec(hostname)?.[1]?.toLowerCase();
+}
+
+/**
+ * Looks up the signing region from the AWS SDK's region chain, which includes the shared AWS config
+ * file. That lookup is asynchronous, so it cannot run while exporters are constructed at startup and
+ * instead runs when the first request is signed. The result is cached, including a failure, which is
+ * logged once with the settings that would fix it.
+ */
+export function loadSigV4RegionFromAwsConfig(): () => Promise<string> {
+  let region: Promise<string> | undefined;
+
+  return () => {
+    region ??= (async () => {
+      const resolved = regionConfigLoaded
+        ? await loadConfig(NODE_REGION_CONFIG_OPTIONS, NODE_REGION_CONFIG_FILE_OPTIONS)().catch(() => undefined)
+        : undefined;
+
+      if (!resolved) {
+        const message =
+          'otlp/sigv4 could not determine an AWS signing region. Set AWS_REGION or AWS_DEFAULT_REGION, use ' +
+          'an endpoint whose hostname includes the region, or set a region in the AWS config file.';
+        diag.error(message);
+        throw new Error(message);
+      }
+
+      return resolved;
+    })();
+
+    return region;
+  };
+}
+
 export class AwsAuthenticator {
   private endpoint: URL;
-  private region: string;
+  private region: SigV4Region;
   private service: string;
 
-  constructor(endpoint: string, service: string) {
-    // The endpoint is pre-validated by the config with isAwsOtlpEndpoint, so then endpoint is guaranteed to be well formatted and
-    //  new URL() will not throw
+  /**
+   * @param region - the signing region. When omitted it is read from the endpoint hostname, which
+   *   callers have already validated as a standard AWS OTLP endpoint with isAwsOtlpEndpoint.
+   */
+  constructor(endpoint: string, service: string, region?: SigV4Region) {
+    // Callers either pre-validate the endpoint with isAwsOtlpEndpoint or parse it before
+    // constructing an exporter, so new URL() will not throw.
     this.endpoint = new URL(endpoint);
-    this.region = endpoint.split('.')[1];
+    this.region = region ?? endpoint.split('.')[1];
     this.service = service;
   }
 
@@ -55,7 +138,9 @@ export class AwsAuthenticator {
         body: serializedData,
         headers: {
           ...cleanedHeaders,
-          host: this.endpoint.hostname,
+          // `host` includes a non-default port, matching the Host header actually sent. Standard AWS
+          // OTLP endpoints never carry one, but an endpoint chosen through otlp/sigv4 may.
+          host: this.endpoint.host,
         },
       });
 

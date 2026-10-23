@@ -99,6 +99,12 @@ export abstract class OTLPAwsBaseExporterTest<Payload> {
         test: (done: () => void) => this.testSigningFails(done),
       },
       {
+        description: 'Should sign for the configured service and region',
+        test: (done: Mocha.Done) => {
+          void this.testSignsWithConfiguredServiceAndRegion().then(() => done(), done);
+        },
+      },
+      {
         description: 'Should not mix bodies or signatures when two exports overlap',
         test: done => {
           void this.testExportWithConcurrentBatchesDeliversEachBatchOnce([['first'], ['second']]).then(
@@ -220,6 +226,55 @@ export abstract class OTLPAwsBaseExporterTest<Payload> {
           done();
         });
       });
+  }
+
+  // otlp/sigv4 passes an explicit service and region, because its endpoint need not be a standard
+  // AWS endpoint that the signer could read them from. An explicit service also wins over the service
+  // variables, which only the configurator reads.
+  private async testSignsWithConfiguredServiceAndRegion() {
+    const serviceVariables = [
+      'AWS_EXPORTER_SERVICE',
+      'AWS_TRACES_EXPORTER_SERVICE',
+      'AWS_METRICS_EXPORTER_SERVICE',
+      'AWS_LOGS_EXPORTER_SERVICE',
+    ];
+    const saved = serviceVariables.map(variable => process.env[variable]);
+    serviceVariables.forEach(variable => (process.env[variable] = 'env-service'));
+
+    try {
+      await this.exportWithConfiguredServiceAndRegion();
+    } finally {
+      serviceVariables.forEach((variable, index) => {
+        if (saved[index] === undefined) {
+          delete process.env[variable];
+        } else {
+          process.env[variable] = saved[index];
+        }
+      });
+    }
+  }
+
+  private async exportWithConfiguredServiceAndRegion() {
+    const signedFor: Array<{ service: string; region: unknown }> = [];
+    (AwsAuthenticator.prototype.authenticate as sinon.SinonStub).callsFake(function (
+      this: any,
+      headers: Record<string, string>
+    ) {
+      signedFor.push({ service: this.service, region: this.region });
+      return Promise.resolve({ ...headers, [AUTHORIZATION_HEADER]: EXPECTED_AUTH_HEADER });
+    });
+
+    const exporterClass = this.getExporter();
+    const exporter = new exporterClass(this.getEndpoint() + this.getEndpointPath(), undefined, {
+      service: 'custom-service',
+      region: 'eu-west-1',
+    });
+
+    const result = await new Promise<ExportResult>(resolve => void exporter.export(this.createPayload([]), resolve));
+
+    expect(result.code).toBe(ExportResultCode.SUCCESS);
+    expect(signedFor).toEqual([{ service: 'custom-service', region: 'eu-west-1' }]);
+    this.assertOnlyExpectedRequestsSent();
   }
 
   private testSigningFails(done: () => void) {

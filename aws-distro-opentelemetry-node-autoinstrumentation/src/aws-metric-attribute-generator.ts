@@ -5,6 +5,8 @@ import { Attributes, AttributeValue, diag, SpanKind } from '@opentelemetry/api';
 import { defaultServiceName, Resource } from '@opentelemetry/resources';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
+  ATTR_HTTP_REQUEST_METHOD,
+  ATTR_URL_FULL,
   SEMATTRS_DB_CONNECTION_STRING,
   SEMATTRS_DB_NAME,
   SEMATTRS_DB_OPERATION,
@@ -32,6 +34,7 @@ import {
   MetricAttributeGenerator,
   SERVICE_METRIC,
 } from './metric-attribute-generator';
+import { PresignedUrlAttribution, PresignedUrlAttributor } from './presigned-url-attributor';
 import { RegionalResourceArnParser } from './regional-resource-arn-parser';
 import { SqsUrlParser } from './sqs-url-parser';
 import { LAMBDA_APPLICATION_SIGNALS_REMOTE_ENVIRONMENT } from './aws-opentelemetry-configurator';
@@ -55,6 +58,16 @@ const GRAPHQL: string = 'graphql';
 // Constants for Lambda operations
 const LAMBDA_INVOKE_OPERATION: string = 'Invoke';
 
+// Opt-in flag for presigned AWS URL attribution. Read at call time rather than at module load
+// because the generators are constructed as static singletons when this module is first imported,
+// which can precede the SDK reading environment configuration.
+const PRESIGNED_URL_ATTRIBUTION_ENABLED_CONFIG: string =
+  'OTEL_AWS_APPLICATION_SIGNALS_PRESIGNED_URL_ATTRIBUTION_ENABLED';
+
+function isPresignedUrlAttributionEnabled(): boolean {
+  return process.env[PRESIGNED_URL_ATTRIBUTION_ENABLED_CONFIG]?.trim().toLowerCase() === 'true';
+}
+
 // Normalized remote service names for supported AWS services
 const NORMALIZED_DYNAMO_DB_SERVICE_NAME: string = 'AWS::DynamoDB';
 const NORMALIZED_KINESIS_SERVICE_NAME: string = 'AWS::Kinesis';
@@ -66,6 +79,7 @@ const NORMALIZED_STEPFUNCTIONS_SERVICE_NAME = 'AWS::StepFunctions';
 const NORMALIZED_LAMBDA_SERVICE_NAME = 'AWS::Lambda';
 const NORMALIZED_BEDROCK_SERVICE_NAME: string = 'AWS::Bedrock';
 const NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME: string = 'AWS::BedrockRuntime';
+const NORMALIZED_BEDROCK_AGENTCORE_SERVICE_NAME: string = 'AWS::BedrockAgentCore';
 
 const DB_CONNECTION_RESOURCE_TYPE: string = 'DB::Connection';
 // As per https://opentelemetry.io/docs/specs/semconv/resource/#service, if service name is not specified, SDK defaults
@@ -112,10 +126,15 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     const attributes: Attributes = {};
     AwsMetricAttributeGenerator.setService(resource, span, attributes);
     AwsMetricAttributeGenerator.setEgressOperation(span, attributes);
-    AwsMetricAttributeGenerator.setRemoteServiceAndOperation(span, attributes);
+    // Presigned AWS URL attribution is resolved lazily as a fallback inside
+    // setRemoteServiceAndOperation (only when no higher-priority remote attribute matched). It
+    // returns the resolved attribution, if any, so the remote resource can reuse it without
+    // re-parsing the URL.
+    const presignedAttribution = AwsMetricAttributeGenerator.setRemoteServiceAndOperation(span, attributes);
     const isRemoteResourceIdentifierPresent = AwsMetricAttributeGenerator.setRemoteResourceTypeAndIdentifier(
       span,
-      attributes
+      attributes,
+      presignedAttribution
     );
     AwsMetricAttributeGenerator.setRemoteEnvironment(span, attributes);
     if (isRemoteResourceIdentifierPresent) {
@@ -205,13 +224,18 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * </ul>
    *
    * if the selected attributes are still producing the UnknownRemoteService or
-   * UnknownRemoteOperation, `net.peer.name`, `net.peer.port`, `net.peer.sock.addr`,
-   * `net.peer.sock.port` and `http.url` will be used to derive the RemoteService. And `http.method`
-   * and `http.url` will be used to derive the RemoteOperation.
+   * UnknownRemoteOperation, `net.peer.name`, `net.peer.port`, `server.address`, `server.port`,
+   * `net.peer.sock.addr`, `net.peer.sock.port`, `http.url` and `url.full` will be used to derive
+   * the RemoteService. And `http.method`, `http.request.method`, `http.url` and `url.full` will be
+   * used to derive the RemoteOperation.
    */
-  private static setRemoteServiceAndOperation(span: ReadableSpan, attributes: Attributes): void {
+  private static setRemoteServiceAndOperation(
+    span: ReadableSpan,
+    attributes: Attributes
+  ): PresignedUrlAttribution | undefined {
     let remoteService: string = AwsSpanProcessingUtil.UNKNOWN_REMOTE_SERVICE;
     let remoteOperation: string = AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION;
+    let presignedAttribution: PresignedUrlAttribution | undefined;
 
     if (
       AwsSpanProcessingUtil.isKeyPresent(span, AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE) ||
@@ -250,6 +274,15 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     } else if (AwsSpanProcessingUtil.isKeyPresent(span, _GRAPHQL_OPERATION_TYPE)) {
       remoteService = GRAPHQL;
       remoteOperation = AwsMetricAttributeGenerator.getRemoteOperation(span, _GRAPHQL_OPERATION_TYPE);
+    } else if (isPresignedUrlAttributionEnabled() && !AwsSpanProcessingUtil.isAwsSDKSpan(span)) {
+      // Fallback for raw HTTP calls using a presigned URL. Exclude AWS SDK spans explicitly: they
+      // use the SDK attribution path even when their RPC service or method attributes are absent.
+      // Parse the URL only when we reach this branch.
+      presignedAttribution = PresignedUrlAttributor.attribute(span);
+      if (presignedAttribution !== undefined) {
+        remoteService = presignedAttribution.remoteService;
+        remoteOperation = presignedAttribution.remoteOperation;
+      }
     }
 
     // Peer service takes priority as RemoteService over everything but AWS Remote.
@@ -264,12 +297,17 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
     if (remoteService === AwsSpanProcessingUtil.UNKNOWN_REMOTE_SERVICE) {
       remoteService = AwsMetricAttributeGenerator.generateRemoteService(span);
     }
-    if (remoteOperation === AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION) {
+    // When a presigned AWS URL was attributed, keep its remote operation as-is. Resolvers
+    // intentionally return UnknownRemoteOperation for ambiguous calls (e.g. a bucket-level S3 GET),
+    // and falling back to the generic HTTP path here would reintroduce the high-cardinality
+    // "GET /<key>" operation this feature is meant to avoid.
+    if (remoteOperation === AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION && presignedAttribution === undefined) {
       remoteOperation = AwsMetricAttributeGenerator.generateRemoteOperation(span);
     }
 
     attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE] = remoteService;
     attributes[AWS_ATTRIBUTE_KEYS.AWS_REMOTE_OPERATION] = remoteOperation;
+    return presignedAttribution;
   }
 
   /**
@@ -278,8 +316,13 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    */
   private static generateRemoteOperation(span: ReadableSpan): string {
     let remoteOperation: string = AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION;
-    if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_URL)) {
-      const httpUrl: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_URL];
+    const httpUrlKey: string | undefined = AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_URL)
+      ? SEMATTRS_HTTP_URL
+      : AwsSpanProcessingUtil.isKeyPresent(span, ATTR_URL_FULL)
+      ? ATTR_URL_FULL
+      : undefined;
+    if (httpUrlKey !== undefined) {
+      const httpUrl: AttributeValue | undefined = span.attributes[httpUrlKey];
       try {
         let url: URL;
         if (typeof httpUrl === 'string') {
@@ -287,13 +330,20 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
           remoteOperation = AwsSpanProcessingUtil.extractAPIPathValue(url.pathname);
         }
       } catch (e: unknown) {
-        diag.verbose(`invalid http.url attribute: ${httpUrl}`);
+        diag.verbose(`invalid URL attribute: ${httpUrl}`);
       }
     }
 
-    const httpMethod: AttributeValue | undefined = span.attributes[SEMATTRS_HTTP_METHOD];
-    if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_METHOD) && typeof httpMethod === 'string') {
-      remoteOperation = httpMethod + ' ' + remoteOperation;
+    const httpMethodKey: string | undefined = AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_METHOD)
+      ? SEMATTRS_HTTP_METHOD
+      : AwsSpanProcessingUtil.isKeyPresent(span, ATTR_HTTP_REQUEST_METHOD)
+      ? ATTR_HTTP_REQUEST_METHOD
+      : undefined;
+    if (httpMethodKey !== undefined) {
+      const httpMethod: AttributeValue | undefined = span.attributes[httpMethodKey];
+      if (typeof httpMethod === 'string') {
+        remoteOperation = httpMethod + ' ' + remoteOperation;
+      }
     }
     if (remoteOperation === AwsSpanProcessingUtil.UNKNOWN_REMOTE_OPERATION) {
       AwsMetricAttributeGenerator.logUnknownAttribute(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_OPERATION, span);
@@ -317,9 +367,9 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteService += ':' + port;
       }
     } else if (AwsSpanProcessingUtil.isKeyPresent(span, SEMATTRS_HTTP_URL)) {
-      const httpUrl: string = span.attributes[SEMATTRS_HTTP_URL] as string;
+      const urlStr: string = span.attributes[SEMATTRS_HTTP_URL] as string;
       try {
-        const url: URL = new URL(httpUrl);
+        const url: URL = new URL(urlStr);
         if (url.hostname !== '') {
           remoteService = url.hostname;
           if (url.port !== '') {
@@ -327,7 +377,26 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
           }
         }
       } catch (e: unknown) {
-        diag.verbose(`invalid http.url attribute: ${httpUrl}`);
+        diag.verbose(`invalid URL attribute: ${urlStr}`);
+      }
+    } else if (AwsSpanProcessingUtil.isKeyPresent(span, _SERVER_ADDRESS)) {
+      remoteService = AwsMetricAttributeGenerator.getRemoteService(span, _SERVER_ADDRESS);
+      if (AwsSpanProcessingUtil.isKeyPresent(span, _SERVER_PORT)) {
+        const port: AttributeValue | undefined = span.attributes[_SERVER_PORT];
+        remoteService += ':' + port;
+      }
+    } else if (AwsSpanProcessingUtil.isKeyPresent(span, ATTR_URL_FULL)) {
+      const urlStr: string = span.attributes[ATTR_URL_FULL] as string;
+      try {
+        const url: URL = new URL(urlStr);
+        if (url.hostname !== '') {
+          remoteService = url.hostname;
+          if (url.port !== '') {
+            remoteService += ':' + url.port;
+          }
+        }
+      } catch (e: unknown) {
+        diag.verbose(`invalid URL attribute: ${urlStr}`);
       }
     } else {
       AwsMetricAttributeGenerator.logUnknownAttribute(AWS_ATTRIBUTE_KEYS.AWS_REMOTE_SERVICE, span);
@@ -352,6 +421,7 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         BedrockAgent: NORMALIZED_BEDROCK_SERVICE_NAME,
         BedrockAgentRuntime: NORMALIZED_BEDROCK_SERVICE_NAME,
         BedrockRuntime: NORMALIZED_BEDROCK_RUNTIME_SERVICE_NAME,
+        BedrockAgentCore: NORMALIZED_BEDROCK_AGENTCORE_SERVICE_NAME,
         SecretsManager: NORMALIZED_SECRETSMANAGER_SERVICE_NAME,
         SFN: NORMALIZED_STEPFUNCTIONS_SERVICE_NAME,
         Lambda: NORMALIZED_LAMBDA_SERVICE_NAME,
@@ -382,7 +452,11 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
    * href="https://docs.aws.amazon.com/cloudcontrolapi/latest/userguide/supported-resources.html">AWS
    * Cloud Control resource format</a>.
    */
-  private static setRemoteResourceTypeAndIdentifier(span: ReadableSpan, attributes: Attributes): boolean {
+  private static setRemoteResourceTypeAndIdentifier(
+    span: ReadableSpan,
+    attributes: Attributes,
+    presignedAttribution?: PresignedUrlAttribution
+  ): boolean {
     let remoteResourceType: AttributeValue | undefined;
     let remoteResourceIdentifier: AttributeValue | undefined;
     let cloudFormationIdentifier: AttributeValue | undefined;
@@ -513,6 +587,18 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
         remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(
           span.attributes[AwsSpanProcessingUtil.GEN_AI_REQUEST_MODEL]
         );
+      } else if (AwsMetricAttributeGenerator.isBedrockAgentCoreSpan(span)) {
+        const [agentcoreType, agentcoreIdentifier, agentcoreCfnId] =
+          AwsMetricAttributeGenerator.getBedrockAgentCoreResourceTypeAndIdentifier(span);
+        remoteResourceType = agentcoreType;
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(agentcoreIdentifier);
+        cloudFormationIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(agentcoreCfnId);
+      }
+    } else if (presignedAttribution !== undefined) {
+      const remoteResource = presignedAttribution.remoteResource;
+      if (remoteResource !== undefined) {
+        remoteResourceType = remoteResource.type;
+        remoteResourceIdentifier = AwsMetricAttributeGenerator.escapeDelimiters(remoteResource.identifier);
       }
     } else if (AwsSpanProcessingUtil.isDBSpan(span)) {
       remoteResourceType = DB_CONNECTION_RESOURCE_TYPE;
@@ -562,6 +648,13 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
       AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_ACTIVITY_ARN,
       AWS_ATTRIBUTE_KEYS.AWS_LAMBDA_FUNCTION_ARN,
       AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_GUARDRAIL_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ENDPOINT_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_CODE_INTERPRETER_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN,
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_WORKLOAD_IDENTITY_ARN,
     ];
     let remoteResourceAccountId: string | undefined = undefined;
     let remoteResourceRegion: string | undefined = undefined;
@@ -798,5 +891,217 @@ export class AwsMetricAttributeGenerator implements MetricAttributeGenerator {
 
   private static logUnknownAttribute(attributeKey: string, span: ReadableSpan): void {
     diag.verbose(`No valid ${attributeKey} value found for ${SpanKind[span.kind]} span ${span.spanContext().spanId}`);
+  }
+
+  /**
+   * Check if the span represents a Bedrock AgentCore operation by checking if the rpc.service
+   * maps to the normalized AgentCore service name.
+   */
+  private static isBedrockAgentCoreSpan(span: ReadableSpan): boolean {
+    const rpcService = span.attributes[SEMATTRS_RPC_SERVICE];
+    if (typeof rpcService !== 'string') {
+      return false;
+    }
+    const awsSdkServiceMapping: { [key: string]: string } = {
+      BedrockAgentCore: NORMALIZED_BEDROCK_AGENTCORE_SERVICE_NAME,
+    };
+    return awsSdkServiceMapping[rpcService] === NORMALIZED_BEDROCK_AGENTCORE_SERVICE_NAME;
+  }
+
+  /**
+   * Get BedrockAgentCore resource type, identifier, and CFN primary identifier based on span attributes.
+   * Returns [resourceType, resourceIdentifier, cfnPrimaryIdentifier].
+   */
+  private static getBedrockAgentCoreResourceTypeAndIdentifier(
+    span: ReadableSpan
+  ): [string | undefined, string | undefined, string | undefined] {
+    const attrs = span.attributes;
+    if (!attrs) {
+      return [undefined, undefined, undefined];
+    }
+
+    const handlers = [
+      AwsMetricAttributeGenerator.handleBrowserAttrs,
+      AwsMetricAttributeGenerator.handleGatewayAttrs,
+      AwsMetricAttributeGenerator.handleRuntimeAttrs,
+      AwsMetricAttributeGenerator.handleCodeInterpreterAttrs,
+      AwsMetricAttributeGenerator.handleIdentityAttrs,
+      AwsMetricAttributeGenerator.handleMemoryAttrs,
+    ];
+
+    for (const handler of handlers) {
+      const [resourceType, resourceIdentifier, cfnPrimaryIdentifier] = handler(attrs);
+      if (resourceType) {
+        return [
+          `${NORMALIZED_BEDROCK_AGENTCORE_SERVICE_NAME}::${resourceType}`,
+          resourceIdentifier,
+          cfnPrimaryIdentifier,
+        ];
+      }
+    }
+
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore Browser resources.
+   */
+  private static handleBrowserAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
+    const browserId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID];
+    const browserArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN];
+
+    if (browserId || browserArn) {
+      let cfnIdentifier: string | undefined;
+      if (typeof browserId === 'string') {
+        cfnIdentifier = browserId;
+      } else if (typeof browserArn === 'string') {
+        cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(browserArn);
+      }
+
+      const resourceType = cfnIdentifier === 'aws.browser.v1' ? 'Browser' : 'BrowserCustom';
+      return [resourceType, cfnIdentifier, cfnIdentifier];
+    }
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore Gateway resources.
+   */
+  private static handleGatewayAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
+    const gatewayId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID];
+    const gatewayArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN];
+    const gatewayTargetId = attrs[AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID];
+
+    if (gatewayTargetId) {
+      let cfnIdentifier: string | undefined;
+      if (typeof gatewayId === 'string') {
+        cfnIdentifier = gatewayId;
+      } else if (typeof gatewayArn === 'string') {
+        cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(gatewayArn);
+      } else {
+        cfnIdentifier = typeof gatewayTargetId === 'string' ? gatewayTargetId : undefined;
+      }
+      return ['GatewayTarget', cfnIdentifier, cfnIdentifier];
+    }
+
+    if (gatewayArn || gatewayId) {
+      let cfnIdentifier: string | undefined;
+      if (typeof gatewayId === 'string') {
+        cfnIdentifier = gatewayId;
+      } else if (typeof gatewayArn === 'string') {
+        cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(gatewayArn);
+      }
+      return ['Gateway', cfnIdentifier, cfnIdentifier];
+    }
+
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore Runtime resources.
+   */
+  private static handleRuntimeAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
+    const runtimeId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_RUNTIME_ID];
+    const runtimeArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN];
+    const runtimeEndpointArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ENDPOINT_ARN];
+
+    if (runtimeEndpointArn) {
+      const cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(runtimeEndpointArn);
+      return [
+        'RuntimeEndpoint',
+        cfnIdentifier,
+        typeof runtimeEndpointArn === 'string' ? runtimeEndpointArn : undefined,
+      ];
+    }
+
+    if (runtimeArn || runtimeId) {
+      let cfnIdentifier: string | undefined;
+      if (typeof runtimeId === 'string') {
+        cfnIdentifier = runtimeId;
+      } else if (typeof runtimeArn === 'string') {
+        cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(runtimeArn);
+      }
+      return ['Runtime', cfnIdentifier, cfnIdentifier];
+    }
+
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore CodeInterpreter resources.
+   */
+  private static handleCodeInterpreterAttrs(
+    attrs: Attributes
+  ): [string | undefined, string | undefined, string | undefined] {
+    const codeInterpreterId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID];
+    const codeInterpreterArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_CODE_INTERPRETER_ARN];
+
+    if (codeInterpreterId || codeInterpreterArn) {
+      let cfnIdentifier: string | undefined;
+      if (typeof codeInterpreterId === 'string') {
+        cfnIdentifier = codeInterpreterId;
+      } else if (typeof codeInterpreterArn === 'string') {
+        cfnIdentifier = RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(codeInterpreterArn);
+      }
+
+      const resourceType = cfnIdentifier === 'aws.codeinterpreter.v1' ? 'CodeInterpreter' : 'CodeInterpreterCustom';
+      return [resourceType, cfnIdentifier, cfnIdentifier];
+    }
+
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore Identity resources.
+   */
+  private static handleIdentityAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
+    const credentialsProvider = attrs[AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER];
+    const rpcMethod = attrs[SEMATTRS_RPC_METHOD];
+
+    if (credentialsProvider && rpcMethod) {
+      const rpcMethodStr = typeof rpcMethod === 'string' ? rpcMethod.toLowerCase() : '';
+      let resourceType: string | undefined;
+
+      if (rpcMethodStr.includes('apikey')) {
+        resourceType = 'APIKeyCredentialProvider';
+      } else if (rpcMethodStr.includes('oauth2')) {
+        resourceType = 'OAuth2CredentialProvider';
+      }
+
+      if (resourceType) {
+        const credentialsProviderStr = typeof credentialsProvider === 'string' ? credentialsProvider : '';
+        const cfnIdentifier =
+          RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(credentialsProviderStr) ||
+          credentialsProviderStr;
+        return [resourceType, cfnIdentifier, cfnIdentifier];
+      }
+    }
+
+    return [undefined, undefined, undefined];
+  }
+
+  /**
+   * Handler for BedrockAgentCore Memory resources.
+   */
+  private static handleMemoryAttrs(attrs: Attributes): [string | undefined, string | undefined, string | undefined] {
+    const memoryId = attrs[AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID];
+    const memoryArn = attrs[AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN];
+
+    if (memoryId || memoryArn) {
+      let cfnIdentifier: string | undefined;
+      let cfnPrimaryIdentifier: string | undefined;
+
+      if (typeof memoryId === 'string') {
+        cfnIdentifier = memoryId;
+      }
+      if (typeof memoryArn === 'string') {
+        cfnIdentifier = cfnIdentifier || RegionalResourceArnParser.extractBedrockAgentCoreResourceIdFromArn(memoryArn);
+        cfnPrimaryIdentifier = memoryArn;
+      }
+
+      return ['Memory', cfnIdentifier, cfnPrimaryIdentifier || cfnIdentifier];
+    }
+
+    return [undefined, undefined, undefined];
   }
 }

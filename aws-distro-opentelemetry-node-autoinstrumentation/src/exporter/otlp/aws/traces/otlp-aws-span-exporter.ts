@@ -4,13 +4,8 @@ import { OTLPTraceExporter as OTLPProtoTraceExporter } from '@opentelemetry/expo
 import { CompressionAlgorithm, OTLPExporterNodeConfigBase } from '@opentelemetry/otlp-exporter-base';
 import { IExportTraceServiceResponse, ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer';
 import { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base';
-import { OTLPAwsBaseExporter } from '../common/otlp-aws-base-exporter';
-import { LLOHandler } from '../../../../llo-handler';
-import { LoggerProvider as APILoggerProvider, logs } from '@opentelemetry/api-logs';
+import { OTLPAwsBaseExporter, OTLPAwsSigV4Options } from '../common/otlp-aws-base-exporter';
 import { ExportResult } from '@opentelemetry/core';
-import { isAgentObservabilityEnabled } from '../../../../utils';
-import { diag } from '@opentelemetry/api';
-import { LoggerProvider } from '@opentelemetry/sdk-logs';
 
 /**
  * This exporter extends the functionality of the OTLPProtoTraceExporter to allow spans to be exported
@@ -22,56 +17,30 @@ import { LoggerProvider } from '@opentelemetry/sdk-logs';
  *
  * @param endpoint - The AWS X-Ray OTLP endpoint URL
  * @param config - Optional OTLP exporter configuration
+ * @param sigV4Options - Optional signing service and region, overriding the defaults
  */
 export class OTLPAwsSpanExporter
   extends OTLPAwsBaseExporter<ReadableSpan[], IExportTraceServiceResponse>
   implements SpanExporter
 {
-  private loggerProvider: APILoggerProvider | undefined;
-  private lloHandler: LLOHandler | undefined;
-
-  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase, loggerProvider?: APILoggerProvider) {
+  constructor(endpoint: string, config?: OTLPExporterNodeConfigBase, sigV4Options?: OTLPAwsSigV4Options) {
     const modifiedConfig: OTLPExporterNodeConfigBase = {
       ...config,
       url: endpoint,
       compression: CompressionAlgorithm.NONE,
     };
 
-    super(endpoint, 'xray', new OTLPProtoTraceExporter(modifiedConfig), ProtobufTraceSerializer, config?.compression);
-
-    this.lloHandler = undefined;
-    this.loggerProvider = loggerProvider;
-  }
-
-  // Lazily initialize LLO handler when needed to avoid initialization order issues
-  private ensureLloHandler(): boolean {
-    if (!this.lloHandler && isAgentObservabilityEnabled()) {
-      // If loggerProvider wasn't provided, try to get the current one
-      if (!this.loggerProvider) {
-        try {
-          this.loggerProvider = logs.getLoggerProvider();
-        } catch (e: unknown) {
-          diag.debug('Failed to get logger provider', e);
-          return false;
-        }
-      }
-
-      if (this.loggerProvider instanceof LoggerProvider) {
-        this.lloHandler = new LLOHandler(this.loggerProvider);
-        return true;
-      }
-    }
-
-    return !!this.lloHandler;
+    super(
+      endpoint,
+      sigV4Options?.service ?? 'xray',
+      new OTLPProtoTraceExporter(modifiedConfig),
+      ProtobufTraceSerializer,
+      config?.compression,
+      sigV4Options?.region
+    );
   }
 
   override async export(items: ReadableSpan[], resultCallback: (result: ExportResult) => void): Promise<void> {
-    let itemsToSerialize: ReadableSpan[] = items;
-    if (isAgentObservabilityEnabled() && this.ensureLloHandler() && this.lloHandler) {
-      // items to serialize are now the lloProcessedSpans
-      itemsToSerialize = this.lloHandler.processSpans(items);
-    }
-
-    return super.export(itemsToSerialize, resultCallback);
+    return super.export(items, resultCallback);
   }
 }

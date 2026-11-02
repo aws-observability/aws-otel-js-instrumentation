@@ -31,6 +31,14 @@ inputs:
   os:
     required: true
     description: "The os"
+  trivyignore-file:
+    required: false
+    default: ''
+    description: "Path to the .trivyignore.yaml file to use for image scan"
+  run_unit_tests:
+    required: false
+    default: 'true'
+    description: "Whether to run unit tests during set_up"
 
 runs:
   using: "composite"
@@ -48,7 +56,7 @@ runs:
         node_version: ${{ inputs.node_version }}
         package_name: ${{ inputs.package_name }}
         os: ${{ inputs.os }}
-        run_unit_tests: true
+        run_unit_tests: ${{ inputs.run_unit_tests }}
 
     - name: Configure AWS Credentials
       if: ${{ inputs.push_image == true || inputs.push_image == 'true' }}
@@ -95,7 +103,9 @@ runs:
         push: ${{ inputs.push_image }}
         context: .
         file: ./Dockerfile
-        platforms: linux/amd64
+        # A pushed image is the release artifact, so it must contain both release architectures.
+        # A loaded image is single-arch because `docker --load` can't load a multi-arch manifest.
+        platforms: ${{ (inputs.push_image == true || inputs.push_image == 'true') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
         tags: ${{ inputs.image_uri_with_tag }}
         load: ${{ inputs.load_image }}
 
@@ -105,3 +115,4 @@ runs:
         image-ref: ${{ inputs.image_uri_with_tag }}
         severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
         logout: 'true'
+        trivyignore-file: ${{ inputs.trivyignore-file }}

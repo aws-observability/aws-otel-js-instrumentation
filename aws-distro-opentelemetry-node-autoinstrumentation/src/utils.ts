@@ -2,13 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { diag } from '@opentelemetry/api';
+import { INSTRUMENTATION_SHORT_NAME as LANGCHAIN_SHORT_NAME } from './instrumentation/instrumentation-langchain/instrumentation';
+import { INSTRUMENTATION_SHORT_NAME as OPENAI_AGENTS_SHORT_NAME } from './instrumentation/instrumentation-openai-agents/instrumentation';
+import { INSTRUMENTATION_SHORT_NAME as VERCEL_AI_SHORT_NAME } from './instrumentation/instrumentation-vercel-ai/instrumentation';
 
 const AGENT_OBSERVABILITY_ENABLED = 'AGENT_OBSERVABILITY_ENABLED';
+const AWS_AGENTIC_INSTRUMENTATION_OPT_IN = 'AWS_AGENTIC_INSTRUMENTATION_OPT_IN';
+export const OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS';
 
 // Bypass `readonly` restriction of a Type.
 // Workaround provided from official TypeScript docs:
 // https://www.typescriptlang.org/docs/handbook/release-notes/typescript-2-8.html#improved-control-over-mapped-type-modifiers
 export type Mutable<T> = { -readonly [P in keyof T]: T[P] };
+
+/**
+ * Query-string parameters whose values `@opentelemetry/instrumentation-http` redacts from the URL
+ * captured on HTTP spans. The `redactedQueryParams` config replaces the upstream default list
+ * rather than extending it, so the defaults are re-included below.
+ */
+export const REDACTED_QUERY_PARAMS: string[] = [
+  // Upstream DEFAULT_QUERY_STRINGS_TO_REDACT — re-included because the config replaces, not extends.
+  'sig',
+  'Signature',
+  'AWSAccessKeyId',
+  'X-Goog-Signature',
+  // AWS SigV4/SigV4a query-string authentication credentials.
+  'X-Amz-Signature',
+  'X-Amz-Credential',
+  'X-Amz-Security-Token',
+];
 
 export const getNodeVersion = () => {
   const nodeVersion = process.versions.node;
@@ -36,6 +58,11 @@ export const isAgentObservabilityEnabled = () => {
   return agentObservabilityEnabled.toLowerCase() === 'true';
 };
 
+export const isAgenticInstrumentationOptIn = (): boolean => {
+  const v = process.env[AWS_AGENTIC_INSTRUMENTATION_OPT_IN];
+  return v !== undefined && v.toLowerCase() === 'true';
+};
+
 /**
  * Get AWS region from environment or boto3 session.
  * Returns the AWS region in the following priority order:
@@ -53,6 +80,84 @@ export const getAwsRegionFromEnvironment = (): string | undefined => {
     'AWS region not found in environment variables (AWS_REGION, AWS_DEFAULT_REGION). Please set AWS_REGION environment variable explicitly.'
   );
 
+  return undefined;
+};
+
+/**
+ * Get the DNS suffix for the partition that the given region belongs to.
+ *
+ * The AWS China partition (cn-north-1, cn-northwest-1) serves its endpoints under
+ * `amazonaws.com.cn`. The other partitions this distro targets use `amazonaws.com`.
+ *
+ * @param region - AWS region name, or undefined
+ * @returns the DNS suffix to use when building an endpoint for that region
+ */
+export const getAwsDnsSuffix = (region: string | undefined): string => {
+  if (region?.toLowerCase().startsWith('cn-')) {
+    return 'amazonaws.com.cn';
+  }
+  return 'amazonaws.com';
+};
+
+export const parseOtelBaggageKeysEnvVar = (): Set<string> => {
+  const raw = process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] ?? '';
+  const keys = new Set<string>();
+  for (const k of raw.split(',')) {
+    const trimmed = k.trim();
+    if (trimmed) {
+      keys.add(trimmed);
+    }
+  }
+  return keys;
+};
+
+export const isInstrumentationDisabled = (shortName: string): boolean => {
+  const disabledEnv = process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;
+  if (disabledEnv) {
+    const disabled = disabledEnv.split(',').map(s => s.trim());
+    if (disabled.includes(shortName)) {
+      return true;
+    }
+  }
+
+  const enabledEnv = process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS;
+  if (enabledEnv) {
+    const enabled = enabledEnv.split(',').map(s => s.trim());
+    if (!enabled.includes(shortName)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const CONFLICTING_INSTRUMENTATIONS: Record<string, string[]> = {
+  [LANGCHAIN_SHORT_NAME]: [
+    '@traceloop/instrumentation-langchain',
+    '@arizeai/openinference-instrumentation-langchain',
+    '@arizeai/openinference-instrumentation-langchain-v0',
+    '@microsoft/agents-a365-observability-extensions-langchain',
+    '@langfuse/langchain',
+  ],
+  [OPENAI_AGENTS_SHORT_NAME]: [
+    '@respan/instrumentation-openai-agents',
+    '@microsoft/agents-a365-observability-extensions-openai',
+  ],
+  [VERCEL_AI_SHORT_NAME]: ['@monocle.sh/instrumentation-vercel-ai', '@respan/instrumentation-vercel'],
+};
+
+export const detectConflictingInstrumentation = (shortName: string): string | undefined => {
+  const conflicts = CONFLICTING_INSTRUMENTATIONS[shortName];
+  if (!conflicts) return undefined;
+
+  for (const pkg of conflicts) {
+    try {
+      require.resolve(pkg);
+      return pkg;
+    } catch {
+      continue;
+    }
+  }
   return undefined;
 };
 

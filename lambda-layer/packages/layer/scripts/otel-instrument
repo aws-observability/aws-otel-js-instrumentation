@@ -28,14 +28,79 @@ _is_esm_handler() {
   fi
 }
 
-if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]]; then
-  export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/wrapper.js --experimental-loader=import-in-the-middle/hook.mjs"
+_get_node_runtime_version() {
+  local exec_env="${AWS_EXECUTION_ENV:-}"
+  if [[ $exec_env =~ nodejs([0-9]+)\.x ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    echo "0"
+  fi
+}
+
+NODE_VERSION=$(_get_node_runtime_version)
+
+# - Resolve the metrics/logs exporters and Lite Mode BEFORE the NODE_OPTIONS
+#   routing below, which selects the lite wrapper vs the full SDK wrapper based on
+#   OTEL_AWS_LAMBDA_FAST_START. Lite (traces-only, UDP to the X-Ray daemon) is an
+#   opt-in mode that greatly reduces cold start. A configured metrics or logs
+#   exporter forces the full SDK since lite has no MeterProvider/LoggerProvider
+#   and would silently drop that data.
+
+# - Disable otel metrics export by default
+if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
+    export OTEL_METRICS_EXPORTER="none";
+fi
+
+# - Disable logs exporter by default
+if [ -z "${OTEL_LOGS_EXPORTER}" ]; then
+    export OTEL_LOGS_EXPORTER="none";
+fi
+
+# - A configured metrics or logs exporter forces the full SDK.
+if [ "$OTEL_METRICS_EXPORTER" != "none" ] || [ "$OTEL_LOGS_EXPORTER" != "none" ]; then
+    export OTEL_AWS_LAMBDA_FAST_START="false";
+fi
+
+if [[ "${OTEL_AWS_LAMBDA_FAST_START}" == "true" ]]; then
+  if _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
+    # ESM handlers (and Node 24+, where the runtime loads modules as ESM) cannot
+    # be instrumented by require-in-the-middle alone. Use the ESM lite wrapper,
+    # which installs the import-in-the-middle hook before running configureLiteMode().
+    # This costs some of lite mode's cold-start savings but is required for
+    # instrumentation to work at all on ESM/Node 24+.
+    if [[ $NODE_VERSION -ge 20 ]]; then
+      # Node 20.6+ supports module.register() (selective interception, avoids the
+      # global --experimental-loader that breaks ESM live bindings).
+      export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/lite-wrapper.mjs"
+    else
+      # Node 18.x lacks module.register(); fall back to the global loader hook.
+      export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/lite-wrapper.js --experimental-loader=import-in-the-middle/hook.mjs"
+    fi
+    export HANDLER_IS_ESM=true
+  else
+    # CJS handler on Node < 24: the fast path. Lite mode bypasses register.ts and
+    # import-in-the-middle entirely, instrumenting via require-in-the-middle and
+    # prototype patching only.
+    export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/lite-wrapper.js"
+  fi
+elif _is_esm_handler || [[ ${HANDLER_IS_ESM} == true ]] || [[ $NODE_VERSION -ge 24 ]]; then
+  if [[ $NODE_VERSION -ge 20 ]]; then
+    # Node 20.6+ supports module.register() which allows selective module
+    # interception. This avoids the global ESM loader hook (--experimental-loader)
+    # which breaks ESM live bindings in bundled application code.
+    # See: https://github.com/nodejs/import-in-the-middle/issues/38
+    export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/wrapper.mjs"
+  else
+    # Node 18.x does not support module.register(), fall back to the global
+    # --experimental-loader approach
+    export NODE_OPTIONS="${NODE_OPTIONS} --import /opt/wrapper.js --experimental-loader=import-in-the-middle/hook.mjs"
+  fi
   export HANDLER_IS_ESM=true
 else
   export NODE_OPTIONS="${NODE_OPTIONS} --require /opt/wrapper.js"
 fi
 
-export LAMBDA_RESOURCE_ATTRIBUTES="cloud.region=$AWS_REGION,cloud.provider=aws,faas.name=$AWS_LAMBDA_FUNCTION_NAME,faas.version=$AWS_LAMBDA_FUNCTION_VERSION,faas.instance=$AWS_LAMBDA_LOG_STREAM_NAME,aws.log.group.names=$AWS_LAMBDA_LOG_GROUP_NAME";
+export LAMBDA_RESOURCE_ATTRIBUTES="cloud.region=$AWS_REGION,cloud.provider=aws,cloud.platform=aws_lambda,faas.name=$AWS_LAMBDA_FUNCTION_NAME,faas.version=$AWS_LAMBDA_FUNCTION_VERSION,faas.instance=$AWS_LAMBDA_LOG_STREAM_NAME,aws.log.group.names=$AWS_LAMBDA_LOG_GROUP_NAME";
 
 
 # - If OTEL_EXPORTER_OTLP_PROTOCOL is not set by user, the default exporting protocol is http/protobuf.
@@ -74,16 +139,6 @@ fi
 # - Set Application Signals configuration
 if [ -z "${OTEL_AWS_APPLICATION_SIGNALS_ENABLED}" ]; then
     export OTEL_AWS_APPLICATION_SIGNALS_ENABLED="true";
-fi
-
-# - Disable otel metrics export by default
-if [ -z "${OTEL_METRICS_EXPORTER}" ]; then
-    export OTEL_METRICS_EXPORTER="none";
-fi
-
-# - Disable logs exporter by default
-if [ -z "${OTEL_LOGS_EXPORTER}" ]; then
-    export OTEL_LOGS_EXPORTER="none";
 fi
 
 # - Append Lambda Resource Attributes to OTel Resource Attribute List

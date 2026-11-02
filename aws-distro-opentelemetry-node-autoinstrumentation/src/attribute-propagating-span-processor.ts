@@ -2,10 +2,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Span as APISpan, AttributeValue, Context, SpanKind, trace } from '@opentelemetry/api';
-import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
+import type { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsSpanProcessingUtil } from './aws-span-processing-util';
 import { SEMRESATTRS_FAAS_ID } from '@opentelemetry/semantic-conventions';
+
+// Type guard to check if a span is a ReadableSpan (SDK span)
+// In OTel 2.x, Span class is no longer exported as a value, so we use duck typing
+// See ReadableSpan interface: https://github.com/open-telemetry/opentelemetry-js/blob/main/packages/opentelemetry-sdk-trace-base/src/export/ReadableSpan.ts
+function isReadableSpan(span: APISpan): span is Span {
+  return (
+    'name' in span &&
+    typeof span.name === 'string' &&
+    'kind' in span &&
+    typeof span.kind === 'number' &&
+    'attributes' in span &&
+    typeof span.attributes === 'object' &&
+    'status' in span &&
+    typeof span.status === 'object' &&
+    'startTime' in span &&
+    Array.isArray(span.startTime) &&
+    'endTime' in span &&
+    Array.isArray(span.endTime)
+  );
+}
 
 /**
  * AttributePropagatingSpanProcessor handles the propagation of attributes from parent spans to
@@ -55,11 +75,9 @@ export class AttributePropagatingSpanProcessor implements SpanProcessor {
     const parentSpan: APISpan | undefined = trace.getSpan(parentContext);
     let parentReadableSpan: Span | undefined = undefined;
 
-    // In Python and Java, the check is "parentSpan is an instance of ReadableSpan" is not possible
-    // in TypeScript because the check is not allowed for TypeScript interfaces (such as ReadableSpan).
-    // This is because JavaScript doesn't support interfaces, which is what TypeScript will compile to.
-    // `Span` is the only class that implements ReadableSpan, so check for instance of Span.
-    if (parentSpan instanceof Span) {
+    // In OTel 2.x, Span class is no longer exported as a value, so we use duck typing
+    // to check if the parentSpan is a ReadableSpan (SDK span).
+    if (parentSpan && isReadableSpan(parentSpan)) {
       parentReadableSpan = parentSpan;
 
       // Add the AWS_SDK_DESCENDANT attribute to the immediate child spans of AWS SDK span.
@@ -103,14 +121,14 @@ export class AttributePropagatingSpanProcessor implements SpanProcessor {
     let propagationData: AttributeValue | undefined = undefined;
     if (AwsSpanProcessingUtil.isLocalRoot(span)) {
       if (!this.isServerKind(span)) {
-        propagationData = this.propagationDataExtractor(span);
+        propagationData = this.extractPropagationData(span);
       }
     } else if (parentReadableSpan !== undefined && this.isServerKind(parentReadableSpan)) {
       // In TypeScript, perform `parentReadableSpan !== undefined` check
       // This should be done in Python and Java as well, but is not as of now
       // If parentReadableSpan is not defined, the first `if statement` should occur,
       // so that is why it is not a problem for Java/Python...
-      propagationData = this.propagationDataExtractor(parentReadableSpan);
+      propagationData = this.extractPropagationData(parentReadableSpan);
     } else {
       // In TypeScript, perform `parentReadableSpan?` check (returns undefined if undefined)
       // This should be done in Python and Java as well, but is not as of now
@@ -120,6 +138,25 @@ export class AttributePropagatingSpanProcessor implements SpanProcessor {
     if (propagationData !== undefined) {
       span.setAttribute(this.propagationDataKey, propagationData);
     }
+  }
+
+  /**
+   * Apply the OTEL_AWS_HTTP_OPERATION_PATHS span name override (if configured and matching) before
+   * extracting the propagation data, so that children inherit the same operation that the parent's
+   * own metrics use (the override is otherwise only applied at span end). This is a no-op when the
+   * env var is unset or no pattern matches the span's URL path.
+   *
+   * applyOperationPathSpanName renames the span it is given, so it is applied to a view of the span
+   * here. The span is still in progress and its own name must not change at this point.
+   */
+  private extractPropagationData(span: ReadableSpan): string {
+    if (AwsSpanProcessingUtil.getOperationPaths().length === 0) {
+      return this.propagationDataExtractor(span);
+    }
+    const spanView: ReadableSpan = Object.create(span, {
+      name: { value: span.name, writable: true, enumerable: true, configurable: true },
+    });
+    return this.propagationDataExtractor(AwsSpanProcessingUtil.applyOperationPathSpanName(spanView));
   }
 
   private isConsumerKind(span: ReadableSpan): boolean {

@@ -10,6 +10,9 @@ service MockCollectorService {
 
   // Returns metrics exported to mock collector
   rpc get_metrics (GetMetricsRequest) returns (GetMetricsResponse) {}
+
+  // Returns logs exported to mock collector
+  rpc get_logs (GetLogsRequest) returns (GetLogsResponse) {}
 }
 
 // Empty request for clear rpc.
@@ -32,4 +35,12 @@ message GetMetricsRequest {}
 // Response for get metrics rpc - all metrics in byte form.
 message GetMetricsResponse {
   repeated bytes metrics = 1;
+}
+
+// Empty request for get logs rpc.
+message GetLogsRequest {}
+
+// Response for get logs rpc - all log records in byte form (serialized ExportLogsServiceRequest).
+message GetLogsResponse {
+  repeated bytes logs = 1;
 }

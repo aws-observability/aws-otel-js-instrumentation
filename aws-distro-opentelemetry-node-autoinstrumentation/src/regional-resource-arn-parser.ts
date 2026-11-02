@@ -35,4 +35,18 @@ export class RegionalResourceArnParser {
     const parts = this.parseArn(arn);
     return parts?.[parts.length - 1];
   }
+
+  /**
+   * Extract resource ID from a Bedrock AgentCore ARN.
+   * AgentCore ARNs have the format: arn:partition:service:region:account:resource-type/resource-id
+   * This extracts the last segment after the final '/'.
+   */
+  public static extractBedrockAgentCoreResourceIdFromArn(arn: AttributeValue | undefined): string | undefined {
+    const resourcePart = this.extractResourceNameFromArn(arn);
+    if (resourcePart === undefined) {
+      return undefined;
+    }
+    const parts = resourcePart.split('/');
+    return parts[parts.length - 1] || undefined;
+  }
 }

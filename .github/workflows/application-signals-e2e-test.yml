@@ -20,13 +20,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: '${{ github.workflow }} @ ${{ inputs.aws-region }}'
+  group: '${{ github.workflow }}'
   cancel-in-progress: false
 
 
 jobs:
   upload-main-build:
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     steps:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 #v5.0.0
@@ -46,15 +49,33 @@ jobs:
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-default-test.yml@main
     secrets: inherit
     with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
       aws-region: us-east-1
       staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
       caller-workflow-name: 'main-build'
+
+  adot-di:
+    needs: [ upload-main-build ]
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [ '18', '20', '22', '24' ]
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-adot-di-test.yml@main
+    secrets: inherit
+    with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
+      aws-region: us-east-1
+      staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
+      caller-workflow-name: 'main-build'
+      node-version: ${{ matrix.node-version }}
+      cpu-architecture: 'x86_64'
 
   ec2-asg:
     needs: [ upload-main-build ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-asg-test.yml@main
     secrets: inherit
     with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
       aws-region: us-east-1
       staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
       caller-workflow-name: 'main-build'
@@ -63,11 +84,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [ '14', '16', '18', '20', '22' ]
+        node-version: [ '18', '20', '22', '24' ]
     needs: [ upload-main-build ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-default-test.yml@main
     secrets: inherit
     with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
       aws-region: 'us-east-1'
       staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
       node-version: ${{ matrix.node-version }}
@@ -79,6 +101,7 @@ jobs:
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-default-test.yml@main
     secrets: inherit
     with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
       aws-region: 'us-east-1'
       staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
       cpu-architecture: 'arm64'
@@ -88,6 +111,7 @@ jobs:
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-eks-test.yml@main
     secrets: inherit
     with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
       aws-region: us-east-1
       test-cluster-name: 'e2e-node-adot-test'
       adot-image-name: ${{ inputs.adot-image-name }}
@@ -97,6 +121,7 @@ jobs:
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ecs-test.yml@main
     secrets: inherit
     with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
       aws-region: us-east-1
       adot-image-name: ${{ inputs.adot-image-name }}
       caller-workflow-name: 'main-build'
@@ -105,25 +130,65 @@ jobs:
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-k8s-test.yml@main
     secrets: inherit
     with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
       aws-region: us-east-1
       adot-image-name: ${{ inputs.adot-image-name }}
       caller-workflow-name: 'main-build'
 
   lambda:
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [ nodejs18.x, nodejs20.x, nodejs22.x, nodejs24.x ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-lambda-test.yml@main
     secrets: inherit
     with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
+      aws-region: us-east-1
+      runtime: ${{ matrix.runtime }}
+      caller-workflow-name: 'main-build'
+
+  lambda-lite-sdk:
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-lambda-lite-sdk-test.yml@main
+    secrets: inherit
+    with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
       aws-region: us-east-1
       caller-workflow-name: 'main-build'
 
-  
+
   adot-sigv4:
     needs: [ upload-main-build ]
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-adot-sigv4-test.yml@main
     secrets: inherit
     with:
-      node-version: 22
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
+      node-version: 24
       staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
+      caller-workflow-name: 'main-build'
+
+  service-events-ec2:
+    needs: [ upload-main-build ]
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-ec2-service-events-test.yml@main
+    secrets: inherit
+    with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
+      aws-region: us-east-1
+      staging-instrumentation-name: ${{ inputs.staging-instrumentation-name }}
+      caller-workflow-name: 'main-build'
+
+  service-events-eks:
+    # Serialize after the eks job: both target e2e-node-adot-test and the sample-app Service binds
+    # cluster-wide NodePort 30100, which this SE test also uses. Running in parallel would collide
+    # on that port ("provided port is already allocated").
+    needs: [ eks ]
+    uses: aws-observability/aws-application-signals-test-framework/.github/workflows/node-eks-service-events-test.yml@main
+    secrets: inherit
+    with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:large"]'
+      aws-region: us-east-1
+      test-cluster-name: 'e2e-node-adot-test'
+      adot-image-name: ${{ inputs.adot-image-name }}
       caller-workflow-name: 'main-build'
 
   # This validation is to ensure that all test workflows relevant to this repo are actually
@@ -141,3 +206,5 @@ jobs:
   #   (see: https://github.com/aws-observability/aws-application-signals-test-framework/blob/main/.github/workflows/validate-e2e-tests-are-accounted-for.yml)
   validate-all-tests-are-accounted-for:
     uses: aws-observability/aws-application-signals-test-framework/.github/workflows/validate-e2e-tests-are-accounted-for.yml@main
+    with:
+      runs-on: '["codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}", "image:ubuntu-8.0", "instance-size:small"]'

@@ -1,0 +1,33 @@
+#   name  - the application image to build AND the CI job label. Resolves to
+#            contract-tests/images/applications/<name>/Dockerfile.
+#   paths - pytest paths to run, relative to test_base.
+test_base: contract-tests/tests/test/amazon
+tests:
+  - name: http
+    paths:
+      - http
+      - misc/configuration_test.py
+      - misc/service_name_in_env_var_test.py
+      - misc/service_name_in_resource_attributes_test.py
+      - misc/unknown_service_name_test.py
+  - name: aws-sdk
+    paths:
+      - aws-sdk
+  - name: mongodb
+    paths:
+      - mongodb
+  - name: mongoose
+    paths:
+      - mongoose
+  - name: mysql2
+    paths:
+      - mysql2
+  - name: di-express
+    paths:
+      - di
+  - name: serviceevents-express
+    paths:
+      - serviceevents/express_test.py
+  - name: serviceevents-fastify
+    paths:
+      - serviceevents/fastify_test.py

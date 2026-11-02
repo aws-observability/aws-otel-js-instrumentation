@@ -34,4 +34,9 @@ runs:
     - name: Run unit tests/benchmarks
       if: ${{ inputs.run_unit_tests == 'true' }}
       shell: bash
-      run: npm run test
+      run: |
+        if [ "${{ inputs.node_version }}" = "18" ]; then
+          npm run test:node18
+        else
+          npm run test
+        fi

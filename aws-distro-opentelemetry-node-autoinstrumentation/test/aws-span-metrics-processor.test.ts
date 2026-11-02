@@ -14,8 +14,9 @@ import {
   TraceFlags,
   isSpanContextValid,
 } from '@opentelemetry/api';
-import { InstrumentationLibrary, hrTimeDuration } from '@opentelemetry/core';
-import { Resource } from '@opentelemetry/resources';
+import type { InstrumentationScope } from '@opentelemetry/core';
+import { hrTimeDuration } from '@opentelemetry/core';
+import { resourceFromAttributes, emptyResource, Resource } from '@opentelemetry/resources';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 import { ReadableSpan, Span } from '@opentelemetry/sdk-trace-base';
 import { SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
@@ -46,7 +47,7 @@ describe('AwsSpanMetricsProcessorTest', () => {
   const TEST_LATENCY_NANOS: number = 150_000_000;
 
   // Resource is not mockable, but tests can safely rely on an empty resource.
-  const testResource: Resource = Resource.empty();
+  const testResource: Resource = emptyResource();
 
   // Useful enum for indicating expected HTTP status code-related metrics
   enum ExpectedStatusMetric {
@@ -119,7 +120,22 @@ describe('AwsSpanMetricsProcessorTest', () => {
       parentContextMock,
       'deleteValue'
     );
-    const spanMock: Span = sinon.createStubInstance(Span);
+    // Create a mock Span object since Span is no longer exported as a value
+    const spanMock = {
+      setAttribute: sinon.stub(),
+      setAttributes: sinon.stub(),
+      addEvent: sinon.stub(),
+      addLink: sinon.stub(),
+      addLinks: sinon.stub(),
+      setStatus: sinon.stub(),
+      updateName: sinon.stub(),
+      end: sinon.stub(),
+      isRecording: sinon.stub().returns(true),
+      recordException: sinon.stub(),
+      spanContext: sinon
+        .stub()
+        .returns({ traceId: '00000000000000000000000000000001', spanId: '0000000000000001', traceFlags: 0 }),
+    } as unknown as Span;
 
     awsSpanMetricsProcessor.onStart(spanMock, parentContextMock);
     sinon.assert.notCalled(parentContextMockGetValue);
@@ -450,7 +466,7 @@ describe('AwsSpanMetricsProcessorTest', () => {
     parentSpanContext: SpanContext | undefined = undefined,
     statusData: SpanStatus = { code: SpanStatusCode.UNSET }
   ): ReadableSpan {
-    const awsSdkInstrumentationLibrary: InstrumentationLibrary = {
+    const awsSdkInstrumentationScope: InstrumentationScope = {
       name: '@opentelemetry/instrumentation-aws-sdk',
     };
 
@@ -482,9 +498,9 @@ describe('AwsSpanMetricsProcessorTest', () => {
       events: [],
       duration: duration,
       ended: true,
-      resource: new Resource({}),
+      resource: resourceFromAttributes({}),
       // Configure Instrumentation Library
-      instrumentationLibrary: awsSdkInstrumentationLibrary,
+      instrumentationScope: awsSdkInstrumentationScope,
       droppedAttributesCount: 0,
       droppedEventsCount: 0,
       droppedLinksCount: 0,
@@ -493,12 +509,12 @@ describe('AwsSpanMetricsProcessorTest', () => {
     if (parentSpanContext === undefined) {
       parentSpanContext = INVALID_SPAN_CONTEXT;
     } else {
-      (mockSpanData as any).parentSpanId = parentSpanContext.spanId;
+      (mockSpanData as any).parentSpanContext = parentSpanContext;
     }
     const isParentSpanContextValid: boolean = parentSpanContext !== undefined && isSpanContextValid(parentSpanContext);
     const isParentSpanRemote: boolean = parentSpanContext !== undefined && parentSpanContext.isRemote === true;
     const isLocalRoot: boolean =
-      mockSpanData.parentSpanId === undefined || !isParentSpanContextValid || isParentSpanRemote;
+      mockSpanData.parentSpanContext?.spanId === undefined || !isParentSpanContextValid || isParentSpanRemote;
     mockSpanData.attributes[AWS_ATTRIBUTE_KEYS.AWS_IS_LOCAL_ROOT] = isLocalRoot;
 
     return mockSpanData;

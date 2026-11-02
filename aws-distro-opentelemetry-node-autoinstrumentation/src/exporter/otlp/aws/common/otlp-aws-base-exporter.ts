@@ -3,8 +3,19 @@
 import { CompressionAlgorithm, OTLPExporterBase } from '@opentelemetry/otlp-exporter-base';
 import { gzipSync } from 'zlib';
 import { ExportResult, ExportResultCode } from '@opentelemetry/core';
-import { AwsAuthenticator } from './aws-authenticator';
+import { AwsAuthenticator, SigV4Region } from './aws-authenticator';
 import { ISerializer } from '@opentelemetry/otlp-transformer';
+
+/**
+ * Overrides for how an AWS OTLP exporter signs its requests. Both are optional: by default each
+ * exporter signs for its own service and reads the region from its AWS endpoint hostname.
+ */
+export interface OTLPAwsSigV4Options {
+  /** The SigV4 signing service, such as `xray`, `logs` or `monitoring`. */
+  service?: string;
+  /** The SigV4 signing region, or a function that looks it up when the first request is signed. */
+  region?: SigV4Region;
+}
 
 /**
  * Base class for AWS OTLP exporters
@@ -17,17 +28,35 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
   private authenticator: AwsAuthenticator;
   private parentSerializer: ISerializer<Payload, Response>;
 
+  // Serializes exports so that only one is in flight at a time. Per-request state (the serialized
+  // body, the signed headers) lives on objects shared across exports, so overlapping exports clobber
+  // each other. Both spans and logs can overlap. See #565 for the mechanism and failure modes, and
+  // #568 for timing measurements.
+  //
+  // KNOWN TRADE-OFF. Signing each request inside its own transport would fix this properly, because
+  // IExporterTransport.send() receives the exact bytes for one request. That is not affordable
+  // today: createOtlpNetworkExportDelegate accepts a transport, but createHttpExporterTransport,
+  // createRetryingTransport and sendWithHttp are all absent from the package's exports map. Revisit
+  // if upstream exports them.
+  //
+  // Cost: serializing lengthens a flush, so an endpoint that is slow but still succeeding can time
+  // out a flush that previously passed, and shutdown can approach the 30s grace period ECS and
+  // Kubernetes allow by default. Raise OTEL_BSP_EXPORT_TIMEOUT for a slow endpoint, an unusually
+  // large queue, or an unusually small batch size.
+  private exportQueue: Promise<void> = Promise.resolve();
+
   constructor(
     endpoint: string,
     service: string,
     parentExporter: OTLPExporterBase<Payload>,
     parentSerializer: ISerializer<Payload, Response>,
-    compression?: CompressionAlgorithm
+    compression?: CompressionAlgorithm,
+    region?: SigV4Region
   ) {
     super(parentExporter['_delegate']);
     this.compression = compression;
     this.endpoint = endpoint;
-    this.authenticator = new AwsAuthenticator(this.endpoint, service);
+    this.authenticator = new AwsAuthenticator(this.endpoint, service, region);
     this.parentExporter = parentExporter;
     this.parentSerializer = parentSerializer;
 
@@ -44,16 +73,67 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
    * Overrides the upstream implementation of export.
    * All behaviors are the same except if the endpoint is an AWS OTLP endpoint, we will sign the request with SigV4
    * in headers before sending it to the endpoint.
+   *
+   * Exports are queued so that each one completes before the next begins, because the signing step
+   * keeps per-request state on objects shared across exports. See {@link exportQueue}.
+   *
    * @param items - Array of signal data to export
    * @param resultCallback - Callback function to handle export result
    */
-  override async export(items: Payload, resultCallback: (result: ExportResult) => void): Promise<void> {
-    const headers = this.parentExporter['_delegate']._transport?._transport?._parameters?.headers();
+  override export(items: Payload, resultCallback: (result: ExportResult) => void): Promise<void> {
+    const previousExport = this.exportQueue;
+
+    // Released once this export has produced a result, which is what lets the next one start.
+    let releaseQueue!: () => void;
+    const thisExportSettled = new Promise<void>(resolve => (releaseQueue = resolve));
+
+    // `previousExport` never rejects (see below), so the chain cannot be broken by a failed export.
+    this.exportQueue = previousExport.then(() => thisExportSettled);
+
+    return previousExport.then(() => {
+      let settled = false;
+
+      const settle = (result: ExportResult) => {
+        // Upstream invokes the callback exactly once on every branch, including its rejection
+        // handler. Guard anyway: releasing twice is harmless, but never releasing would wedge the
+        // queue permanently, which would be worse than the defect this fixes.
+        if (settled) {
+          return;
+        }
+        settled = true;
+        releaseQueue();
+        resultCallback(result);
+      };
+
+      // Catch rather than propagate, so an unexpected throw still releases the queue and is
+      // reported through the callback like every other failure.
+      return this.doExport(items, settle).catch(error => {
+        settle({
+          code: ExportResultCode.FAILED,
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      });
+    });
+  }
+
+  private async doExport(items: Payload, resultCallback: (result: ExportResult) => void): Promise<void> {
+    // In OTel 2.x, headers() is an async function that returns a Promise
+    const headersGetter = this.parentExporter['_delegate']._transport?._transport?._parameters?.headers;
+
+    if (!headersGetter) {
+      resultCallback({
+        code: ExportResultCode.FAILED,
+        error: new Error(`Request headers are unset - unable to export to ${this.endpoint}`),
+      });
+      return;
+    }
+
+    const headers = await headersGetter();
 
     if (!headers) {
       resultCallback({
         code: ExportResultCode.FAILED,
-        error: new Error(`Request headers are unset - unable to export to ${this.endpoint}`),
+        error: new Error(`Headers returned undefined - unable to export to ${this.endpoint}`),
       });
       return;
     }
@@ -95,15 +175,20 @@ export abstract class OTLPAwsBaseExporter<Payload, Response> extends OTLPExporte
       return;
     }
 
-    this.parentExporter['_delegate']._transport._transport._parameters.headers = () => signedHeaders;
+    // OTel 2.x expects an async headers function
+    this.parentExporter['_delegate']._transport._transport._parameters.headers = async () => signedHeaders;
     this.parentExporter.export(items, resultCallback);
   }
 
-  override shutdown(): Promise<void> {
+  override async shutdown(): Promise<void> {
+    // Let queued exports finish before tearing the parent down, so they are not abandoned.
+    await this.exportQueue;
     return this.parentExporter.shutdown();
   }
 
-  override forceFlush(): Promise<void> {
+  override async forceFlush(): Promise<void> {
+    // A flush must not report completion while exports are still waiting their turn.
+    await this.exportQueue;
     return this.parentExporter.forceFlush();
   }
 }

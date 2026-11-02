@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { AttributeValue, Attributes, SpanContext, SpanKind } from '@opentelemetry/api';
-import { InstrumentationLibrary } from '@opentelemetry/core';
-import { Resource } from '@opentelemetry/resources';
+import type { InstrumentationScope } from '@opentelemetry/core';
+import { Resource, emptyResource, defaultResource } from '@opentelemetry/resources';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import {
   MESSAGINGOPERATIONVALUES_PROCESS,
@@ -68,7 +68,7 @@ const GENERATOR: AwsMetricAttributeGenerator = new AwsMetricAttributeGenerator()
 
 let attributesMock: Attributes;
 let spanDataMock: ReadableSpan;
-let instrumentationLibraryMock: InstrumentationLibrary;
+let instrumentationScopeMock: InstrumentationScope;
 let resource: Resource;
 
 /** Unit tests for {@link AwsMetricAttributeGenerator}. */
@@ -76,7 +76,7 @@ describe('AwsMetricAttributeGeneratorTest', () => {
   // setUpMocks
   beforeEach(() => {
     attributesMock = {};
-    instrumentationLibraryMock = {
+    instrumentationScopeMock = {
       name: 'Scope name',
     };
     spanDataMock = {
@@ -90,7 +90,11 @@ describe('AwsMetricAttributeGeneratorTest', () => {
         };
         return spanContext;
       },
-      parentSpanId: '0000000000000007',
+      parentSpanContext: {
+        traceId: '00000000000000000000000000000008',
+        spanId: '0000000000000007',
+        traceFlags: 0,
+      },
       startTime: [0, 0],
       endTime: [0, 1],
       status: { code: 0 },
@@ -99,8 +103,8 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       events: [],
       duration: [0, 1],
       ended: true,
-      resource: Resource.default(),
-      instrumentationLibrary: instrumentationLibraryMock,
+      resource: defaultResource(),
+      instrumentationScope: instrumentationScopeMock,
       droppedAttributesCount: 0,
       droppedEventsCount: 0,
       droppedLinksCount: 0,
@@ -108,14 +112,14 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     // Divergence from Java/Python - set AWS_IS_LOCAL_ROOT as false because parentSpanContext is valid and not remote in this test
     attributesMock[AWS_ATTRIBUTE_KEYS.AWS_IS_LOCAL_ROOT] = false;
 
-    // OTel strongly recommends to start out with the default instead of Resource.empty()
+    // OTel strongly recommends to start out with the default instead of emptyResource()
     // In OTel JS, default Resource's default Service Name is `unknown_service:${process.argv0}`
     // - https://github.com/open-telemetry/opentelemetry-js/blob/b2778e1b2ff7b038cebf371f1eb9f808fd98107f/packages/opentelemetry-resources/src/platform/node/default-service-name.ts#L16
-    resource = Resource.default();
+    resource = defaultResource();
   });
 
   it('testSpanAttributesForEmptyResource', () => {
-    resource = Resource.empty();
+    resource = emptyResource();
     const expectedAttributes: Attributes = {
       [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
       [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: UNKNOWN_SERVICE,
@@ -471,6 +475,108 @@ describe('AwsMetricAttributeGeneratorTest', () => {
     mockAttribute(SEMATTRS_HTTP_URL, undefined);
   });
 
+  // New semconv: url.path for ingress operation
+  it('testServerSpanWithNewSemconvUrlPath', () => {
+    updateResourceWithServiceName();
+    (spanDataMock as any).name = 'GET';
+    mockAttribute('http.request.method', 'GET');
+    mockAttribute('url.path', '/orders/456');
+
+    const expectedAttributes: Attributes = {
+      [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: SERVICE_NAME_VALUE,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'GET /orders',
+    };
+    validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
+    mockAttribute('http.request.method', undefined);
+    mockAttribute('url.path', undefined);
+  });
+
+  // Verifies the end-to-end effect of OTEL_AWS_HTTP_OPERATION_PATHS on aws.local.operation.
+  // The metrics processor applies the override to the span name before the generator runs, so we
+  // replicate that ordering here: applyOperationPathSpanName() then the generator. The expected
+  // value is a multi-segment, wildcarded path that neither the raw span name nor URL truncation
+  // ('GET /api') could produce, so the assertion can only pass if the configured path won.
+  it('testServerSpanLocalOperationUsesConfiguredOperationPath', () => {
+    updateResourceWithServiceName();
+    (spanDataMock as any).name = 'GET';
+    mockAttribute('http.request.method', 'GET');
+    mockAttribute('url.path', '/api/contests/123/leaderboard');
+
+    process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG] =
+      '/api/contests/{id}/leaderboard,/api/contests/{id}';
+    AwsSpanProcessingUtil.resetOperationPaths();
+    try {
+      AwsSpanProcessingUtil.applyOperationPathSpanName(spanDataMock);
+
+      const expectedAttributes: Attributes = {
+        [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
+        [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: SERVICE_NAME_VALUE,
+        [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'GET /api/contests/{id}/leaderboard',
+      };
+      validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
+    } finally {
+      delete process.env[AwsSpanProcessingUtil.OTEL_AWS_HTTP_OPERATION_PATHS_CONFIG];
+      AwsSpanProcessingUtil.resetOperationPaths();
+    }
+    mockAttribute('http.request.method', undefined);
+    mockAttribute('url.path', undefined);
+  });
+
+  // New semconv: url.full for ingress operation (fallback when url.path not present)
+  it('testServerSpanWithNewSemconvUrlFull', () => {
+    updateResourceWithServiceName();
+    (spanDataMock as any).name = 'POST';
+    mockAttribute('http.request.method', 'POST');
+    mockAttribute('url.full', 'http://127.0.0.1:8000/payment/123');
+
+    const expectedAttributes: Attributes = {
+      [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: SERVICE_NAME_VALUE,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'POST /payment',
+    };
+    validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
+    mockAttribute('http.request.method', undefined);
+    mockAttribute('url.full', undefined);
+  });
+
+  // Old semconv http.target takes priority over new url.path
+  it('testServerSpanWithOldSemconvHttpTargetPriority', () => {
+    updateResourceWithServiceName();
+    (spanDataMock as any).name = 'GET';
+    mockAttribute(SEMATTRS_HTTP_METHOD, 'GET');
+    mockAttribute(SEMATTRS_HTTP_TARGET, '/old-target/123');
+    mockAttribute('url.path', '/new-path/456');
+
+    const expectedAttributes: Attributes = {
+      [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: SERVICE_NAME_VALUE,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'GET /old-target',
+    };
+    validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
+    mockAttribute(SEMATTRS_HTTP_METHOD, undefined);
+    mockAttribute(SEMATTRS_HTTP_TARGET, undefined);
+    mockAttribute('url.path', undefined);
+  });
+
+  it('testServerSpanWithOldSemconvHttpUrlPriorityOverNewUrlPath', () => {
+    updateResourceWithServiceName();
+    (spanDataMock as any).name = 'GET';
+    mockAttribute(SEMATTRS_HTTP_METHOD, 'GET');
+    mockAttribute(SEMATTRS_HTTP_URL, 'http://127.0.0.1:8000/legacy/123');
+    mockAttribute('url.path', '/new-path/456');
+
+    const expectedAttributes: Attributes = {
+      [AWS_ATTRIBUTE_KEYS.AWS_SPAN_KIND]: SpanKind[SpanKind.SERVER],
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_SERVICE]: SERVICE_NAME_VALUE,
+      [AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION]: 'GET /legacy',
+    };
+    validateAttributesProducedForNonLocalRootSpanOfKind(expectedAttributes, SpanKind.SERVER);
+    mockAttribute(SEMATTRS_HTTP_METHOD, undefined);
+    mockAttribute(SEMATTRS_HTTP_URL, undefined);
+    mockAttribute('url.path', undefined);
+  });
+
   it('testProducerSpanWithAttributes', () => {
     updateResourceWithServiceName();
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_LOCAL_OPERATION, AWS_LOCAL_OPERATION_VALUE);
@@ -641,6 +747,77 @@ describe('AwsMetricAttributeGeneratorTest', () => {
 
     // Once we have removed all usable metrics, we only have "unknown" attributes, which are unused.
     validateExpectedRemoteAttributes(UNKNOWN_REMOTE_SERVICE, UNKNOWN_REMOTE_OPERATION);
+  });
+
+  // Validate new semantic conventions (server.address, server.port, url.full, http.request.method)
+  // used by instrumentation-undici (Node.js fetch/undici HTTP client, used by Next.js)
+  it('testNewSemconvRemoteAttributes', () => {
+    // Validate behaviour of extracting Remote Service from server.address
+    mockAttribute(_SERVER_ADDRESS, 'www.example.com');
+    validateExpectedRemoteAttributes('www.example.com', UNKNOWN_REMOTE_OPERATION);
+    mockAttribute(_SERVER_ADDRESS, undefined);
+
+    // Validate behaviour of extracting Remote Service from server.address and server.port
+    mockAttribute(_SERVER_ADDRESS, '192.168.0.0');
+    mockAttribute(_SERVER_PORT, 8081);
+    validateExpectedRemoteAttributes('192.168.0.0:8081', UNKNOWN_REMOTE_OPERATION);
+    mockAttribute(_SERVER_ADDRESS, undefined);
+    mockAttribute(_SERVER_PORT, undefined);
+
+    // Validate behavior of Remote Operation from url.full. Also validates
+    // that RemoteService is extracted from url.full.
+    mockAttribute('url.full', 'http://www.example.com/payment/123');
+    validateExpectedRemoteAttributes('www.example.com', '/payment');
+    mockAttribute('url.full', undefined);
+
+    // Validate behavior of Remote Service from url.full with port
+    mockAttribute('url.full', 'http://192.168.1.1:8000');
+    validateExpectedRemoteAttributes('192.168.1.1:8000', '/');
+    mockAttribute('url.full', undefined);
+
+    // Validate behavior of Remote Operation with http.request.method and url.full
+    mockAttribute('http.request.method', 'GET');
+    mockAttribute('url.full', 'http://www.example.com/api/resource/42');
+    validateExpectedRemoteAttributes('www.example.com', 'GET /api');
+    mockAttribute('http.request.method', undefined);
+    mockAttribute('url.full', undefined);
+
+    // Validate behavior of http.request.method alone (no url)
+    mockAttribute('http.request.method', 'POST');
+    validateExpectedRemoteAttributes(UNKNOWN_REMOTE_SERVICE, 'POST ' + UNKNOWN_REMOTE_OPERATION);
+    mockAttribute('http.request.method', undefined);
+
+    // Validate old semconv takes priority over new semconv when both are present
+    mockAttribute(SEMATTRS_NET_PEER_NAME, 'old-host.example.com');
+    mockAttribute(_SERVER_ADDRESS, 'new-host.example.com');
+    validateExpectedRemoteAttributes('old-host.example.com', UNKNOWN_REMOTE_OPERATION);
+    mockAttribute(SEMATTRS_NET_PEER_NAME, undefined);
+    mockAttribute(_SERVER_ADDRESS, undefined);
+
+    // Validate old http.url takes priority over new server.address for remote service
+    mockAttribute(SEMATTRS_HTTP_URL, 'http://old.example.com:8443/path');
+    mockAttribute(_SERVER_ADDRESS, 'new-host.example.com');
+    mockAttribute(_SERVER_PORT, 8080);
+    validateExpectedRemoteAttributes('old.example.com:8443', '/path');
+    mockAttribute(SEMATTRS_HTTP_URL, undefined);
+    mockAttribute(_SERVER_ADDRESS, undefined);
+    mockAttribute(_SERVER_PORT, undefined);
+
+    // Validate old http.url takes priority over new url.full for remote service
+    mockAttribute(SEMATTRS_HTTP_URL, 'http://old.example.com/path');
+    mockAttribute('url.full', 'http://new.example.com/path');
+    validateExpectedRemoteAttributes('old.example.com', '/path');
+    mockAttribute(SEMATTRS_HTTP_URL, undefined);
+    mockAttribute('url.full', undefined);
+
+    // Validate old http.method takes priority over new http.request.method for remote operation
+    mockAttribute(SEMATTRS_HTTP_METHOD, 'GET');
+    mockAttribute('http.request.method', 'POST');
+    mockAttribute(SEMATTRS_HTTP_URL, 'http://www.example.com/test');
+    validateExpectedRemoteAttributes('www.example.com', 'GET /test');
+    mockAttribute(SEMATTRS_HTTP_METHOD, undefined);
+    mockAttribute('http.request.method', undefined);
+    mockAttribute(SEMATTRS_HTTP_URL, undefined);
   });
 
   // Validate behaviour of various combinations of DB attributes).
@@ -1162,6 +1339,221 @@ describe('AwsMetricAttributeGeneratorTest', () => {
       undefined
     );
     mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_STEPFUNCTIONS_STATEMACHINE_ARN, undefined);
+  });
+
+  it('testBedrockAgentCoreRemoteResourceAttributes', () => {
+    // Set up as an AWS SDK span with BedrockAgentCore service
+    mockAttribute(SEMATTRS_RPC_SYSTEM, 'aws-api');
+    mockAttribute(SEMATTRS_RPC_SERVICE, 'BedrockAgentCore');
+
+    // Browser: managed (aws.browser.v1)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID, 'aws.browser.v1');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::Browser', 'aws.browser.v1');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID, undefined);
+
+    // Browser: custom ID
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID, 'my-custom-browser');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::BrowserCustom', 'my-custom-browser');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_BROWSER_ID, undefined);
+
+    // Browser: from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:browser/aws.browser.v1'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::Browser',
+      'aws.browser.v1',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN, undefined);
+
+    // Browser: custom from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:browser/my-custom-browser'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::BrowserCustom',
+      'my-custom-browser',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_BROWSER_ARN, undefined);
+
+    // Gateway: with gateway ID only
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID, 'gw-12345');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::Gateway', 'gw-12345');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID, undefined);
+
+    // Gateway: from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:gateway/gw-from-arn'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::Gateway',
+      'gw-from-arn',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN, undefined);
+
+    // GatewayTarget: with target ID and gateway ID
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, 'target-123');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID, 'gw-12345');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::GatewayTarget', 'gw-12345');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_GATEWAY_ID, undefined);
+
+    // GatewayTarget: with target ID only (no gateway ID or ARN)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, 'target-123');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::GatewayTarget', 'target-123');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, undefined);
+
+    // GatewayTarget: with target ID and gateway ARN
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, 'target-123');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:gateway/gw-from-arn'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::GatewayTarget',
+      'gw-from-arn',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_GATEWAY_TARGET_ID, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_GATEWAY_ARN, undefined);
+
+    // Runtime: with runtime ID
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_RUNTIME_ID, 'rt-12345');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::Runtime', 'rt-12345');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_RUNTIME_ID, undefined);
+
+    // Runtime: from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:agent-runtime/rt-from-arn'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::Runtime',
+      'rt-from-arn',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ARN, undefined);
+
+    // RuntimeEndpoint: from endpoint ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ENDPOINT_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:agent-runtime-endpoint/ep-12345'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::RuntimeEndpoint',
+      'ep-12345',
+      'arn:aws:bedrock:us-west-2:123456789012:agent-runtime-endpoint/ep-12345',
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_RUNTIME_ENDPOINT_ARN, undefined);
+
+    // CodeInterpreter: managed (aws.codeinterpreter.v1)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID, 'aws.codeinterpreter.v1');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::CodeInterpreter', 'aws.codeinterpreter.v1');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID, undefined);
+
+    // CodeInterpreter: custom ID
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID, 'my-custom-ci');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::CodeInterpreterCustom', 'my-custom-ci');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_CODE_INTERPRETER_ID, undefined);
+
+    // CodeInterpreter: from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_CODE_INTERPRETER_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:code-interpreter/aws.codeinterpreter.v1'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::CodeInterpreter',
+      'aws.codeinterpreter.v1',
+      undefined,
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_CODE_INTERPRETER_ARN, undefined);
+
+    // Identity: OAuth2 credential provider (by name)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, 'my-oauth2-provider');
+    mockAttribute(SEMATTRS_RPC_METHOD, 'GetOAuth2Credentials');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::OAuth2CredentialProvider', 'my-oauth2-provider');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, undefined);
+    mockAttribute(SEMATTRS_RPC_METHOD, undefined);
+
+    // Identity: APIKey credential provider (by name)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, 'my-apikey-provider');
+    mockAttribute(SEMATTRS_RPC_METHOD, 'GetAPIKeyCredentials');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::APIKeyCredentialProvider', 'my-apikey-provider');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, undefined);
+    mockAttribute(SEMATTRS_RPC_METHOD, undefined);
+
+    // Identity: credential provider from ARN
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER,
+      'arn:aws:bedrock:us-west-2:123456789012:credential-provider/my-oauth2-provider'
+    );
+    mockAttribute(SEMATTRS_RPC_METHOD, 'GetOAuth2Credentials');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::OAuth2CredentialProvider', 'my-oauth2-provider');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_AUTH_CREDENTIAL_PROVIDER, undefined);
+    mockAttribute(SEMATTRS_RPC_METHOD, undefined);
+
+    // Memory: with memory ID
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID, 'mem-12345');
+    validateRemoteResourceAttributes('AWS::BedrockAgentCore::Memory', 'mem-12345');
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID, undefined);
+
+    // Memory: with memory ARN (uses ARN as CFN primary identifier)
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:memory/mem-from-arn'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::Memory',
+      'mem-from-arn',
+      'arn:aws:bedrock:us-west-2:123456789012:memory/mem-from-arn',
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN, undefined);
+
+    // Memory: with both memory ID and ARN (ID takes precedence, ARN is CFN primary identifier)
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID, 'mem-12345');
+    mockAttribute(
+      AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN,
+      'arn:aws:bedrock:us-west-2:123456789012:memory/mem-from-arn'
+    );
+    validateRemoteResourceAttributes(
+      'AWS::BedrockAgentCore::Memory',
+      'mem-12345',
+      'arn:aws:bedrock:us-west-2:123456789012:memory/mem-from-arn',
+      'us-west-2',
+      '123456789012'
+    );
+    mockAttribute(AWS_ATTRIBUTE_KEYS.GEN_AI_MEMORY_ID, undefined);
+    mockAttribute(AWS_ATTRIBUTE_KEYS.AWS_BEDROCK_AGENTCORE_MEMORY_ARN, undefined);
+
+    // Clean up BedrockAgentCore service attributes
+    mockAttribute(SEMATTRS_RPC_SYSTEM, undefined);
+    mockAttribute(SEMATTRS_RPC_SERVICE, undefined);
+  });
+
+  it('testNormalizeRemoteServiceName_BedrockAgentCore', () => {
+    testAwsSdkServiceNormalization('BedrockAgentCore', 'AWS::BedrockAgentCore');
   });
 
   it('testDBClientSpanWithRemoteResourceAttributes', () => {

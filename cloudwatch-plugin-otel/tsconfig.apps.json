@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "composite": false,
+    "tsBuildInfoFile": null
+  },
+  "include": [
+    "contract-tests/apps/zerocode-app.ts",
+    "contract-tests/apps/workload.ts",
+    "contract-tests/apps/db-app.ts",
+    "contract-tests/apps/rpc-app.ts",
+    "contract-tests/apps/messaging-app.ts",
+    "src/**/*.ts"
+  ]
+}

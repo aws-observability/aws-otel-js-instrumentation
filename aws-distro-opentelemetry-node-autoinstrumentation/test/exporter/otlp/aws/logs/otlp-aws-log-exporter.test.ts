@@ -2,8 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 import { OTLPAwsBaseExporterTest } from '../common/otlp-aws-base-exporter.test';
 import { OTLPAwsLogExporter } from '../../../../../src/exporter/otlp/aws/logs/otlp-aws-log-exporter';
+import { LoggerProvider, ReadableLogRecord } from '@opentelemetry/sdk-logs';
 
-class OTLPAwsLogExporterTest extends OTLPAwsBaseExporterTest {
+class OTLPAwsLogExporterTest extends OTLPAwsBaseExporterTest<ReadableLogRecord[]> {
+  protected override createPayload(names: string[]): ReadableLogRecord[] {
+    const records: ReadableLogRecord[] = [];
+    const provider = new LoggerProvider({
+      processors: [
+        {
+          onEmit: record => {
+            records.push(record);
+          },
+          forceFlush: () => Promise.resolve(),
+          shutdown: () => Promise.resolve(),
+        },
+      ],
+    });
+    const logger = provider.getLogger('exporter-test');
+    names.forEach(name => logger.emit({ body: name }));
+    return records;
+  }
+
   protected override getExporter() {
     return OTLPAwsLogExporter;
   }

@@ -5,6 +5,10 @@
 # Fail fast
 set -e
 
+# Optional: pass an app name to build only that image (for sharded CI).
+# When omitted, all images are built (original behavior).
+TARGET_APP="${1:-}"
+
 # Check script is running in contract-tests
 current_path=`pwd`
 current_dir="${current_path##*/}"
@@ -47,15 +51,30 @@ fi
 
 # Create application images
 cd ..
-for dir in contract-tests/images/applications/*
-do
-  application="${dir##*/}"
-  docker build . --progress=plain --no-cache -t aws-application-signals-tests-${application}-app -f ${dir}/Dockerfile --build-arg="DISTRO=${DISTRO}"
-  if [ $? = 1 ]; then
-    echo "Docker build for ${application} application failed"
+if [ -n "$TARGET_APP" ]; then
+  # Sharded mode: build only the requested app image
+  dir="contract-tests/images/applications/${TARGET_APP}"
+  if [ ! -d "$dir" ]; then
+    echo "Unknown application: ${TARGET_APP}"
     exit 1
   fi
-done
+  docker build . --progress=plain --no-cache -t aws-application-signals-tests-${TARGET_APP}-app -f ${dir}/Dockerfile --build-arg="DISTRO=${DISTRO}"
+  if [ $? = 1 ]; then
+    echo "Docker build for ${TARGET_APP} application failed"
+    exit 1
+  fi
+else
+  # Build all application images
+  for dir in contract-tests/images/applications/*
+  do
+    application="${dir##*/}"
+    docker build . --progress=plain --no-cache -t aws-application-signals-tests-${application}-app -f ${dir}/Dockerfile --build-arg="DISTRO=${DISTRO}"
+    if [ $? = 1 ]; then
+      echo "Docker build for ${application} application failed"
+      exit 1
+    fi
+  done
+fi
 
 # Build and install mock-collector
 cd contract-tests/images/mock-collector

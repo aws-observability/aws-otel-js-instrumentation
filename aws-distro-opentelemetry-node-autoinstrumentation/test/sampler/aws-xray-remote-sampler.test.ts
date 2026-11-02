@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Attributes, Context, context, Link, Span, SpanKind } from '@opentelemetry/api';
-import { Resource } from '@opentelemetry/resources';
-import { SamplingDecision, Tracer } from '@opentelemetry/sdk-trace-base';
+import { resourceFromAttributes, emptyResource } from '@opentelemetry/resources';
+import { SamplingDecision } from '@opentelemetry/sdk-trace-base';
+import type { Tracer } from '@opentelemetry/api';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { SEMRESATTRS_CLOUD_PLATFORM, SEMRESATTRS_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { expect } from 'expect';
@@ -20,10 +21,11 @@ export const testTraceId = '0af7651916cd43dd8448eb211c80319c';
 describe('AwsXrayRemoteSampler', () => {
   afterEach(() => {
     sinon.restore();
+    nock.cleanAll();
   });
 
   it('testCreateRemoteSamplerWithEmptyResource', () => {
-    const sampler: AwsXRayRemoteSampler = new AwsXRayRemoteSampler({ resource: Resource.EMPTY });
+    const sampler: AwsXRayRemoteSampler = new AwsXRayRemoteSampler({ resource: emptyResource() });
 
     expect((sampler as any)._root._root.rulePoller).not.toBeFalsy();
     expect((sampler as any)._root._root.rulePollingIntervalMillis).toEqual(300 * 1000);
@@ -33,7 +35,7 @@ describe('AwsXrayRemoteSampler', () => {
   });
 
   it('testCreateRemoteSamplerWithPopulatedResource', () => {
-    const resource = new Resource({
+    const resource = resourceFromAttributes({
       [SEMRESATTRS_SERVICE_NAME]: 'test-service-name',
       [SEMRESATTRS_CLOUD_PLATFORM]: 'test-cloud-platform',
     });
@@ -48,7 +50,7 @@ describe('AwsXrayRemoteSampler', () => {
   });
 
   it('testCreateRemoteSamplerWithAllFieldsPopulated', () => {
-    const resource = new Resource({
+    const resource = resourceFromAttributes({
       [SEMRESATTRS_SERVICE_NAME]: 'test-service-name',
       [SEMRESATTRS_CLOUD_PLATFORM]: 'test-cloud-platform',
     });
@@ -70,7 +72,7 @@ describe('AwsXrayRemoteSampler', () => {
   it('testUpdateSamplingRulesAndTargetsWithPollersAndShouldSampled', done => {
     nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES));
     nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS));
-    const resource = new Resource({
+    const resource = resourceFromAttributes({
       [SEMRESATTRS_SERVICE_NAME]: 'test-service-name',
       [SEMRESATTRS_CLOUD_PLATFORM]: 'test-cloud-platform',
     });
@@ -110,9 +112,9 @@ describe('AwsXrayRemoteSampler', () => {
   });
 
   it('testLargeReservoir', done => {
-    nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES));
-    nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS));
-    const resource = new Resource({
+    nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES)).persist();
+    nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS)).persist();
+    const resource = resourceFromAttributes({
       [SEMRESATTRS_SERVICE_NAME]: 'test-service-name',
       [SEMRESATTRS_CLOUD_PLATFORM]: 'test-cloud-platform',
     });
@@ -153,9 +155,9 @@ describe('AwsXrayRemoteSampler', () => {
   });
 
   it('testSomeReservoir', done => {
-    nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES));
-    nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS));
-    const resource = new Resource({
+    nock(TEST_URL).post('/GetSamplingRules').reply(200, require(DATA_DIR_SAMPLING_RULES)).persist();
+    nock(TEST_URL).post('/SamplingTargets').reply(200, require(DATA_DIR_SAMPLING_TARGETS)).persist();
+    const resource = resourceFromAttributes({
       [SEMRESATTRS_SERVICE_NAME]: 'test-service-name',
       [SEMRESATTRS_CLOUD_PLATFORM]: 'test-cloud-platform',
     });
@@ -219,7 +221,7 @@ describe('AwsXrayRemoteSampler', () => {
   });
 
   it('toString()', () => {
-    expect(new AwsXRayRemoteSampler({ resource: Resource.EMPTY }).toString()).toEqual(
+    expect(new AwsXRayRemoteSampler({ resource: emptyResource() }).toString()).toEqual(
       'AwsXRayRemoteSampler{root=ParentBased{root=_AwsXRayRemoteSampler{awsProxyEndpoint=http://localhost:2000, rulePollingIntervalMillis=300000}, remoteParentSampled=AlwaysOnSampler, remoteParentNotSampled=AlwaysOffSampler, localParentSampled=AlwaysOnSampler, localParentNotSampled=AlwaysOffSampler}'
     );
   });
@@ -228,7 +230,7 @@ describe('AwsXrayRemoteSampler', () => {
     const defaultRuleDir = __dirname + '/data/get-sampling-rules-response-sample-sample-all.json';
     nock(TEST_URL).post('/GetSamplingRules').reply(200, require(defaultRuleDir));
 
-    const sampler: AwsXRayRemoteSampler = new AwsXRayRemoteSampler({ resource: Resource.EMPTY });
+    const sampler: AwsXRayRemoteSampler = new AwsXRayRemoteSampler({ resource: emptyResource() });
     const tracerProvider: NodeTracerProvider = new NodeTracerProvider({ sampler: sampler });
     const tracer: Tracer = tracerProvider.getTracer('test');
 
@@ -253,7 +255,7 @@ describe('AwsXrayRemoteSampler', () => {
     const defaultRuleDir = __dirname + '/data/get-sampling-rules-response-sample-sample-all.json';
     nock(TEST_URL).post('/GetSamplingRules').reply(200, require(defaultRuleDir));
 
-    const sampler: _AwsXRayRemoteSampler = new _AwsXRayRemoteSampler({ resource: Resource.EMPTY });
+    const sampler: _AwsXRayRemoteSampler = new _AwsXRayRemoteSampler({ resource: emptyResource() });
     const tracerProvider: NodeTracerProvider = new NodeTracerProvider({ sampler: sampler });
     const tracer: Tracer = tracerProvider.getTracer('test');
 

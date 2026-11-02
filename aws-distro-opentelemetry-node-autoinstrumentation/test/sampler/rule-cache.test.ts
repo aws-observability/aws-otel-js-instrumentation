@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes, emptyResource } from '@opentelemetry/resources';
 import { expect } from 'expect';
 import * as sinon from 'sinon';
 import { RuleCache } from '../../src/sampler/rule-cache';
@@ -29,7 +29,7 @@ describe('RuleCache', () => {
   it('testCacheUpdatesAndSortsRules', () => {
     // Set up default rule in rule cache
     const defaultRule = createRule('Default', 10000, 1, 0.05);
-    const cache = new RuleCache(new Resource({}));
+    const cache = new RuleCache(resourceFromAttributes({}));
     cache.updateRules([defaultRule]);
 
     // Expect default rule to exist
@@ -60,7 +60,7 @@ describe('RuleCache', () => {
     const clock = sinon.useFakeTimers(Date.now());
 
     const defaultRule = createRule('Default', 10000, 1, 0.05);
-    const cache = new RuleCache(new Resource({}));
+    const cache = new RuleCache(resourceFromAttributes({}));
     cache.updateRules([defaultRule]);
 
     clock.tick(2 * 60 * 60 * 1000);
@@ -71,7 +71,7 @@ describe('RuleCache', () => {
 
   it('testUpdateCacheWithOnlyOneRuleChanged', () => {
     // Set up default rule in rule cache
-    const cache = new RuleCache(new Resource({}));
+    const cache = new RuleCache(resourceFromAttributes({}));
     const rule1 = createRule('rule_1', 1, 0, 0.0);
     const rule2 = createRule('rule_2', 10, 0, 0.0);
     const rule3 = createRule('rule_3', 100, 0, 0.0);
@@ -99,7 +99,7 @@ describe('RuleCache', () => {
 
   it('testUpdateRulesRemovesOlderRule', () => {
     // Set up default rule in rule cache
-    const cache = new RuleCache(new Resource({}));
+    const cache = new RuleCache(resourceFromAttributes({}));
     expect((cache as any).ruleAppliers.length).toEqual(0);
 
     const rule1 = createRule('first_rule', 200, 0, 0.0);
@@ -118,7 +118,7 @@ describe('RuleCache', () => {
   it('testUpdateSamplingTargets', () => {
     const rule1 = createRule('default', 10000, 1, 0.05);
     const rule2 = createRule('test', 20, 10, 0.2);
-    const cache = new RuleCache(new Resource({}));
+    const cache = new RuleCache(resourceFromAttributes({}));
     cache.updateRules([rule1, rule2]);
 
     expect(((cache as any).ruleAppliers[0] as any).reservoirSampler.quota).toEqual(1);
@@ -174,7 +174,7 @@ describe('RuleCache', () => {
     const rule1 = createRule('test', 4, 2, 2.0);
     const rule2 = createRule('default', 5, 5, 5.0);
 
-    const cache = new RuleCache(Resource.EMPTY);
+    const cache = new RuleCache(emptyResource());
     cache.updateRules([rule1, rule2]);
 
     clock.tick(1); // ms

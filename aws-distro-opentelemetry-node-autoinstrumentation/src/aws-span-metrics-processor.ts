@@ -6,7 +6,7 @@ import { Resource } from '@opentelemetry/resources';
 import { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { SEMATTRS_HTTP_STATUS_CODE } from '@opentelemetry/semantic-conventions';
 import { AttributeMap, MetricAttributeGenerator } from './metric-attribute-generator';
-import { ForceFlushFunction } from './aws-span-processing-util';
+import { AwsSpanProcessingUtil, ForceFlushFunction } from './aws-span-processing-util';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 
 /**
@@ -86,6 +86,10 @@ export class AwsSpanMetricsProcessor implements SpanProcessor {
   public onStart(span: Span, parentContext: Context): void {}
 
   public onEnd(span: ReadableSpan): void {
+    // If OTEL_AWS_HTTP_OPERATION_PATHS is configured, override the span name so that
+    // metrics use the configured operation path instead of the original span name.
+    span = AwsSpanProcessingUtil.applyOperationPathSpanName(span);
+
     const attributeMap: AttributeMap = this.generator.generateMetricAttributeMapFromSpan(span, this.resource);
 
     for (const attribute in attributeMap) {

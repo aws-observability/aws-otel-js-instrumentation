@@ -143,18 +143,20 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
     let sandbox!: sinon.SinonSandbox;
     let mockExporter: sinon.SinonStubbedInstance<OTLPAwsLogExporter>;
     let processor: any; // Setting it to any instead of AwsCloudWatchOtlpBatchLogRecordProcessor since we need to stub a few of its methods
+    let exportStub: sinon.SinonStub;
 
     beforeEach(() => {
       sandbox = sinon.createSandbox();
       mockExporter = {
-        export: sandbox.stub().resolves({ code: ExportResultCode.SUCCESS }),
+        export: sandbox.stub().callsFake((_logs: any, cb: any) => cb({ code: ExportResultCode.SUCCESS })),
+        shutdown: sandbox.stub().resolves(),
+        forceFlush: sandbox.stub().resolves(),
       } as any;
       processor = new AwsCloudWatchOtlpBatchLogRecordProcessor(mockExporter, {
         maxExportBatchSize: 50,
         exportTimeoutMillis: 5000,
       });
-      processor._clearTimer = sandbox.stub();
-      processor._export = sandbox.stub().resolves();
+      exportStub = mockExporter.export as sinon.SinonStub;
     });
 
     afterEach(() => sandbox.restore());
@@ -168,9 +170,9 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
       await (processor as AwsCloudWatchOtlpBatchLogRecordProcessor).forceFlush();
 
       expect(processor._finishedLogRecords.length).toBe(0);
-      expect(processor._export.callCount).toBe(1);
+      expect(exportStub.callCount).toBe(1);
 
-      const exportedLogs = processor._export.getCall(0).args[0];
+      const exportedLogs = exportStub.getCall(0).args[0];
       expect(exportedLogs.length).toBe(logCount);
       exportedLogs.forEach((log: LogRecord) => {
         expect(log.body).toBe(logBody);
@@ -187,10 +189,10 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
       await (processor as AwsCloudWatchOtlpBatchLogRecordProcessor).forceFlush();
 
       expect(processor._finishedLogRecords.length).toBe(0);
-      expect(processor._export.callCount).toBe(logCount);
+      expect(exportStub.callCount).toBe(logCount);
 
-      processor._export.getCalls().forEach((call: any) => {
-        expect(call.args.length).toBe(1);
+      exportStub.getCalls().forEach((call: any) => {
+        expect(call.args.length).toBe(2);
         const logBatch = call.args[0];
         expect(logBatch.length).toBe(1);
       });
@@ -214,14 +216,138 @@ describe('AwsCloudWatchOtlpBatchLogRecordProcessor', () => {
       await (processor as AwsCloudWatchOtlpBatchLogRecordProcessor).forceFlush();
 
       expect(processor._finishedLogRecords.length).toBe(0);
-      expect(processor._export.callCount).toBe(5);
+      expect(exportStub.callCount).toBe(5);
 
-      const calls = processor._export.getCalls();
+      const calls = exportStub.getCalls();
       const expectedBatchSizes = [1, 1, 1, 10, 2];
 
       calls.forEach((call: any, index: number) => {
         expect(call.args[0].length).toBe(expectedBatchSizes[index]);
       });
+    });
+
+    it('should drain all records across multiple maxExportBatchSize chunks', async () => {
+      // Use a small maxExportBatchSize to force multiple chunks
+      const smallBatchProcessor = new AwsCloudWatchOtlpBatchLogRecordProcessor(mockExporter, {
+        maxExportBatchSize: 5,
+        exportTimeoutMillis: 5000,
+      });
+
+      const logCount = 12;
+      const logBody = 'test';
+      const testLogs = generateTestLogData(logBody, 'key', 0, logCount, true);
+      (smallBatchProcessor as any)._finishedLogRecords = testLogs;
+
+      await smallBatchProcessor.forceFlush();
+
+      // All 12 records should be drained
+      expect((smallBatchProcessor as any)._finishedLogRecords.length).toBe(0);
+      // 12 small logs all fit under 1 MB, so each chunk of 5 becomes one export call:
+      // chunk 1: 5 logs -> 1 export, chunk 2: 5 logs -> 1 export, chunk 3: 2 logs -> 1 export
+      expect(exportStub.callCount).toBe(3);
+
+      const calls = exportStub.getCalls();
+      expect(calls[0].args[0].length).toBe(5);
+      expect(calls[1].args[0].length).toBe(5);
+      expect(calls[2].args[0].length).toBe(2);
+    });
+  });
+
+  describe('_exportOneBatch (timer path)', () => {
+    let sandbox!: sinon.SinonSandbox;
+    let mockExporter: sinon.SinonStubbedInstance<OTLPAwsLogExporter>;
+    let processor: any;
+    let exportStub: sinon.SinonStub;
+
+    beforeEach(() => {
+      sandbox = sinon.createSandbox();
+      mockExporter = {
+        export: sandbox.stub().callsFake((_logs: any, cb: any) => cb({ code: ExportResultCode.SUCCESS })),
+        shutdown: sandbox.stub().resolves(),
+        forceFlush: sandbox.stub().resolves(),
+      } as any;
+      processor = new AwsCloudWatchOtlpBatchLogRecordProcessor(mockExporter, {
+        maxExportBatchSize: 50,
+        exportTimeoutMillis: 5000,
+      });
+      exportStub = mockExporter.export as sinon.SinonStub;
+    });
+
+    afterEach(() => sandbox.restore());
+
+    it('should size-split batches on the timer path', async () => {
+      const largeLogBody = 'X'.repeat(1048577); // > 1MB
+      const logCount = 3;
+      const testLogs = generateTestLogData(largeLogBody, 'key', 0, logCount, true);
+      processor._finishedLogRecords = testLogs;
+
+      processor._exportOneBatch();
+      // Wait for async export to complete
+      await processor._currentExport?.exportCompleted?.catch(() => {});
+      // _exportOneBatch exports sequentially, so wait a tick for cleanup
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(exportStub.callCount).toBe(logCount);
+      exportStub.getCalls().forEach((call: any) => {
+        expect(call.args[0].length).toBe(1);
+      });
+    });
+
+    it('should export single batch under size limit on the timer path', async () => {
+      const logCount = 10;
+      const logBody = 'test';
+      const testLogs = generateTestLogData(logBody, 'key', 0, logCount, true);
+      processor._finishedLogRecords = testLogs;
+
+      processor._exportOneBatch();
+      await processor._currentExport?.exportCompleted?.catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(exportStub.callCount).toBe(1);
+      expect(exportStub.getCall(0).args[0].length).toBe(logCount);
+    });
+
+    it('should handle empty buffer gracefully on the timer path', async () => {
+      processor._finishedLogRecords = [];
+      processor._exportOneBatch();
+      await new Promise(resolve => setTimeout(resolve, 10));
+      expect(exportStub.callCount).toBe(0);
+    });
+  });
+
+  describe('error handling', () => {
+    let sandbox!: sinon.SinonSandbox;
+    let processor: any;
+
+    beforeEach(() => {
+      sandbox = sinon.createSandbox();
+      const mockExporter = {
+        export: sandbox.stub().callsFake((_logs: any, cb: any) => cb({ code: ExportResultCode.FAILED })),
+        shutdown: sandbox.stub().resolves(),
+        forceFlush: sandbox.stub().resolves(),
+      } as any;
+      processor = new AwsCloudWatchOtlpBatchLogRecordProcessor(mockExporter, {
+        maxExportBatchSize: 50,
+        exportTimeoutMillis: 5000,
+      });
+    });
+
+    afterEach(() => sandbox.restore());
+
+    it('should handle export failure in forceFlush without throwing', async () => {
+      const testLogs = generateTestLogData('test', 'key', 0, 3, true);
+      processor._finishedLogRecords = testLogs;
+      // Should not throw — errors are routed through globalErrorHandler
+      await (processor as AwsCloudWatchOtlpBatchLogRecordProcessor).forceFlush();
+      expect(processor._finishedLogRecords.length).toBe(0);
+    });
+
+    it('should handle export failure on the timer path without throwing', async () => {
+      const testLogs = generateTestLogData('test', 'key', 0, 3, true);
+      processor._finishedLogRecords = testLogs;
+      processor._exportOneBatch();
+      await processor._currentExport?.exportCompleted?.catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 10));
     });
   });
 

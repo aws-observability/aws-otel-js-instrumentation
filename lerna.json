@@ -1,6 +1,7 @@
 {
   "npmClient": "npm",
   "useWorkspaces": true,
+  "stream": true,
   "version": "independent",
   "changelog": {
     "repo": "aws-observability/aws-otel-js-instrumentation",

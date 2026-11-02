@@ -22,7 +22,10 @@ jobs:
 
   build:
     environment: Release
-    runs-on: ubuntu-latest
+    runs-on:
+      - codebuild-adot-js-runner-${{ github.run_id }}-${{ github.run_attempt }}
+      - image:ubuntu-8.0
+      - instance-size:large
     needs: validate-udp-exporter-e2e-test
     steps:
       - name: Checkout Contrib Repo @ SHA - ${{ github.sha }}
@@ -31,7 +34,7 @@ jobs:
       - name: Set up Node and run Unit Tests
         uses: ./.github/actions/set_up
         with:
-          node_version: "20"
+          node_version: "24"
           package_name: "@aws/aws-distro-opentelemetry-exporter-xray-udp"
           os: ubuntu-latest
           run_unit_tests: true

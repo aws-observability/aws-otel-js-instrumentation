@@ -13,8 +13,16 @@
 vulnerabilities:
   - id: CVE-2026-59892
     statement: "@opentelemetry/propagator-jaeger DoS via malformed HTTP header decoding. Fix: bump to 2.9.0, blocked on the OTel core upgrade (#499). https://avd.aquasec.com/nvd/cve-2026-59892"
-    expired_at: 2026-11-01
+    purls:
+      - "pkg:npm/%40opentelemetry/propagator-jaeger@2.8.0"
+    expired_at: 2026-11-30
 
   - id: CVE-2026-104872
     statement: "Temporary suppression pending OTel contrib upgrade. opentelemetry-js-contrib DB instrumentations (cassandra-driver, knex, mongoose, mysql, mysql2, oracledb, pg, tedious) information disclosure. Pulled in via @opentelemetry/auto-instrumentations-node 0.77.0, whose ^0.x ranges cannot reach the fixed versions; fix requires the auto-instrumentations-node bump tied to the OTel core upgrade (#499). https://avd.aquasec.com/nvd/cve-2026-104872"
     expired_at: 2026-11-06
+
+  - id: CVE-2026-116576
+    statement: "systeminformation command injection in the published v0.13.0 image, pulled in by @opentelemetry/instrumentation-host-metrics. Fixed in 5.33.16. Suppressed until an image with the fix is published. https://avd.aquasec.com/nvd/cve-2026-116576"
+    purls:
+      - "pkg:npm/systeminformation@5.33.11"
+    expired_at: 2026-11-30

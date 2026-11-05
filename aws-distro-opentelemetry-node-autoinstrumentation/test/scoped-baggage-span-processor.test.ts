@@ -5,6 +5,7 @@ import { context, Context, ROOT_CONTEXT, propagation, SpanKind, trace } from '@o
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
 import { AlwaysOnSampler, SpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { spawnSync } from 'child_process';
 import { expect } from 'expect';
 import { GenAINestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
 import { VercelAISpanProcessor } from '../src/instrumentation/instrumentation-vercel-ai/span-processor';
@@ -19,7 +20,9 @@ import {
   AWS_AGENT_LINEAGE,
   INFERENCE_SCOPE,
   isGenAiInferenceSpan,
+  registerScopedBaggageKey,
   ScopedBaggageSpanProcessor,
+  setActiveScopedBaggageSpanProcessor,
 } from '../src/scoped-baggage-span-processor';
 
 const LINEAGE = 'travel_planner,booking_agent';
@@ -212,6 +215,99 @@ describe('ScopedBaggageSpanProcessor', () => {
     expect(finished('agent').attributes[AWS_AGENT_LINEAGE]).toBeUndefined();
     expect(finished('chat model').attributes['session.id']).toBe('s-1');
     expect(finished('chat model').attributes[AWS_AGENT_LINEAGE]).toBe(LINEAGE);
+  });
+});
+
+describe('registerScopedBaggageKey', () => {
+  let exporter: InMemorySpanExporter;
+  let provider: NodeTracerProvider;
+  let processor: ScopedBaggageSpanProcessor;
+  let tracer: ReturnType<NodeTracerProvider['getTracer']>;
+  const ctx = contextWithBaggage({ 'my.key': 'v1' });
+
+  beforeEach(() => {
+    exporter = new InMemorySpanExporter();
+    processor = new ScopedBaggageSpanProcessor({});
+    provider = new NodeTracerProvider({
+      sampler: new AlwaysOnSampler(),
+      spanProcessors: [processor, new SimpleSpanProcessor(exporter)],
+    });
+    tracer = provider.getTracer('test');
+    setActiveScopedBaggageSpanProcessor(processor);
+  });
+
+  afterEach(async () => {
+    setActiveScopedBaggageSpanProcessor(undefined);
+    await provider.shutdown();
+  });
+
+  function finished(name: string) {
+    return exporter.getFinishedSpans().find(span => span.name === name)!;
+  }
+
+  it('registers a key with a predicate', () => {
+    expect(
+      registerScopedBaggageKey('my.key', span => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'execute_tool')
+    ).toBe(true);
+
+    const tool = tracer.startSpan('tool', {}, ctx);
+    tool.setAttribute(ATTR_GEN_AI_OPERATION_NAME, 'execute_tool');
+    tool.end();
+    tracer.startSpan('other', {}, ctx).end();
+
+    expect(finished('tool').attributes['my.key']).toBe('v1');
+    expect(finished('other').attributes['my.key']).toBeUndefined();
+  });
+
+  it('registers a key with a built-in scope name', () => {
+    expect(registerScopedBaggageKey('my.key', INFERENCE_SCOPE)).toBe(true);
+
+    const chat = tracer.startSpan('chat model', { kind: SpanKind.CLIENT }, ctx);
+    chat.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_CHAT);
+    chat.end();
+
+    expect(finished('chat model').attributes['my.key']).toBe('v1');
+  });
+
+  it('rejects an unknown scope name', () => {
+    expect(registerScopedBaggageKey('my.key', 'no_such_scope')).toBe(false);
+    expect(processor['_scopedKeys'].size).toBe(0);
+  });
+
+  it('skips the key when the predicate throws', () => {
+    registerScopedBaggageKey('my.key', () => {
+      throw new Error('boom');
+    });
+    tracer.startSpan('s', {}, ctx).end();
+
+    expect(finished('s').attributes['my.key']).toBeUndefined();
+  });
+
+  it('returns false when no processor is installed', () => {
+    setActiveScopedBaggageSpanProcessor(undefined);
+    expect(registerScopedBaggageKey('my.key', INFERENCE_SCOPE)).toBe(false);
+  });
+
+  it('is reachable through the public register entry point', () => {
+    // Customers can only import ./register and ./lite because of the package exports map. Run in a child
+    // process because loading register starts the distro.
+    const script =
+      "const m = require('@aws/aws-distro-opentelemetry-node-autoinstrumentation/register');" +
+      "process.exit(m.registerScopedBaggageKey('my.key', 'inference') === true ? 0 : 1);";
+    const proc = spawnSync(process.execPath, ['-e', script], {
+      cwd: __dirname,
+      timeout: 10000,
+      killSignal: 'SIGKILL',
+      env: Object.assign({}, process.env, {
+        AGENT_OBSERVABILITY_ENABLED: 'true',
+        OTEL_NODE_RESOURCE_DETECTORS: 'none',
+        OTEL_TRACES_EXPORTER: 'none',
+        OTEL_METRICS_EXPORTER: 'none',
+        OTEL_LOGS_EXPORTER: 'none',
+      }),
+    });
+    expect(proc.error).toBeUndefined();
+    expect(proc.status).toBe(0);
   });
 });
 

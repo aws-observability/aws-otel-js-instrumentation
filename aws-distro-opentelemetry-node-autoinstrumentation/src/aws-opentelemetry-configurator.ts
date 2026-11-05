@@ -82,7 +82,12 @@ import { OTLPAwsSigV4Options } from './exporter/otlp/aws/common/otlp-aws-base-ex
 import { loadSigV4RegionFromAwsConfig, resolveSigV4Region } from './exporter/otlp/aws/common/aws-authenticator';
 import { isAgentObservabilityEnabled, parseOtelBaggageKeysEnvVar } from './utils';
 import { GenAINestedClientSpanProcessor } from './gen-ai-nested-client-span-processor';
-import { AWS_AGENT_LINEAGE, INFERENCE_SCOPE, ScopedBaggageSpanProcessor } from './scoped-baggage-span-processor';
+import {
+  AWS_AGENT_LINEAGE,
+  INFERENCE_SCOPE,
+  ScopedBaggageSpanProcessor,
+  setActiveScopedBaggageSpanProcessor,
+} from './scoped-baggage-span-processor';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
@@ -368,9 +373,14 @@ export class AwsOpentelemetryConfigurator {
 
     // This processor adds attributes in onEnd, so it must run after GenAINestedClientSpanProcessor
     // (its scopes check the corrected span kind) and before the redacting and exporter processors.
-    const scopedBaggageKeys = AwsOpentelemetryConfigurator.getScopedBaggageKeys(baggageKeys);
-    if (Object.keys(scopedBaggageKeys).length > 0) {
-      spanProcessors.unshift(new ScopedBaggageSpanProcessor(scopedBaggageKeys));
+    // It is installed whenever agent observability is enabled, even with no default keys, so keys
+    // registered later with registerScopedBaggageKey() have a processor to attach to.
+    if (isAgentObservabilityEnabled()) {
+      const scopedBaggageProcessor = new ScopedBaggageSpanProcessor(
+        AwsOpentelemetryConfigurator.getScopedBaggageKeys(baggageKeys)
+      );
+      setActiveScopedBaggageSpanProcessor(scopedBaggageProcessor);
+      spanProcessors.unshift(scopedBaggageProcessor);
     }
 
     if (isAgentObservabilityEnabled()) {

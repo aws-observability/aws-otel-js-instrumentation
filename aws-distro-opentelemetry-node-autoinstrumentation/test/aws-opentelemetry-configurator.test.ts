@@ -578,7 +578,9 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'aws.agent.lineage';
       AwsOpentelemetryConfigurator.customizeSpanProcessors(processors, emptyResource());
 
-      expect(processors.some(p => p instanceof ScopedBaggageSpanProcessor)).toBe(false);
+      // The processor stays installed for registered keys, but without the lineage default.
+      const scoped = processors.find(p => p instanceof ScopedBaggageSpanProcessor) as ScopedBaggageSpanProcessor;
+      expect(scoped['_scopedKeys'].has('aws.agent.lineage')).toBe(false);
       const baggageProcessor = processors.find(p => p instanceof BaggageSpanProcessor)!;
       const predicate = (baggageProcessor as BaggageSpanProcessor)['_keyPredicate'].bind(baggageProcessor);
       expect(predicate('aws.agent.lineage')).toBe(true);

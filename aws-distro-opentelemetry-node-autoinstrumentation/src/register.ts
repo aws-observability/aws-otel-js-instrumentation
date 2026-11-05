@@ -123,6 +123,9 @@ export function resolveServiceEventsBootstrap(env: NodeJS.ProcessEnv): ServiceEv
   return { action: 'init' };
 }
 
+// Not part of the documented API. See registerScopedBaggageKey() for details.
+export { registerScopedBaggageKey } from './scoped-baggage-span-processor';
+
 export function setAwsDefaultEnvironmentVariables() {
   if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {
     process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';

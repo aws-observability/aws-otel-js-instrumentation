@@ -25,6 +25,41 @@ const SCOPES: Record<string, (span: ReadableSpan) => boolean> = {
   [INFERENCE_SCOPE]: isGenAiInferenceSpan,
 };
 
+// The processor installed by the distro configurator, used by registerScopedBaggageKey(). It is kept on
+// a global symbol so a second copy of this module (for example, one bundled by the application) finds it.
+const ACTIVE_PROCESSOR_KEY = Symbol.for('aws.adot.scopedBaggageSpanProcessor');
+
+export function setActiveScopedBaggageSpanProcessor(processor: ScopedBaggageSpanProcessor | undefined): void {
+  (globalThis as Record<symbol, unknown>)[ACTIVE_PROCESSOR_KEY] = processor;
+}
+
+/**
+ * Copy baggage entry `key` to spans that match `scope`. Not part of the documented API.
+ *
+ * Call it from application code after the distro has started. `scope` is a built-in scope name (for
+ * example `'inference'`) or a predicate that receives the ending span and returns true to copy the key.
+ * A predicate runs synchronously at the end of every span that carries the key, so it must be fast and
+ * must not modify the span. If it throws, the key is not copied to that span.
+ *
+ * A key that is also listed in OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS is already copied to every span at start,
+ * and that value is kept.
+ *
+ * @returns false, without registering, when agent observability is not enabled or the scope is unknown.
+ */
+export function registerScopedBaggageKey(key: string, scope: string | ((span: ReadableSpan) => boolean)): boolean {
+  const processor = (globalThis as Record<symbol, unknown>)[ACTIVE_PROCESSOR_KEY] as
+    | ScopedBaggageSpanProcessor
+    | undefined;
+  if (!processor) {
+    diag.warn(
+      `Cannot register scoped baggage key '${key}': the scoped baggage processor is installed only when ` +
+        'AGENT_OBSERVABILITY_ENABLED=true.'
+    );
+    return false;
+  }
+  return processor.register(key, scope);
+}
+
 /**
  * Copies selected baggage entries to span attributes, but only on spans that match a scope.
  *
@@ -41,7 +76,7 @@ const SCOPES: Record<string, (span: ReadableSpan) => boolean> = {
  * A key is only set when the span does not already have it, so a value set by the instrumentation wins.
  */
 export class ScopedBaggageSpanProcessor implements SpanProcessor {
-  private readonly _scopedKeys: Map<string, (span: ReadableSpan) => boolean> = new Map();
+  private _scopedKeys: Map<string, (span: ReadableSpan) => boolean> = new Map();
   private readonly _pendingBySpan: WeakMap<object, Record<string, string>> = new WeakMap();
 
   /**
@@ -49,24 +84,34 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
    */
   constructor(scopedKeys: Record<string, string>) {
     for (const [key, scope] of Object.entries(scopedKeys)) {
-      const predicate = SCOPES[scope];
-      if (!predicate) {
-        diag.warn(`Unknown baggage scope '${scope}' for key '${key}'. The key will not be copied.`);
-        continue;
-      }
-      this._scopedKeys.set(key, predicate);
+      this.register(key, scope);
     }
   }
 
+  /** Copy baggage entry `key` to spans that match `scope`, a built-in scope name or a predicate. */
+  register(key: string, scope: string | ((span: ReadableSpan) => boolean)): boolean {
+    const predicate = typeof scope === 'string' ? SCOPES[scope] : scope;
+    if (typeof predicate !== 'function') {
+      diag.warn(`Unknown baggage scope '${scope}' for key '${key}'. The key will not be copied.`);
+      return false;
+    }
+    // Replace the map so a registration never changes it while a span is being processed.
+    const scopedKeys = new Map(this._scopedKeys);
+    scopedKeys.set(key, predicate);
+    this._scopedKeys = scopedKeys;
+    return true;
+  }
+
   onStart(span: Span, parentContext: Context): void {
-    if (this._scopedKeys.size === 0) {
+    const scopedKeys = this._scopedKeys;
+    if (scopedKeys.size === 0) {
       return;
     }
     const entries = propagation.getBaggage(parentContext)?.getAllEntries() ?? [];
     const pending: Record<string, string> = {};
     let found = false;
     for (const [key, entry] of entries) {
-      if (this._scopedKeys.has(key)) {
+      if (scopedKeys.has(key)) {
         pending[key] = entry.value;
         found = true;
       }

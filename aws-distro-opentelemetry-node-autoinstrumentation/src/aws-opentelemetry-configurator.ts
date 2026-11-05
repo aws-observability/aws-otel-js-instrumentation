@@ -65,6 +65,7 @@ import {
 } from '@opentelemetry/sdk-logs';
 import { SEMRESATTRS_TELEMETRY_AUTO_VERSION } from '@opentelemetry/semantic-conventions';
 import { AlwaysRecordSampler } from './always-record-sampler';
+import { AgentCoreIdGenerator } from './agentcore-id-generator';
 import { AttributePropagatingSpanProcessorBuilder } from './attribute-propagating-span-processor-builder';
 import { AttributeRedactingSpanProcessor } from './attribute-redacting-span-processor';
 import { AwsBatchUnsampledSpanProcessor } from './aws-batch-unsampled-span-processor';
@@ -221,10 +222,7 @@ export class AwsOpentelemetryConfigurator {
     this.instrumentations = instrumentations;
     this.propagator = getPropagator();
 
-    // TODO: Consider removing AWSXRayIdGenerator as it is not needed
-    // Similarly to Java, always use AWS X-Ray Id Generator
-    // https://github.com/aws-observability/aws-otel-java-instrumentation/blob/a011b8cc29ee32b7f668c04ccfdf64cd30de467c/awsagentprovider/src/main/java/software/amazon/opentelemetry/javaagent/providers/AwsTracerCustomizerProvider.java#L36
-    this.idGenerator = new AWSXRayIdGenerator();
+    this.idGenerator = isAgentObservabilityEnabled() ? new AgentCoreIdGenerator() : new AWSXRayIdGenerator();
 
     this.sampler = AwsOpentelemetryConfigurator.customizeSampler(
       customBuildSamplerFromEnv(this.resource, useXraySampler)

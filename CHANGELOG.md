@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix: avoid repeated AgentCore trace and span IDs after snapshot restore
+  ([#587](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/587))
 - fix: support AWS China partition endpoints (`amazonaws.com.cn`) for collector-less X-Ray and
   CloudWatch Logs OTLP export
   ([#569](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/569))

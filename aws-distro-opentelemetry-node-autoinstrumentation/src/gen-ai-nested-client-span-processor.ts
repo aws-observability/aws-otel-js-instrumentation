@@ -11,6 +11,13 @@ import {
   GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION,
 } from './instrumentation/common/semconv';
 
+export const GEN_AI_INFERENCE_OPERATIONS: readonly string[] = [
+  GEN_AI_OPERATION_NAME_VALUE_CHAT,
+  GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION,
+  GEN_AI_OPERATION_NAME_VALUE_GENERATE_CONTENT,
+  GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS,
+];
+
 export class GenAINestedClientSpanProcessor implements SpanProcessor {
   // OTel GenAI semantic conventions require outgoing LLM calls to be CLIENT spans.
   // However, the same call can be instrumented by both the agentic framework
@@ -24,17 +31,10 @@ export class GenAINestedClientSpanProcessor implements SpanProcessor {
   onStart(_span: Span, _parentContext: Context): void {}
 
   onEnd(span: ReadableSpan): void {
-    const genAiInferenceOperations = [
-      GEN_AI_OPERATION_NAME_VALUE_CHAT,
-      GEN_AI_OPERATION_NAME_VALUE_TEXT_COMPLETION,
-      GEN_AI_OPERATION_NAME_VALUE_GENERATE_CONTENT,
-      GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS,
-    ];
-
     // Clean up before early returns so child state cannot leak for non-GenAI parents.
     const spanId = span.spanContext().spanId;
     const childOperations = new Set(
-      genAiInferenceOperations.filter(
+      GEN_AI_INFERENCE_OPERATIONS.filter(
         operation => spanId && this._parentSpanIdAndOperationToGenAiClientChild.delete(`${spanId}:${operation}`)
       )
     );
@@ -44,7 +44,7 @@ export class GenAINestedClientSpanProcessor implements SpanProcessor {
     }
 
     const operation = (span.attributes || {})[ATTR_GEN_AI_OPERATION_NAME] as string | undefined;
-    if (!operation || !genAiInferenceOperations.includes(operation)) {
+    if (!operation || !GEN_AI_INFERENCE_OPERATIONS.includes(operation)) {
       return;
     }
 

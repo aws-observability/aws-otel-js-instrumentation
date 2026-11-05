@@ -82,6 +82,7 @@ import { OTLPAwsSigV4Options } from './exporter/otlp/aws/common/otlp-aws-base-ex
 import { loadSigV4RegionFromAwsConfig, resolveSigV4Region } from './exporter/otlp/aws/common/aws-authenticator';
 import { isAgentObservabilityEnabled, parseOtelBaggageKeysEnvVar } from './utils';
 import { GenAINestedClientSpanProcessor } from './gen-ai-nested-client-span-processor';
+import { AWS_AGENT_LINEAGE, INFERENCE_SCOPE, ScopedBaggageSpanProcessor } from './scoped-baggage-span-processor';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
@@ -344,12 +345,33 @@ export class AwsOpentelemetryConfigurator {
     spanProcessors.push(new AwsBatchUnsampledSpanProcessor(spanExporter));
   }
 
+  /**
+   * Baggage keys copied only to spans matching a scope, as a mapping of key to scope name.
+   *
+   * Agent observability copies aws.agent.lineage to GenAI inference spans. A key the customer lists in
+   * OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS is copied to every span by BaggageSpanProcessor instead, so explicit
+   * customer configuration wins over this default.
+   */
+  static getScopedBaggageKeys(customerBaggageKeys: Set<string>): Record<string, string> {
+    if (!isAgentObservabilityEnabled() || customerBaggageKeys.has(AWS_AGENT_LINEAGE)) {
+      return {};
+    }
+    return { [AWS_AGENT_LINEAGE]: INFERENCE_SCOPE };
+  }
+
   static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
     const baggageKeys: Set<string> = parseOtelBaggageKeysEnvVar();
 
     // This processor modifies attributes in onEnd, so it must run before exporter
     // processors to ensure they observe the redacted values.
     spanProcessors.unshift(new AttributeRedactingSpanProcessor());
+
+    // This processor adds attributes in onEnd, so it must run after GenAINestedClientSpanProcessor
+    // (its scopes check the corrected span kind) and before the redacting and exporter processors.
+    const scopedBaggageKeys = AwsOpentelemetryConfigurator.getScopedBaggageKeys(baggageKeys);
+    if (Object.keys(scopedBaggageKeys).length > 0) {
+      spanProcessors.unshift(new ScopedBaggageSpanProcessor(scopedBaggageKeys));
+    }
 
     if (isAgentObservabilityEnabled()) {
       // This processor modifies span kind in onEnd, so it must run before exporter

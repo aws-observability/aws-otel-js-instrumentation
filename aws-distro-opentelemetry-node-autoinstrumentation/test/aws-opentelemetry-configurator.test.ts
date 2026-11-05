@@ -77,6 +77,7 @@ import { AwsCloudWatchOtlpBatchLogRecordProcessor } from '../src/exporter/otlp/a
 import { TRACE_PARENT_HEADER } from '@opentelemetry/core';
 import { ConsoleEMFExporter } from '../src/exporter/aws/metrics/console-emf-exporter';
 import { GenAINestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
+import { ScopedBaggageSpanProcessor } from '../src/scoped-baggage-span-processor';
 
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -530,14 +531,15 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'True';
     AwsOpentelemetryConfigurator.customizeSpanProcessors(spanProcessors, emptyResource());
-    expect(spanProcessors.length).toEqual(5);
+    expect(spanProcessors.length).toEqual(6);
 
     // Verify processors are added in the expected order
     expect(spanProcessors[0]).toBeInstanceOf(GenAINestedClientSpanProcessor);
-    expect(spanProcessors[1]).toBeInstanceOf(AttributeRedactingSpanProcessor);
-    expect(spanProcessors[2]).toBeInstanceOf(BaggageSpanProcessor);
-    expect(spanProcessors[3]).toBeInstanceOf(AttributePropagatingSpanProcessor);
-    expect(spanProcessors[4]).toBeInstanceOf(AwsSpanMetricsProcessor);
+    expect(spanProcessors[1]).toBeInstanceOf(ScopedBaggageSpanProcessor);
+    expect(spanProcessors[2]).toBeInstanceOf(AttributeRedactingSpanProcessor);
+    expect(spanProcessors[3]).toBeInstanceOf(BaggageSpanProcessor);
+    expect(spanProcessors[4]).toBeInstanceOf(AttributePropagatingSpanProcessor);
+    expect(spanProcessors[5]).toBeInstanceOf(AwsSpanMetricsProcessor);
 
     // shut down exporters for test cleanup
     spanProcessors.forEach(spanProcessor => {
@@ -545,6 +547,46 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     });
     delete process.env.AGENT_OBSERVABILITY_ENABLED;
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
+  });
+
+  it('getScopedBaggageKeys copies aws.agent.lineage to inference spans only under agent observability', () => {
+    const previousAgentObservability = process.env.AGENT_OBSERVABILITY_ENABLED;
+    try {
+      delete process.env.AGENT_OBSERVABILITY_ENABLED;
+      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys(new Set())).toEqual({});
+
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys(new Set())).toEqual({
+        'aws.agent.lineage': 'inference',
+      });
+
+      // A key the customer allowlists is copied to every span instead, so the scoped default steps aside.
+      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys(new Set(['tenant.id', 'aws.agent.lineage']))).toEqual(
+        {}
+      );
+    } finally {
+      restoreEnv('AGENT_OBSERVABILITY_ENABLED', previousAgentObservability);
+    }
+  });
+
+  it('copies a customer-allowlisted aws.agent.lineage to every span instead of scoping it', () => {
+    const previousAgentObservability = process.env.AGENT_OBSERVABILITY_ENABLED;
+    const previousBaggageKeys = process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
+    const processors: SpanProcessor[] = [];
+    try {
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'aws.agent.lineage';
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(processors, emptyResource());
+
+      expect(processors.some(p => p instanceof ScopedBaggageSpanProcessor)).toBe(false);
+      const baggageProcessor = processors.find(p => p instanceof BaggageSpanProcessor)!;
+      const predicate = (baggageProcessor as BaggageSpanProcessor)['_keyPredicate'].bind(baggageProcessor);
+      expect(predicate('aws.agent.lineage')).toBe(true);
+    } finally {
+      processors.forEach(p => p.shutdown());
+      restoreEnv('AGENT_OBSERVABILITY_ENABLED', previousAgentObservability);
+      restoreEnv('OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS', previousBaggageKeys);
+    }
   });
 
   it('CustomizeSpanProcessorsWithAgentObservabilityTest', () => {
@@ -580,8 +622,9 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       processors = config.spanProcessors ?? [];
 
       expect(processors[0]).toBeInstanceOf(GenAINestedClientSpanProcessor);
-      expect(processors[1]).toBeInstanceOf(AttributeRedactingSpanProcessor);
-      expect(processors[2]).toBeInstanceOf(BatchSpanProcessor);
+      expect(processors[1]).toBeInstanceOf(ScopedBaggageSpanProcessor);
+      expect(processors[2]).toBeInstanceOf(AttributeRedactingSpanProcessor);
+      expect(processors[3]).toBeInstanceOf(BatchSpanProcessor);
     } finally {
       await Promise.all(processors.map(processor => processor.shutdown()));
       restoreEnv('AGENT_OBSERVABILITY_ENABLED', previousAgentObservability);

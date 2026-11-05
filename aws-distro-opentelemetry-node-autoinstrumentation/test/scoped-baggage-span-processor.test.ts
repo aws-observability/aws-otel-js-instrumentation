@@ -7,6 +7,7 @@ import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@
 import { AlwaysOnSampler, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { expect } from 'expect';
 import { GenAINestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
+import { VercelAISpanProcessor } from '../src/instrumentation/instrumentation-vercel-ai/span-processor';
 import {
   ATTR_GEN_AI_OPERATION_NAME,
   GEN_AI_OPERATION_NAME_VALUE_CHAT,
@@ -174,6 +175,26 @@ describe('ScopedBaggageSpanProcessor', () => {
     expect(finished('framework chat').kind).toBe(SpanKind.INTERNAL);
     expect(finished('framework chat').attributes[AWS_AGENT_LINEAGE]).toBeUndefined();
     expect(finished('bedrock chat').attributes[AWS_AGENT_LINEAGE]).toBe(LINEAGE);
+  });
+
+  it('stamps Vercel AI inference spans that start as INTERNAL and are promoted to CLIENT', async () => {
+    await provider.shutdown();
+    // Same order as production: VercelAISpanProcessor is inserted at the front of the processor list.
+    setup([
+      new VercelAISpanProcessor(),
+      new GenAINestedClientSpanProcessor(),
+      new ScopedBaggageSpanProcessor({ [AWS_AGENT_LINEAGE]: INFERENCE_SCOPE }),
+    ]);
+    const vercelTracer = provider.getTracer('ai');
+
+    const span = vercelTracer.startSpan('ai.generateText.doGenerate', { kind: SpanKind.INTERNAL }, lineageContext);
+    span.setAttribute('ai.operationId', 'ai.generateText.doGenerate');
+    span.end();
+
+    const exported = exporter.getFinishedSpans()[0];
+    expect(exported.kind).toBe(SpanKind.CLIENT);
+    expect(exported.attributes[ATTR_GEN_AI_OPERATION_NAME]).toBe(GEN_AI_OPERATION_NAME_VALUE_CHAT);
+    expect(exported.attributes[AWS_AGENT_LINEAGE]).toBe(LINEAGE);
   });
 
   it('leaves unscoped keys on every span', async () => {

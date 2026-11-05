@@ -18,18 +18,11 @@ export function isGenAiInferenceSpan(span: ReadableSpan): boolean {
   return typeof operation === 'string' && GEN_AI_INFERENCE_OPERATIONS.includes(operation);
 }
 
-interface Scope {
-  // Cheap check at span start. Spans that fail it are not tracked. It may only use what is fixed at
-  // start, such as span kind.
-  mayMatch: (span: Span) => boolean;
-  // Full check when the span ends, after instrumentations have set their attributes.
-  matches: (span: ReadableSpan) => boolean;
-}
-
-// Internal scope registry: scope name -> scope.
-const SCOPES: Record<string, Scope> = {
-  // Span kind only changes after start from CLIENT to INTERNAL, so non-CLIENT spans can never match.
-  [INFERENCE_SCOPE]: { mayMatch: span => span.kind === SpanKind.CLIENT, matches: isGenAiInferenceSpan },
+// Internal scope registry: scope name -> predicate evaluated when the span ends. Predicates run only at
+// end because processors can change a span's kind and attributes in onEnd. For example,
+// VercelAISpanProcessor promotes inference spans from INTERNAL to CLIENT.
+const SCOPES: Record<string, (span: ReadableSpan) => boolean> = {
+  [INFERENCE_SCOPE]: isGenAiInferenceSpan,
 };
 
 /**
@@ -40,13 +33,15 @@ const SCOPES: Record<string, Scope> = {
  * `gen_ai.operation.name`). Baggage is captured in `onStart` from the parent context, because the context
  * active when the span ends may not hold the same baggage, and applied in `onEnd` once the scope matches.
  *
- * This processor must run after GenAINestedClientSpanProcessor, so it sees the corrected span kind, and
- * before the exporter processors, so they see the new attribute.
+ * This processor must run after processors that change span kind in onEnd (VercelAISpanProcessor,
+ * GenAINestedClientSpanProcessor), so it sees the final kind, and before the exporter processors, so
+ * they see the new attribute. Pending baggage is held in a WeakMap keyed by the span, so spans that
+ * never end do not retain it.
  *
  * A key is only set when the span does not already have it, so a value set by the instrumentation wins.
  */
 export class ScopedBaggageSpanProcessor implements SpanProcessor {
-  private readonly _scopedKeys: Map<string, Scope> = new Map();
+  private readonly _scopedKeys: Map<string, (span: ReadableSpan) => boolean> = new Map();
   private readonly _pendingBySpan: WeakMap<object, Record<string, string>> = new WeakMap();
 
   /**
@@ -54,12 +49,12 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
    */
   constructor(scopedKeys: Record<string, string>) {
     for (const [key, scope] of Object.entries(scopedKeys)) {
-      const scopeDefinition = SCOPES[scope];
-      if (!scopeDefinition) {
+      const predicate = SCOPES[scope];
+      if (!predicate) {
         diag.warn(`Unknown baggage scope '${scope}' for key '${key}'. The key will not be copied.`);
         continue;
       }
-      this._scopedKeys.set(key, scopeDefinition);
+      this._scopedKeys.set(key, predicate);
     }
   }
 
@@ -71,7 +66,7 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
     const pending: Record<string, string> = {};
     let found = false;
     for (const [key, entry] of entries) {
-      if (this._scopedKeys.get(key)?.mayMatch(span)) {
+      if (this._scopedKeys.has(key)) {
         pending[key] = entry.value;
         found = true;
       }
@@ -88,13 +83,13 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
     }
     this._pendingBySpan.delete(span);
     for (const [key, value] of Object.entries(pending)) {
-      const scope = this._scopedKeys.get(key);
-      if (!scope) {
+      const predicate = this._scopedKeys.get(key);
+      if (!predicate) {
         continue;
       }
       let matches = false;
       try {
-        matches = scope.matches(span);
+        matches = predicate(span);
       } catch (e) {
         diag.debug(`Baggage scope check failed for key '${key}'`, e);
         continue;

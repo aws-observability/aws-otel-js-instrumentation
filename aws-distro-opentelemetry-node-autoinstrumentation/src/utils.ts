@@ -99,17 +99,39 @@ export const getAwsDnsSuffix = (region: string | undefined): string => {
   return 'amazonaws.com';
 };
 
-export const parseOtelBaggageKeysEnvVar = (): Set<string> => {
+/**
+ * Parse OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS into keys for every span and keys with a scope.
+ *
+ * Each comma-separated entry is `key` (copied to every span) or `key:scope` (copied only to spans matching
+ * the scope). W3C baggage keys cannot contain `:` or `,`, so the delimiters never appear in a key. An entry
+ * with an empty scope (`key:`) is treated as having no scope. A key listed both with and without a scope is
+ * copied to every span.
+ */
+export const parseBaggageSpanAttributeKeys = (): { allSpanKeys: Set<string>; scopedKeys: Record<string, string> } => {
   const raw = process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] ?? '';
-  const keys = new Set<string>();
-  for (const k of raw.split(',')) {
-    const trimmed = k.trim();
-    if (trimmed) {
-      keys.add(trimmed);
+  const allSpanKeys = new Set<string>();
+  const scopedKeys = new Map<string, string>();
+  for (const entry of raw.split(',')) {
+    const separator = entry.indexOf(':');
+    const key = (separator === -1 ? entry : entry.slice(0, separator)).trim();
+    const scope = separator === -1 ? '' : entry.slice(separator + 1).trim();
+    if (!key) {
+      continue;
+    }
+    if (scope) {
+      scopedKeys.set(key, scope);
+    } else {
+      allSpanKeys.add(key);
     }
   }
-  return keys;
+  for (const key of allSpanKeys) {
+    scopedKeys.delete(key);
+  }
+  return { allSpanKeys, scopedKeys: Object.fromEntries(scopedKeys) };
 };
+
+/** Keys in OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS that are copied to every span (entries without a scope). */
+export const parseOtelBaggageKeysEnvVar = (): Set<string> => parseBaggageSpanAttributeKeys().allSpanKeys;
 
 export const isInstrumentationDisabled = (shortName: string): boolean => {
   const disabledEnv = process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;

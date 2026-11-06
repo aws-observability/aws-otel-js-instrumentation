@@ -7,6 +7,7 @@ import {
   getAwsRegionFromEnvironment,
   isAgentObservabilityEnabled,
   isAgenticInstrumentationOptIn,
+  parseBaggageSpanAttributeKeys,
   parseOtelBaggageKeysEnvVar,
   isInstrumentationDisabled,
   detectConflictingInstrumentation,
@@ -133,6 +134,17 @@ describe('Utils', function () {
     process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] = '';
     expect(parseOtelBaggageKeysEnvVar().size).toEqual(0);
 
+    delete process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS];
+  });
+
+  it('Test parseBaggageSpanAttributeKeys separates key:scope entries', () => {
+    process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] =
+      ' session.id , my.key:tools,other.key : inference ,empty:, ,dup:tools,dup';
+    const { allSpanKeys, scopedKeys } = parseBaggageSpanAttributeKeys();
+    expect([...allSpanKeys].sort()).toEqual(['dup', 'empty', 'session.id']);
+    expect(scopedKeys).toEqual({ 'my.key': 'tools', 'other.key': 'inference' });
+    // Keys with a scope are not copied to every span by BaggageSpanProcessor.
+    expect([...parseOtelBaggageKeysEnvVar()].sort()).toEqual(['dup', 'empty', 'session.id']);
     delete process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS];
   });
 

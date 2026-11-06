@@ -80,8 +80,9 @@ import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-export
 import { OTLPAwsMetricExporter } from './exporter/otlp/aws/metrics/otlp-aws-metric-exporter';
 import { OTLPAwsSigV4Options } from './exporter/otlp/aws/common/otlp-aws-base-exporter';
 import { loadSigV4RegionFromAwsConfig, resolveSigV4Region } from './exporter/otlp/aws/common/aws-authenticator';
-import { isAgentObservabilityEnabled, parseOtelBaggageKeysEnvVar } from './utils';
+import { isAgentObservabilityEnabled, parseBaggageSpanAttributeKeys, parseOtelBaggageKeysEnvVar } from './utils';
 import { GenAINestedClientSpanProcessor } from './gen-ai-nested-client-span-processor';
+import { AWS_AGENT_LINEAGE, INFERENCE_SCOPE, ScopedBaggageSpanProcessor } from './scoped-baggage-span-processor';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
@@ -147,6 +148,8 @@ interface OtlpLogHeaderSetting {
  *  You can control when these customizations are applied using the environment variable
  *  OTEL_AWS_APPLICATION_SIGNALS_ENABLED. This flag is disabled by default.
  */
+const SESSION_ID_BAGGAGE_KEY = 'session.id';
+
 export class AwsOpentelemetryConfigurator {
   private resource: Resource;
   private instrumentations: Instrumentation[];
@@ -344,12 +347,45 @@ export class AwsOpentelemetryConfigurator {
     spanProcessors.push(new AwsBatchUnsampledSpanProcessor(spanExporter));
   }
 
+  /**
+   * Baggage keys copied only to spans matching a scope, as a mapping of key to scope name.
+   *
+   * These are the `key:scope` entries of OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS. Agent observability adds
+   * aws.agent.lineage on GenAI inference spans unless the customer lists aws.agent.lineage themselves, with
+   * or without a scope, so explicit customer configuration wins over this default. Agent observability
+   * always copies session.id to every span, so a scope on session.id is ignored in that mode.
+   */
+  static getScopedBaggageKeys(): Record<string, string> {
+    const { allSpanKeys, scopedKeys } = parseBaggageSpanAttributeKeys();
+    if (isAgentObservabilityEnabled()) {
+      if (Object.prototype.hasOwnProperty.call(scopedKeys, SESSION_ID_BAGGAGE_KEY)) {
+        delete scopedKeys[SESSION_ID_BAGGAGE_KEY];
+        diag.warn(
+          `Ignoring the scope on ${SESSION_ID_BAGGAGE_KEY} in OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS. Agent observability copies it to every span.`
+        );
+      }
+      if (!allSpanKeys.has(AWS_AGENT_LINEAGE) && !(AWS_AGENT_LINEAGE in scopedKeys)) {
+        scopedKeys[AWS_AGENT_LINEAGE] = INFERENCE_SCOPE;
+      }
+    }
+    return scopedKeys;
+  }
+
   static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
+    // Keys listed without a scope in OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS are copied to every span by
+    // BaggageSpanProcessor. Keys with a scope are handled by ScopedBaggageSpanProcessor.
     const baggageKeys: Set<string> = parseOtelBaggageKeysEnvVar();
 
     // This processor modifies attributes in onEnd, so it must run before exporter
     // processors to ensure they observe the redacted values.
     spanProcessors.unshift(new AttributeRedactingSpanProcessor());
+
+    // This processor adds attributes in onEnd, so it must run after GenAINestedClientSpanProcessor
+    // (its scopes check the corrected span kind) and before the redacting and exporter processors.
+    const scopedBaggageKeys = AwsOpentelemetryConfigurator.getScopedBaggageKeys();
+    if (Object.keys(scopedBaggageKeys).length > 0) {
+      spanProcessors.unshift(new ScopedBaggageSpanProcessor(scopedBaggageKeys));
+    }
 
     if (isAgentObservabilityEnabled()) {
       // This processor modifies span kind in onEnd, so it must run before exporter
@@ -364,7 +400,7 @@ export class AwsOpentelemetryConfigurator {
 
       // Add session.id baggage attribute to span attributes to support AI Agent use cases
       // enabling session ID tracking in spans.
-      baggageKeys.add('session.id');
+      baggageKeys.add(SESSION_ID_BAGGAGE_KEY);
     }
 
     spanProcessors.push(new BaggageSpanProcessor((key: string) => baggageKeys.has(key)));

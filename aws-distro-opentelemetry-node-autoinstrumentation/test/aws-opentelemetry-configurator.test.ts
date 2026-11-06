@@ -549,23 +549,54 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
   });
 
-  it('getScopedBaggageKeys copies aws.agent.lineage to inference spans only under agent observability', () => {
+  it('getScopedBaggageKeys combines key:scope entries with the aws.agent.lineage default', () => {
     const previousAgentObservability = process.env.AGENT_OBSERVABILITY_ENABLED;
+    const previousBaggageKeys = process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
     try {
       delete process.env.AGENT_OBSERVABILITY_ENABLED;
-      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys(new Set())).toEqual({});
+      delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
+      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({});
+
+      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'session.id,my.key:tools';
+      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({ 'my.key': 'tools' });
 
       process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
-      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys(new Set())).toEqual({
+      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({
+        'my.key': 'tools',
         'aws.agent.lineage': 'inference',
       });
 
       // A key the customer allowlists is copied to every span instead, so the scoped default steps aside.
-      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys(new Set(['tenant.id', 'aws.agent.lineage']))).toEqual(
-        {}
-      );
+      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'tenant.id,aws.agent.lineage';
+      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({});
+
+      // A customer scope for aws.agent.lineage replaces the default scope.
+      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'aws.agent.lineage:tools';
+      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({ 'aws.agent.lineage': 'tools' });
     } finally {
       restoreEnv('AGENT_OBSERVABILITY_ENABLED', previousAgentObservability);
+      restoreEnv('OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS', previousBaggageKeys);
+    }
+  });
+
+  it('installs the scoped processor for key:scope entries without agent observability', () => {
+    const previousAgentObservability = process.env.AGENT_OBSERVABILITY_ENABLED;
+    const previousBaggageKeys = process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
+    const processors: SpanProcessor[] = [];
+    try {
+      delete process.env.AGENT_OBSERVABILITY_ENABLED;
+      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'my.key:inference';
+      AwsOpentelemetryConfigurator.customizeSpanProcessors(processors, emptyResource());
+
+      const scoped = processors.find(p => p instanceof ScopedBaggageSpanProcessor) as ScopedBaggageSpanProcessor;
+      expect(scoped['_scopedKeys'].get('my.key')).toBe('inference');
+      const baggageProcessor = processors.find(p => p instanceof BaggageSpanProcessor)!;
+      const predicate = (baggageProcessor as BaggageSpanProcessor)['_keyPredicate'].bind(baggageProcessor);
+      expect(predicate('my.key')).toBe(false);
+    } finally {
+      processors.forEach(p => p.shutdown());
+      restoreEnv('AGENT_OBSERVABILITY_ENABLED', previousAgentObservability);
+      restoreEnv('OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS', previousBaggageKeys);
     }
   });
 
@@ -578,9 +609,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'aws.agent.lineage';
       AwsOpentelemetryConfigurator.customizeSpanProcessors(processors, emptyResource());
 
-      // The processor stays installed for registered keys, but without the lineage default.
-      const scoped = processors.find(p => p instanceof ScopedBaggageSpanProcessor) as ScopedBaggageSpanProcessor;
-      expect(scoped['_scopedKeys'].has('aws.agent.lineage')).toBe(false);
+      expect(processors.some(p => p instanceof ScopedBaggageSpanProcessor)).toBe(false);
       const baggageProcessor = processors.find(p => p instanceof BaggageSpanProcessor)!;
       const predicate = (baggageProcessor as BaggageSpanProcessor)['_keyPredicate'].bind(baggageProcessor);
       expect(predicate('aws.agent.lineage')).toBe(true);

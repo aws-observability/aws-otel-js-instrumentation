@@ -4,7 +4,7 @@
 import { context, Context, ROOT_CONTEXT, propagation, SpanKind, trace } from '@opentelemetry/api';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
-import { AlwaysOnSampler, SpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { AlwaysOnSampler, ReadableSpan, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { spawnSync } from 'child_process';
 import { expect } from 'expect';
 import { GenAINestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
@@ -20,9 +20,9 @@ import {
   AWS_AGENT_LINEAGE,
   INFERENCE_SCOPE,
   isGenAiInferenceSpan,
-  registerScopedBaggageKey,
+  clearRegisteredBaggageScopes,
+  registerBaggageScope,
   ScopedBaggageSpanProcessor,
-  setActiveScopedBaggageSpanProcessor,
 } from '../src/scoped-baggage-span-processor';
 
 const LINEAGE = 'travel_planner,booking_agent';
@@ -153,9 +153,39 @@ describe('ScopedBaggageSpanProcessor', () => {
     expect(finished('chat model').attributes[AWS_AGENT_LINEAGE]).toBe(LINEAGE);
   });
 
-  it('ignores keys with unknown scopes', () => {
-    const processor = new ScopedBaggageSpanProcessor({ 'my.key': 'no_such_scope' });
-    expect(processor['_scopedKeys'].size).toBe(0);
+  it('skips keys with unknown scopes', async () => {
+    await provider.shutdown();
+    setup([new ScopedBaggageSpanProcessor({ [AWS_AGENT_LINEAGE]: 'no_such_scope' })]);
+
+    startSpan().end();
+
+    expect(finished('chat model').attributes[AWS_AGENT_LINEAGE]).toBeUndefined();
+  });
+
+  it('does not resolve scope names inherited from Object.prototype', async () => {
+    await provider.shutdown();
+    setup([new ScopedBaggageSpanProcessor({ [AWS_AGENT_LINEAGE]: 'constructor' })]);
+
+    startSpan('internal', null, SpanKind.INTERNAL).end();
+
+    expect(finished('internal').attributes[AWS_AGENT_LINEAGE]).toBeUndefined();
+  });
+
+  it('copies keys whose names match Object.prototype properties', async () => {
+    await provider.shutdown();
+    setup([new ScopedBaggageSpanProcessor({ constructor: INFERENCE_SCOPE, toString: INFERENCE_SCOPE })]);
+
+    startSpan(
+      'chat model',
+      GEN_AI_OPERATION_NAME_VALUE_CHAT,
+      SpanKind.CLIENT,
+      contextWithBaggage({ constructor: 'c', toString: 't' })
+    ).end();
+
+    const attributes = finished('chat model').attributes;
+    expect(Object.prototype.hasOwnProperty.call(attributes, 'constructor')).toBe(true);
+    expect(attributes['constructor']).toBe('c');
+    expect(attributes['toString']).toBe('t');
   });
 
   it('stamps only the innermost CLIENT span when nested with GenAINestedClientSpanProcessor', async () => {
@@ -218,26 +248,25 @@ describe('ScopedBaggageSpanProcessor', () => {
   });
 });
 
-describe('registerScopedBaggageKey', () => {
+describe('registerBaggageScope', () => {
   let exporter: InMemorySpanExporter;
   let provider: NodeTracerProvider;
-  let processor: ScopedBaggageSpanProcessor;
   let tracer: ReturnType<NodeTracerProvider['getTracer']>;
   const ctx = contextWithBaggage({ 'my.key': 'v1' });
+  const isToolSpan = (span: ReadableSpan) => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'execute_tool';
 
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
-    processor = new ScopedBaggageSpanProcessor({});
+    // As configured from OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS=my.key:tools before the scope is registered.
     provider = new NodeTracerProvider({
       sampler: new AlwaysOnSampler(),
-      spanProcessors: [processor, new SimpleSpanProcessor(exporter)],
+      spanProcessors: [new ScopedBaggageSpanProcessor({ 'my.key': 'tools' }), new SimpleSpanProcessor(exporter)],
     });
     tracer = provider.getTracer('test');
-    setActiveScopedBaggageSpanProcessor(processor);
   });
 
   afterEach(async () => {
-    setActiveScopedBaggageSpanProcessor(undefined);
+    clearRegisteredBaggageScopes();
     await provider.shutdown();
   });
 
@@ -245,78 +274,86 @@ describe('registerScopedBaggageKey', () => {
     return exporter.getFinishedSpans().find(span => span.name === name)!;
   }
 
-  it('registers a key with a predicate', () => {
-    expect(
-      registerScopedBaggageKey('my.key', span => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'execute_tool')
-    ).toBe(true);
+  function toolSpan(name: string = 'tool') {
+    const span = tracer.startSpan(name, {}, ctx);
+    span.setAttribute(ATTR_GEN_AI_OPERATION_NAME, 'execute_tool');
+    return span;
+  }
 
-    const tool = tracer.startSpan('tool', {}, ctx);
-    tool.setAttribute(ATTR_GEN_AI_OPERATION_NAME, 'execute_tool');
-    tool.end();
+  it('applies a registered scope to keys mapped in the environment variable', () => {
+    expect(registerBaggageScope('tools', isToolSpan)).toBe(true);
+
+    toolSpan().end();
     tracer.startSpan('other', {}, ctx).end();
 
     expect(finished('tool').attributes['my.key']).toBe('v1');
     expect(finished('other').attributes['my.key']).toBeUndefined();
   });
 
-  it('registers a key with a built-in scope name', () => {
-    expect(registerScopedBaggageKey('my.key', INFERENCE_SCOPE)).toBe(true);
+  it('applies a scope registered after the span started', () => {
+    const span = toolSpan();
+    registerBaggageScope('tools', isToolSpan);
+    span.end();
 
-    const chat = tracer.startSpan('chat model', { kind: SpanKind.CLIENT }, ctx);
-    chat.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_CHAT);
-    chat.end();
-
-    expect(finished('chat model').attributes['my.key']).toBe('v1');
+    expect(finished('tool').attributes['my.key']).toBe('v1');
   });
 
-  it('rejects an unknown scope name', () => {
-    expect(registerScopedBaggageKey('my.key', 'no_such_scope')).toBe(false);
-    expect(processor['_scopedKeys'].size).toBe(0);
+  it('does not copy the key before the scope is registered', () => {
+    toolSpan('before').end();
+    registerBaggageScope('tools', isToolSpan);
+    toolSpan('after').end();
+
+    expect(finished('before').attributes['my.key']).toBeUndefined();
+    expect(finished('after').attributes['my.key']).toBe('v1');
+  });
+
+  it('replaces a scope registered again under the same name', () => {
+    registerBaggageScope('tools', () => false);
+    registerBaggageScope('tools', isToolSpan);
+    toolSpan().end();
+
+    expect(finished('tool').attributes['my.key']).toBe('v1');
   });
 
   it('skips the key when the predicate throws', () => {
-    registerScopedBaggageKey('my.key', () => {
+    registerBaggageScope('tools', () => {
       throw new Error('boom');
     });
-    tracer.startSpan('s', {}, ctx).end();
+    toolSpan().end();
 
-    expect(finished('s').attributes['my.key']).toBeUndefined();
+    expect(finished('tool').attributes['my.key']).toBeUndefined();
   });
 
-  it('returns false when no processor is installed', () => {
-    setActiveScopedBaggageSpanProcessor(undefined);
-    expect(registerScopedBaggageKey('my.key', INFERENCE_SCOPE)).toBe(false);
-  });
-
-  it('rejects scope names inherited from Object.prototype', () => {
-    for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
-      expect(registerScopedBaggageKey('my.key', name)).toBe(false);
+  it('rejects invalid registrations', () => {
+    for (const name of ['', ' tools', 'a:b', 'a,b', INFERENCE_SCOPE]) {
+      expect(registerBaggageScope(name, isToolSpan)).toBe(false);
     }
-    expect(processor['_scopedKeys'].size).toBe(0);
+    expect(registerBaggageScope('tools', 'not a function' as unknown as () => boolean)).toBe(false);
   });
 
-  it('copies keys whose names match Object.prototype properties', () => {
-    registerScopedBaggageKey('constructor', INFERENCE_SCOPE);
-    registerScopedBaggageKey('toString', INFERENCE_SCOPE);
-    const protoCtx = contextWithBaggage({ constructor: 'c', toString: 't' });
+  it('keeps the built-in scope after a rejected override', async () => {
+    registerBaggageScope(INFERENCE_SCOPE, () => true);
+    await provider.shutdown();
+    exporter = new InMemorySpanExporter();
+    provider = new NodeTracerProvider({
+      sampler: new AlwaysOnSampler(),
+      spanProcessors: [
+        new ScopedBaggageSpanProcessor({ 'my.key': INFERENCE_SCOPE }),
+        new SimpleSpanProcessor(exporter),
+      ],
+    });
+    provider.getTracer('test').startSpan('internal', {}, ctx).end();
 
-    const chat = tracer.startSpan('chat model', { kind: SpanKind.CLIENT }, protoCtx);
-    chat.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_CHAT);
-    chat.end();
-
-    const attributes = finished('chat model').attributes;
-    expect(Object.prototype.hasOwnProperty.call(attributes, 'constructor')).toBe(true);
-    expect(attributes['constructor']).toBe('c');
-    expect(attributes['toString']).toBe('t');
+    expect(finished('internal').attributes['my.key']).toBeUndefined();
   });
 
-  it('releases the hook when the processor shuts down', async () => {
-    await processor.shutdown();
-    expect(registerScopedBaggageKey('my.key', INFERENCE_SCOPE)).toBe(false);
+  it('allows custom scope names that match Object.prototype properties', () => {
+    expect(registerBaggageScope('constructor', isToolSpan)).toBe(true);
+    clearRegisteredBaggageScopes();
   });
 });
 
-describe('registerScopedBaggageKey through the public register entry point', () => {
+describe('registerBaggageScope through the public register entry point', () => {
   // Customers can only import ./register and ./lite because of the package exports map. Each case runs
   // in a child process because loading register starts the distro.
   const baseEnv = {
@@ -337,43 +374,50 @@ describe('registerScopedBaggageKey through the public register entry point', () 
     return proc;
   }
 
-  it('registers on the installed processor', () => {
-    const proc = run(
-      "const m = require('@aws/aws-distro-opentelemetry-node-autoinstrumentation/register');" +
-        "process.exit(m.registerScopedBaggageKey('my.key', 'inference') === true ? 0 : 1);",
-      { AGENT_OBSERVABILITY_ENABLED: 'true' }
-    );
+  const stampScript = `
+    const { context, propagation, SpanKind, trace } = require('@opentelemetry/api');
+    function toolSpanAttributes() {
+      const ctx = propagation.setBaggage(
+        context.active(),
+        propagation.createBaggage({ 'my.key': { value: 'v1' }, 'aws.agent.lineage': { value: 'a,b' } })
+      );
+      const span = trace.getTracer('t').startSpan('tool', { kind: SpanKind.INTERNAL }, ctx);
+      span.setAttribute('gen_ai.operation.name', 'execute_tool');
+      span.end();
+      return span.attributes;
+    }
+  `;
+
+  it('copies an env-mapped key with a scope registered through ./register', () => {
+    const script =
+      stampScript +
+      `
+      const m = require('@aws/aws-distro-opentelemetry-node-autoinstrumentation/register');
+      const ok = m.registerBaggageScope('tools', s => s.attributes['gen_ai.operation.name'] === 'execute_tool');
+      const attrs = toolSpanAttributes();
+      process.exit(ok && attrs['my.key'] === 'v1' && attrs['aws.agent.lineage'] === undefined ? 0 : 1);
+    `;
+    const proc = run(script, { AGENT_OBSERVABILITY_ENABLED: 'true', OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS: 'my.key:tools' });
     expect(proc.status).toBe(0);
   });
 
-  it('keeps registering on the processor of the first distro copy when a second copy loads', () => {
-    const script = `
+  it('shares registered scopes with a second copy of the distro', () => {
+    const script =
+      stampScript +
+      `
       const path = require('path');
-      const { context, propagation, SpanKind, trace } = require('@opentelemetry/api');
       const entry = require.resolve('@aws/aws-distro-opentelemetry-node-autoinstrumentation/register');
       const first = require(entry);
-      const firstOk = first.registerScopedBaggageKey('first.key', 'inference');
-
-      // Load a second copy of the distro modules that shares the same OpenTelemetry API.
       const buildDir = path.dirname(entry);
       for (const id of Object.keys(require.cache)) {
         if (id.startsWith(buildDir)) delete require.cache[id];
       }
       const second = require(entry);
       if (second === first) process.exit(3);
-      const secondOk = second.registerScopedBaggageKey('second.key', 'inference');
-
-      const ctx = propagation.setBaggage(
-        context.active(),
-        propagation.createBaggage({ 'first.key': { value: '1' }, 'second.key': { value: '2' } })
-      );
-      const span = trace.getTracer('t').startSpan('chat', { kind: SpanKind.CLIENT }, ctx);
-      span.setAttribute('gen_ai.operation.name', 'chat');
-      span.end();
-      const attrs = span.attributes;
-      process.exit(firstOk && secondOk && attrs['first.key'] === '1' && attrs['second.key'] === '2' ? 0 : 1);
+      second.registerBaggageScope('tools', s => s.attributes['gen_ai.operation.name'] === 'execute_tool');
+      process.exit(toolSpanAttributes()['my.key'] === 'v1' ? 0 : 1);
     `;
-    const proc = run(script, { AGENT_OBSERVABILITY_ENABLED: 'true' });
+    const proc = run(script, { AGENT_OBSERVABILITY_ENABLED: 'true', OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS: 'my.key:tools' });
     expect(proc.status).toBe(0);
   });
 
@@ -381,8 +425,8 @@ describe('registerScopedBaggageKey through the public register entry point', () 
     it(`exports a callable hook in Lambda fast-start mode (agent observability ${agentObservability})`, () => {
       const proc = run(
         "const m = require('@aws/aws-distro-opentelemetry-node-autoinstrumentation/register');" +
-          "if (typeof m.registerScopedBaggageKey !== 'function') process.exit(2);" +
-          "process.exit(m.registerScopedBaggageKey('my.key', 'inference') === false ? 0 : 1);",
+          "if (typeof m.registerBaggageScope !== 'function') process.exit(2);" +
+          "process.exit(m.registerBaggageScope('tools', () => true) === true ? 0 : 1);",
         { OTEL_AWS_LAMBDA_FAST_START: 'true', AGENT_OBSERVABILITY_ENABLED: agentObservability }
       );
       expect(proc.status).toBe(0);

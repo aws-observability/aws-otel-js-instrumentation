@@ -5,9 +5,9 @@
 if ((process.env.OTEL_AWS_LAMBDA_FAST_START || 'false').toLowerCase() === 'true') {
   const { configureLiteMode } = require('./opentelemetry-lite-sdk');
   configureLiteMode();
-  // The lite SDK has no scoped baggage processor, so this hook returns false. Export it so callers get
-  // a function instead of undefined. Not part of the documented API.
-  exports.registerScopedBaggageKey = require('./scoped-baggage-registration').registerScopedBaggageKey;
+  // The lite SDK has no scoped baggage processor, so registered scopes have no effect. Export the hook so
+  // callers get a function instead of undefined. Not part of the documented API.
+  exports.registerBaggageScope = require('./scoped-baggage-registration').registerBaggageScope;
   // @ts-expect-error: top-level return is valid in CommonJS (Node wraps modules in a function)
   return;
 }
@@ -126,8 +126,8 @@ export function resolveServiceEventsBootstrap(env: NodeJS.ProcessEnv): ServiceEv
   return { action: 'init' };
 }
 
-// Not part of the documented API. See registerScopedBaggageKey() for details.
-export { registerScopedBaggageKey } from './scoped-baggage-registration';
+// Not part of the documented API. See registerBaggageScope() for details.
+export { registerBaggageScope } from './scoped-baggage-registration';
 
 export function setAwsDefaultEnvironmentVariables() {
   if (!process.env.OTEL_EXPORTER_OTLP_PROTOCOL) {

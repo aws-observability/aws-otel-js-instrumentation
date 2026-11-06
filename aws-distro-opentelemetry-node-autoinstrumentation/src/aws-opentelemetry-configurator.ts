@@ -80,14 +80,9 @@ import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-export
 import { OTLPAwsMetricExporter } from './exporter/otlp/aws/metrics/otlp-aws-metric-exporter';
 import { OTLPAwsSigV4Options } from './exporter/otlp/aws/common/otlp-aws-base-exporter';
 import { loadSigV4RegionFromAwsConfig, resolveSigV4Region } from './exporter/otlp/aws/common/aws-authenticator';
-import { isAgentObservabilityEnabled, parseOtelBaggageKeysEnvVar } from './utils';
+import { isAgentObservabilityEnabled, parseBaggageSpanAttributeKeys, parseOtelBaggageKeysEnvVar } from './utils';
 import { GenAINestedClientSpanProcessor } from './gen-ai-nested-client-span-processor';
-import {
-  AWS_AGENT_LINEAGE,
-  INFERENCE_SCOPE,
-  ScopedBaggageSpanProcessor,
-  claimActiveScopedBaggageSpanProcessor,
-} from './scoped-baggage-span-processor';
+import { AWS_AGENT_LINEAGE, INFERENCE_SCOPE, ScopedBaggageSpanProcessor } from './scoped-baggage-span-processor';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
 import { AwsCloudWatchOtlpBatchLogRecordProcessor } from './exporter/otlp/aws/logs/aws-cw-otlp-batch-log-record-processor';
@@ -353,18 +348,21 @@ export class AwsOpentelemetryConfigurator {
   /**
    * Baggage keys copied only to spans matching a scope, as a mapping of key to scope name.
    *
-   * Agent observability copies aws.agent.lineage to GenAI inference spans. A key the customer lists in
-   * OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS is copied to every span by BaggageSpanProcessor instead, so explicit
-   * customer configuration wins over this default.
+   * These are the `key:scope` entries of OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS. Agent observability adds
+   * aws.agent.lineage on GenAI inference spans unless the customer lists aws.agent.lineage themselves, with
+   * or without a scope, so explicit customer configuration wins over this default.
    */
-  static getScopedBaggageKeys(customerBaggageKeys: Set<string>): Record<string, string> {
-    if (!isAgentObservabilityEnabled() || customerBaggageKeys.has(AWS_AGENT_LINEAGE)) {
-      return {};
+  static getScopedBaggageKeys(): Record<string, string> {
+    const { allSpanKeys, scopedKeys } = parseBaggageSpanAttributeKeys();
+    if (isAgentObservabilityEnabled() && !allSpanKeys.has(AWS_AGENT_LINEAGE) && !(AWS_AGENT_LINEAGE in scopedKeys)) {
+      scopedKeys[AWS_AGENT_LINEAGE] = INFERENCE_SCOPE;
     }
-    return { [AWS_AGENT_LINEAGE]: INFERENCE_SCOPE };
+    return scopedKeys;
   }
 
   static customizeSpanProcessors(spanProcessors: SpanProcessor[], resource: Resource): void {
+    // Keys listed without a scope in OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS are copied to every span by
+    // BaggageSpanProcessor. Keys with a scope are handled by ScopedBaggageSpanProcessor.
     const baggageKeys: Set<string> = parseOtelBaggageKeysEnvVar();
 
     // This processor modifies attributes in onEnd, so it must run before exporter
@@ -373,15 +371,9 @@ export class AwsOpentelemetryConfigurator {
 
     // This processor adds attributes in onEnd, so it must run after GenAINestedClientSpanProcessor
     // (its scopes check the corrected span kind) and before the redacting and exporter processors.
-    // It is installed whenever agent observability is enabled, even with no default keys, so keys
-    // registered later with registerScopedBaggageKey() have a processor to attach to.
-    if (isAgentObservabilityEnabled()) {
-      const scopedBaggageProcessor = new ScopedBaggageSpanProcessor(
-        AwsOpentelemetryConfigurator.getScopedBaggageKeys(baggageKeys)
-      );
-      // The first distro copy in the process keeps the hook, as it owns the global tracer provider.
-      claimActiveScopedBaggageSpanProcessor(scopedBaggageProcessor);
-      spanProcessors.unshift(scopedBaggageProcessor);
+    const scopedBaggageKeys = AwsOpentelemetryConfigurator.getScopedBaggageKeys();
+    if (Object.keys(scopedBaggageKeys).length > 0) {
+      spanProcessors.unshift(new ScopedBaggageSpanProcessor(scopedBaggageKeys));
     }
 
     if (isAgentObservabilityEnabled()) {

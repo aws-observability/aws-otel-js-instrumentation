@@ -845,6 +845,31 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     delete process.env.AWS_XRAY_DAEMON_ADDRESS;
   });
 
+  it('tests configureOTLP on Lambda with generic OTEL_EXPORTER_OTLP_ENDPOINT uses OTLP exporter', () => {
+    const previousLambdaFunctionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+    const previousTracesExporter = process.env.OTEL_TRACES_EXPORTER;
+    const previousTracesEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+    const previousBaseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    const previousProtocol = process.env.OTEL_EXPORTER_OTLP_PROTOCOL;
+
+    try {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+      process.env.OTEL_TRACES_EXPORTER = 'otlp';
+      delete process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://my-collector:4318';
+      process.env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/protobuf';
+      const spanExporter: SpanExporter = AwsSpanProcessorProvider.configureOtlp();
+      // Should use OTLP exporter, not UDP, when generic endpoint is set
+      expect(spanExporter).toBeInstanceOf(OTLPProtoTraceExporter);
+    } finally {
+      restoreEnv('AWS_LAMBDA_FUNCTION_NAME', previousLambdaFunctionName);
+      restoreEnv('OTEL_TRACES_EXPORTER', previousTracesExporter);
+      restoreEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', previousTracesEndpoint);
+      restoreEnv('OTEL_EXPORTER_OTLP_ENDPOINT', previousBaseEndpoint);
+      restoreEnv('OTEL_EXPORTER_OTLP_PROTOCOL', previousProtocol);
+    }
+  });
+
   it('Tests that OTLP exporter from the configurator is UDPExporter when Application Signals is disabled on Lambda', () => {
     process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'False';

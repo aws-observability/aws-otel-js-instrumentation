@@ -26,6 +26,7 @@ import {
 } from '@opentelemetry/sdk-trace-base';
 import type { Sampler, SpanExporter } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import { AWSXRayIdGenerator } from '@opentelemetry/id-generator-aws-xray';
 import * as assert from 'assert';
 import expect from 'expect';
 import * as sinon from 'sinon';
@@ -128,6 +129,7 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
   // The probability of this passing once without correct IDs is low, 20 times is inconceivable.
   it('ProvideGenerateXrayIdsTest', () => {
     const config = awsOtelConfigurator.configure();
+    assert.ok(config.idGenerator instanceof AWSXRayIdGenerator);
     const spanProcessors = [
       ...(config.spanProcessors || []),
       AttributePropagatingSpanProcessor.create((span: ReadableSpan) => '', 'spanNameKey', ['testKey1', 'testKey2']),
@@ -142,6 +144,29 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       const traceId4ByteHex: string = traceId.substring(0, 8);
       const traceId4ByteNumber: number = Number(`0x${traceId4ByteHex}`);
       expect(traceId4ByteNumber).toBeGreaterThanOrEqual(startTimeSec);
+    }
+  });
+
+  it('generates fresh AgentCore IDs when the in-memory random state repeats', async () => {
+    const previousAgentObservability = process.env.AGENT_OBSERVABILITY_ENABLED;
+    process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+    const config = new AwsOpentelemetryConfigurator([]).configure();
+    const random = sinon.stub(Math, 'random').returns(0.5);
+    const now = sinon.stub(Date, 'now').returns(1700000000000);
+    try {
+      const generator = config.idGenerator!;
+      assert.notStrictEqual(generator.generateTraceId(), generator.generateTraceId());
+      assert.notStrictEqual(generator.generateSpanId(), generator.generateSpanId());
+      sinon.assert.notCalled(random);
+    } finally {
+      random.restore();
+      now.restore();
+      restoreEnv('AGENT_OBSERVABILITY_ENABLED', previousAgentObservability);
+      await Promise.all(
+        [...(config.spanProcessors || []), ...(config.logRecordProcessors || []), ...(config.metricReaders || [])].map(
+          processor => processor.shutdown()
+        )
+      );
     }
   });
 

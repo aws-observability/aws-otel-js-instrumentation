@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix: avoid repeated AgentCore trace and span IDs after snapshot restore
+  ([#587](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/587))
 - fix: in Lambda, treat `OTEL_EXPORTER_OTLP_ENDPOINT` as a custom trace endpoint, as the OTLP exporter
   spec requires. Setting only the generic endpoint previously fell back to the X-Ray UDP exporter, so
   traces never reached the configured collector

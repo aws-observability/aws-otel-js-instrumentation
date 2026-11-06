@@ -21,6 +21,7 @@ import {
   ATTR_GEN_AI_TOOL_CALL_ARGUMENTS,
   ATTR_GEN_AI_TOOL_CALL_ID,
   ATTR_GEN_AI_TOOL_CALL_RESULT,
+  ATTR_GEN_AI_TOOL_DEFINITIONS,
   ATTR_GEN_AI_TOOL_NAME,
   ATTR_GEN_AI_REQUEST_FREQUENCY_PENALTY,
   ATTR_GEN_AI_REQUEST_PRESENCE_PENALTY,
@@ -66,6 +67,46 @@ interface SpanEntry {
 // need the base class as a value and therefore at runtime. LangChain duck-types handlers:
 // isBaseCallbackHandler() requires only `copy`, `name` and `awaitHandlers`.
 // https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/callbacks/base.ts
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+// One gen_ai.tool.definitions entry for a function tool, or none when the tool has no name.
+function functionToolDefinition(name: unknown, description: unknown, parameters: unknown): Record<string, unknown>[] {
+  if (typeof name !== 'string' || !name) {
+    return [];
+  }
+  const definition: Record<string, unknown> = { type: 'function', name };
+  if (typeof description === 'string' && description) {
+    definition.description = description;
+  }
+  if (asRecord(parameters)) {
+    definition.parameters = parameters;
+  }
+  return [definition];
+}
+
+// Rebuilds the JSON Schema that @langchain/cohere flattened into parameterDefinitions. Its
+// _convertJsonSchemaToCohereTool copies the schema's `properties` and replaces the `required` list
+// with a boolean `required` on each property:
+// https://github.com/langchain-ai/langchainjs/blob/1d57fca1aa7bc89911fe5ead28afe4430fb0fb58/libs/providers/langchain-cohere/src/chat_models.ts#L216-L235
+function cohereParametersToJsonSchema(parameterDefinitions: Record<string, unknown>): Record<string, unknown> {
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const [name, definition] of Object.entries(parameterDefinitions)) {
+    const property = asRecord(definition);
+    if (!property) {
+      continue;
+    }
+    const { required: isRequired, ...schema } = property;
+    properties[name] = schema;
+    if (isRequired === true) {
+      required.push(name);
+    }
+  }
+  return { type: 'object', properties, ...(required.length > 0 ? { required } : {}) };
+}
+
 export class OpenTelemetryCallbackHandler implements CallbackHandlerMethods {
   name: string = 'otel-callback-handler';
   // Ensures the OTel callback is executed synchronously and not in an async thread.
@@ -464,6 +505,78 @@ export class OpenTelemetryCallbackHandler implements CallbackHandlerMethods {
     if (stop) {
       this._setAttribute(span, ATTR_GEN_AI_REQUEST_STOP_SEQUENCES, stop);
     }
+    const toolDefinitions = OpenTelemetryCallbackHandler._extractToolDefinitions(params);
+    if (toolDefinitions.length > 0) {
+      this._setAttribute(span, ATTR_GEN_AI_TOOL_DEFINITIONS, serializeToJson(toolDefinitions));
+    }
+  }
+
+  // Builds gen_ai.tool.definitions from the tools bound to a LangChain chat model.
+  // Spec: https://github.com/open-telemetry/semantic-conventions-genai/blob/main/model/gen-ai/gen-ai-tool-definitions.json
+  //
+  // LangChain JS converts bound tools to each provider's own request format before calling the
+  // callback, so invocation_params holds one of the formats handled in _toToolDefinitions.
+  private static _extractToolDefinitions(params: Record<string, unknown>): Record<string, unknown>[] {
+    const definitions: Record<string, unknown>[] = [];
+    for (const tool of OpenTelemetryCallbackHandler._getBoundTools(params)) {
+      definitions.push(...OpenTelemetryCallbackHandler._toToolDefinitions(tool));
+    }
+    return definitions;
+  }
+
+  private static _getBoundTools(params: Record<string, unknown>): Record<string, unknown>[] {
+    // Most providers use `tools`. ChatBedrockConverse uses `toolConfig.tools`:
+    // https://github.com/langchain-ai/langchainjs/blob/1d57fca1aa7bc89911fe5ead28afe4430fb0fb58/libs/providers/langchain-aws/src/chat_models.ts#L993-L1012
+    // (Gemini also sets `toolConfig`, but only for function-calling settings, next to its own `tools`.)
+    // Legacy OpenAI function calling uses `functions`.
+    const tools = params.tools ?? asRecord(params.toolConfig)?.tools ?? params.functions;
+    if (!Array.isArray(tools)) {
+      return [];
+    }
+    return tools.map(asRecord).filter((tool): tool is Record<string, unknown> => tool !== undefined);
+  }
+
+  private static _toToolDefinitions(tool: Record<string, unknown>): Record<string, unknown>[] {
+    // OpenAI format: {type: 'function', function: {name, description, parameters}}
+    // Used by ChatOpenAI, ChatMistralAI, ChatGroq, ChatDeepSeek, ChatXAI:
+    // https://github.com/langchain-ai/langchainjs/blob/1d57fca1aa7bc89911fe5ead28afe4430fb0fb58/libs/langchain-core/src/utils/function_calling.ts#L61-L93
+    if (tool.type === 'function') {
+      const fn = asRecord(tool.function);
+      return functionToolDefinition(fn?.name, fn?.description, fn?.parameters);
+    }
+
+    // Any other `type` is a provider built-in tool (for example Anthropic web search), not a function tool.
+    if (tool.type !== undefined) {
+      return [];
+    }
+
+    // ChatBedrockConverse: {toolSpec: {name, description, inputSchema: {json}}}
+    // https://github.com/langchain-ai/langchainjs/blob/1d57fca1aa7bc89911fe5ead28afe4430fb0fb58/libs/providers/langchain-aws/src/utils/tools.ts#L16-L40
+    const toolSpec = asRecord(tool.toolSpec);
+    if (toolSpec) {
+      return functionToolDefinition(toolSpec.name, toolSpec.description, asRecord(toolSpec.inputSchema)?.json);
+    }
+
+    // ChatGoogleGenerativeAI: one entry holds every tool, {functionDeclarations: [{name, description, parameters}]}
+    // https://github.com/langchain-ai/langchainjs/blob/1d57fca1aa7bc89911fe5ead28afe4430fb0fb58/libs/providers/langchain-google-genai/src/utils/tools.ts#L20-L75
+    if (Array.isArray(tool.functionDeclarations)) {
+      return tool.functionDeclarations.flatMap(item => {
+        const declaration = asRecord(item);
+        return functionToolDefinition(declaration?.name, declaration?.description, declaration?.parameters);
+      });
+    }
+
+    // ChatCohere: {name, description, parameterDefinitions}
+    // https://github.com/langchain-ai/langchainjs/blob/1d57fca1aa7bc89911fe5ead28afe4430fb0fb58/libs/providers/langchain-cohere/src/chat_models.ts#L216-L235
+    const parameterDefinitions = asRecord(tool.parameterDefinitions);
+    if (parameterDefinitions) {
+      return functionToolDefinition(tool.name, tool.description, cohereParametersToJsonSchema(parameterDefinitions));
+    }
+
+    // ChatAnthropic: {name, description, input_schema}
+    // https://github.com/langchain-ai/langchainjs/blob/1d57fca1aa7bc89911fe5ead28afe4430fb0fb58/libs/providers/langchain-anthropic/src/chat_models.ts#L1186-L1241
+    // Legacy OpenAI functions: {name, description, parameters}
+    return functionToolDefinition(tool.name, tool.description, tool.input_schema ?? tool.parameters);
   }
 
   // propagates LLM model span attributes to the parent invoke_agent span.

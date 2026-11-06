@@ -86,7 +86,7 @@ import {
   AWS_AGENT_LINEAGE,
   INFERENCE_SCOPE,
   ScopedBaggageSpanProcessor,
-  setActiveScopedBaggageSpanProcessor,
+  claimActiveScopedBaggageSpanProcessor,
 } from './scoped-baggage-span-processor';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
@@ -379,7 +379,8 @@ export class AwsOpentelemetryConfigurator {
       const scopedBaggageProcessor = new ScopedBaggageSpanProcessor(
         AwsOpentelemetryConfigurator.getScopedBaggageKeys(baggageKeys)
       );
-      setActiveScopedBaggageSpanProcessor(scopedBaggageProcessor);
+      // The first distro copy in the process keeps the hook, as it owns the global tracer provider.
+      claimActiveScopedBaggageSpanProcessor(scopedBaggageProcessor);
       spanProcessors.unshift(scopedBaggageProcessor);
     }
 

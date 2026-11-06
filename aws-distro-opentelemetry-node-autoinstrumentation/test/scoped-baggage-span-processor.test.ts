@@ -288,27 +288,106 @@ describe('registerScopedBaggageKey', () => {
     expect(registerScopedBaggageKey('my.key', INFERENCE_SCOPE)).toBe(false);
   });
 
-  it('is reachable through the public register entry point', () => {
-    // Customers can only import ./register and ./lite because of the package exports map. Run in a child
-    // process because loading register starts the distro.
-    const script =
-      "const m = require('@aws/aws-distro-opentelemetry-node-autoinstrumentation/register');" +
-      "process.exit(m.registerScopedBaggageKey('my.key', 'inference') === true ? 0 : 1);";
+  it('rejects scope names inherited from Object.prototype', () => {
+    for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      expect(registerScopedBaggageKey('my.key', name)).toBe(false);
+    }
+    expect(processor['_scopedKeys'].size).toBe(0);
+  });
+
+  it('copies keys whose names match Object.prototype properties', () => {
+    registerScopedBaggageKey('constructor', INFERENCE_SCOPE);
+    registerScopedBaggageKey('toString', INFERENCE_SCOPE);
+    const protoCtx = contextWithBaggage({ constructor: 'c', toString: 't' });
+
+    const chat = tracer.startSpan('chat model', { kind: SpanKind.CLIENT }, protoCtx);
+    chat.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_CHAT);
+    chat.end();
+
+    const attributes = finished('chat model').attributes;
+    expect(Object.prototype.hasOwnProperty.call(attributes, 'constructor')).toBe(true);
+    expect(attributes['constructor']).toBe('c');
+    expect(attributes['toString']).toBe('t');
+  });
+
+  it('releases the hook when the processor shuts down', async () => {
+    await processor.shutdown();
+    expect(registerScopedBaggageKey('my.key', INFERENCE_SCOPE)).toBe(false);
+  });
+});
+
+describe('registerScopedBaggageKey through the public register entry point', () => {
+  // Customers can only import ./register and ./lite because of the package exports map. Each case runs
+  // in a child process because loading register starts the distro.
+  const baseEnv = {
+    OTEL_NODE_RESOURCE_DETECTORS: 'none',
+    OTEL_TRACES_EXPORTER: 'none',
+    OTEL_METRICS_EXPORTER: 'none',
+    OTEL_LOGS_EXPORTER: 'none',
+  };
+
+  function run(script: string, env: Record<string, string>) {
     const proc = spawnSync(process.execPath, ['-e', script], {
       cwd: __dirname,
-      timeout: 10000,
+      timeout: 20000,
       killSignal: 'SIGKILL',
-      env: Object.assign({}, process.env, {
-        AGENT_OBSERVABILITY_ENABLED: 'true',
-        OTEL_NODE_RESOURCE_DETECTORS: 'none',
-        OTEL_TRACES_EXPORTER: 'none',
-        OTEL_METRICS_EXPORTER: 'none',
-        OTEL_LOGS_EXPORTER: 'none',
-      }),
+      env: Object.assign({}, process.env, baseEnv, env),
     });
     expect(proc.error).toBeUndefined();
+    return proc;
+  }
+
+  it('registers on the installed processor', () => {
+    const proc = run(
+      "const m = require('@aws/aws-distro-opentelemetry-node-autoinstrumentation/register');" +
+        "process.exit(m.registerScopedBaggageKey('my.key', 'inference') === true ? 0 : 1);",
+      { AGENT_OBSERVABILITY_ENABLED: 'true' }
+    );
     expect(proc.status).toBe(0);
   });
+
+  it('keeps registering on the processor of the first distro copy when a second copy loads', () => {
+    const script = `
+      const path = require('path');
+      const { context, propagation, SpanKind, trace } = require('@opentelemetry/api');
+      const entry = require.resolve('@aws/aws-distro-opentelemetry-node-autoinstrumentation/register');
+      const first = require(entry);
+      const firstOk = first.registerScopedBaggageKey('first.key', 'inference');
+
+      // Load a second copy of the distro modules that shares the same OpenTelemetry API.
+      const buildDir = path.dirname(entry);
+      for (const id of Object.keys(require.cache)) {
+        if (id.startsWith(buildDir)) delete require.cache[id];
+      }
+      const second = require(entry);
+      if (second === first) process.exit(3);
+      const secondOk = second.registerScopedBaggageKey('second.key', 'inference');
+
+      const ctx = propagation.setBaggage(
+        context.active(),
+        propagation.createBaggage({ 'first.key': { value: '1' }, 'second.key': { value: '2' } })
+      );
+      const span = trace.getTracer('t').startSpan('chat', { kind: SpanKind.CLIENT }, ctx);
+      span.setAttribute('gen_ai.operation.name', 'chat');
+      span.end();
+      const attrs = span.attributes;
+      process.exit(firstOk && secondOk && attrs['first.key'] === '1' && attrs['second.key'] === '2' ? 0 : 1);
+    `;
+    const proc = run(script, { AGENT_OBSERVABILITY_ENABLED: 'true' });
+    expect(proc.status).toBe(0);
+  });
+
+  for (const agentObservability of ['true', 'false']) {
+    it(`exports a callable hook in Lambda fast-start mode (agent observability ${agentObservability})`, () => {
+      const proc = run(
+        "const m = require('@aws/aws-distro-opentelemetry-node-autoinstrumentation/register');" +
+          "if (typeof m.registerScopedBaggageKey !== 'function') process.exit(2);" +
+          "process.exit(m.registerScopedBaggageKey('my.key', 'inference') === false ? 0 : 1);",
+        { OTEL_AWS_LAMBDA_FAST_START: 'true', AGENT_OBSERVABILITY_ENABLED: agentObservability }
+      );
+      expect(proc.status).toBe(0);
+    });
+  }
 });
 
 describe('isGenAiInferenceSpan', () => {

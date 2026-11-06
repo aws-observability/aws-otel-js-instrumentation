@@ -579,6 +579,31 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     }
   });
 
+  it('ignores a scope on session.id only under agent observability', () => {
+    const previousAgentObservability = process.env.AGENT_OBSERVABILITY_ENABLED;
+    const previousBaggageKeys = process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
+    const warn = sinon.spy(diag, 'warn');
+    try {
+      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'session.id:tools,my.key:tools';
+      // Without agent observability, session.id is an ordinary scoped key.
+      delete process.env.AGENT_OBSERVABILITY_ENABLED;
+      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({ 'session.id': 'tools', 'my.key': 'tools' });
+      expect(warn.called).toBe(false);
+
+      // Agent observability copies session.id to every span, so its scope is ignored with a warning.
+      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({
+        'my.key': 'tools',
+        'aws.agent.lineage': 'inference',
+      });
+      expect(warn.calledWithMatch(sinon.match(/session\.id/))).toBe(true);
+    } finally {
+      warn.restore();
+      restoreEnv('AGENT_OBSERVABILITY_ENABLED', previousAgentObservability);
+      restoreEnv('OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS', previousBaggageKeys);
+    }
+  });
+
   it('installs the scoped processor for key:scope entries without agent observability', () => {
     const previousAgentObservability = process.env.AGENT_OBSERVABILITY_ENABLED;
     const previousBaggageKeys = process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;

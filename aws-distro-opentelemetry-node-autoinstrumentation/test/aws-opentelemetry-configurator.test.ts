@@ -549,53 +549,57 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     delete process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED;
   });
 
-  it('getScopedBaggageKeys combines key:scope entries with the aws.agent.lineage default', () => {
+  it('getBaggageSpanAttributeKeys resolves every-span and scoped keys', () => {
     const previousAgentObservability = process.env.AGENT_OBSERVABILITY_ENABLED;
     const previousBaggageKeys = process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
+    const lineageDefault: [string, string[]] = ['aws.agent.lineage', ['aws.inference']];
+    // [env var, agent observability, every-span keys, scoped keys]
+    const cases: [string, boolean, string[], [string, string[]][]][] = [
+      ['', false, [], []],
+      ['', true, ['session.id'], [lineageDefault]],
+      ['k,k:tools', false, ['k'], []],
+      ['k:tools,k', false, ['k'], []],
+      ['k:aws.inference,k:tools', false, [], [['k', ['aws.inference', 'tools']]]],
+      ['aws.agent.lineage', false, ['aws.agent.lineage'], []],
+      ['aws.agent.lineage', true, ['aws.agent.lineage', 'session.id'], []],
+      ['aws.agent.lineage:tools', true, ['session.id'], [['aws.agent.lineage', ['tools']]]],
+      ['session.id:tools', false, [], [['session.id', ['tools']]]],
+      ['session.id,session.id:tools', false, ['session.id'], []],
+    ];
     try {
-      delete process.env.AGENT_OBSERVABILITY_ENABLED;
-      delete process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
-      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({});
-
-      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'session.id,my.key:tools';
-      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({ 'my.key': 'tools' });
-
-      process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
-      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({
-        'my.key': 'tools',
-        'aws.agent.lineage': 'inference',
-      });
-
-      // A key the customer allowlists is copied to every span instead, so the scoped default steps aside.
-      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'tenant.id,aws.agent.lineage';
-      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({});
-
-      // A customer scope for aws.agent.lineage replaces the default scope.
-      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'aws.agent.lineage:tools';
-      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({ 'aws.agent.lineage': 'tools' });
+      for (const [env, agentObservability, allSpanKeys, scopedKeys] of cases) {
+        process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = env;
+        if (agentObservability) {
+          process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
+        } else {
+          delete process.env.AGENT_OBSERVABILITY_ENABLED;
+        }
+        const resolved = AwsOpentelemetryConfigurator.getBaggageSpanAttributeKeys();
+        expect([
+          [...resolved.allSpanKeys].sort(),
+          [...resolved.scopedKeys].map(([k, v]) => [k, [...v].sort()]),
+        ]).toEqual([allSpanKeys, scopedKeys]);
+      }
     } finally {
       restoreEnv('AGENT_OBSERVABILITY_ENABLED', previousAgentObservability);
       restoreEnv('OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS', previousBaggageKeys);
     }
   });
 
-  it('ignores a scope on session.id only under agent observability', () => {
+  it('ignores scopes on session.id under agent observability, with a warning', () => {
     const previousAgentObservability = process.env.AGENT_OBSERVABILITY_ENABLED;
     const previousBaggageKeys = process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS;
     const warn = sinon.spy(diag, 'warn');
     try {
       process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'session.id:tools,my.key:tools';
-      // Without agent observability, session.id is an ordinary scoped key.
       delete process.env.AGENT_OBSERVABILITY_ENABLED;
-      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({ 'session.id': 'tools', 'my.key': 'tools' });
+      AwsOpentelemetryConfigurator.getBaggageSpanAttributeKeys();
       expect(warn.called).toBe(false);
 
-      // Agent observability copies session.id to every span, so its scope is ignored with a warning.
       process.env.AGENT_OBSERVABILITY_ENABLED = 'true';
-      expect(AwsOpentelemetryConfigurator.getScopedBaggageKeys()).toEqual({
-        'my.key': 'tools',
-        'aws.agent.lineage': 'inference',
-      });
+      const { allSpanKeys, scopedKeys } = AwsOpentelemetryConfigurator.getBaggageSpanAttributeKeys();
+      expect([...allSpanKeys]).toEqual(['session.id']);
+      expect([...scopedKeys.keys()].sort()).toEqual(['aws.agent.lineage', 'my.key']);
       expect(warn.calledWithMatch(sinon.match(/session\.id/))).toBe(true);
     } finally {
       warn.restore();
@@ -610,11 +614,11 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     const processors: SpanProcessor[] = [];
     try {
       delete process.env.AGENT_OBSERVABILITY_ENABLED;
-      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'my.key:inference';
+      process.env.OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS = 'my.key:aws.inference';
       AwsOpentelemetryConfigurator.customizeSpanProcessors(processors, emptyResource());
 
       const scoped = processors.find(p => p instanceof ScopedBaggageSpanProcessor) as ScopedBaggageSpanProcessor;
-      expect(scoped['_scopedKeys'].get('my.key')).toBe('inference');
+      expect([...scoped['_scopedKeys'].get('my.key')!]).toEqual(['aws.inference']);
       const baggageProcessor = processors.find(p => p instanceof BaggageSpanProcessor)!;
       const predicate = (baggageProcessor as BaggageSpanProcessor)['_keyPredicate'].bind(baggageProcessor);
       expect(predicate('my.key')).toBe(false);

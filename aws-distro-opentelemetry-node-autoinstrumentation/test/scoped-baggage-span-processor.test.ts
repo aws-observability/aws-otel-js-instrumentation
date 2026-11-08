@@ -230,6 +230,35 @@ describe('ScopedBaggageSpanProcessor', () => {
     expect(exported.attributes[AWS_AGENT_LINEAGE]).toBe(LINEAGE);
   });
 
+  function nestedChatSpans(outerOp: string = GEN_AI_OPERATION_NAME_VALUE_CHAT) {
+    const framework = startSpan('framework', outerOp);
+    const sdk = startSpan(
+      'sdk',
+      GEN_AI_OPERATION_NAME_VALUE_CHAT,
+      SpanKind.CLIENT,
+      trace.setSpan(lineageContext, framework)
+    );
+    sdk.end();
+    framework.end();
+  }
+
+  it('stamps only the innermost CLIENT span without GenAINestedClientSpanProcessor', () => {
+    // Agent observability off: GenAINestedClientSpanProcessor is not installed, so both spans stay CLIENT.
+    nestedChatSpans();
+
+    expect(finished('framework').kind).toBe(SpanKind.CLIENT);
+    expect(finished('framework').attributes[AWS_AGENT_LINEAGE]).toBeUndefined();
+    expect(finished('sdk').attributes[AWS_AGENT_LINEAGE]).toBe(LINEAGE);
+  });
+
+  it('stamps nested inference spans with different operations', () => {
+    // Same rule as GenAINestedClientSpanProcessor: only a child with the same operation demotes the parent.
+    nestedChatSpans(GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS);
+
+    expect(finished('framework').attributes[AWS_AGENT_LINEAGE]).toBe(LINEAGE);
+    expect(finished('sdk').attributes[AWS_AGENT_LINEAGE]).toBe(LINEAGE);
+  });
+
   it('leaves unscoped keys on every span', async () => {
     await provider.shutdown();
     setup([
@@ -324,8 +353,53 @@ describe('registerBaggageScope', () => {
     expect(finished('tool').attributes['my.key']).toBeUndefined();
   });
 
+  it('copies the key when any of its scopes matches', async () => {
+    await provider.shutdown();
+    exporter = new InMemorySpanExporter();
+    provider = new NodeTracerProvider({
+      sampler: new AlwaysOnSampler(),
+      spanProcessors: [
+        new ScopedBaggageSpanProcessor({ 'my.key': ['tools', INFERENCE_SCOPE, 'no_such_scope'] }),
+        new SimpleSpanProcessor(exporter),
+      ],
+    });
+    tracer = provider.getTracer('test');
+    registerBaggageScope('tools', isToolSpan);
+
+    toolSpan().end();
+    const chat = tracer.startSpan('chat', { kind: SpanKind.CLIENT }, ctx);
+    chat.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_CHAT);
+    chat.end();
+    tracer.startSpan('other', {}, ctx).end();
+
+    expect(finished('tool').attributes['my.key']).toBe('v1');
+    expect(finished('chat').attributes['my.key']).toBe('v1');
+    expect(finished('other').attributes['my.key']).toBeUndefined();
+  });
+
+  it("does not let a throwing predicate block the key's other scopes", async () => {
+    await provider.shutdown();
+    exporter = new InMemorySpanExporter();
+    provider = new NodeTracerProvider({
+      sampler: new AlwaysOnSampler(),
+      spanProcessors: [
+        new ScopedBaggageSpanProcessor({ 'my.key': ['broken', 'tools'] }),
+        new SimpleSpanProcessor(exporter),
+      ],
+    });
+    tracer = provider.getTracer('test');
+    registerBaggageScope('broken', () => {
+      throw new Error('boom');
+    });
+    registerBaggageScope('tools', isToolSpan);
+
+    toolSpan().end();
+
+    expect(finished('tool').attributes['my.key']).toBe('v1');
+  });
+
   it('rejects invalid registrations', () => {
-    for (const name of ['', ' tools', 'a:b', 'a,b', INFERENCE_SCOPE]) {
+    for (const name of ['', ' tools', 'a:b', 'a,b', INFERENCE_SCOPE, 'aws.tools']) {
       expect(registerBaggageScope(name, isToolSpan)).toBe(false);
     }
     expect(registerBaggageScope('tools', 'not a function' as unknown as () => boolean)).toBe(false);
@@ -349,7 +423,10 @@ describe('registerBaggageScope', () => {
 
   it('allows custom scope names that match Object.prototype properties', () => {
     expect(registerBaggageScope('constructor', isToolSpan)).toBe(true);
-    clearRegisteredBaggageScopes();
+  });
+
+  it('treats unprefixed inference as a custom scope name', () => {
+    expect(registerBaggageScope('inference', isToolSpan)).toBe(true);
   });
 });
 
@@ -398,6 +475,31 @@ describe('registerBaggageScope through the public register entry point', () => {
       process.exit(ok && attrs['my.key'] === 'v1' && attrs['aws.agent.lineage'] === undefined ? 0 : 1);
     `;
     const proc = run(script, { AGENT_OBSERVABILITY_ENABLED: 'true', OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS: 'my.key:tools' });
+    expect(proc.status).toBe(0);
+  });
+
+  it('copies :aws.inference keys only to the innermost inference span without agent observability', () => {
+    const script = `
+      require('@aws/aws-distro-opentelemetry-node-autoinstrumentation/register');
+      const { context, propagation, SpanKind, trace } = require('@opentelemetry/api');
+      const tracer = trace.getTracer('t');
+      const ctx = propagation.setBaggage(context.active(), propagation.createBaggage({ 'tenant.id': { value: 't1' } }));
+      const framework = tracer.startSpan('framework', { kind: SpanKind.CLIENT }, ctx);
+      framework.setAttribute('gen_ai.operation.name', 'chat');
+      const sdk = tracer.startSpan('sdk', { kind: SpanKind.CLIENT }, trace.setSpan(ctx, framework));
+      sdk.setAttribute('gen_ai.operation.name', 'chat');
+      sdk.end();
+      framework.end();
+      const ok =
+        framework.kind === SpanKind.CLIENT &&
+        framework.attributes['tenant.id'] === undefined &&
+        sdk.attributes['tenant.id'] === 't1';
+      process.exit(ok ? 0 : 1);
+    `;
+    const proc = run(script, {
+      AGENT_OBSERVABILITY_ENABLED: 'false',
+      OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS: 'tenant.id:aws.inference',
+    });
     expect(proc.status).toBe(0);
   });
 

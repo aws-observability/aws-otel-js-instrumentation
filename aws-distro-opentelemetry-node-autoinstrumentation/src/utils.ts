@@ -99,39 +99,31 @@ export const getAwsDnsSuffix = (region: string | undefined): string => {
   return 'amazonaws.com';
 };
 
+/** Scope name used for an entry without a scope: the key goes to every span. */
+export const EVERY_SPAN_SCOPE = '';
+
 /**
- * Parse OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS into keys for every span and keys with a scope.
+ * Parse OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS into a map of baggage key to scope names.
  *
- * Each comma-separated entry is `key` (copied to every span) or `key:scope` (copied only to spans matching
- * the scope). W3C baggage keys cannot contain `:` or `,`, so the delimiters never appear in a key. An entry
- * with an empty scope (`key:`) is treated as having no scope. A key listed both with and without a scope is
- * copied to every span.
+ * Each comma-separated entry is `key` (every span) or `key:scope` (spans matching the scope). W3C baggage
+ * keys cannot contain `:` or `,`, so the delimiters never appear in a key. An entry without a scope, or with
+ * an empty one (`key:`), adds EVERY_SPAN_SCOPE. A key listed more than once collects all its scopes.
  */
-export const parseBaggageSpanAttributeKeys = (): { allSpanKeys: Set<string>; scopedKeys: Record<string, string> } => {
-  const raw = process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] ?? '';
-  const allSpanKeys = new Set<string>();
-  const scopedKeys = new Map<string, string>();
-  for (const entry of raw.split(',')) {
+export const parseBaggageSpanAttributeKeys = (): Map<string, Set<string>> => {
+  const keys = new Map<string, Set<string>>();
+  for (const entry of (process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] ?? '').split(',')) {
     const separator = entry.indexOf(':');
     const key = (separator === -1 ? entry : entry.slice(0, separator)).trim();
-    const scope = separator === -1 ? '' : entry.slice(separator + 1).trim();
+    const scope = separator === -1 ? EVERY_SPAN_SCOPE : entry.slice(separator + 1).trim();
     if (!key) {
       continue;
     }
-    if (scope) {
-      scopedKeys.set(key, scope);
-    } else {
-      allSpanKeys.add(key);
-    }
+    const scopes = keys.get(key) ?? new Set<string>();
+    scopes.add(scope);
+    keys.set(key, scopes);
   }
-  for (const key of allSpanKeys) {
-    scopedKeys.delete(key);
-  }
-  return { allSpanKeys, scopedKeys: Object.fromEntries(scopedKeys) };
+  return keys;
 };
-
-/** Keys in OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS that are copied to every span (entries without a scope). */
-export const parseOtelBaggageKeysEnvVar = (): Set<string> => parseBaggageSpanAttributeKeys().allSpanKeys;
 
 export const isInstrumentationDisabled = (shortName: string): boolean => {
   const disabledEnv = process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS;

@@ -1,34 +1,35 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Context, diag, propagation, SpanKind } from '@opentelemetry/api';
+import { Context, diag, propagation, SpanKind, trace } from '@opentelemetry/api';
 import { ReadableSpan, Span, SpanLimits, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { GEN_AI_INFERENCE_OPERATIONS } from './gen-ai-nested-client-span-processor';
 import { ATTR_GEN_AI_OPERATION_NAME } from './instrumentation/common/semconv';
-import { getRegisteredBaggageScope, ScopePredicate } from './scoped-baggage-registration';
+import { getRegisteredBaggageScope } from './scoped-baggage-registration';
 
 export { clearRegisteredBaggageScopes, registerBaggageScope } from './scoped-baggage-registration';
 
 export const AWS_AGENT_LINEAGE = 'aws.agent.lineage';
-export const INFERENCE_SCOPE = 'inference';
+export const INFERENCE_SCOPE = 'aws.inference';
+
+function genAiInferenceOperation(span: ReadableSpan): string | undefined {
+  if (span.kind !== SpanKind.CLIENT) {
+    return undefined;
+  }
+  const operation = (span.attributes || {})[ATTR_GEN_AI_OPERATION_NAME];
+  return typeof operation === 'string' && GEN_AI_INFERENCE_OPERATIONS.includes(operation) ? operation : undefined;
+}
 
 /** A CLIENT span for a GenAI inference operation (chat, text_completion, generate_content, embeddings). */
 export function isGenAiInferenceSpan(span: ReadableSpan): boolean {
-  if (span.kind !== SpanKind.CLIENT) {
-    return false;
-  }
-  const operation = (span.attributes || {})[ATTR_GEN_AI_OPERATION_NAME];
-  return typeof operation === 'string' && GEN_AI_INFERENCE_OPERATIONS.includes(operation);
+  return genAiInferenceOperation(span) !== undefined;
 }
 
-// Built-in scopes: scope name -> predicate evaluated when the span ends. Predicates run only at end
-// because processors can change a span's kind and attributes in onEnd. For example,
-// VercelAISpanProcessor promotes inference spans from INTERNAL to CLIENT.
-// A Map, not an object literal, so names like 'constructor' or 'toString' are not found on a prototype.
-const BUILTIN_SCOPES: ReadonlyMap<string, ScopePredicate> = new Map([[INFERENCE_SCOPE, isGenAiInferenceSpan]]);
-
-function getScope(name: string): ScopePredicate | undefined {
-  return BUILTIN_SCOPES.get(name) ?? getRegisteredBaggageScope(name);
+/** Baggage captured at span start, held until the span ends. */
+interface PendingSpan {
+  baggage: Map<string, string>;
+  // Inference operations of CLIENT child spans that have ended.
+  inferenceChildOperations: Set<string>;
 }
 
 /**
@@ -37,26 +38,36 @@ function getScope(name: string): ScopePredicate | undefined {
  * Unlike the upstream BaggageSpanProcessor, which copies keys to every span at start, a scope's
  * predicate depends on attributes that instrumentations often set after the span starts (for example
  * `gen_ai.operation.name`). Baggage is captured in `onStart` from the parent context, because the context
- * active when the span ends may not hold the same baggage, and applied in `onEnd` once the scope matches.
+ * active when the span ends may not hold the same baggage, and applied in `onEnd` once a scope matches.
  *
  * This processor must run after processors that change span kind in onEnd (VercelAISpanProcessor,
  * GenAINestedClientSpanProcessor), so it sees the final kind, and before the exporter processors, so
- * they see the new attribute. Pending baggage is held in a WeakMap keyed by the span, so spans that
- * never end do not retain it.
+ * they see the new attribute. Pending state is held in WeakMaps keyed by the span, so spans that never
+ * end do not retain it.
+ *
+ * The built-in `aws.inference` scope matches only the innermost span of nested CLIENT inference spans with
+ * the same operation, such as a framework span wrapping the model SDK span. The processor tracks this
+ * itself, so the result does not depend on GenAINestedClientSpanProcessor being installed.
  *
  * A key is only set when the span does not already have it, so a value set by the instrumentation wins.
  */
 export class ScopedBaggageSpanProcessor implements SpanProcessor {
-  private readonly _scopedKeys: ReadonlyMap<string, string>;
+  private readonly _scopedKeys: ReadonlyMap<string, ReadonlySet<string>>;
   private readonly _warnedScopes: Set<string> = new Set();
-  private readonly _pendingBySpan: WeakMap<object, Record<string, string>> = new WeakMap();
+  private readonly _pendingBySpan: WeakMap<object, PendingSpan> = new WeakMap();
+  // Child span -> pending state of its parent, for children of spans with pending baggage.
+  private readonly _parentPendingBySpan: WeakMap<object, PendingSpan> = new WeakMap();
 
   /**
-   * @param scopedKeys Mapping of baggage key to scope name. The scope can be built in or registered later
-   * with registerBaggageScope(). A key whose scope is unknown when a span ends is not copied to that span.
+   * @param scopedKeys Mapping of baggage key to scope names. The key is copied to a span that matches any
+   * of its scopes. A scope can be built in or registered later with registerBaggageScope(). An unknown
+   * scope matches no span.
    */
-  constructor(scopedKeys: Record<string, string>) {
-    this._scopedKeys = new Map(Object.entries(scopedKeys));
+  constructor(scopedKeys: ReadonlyMap<string, Iterable<string>> | Record<string, string | Iterable<string>>) {
+    const entries = scopedKeys instanceof Map ? [...scopedKeys] : Object.entries(scopedKeys);
+    this._scopedKeys = new Map(
+      entries.map(([key, scopes]) => [key, new Set(typeof scopes === 'string' ? [scopes] : scopes)])
+    );
   }
 
   onStart(span: Span, parentContext: Context): void {
@@ -64,57 +75,74 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
     if (scopedKeys.size === 0) {
       return;
     }
+    const parent = trace.getSpan(parentContext);
+    const parentPending = parent && this._pendingBySpan.get(parent);
+    if (parentPending) {
+      this._parentPendingBySpan.set(span, parentPending);
+    }
     const entries = propagation.getBaggage(parentContext)?.getAllEntries() ?? [];
-    const pending: Record<string, string> = {};
-    let found = false;
+    const baggage = new Map<string, string>();
     for (const [key, entry] of entries) {
       if (scopedKeys.has(key)) {
-        pending[key] = entry.value;
-        found = true;
+        baggage.set(key, entry.value);
       }
     }
-    if (found) {
-      this._pendingBySpan.set(span, pending);
+    if (baggage.size > 0) {
+      this._pendingBySpan.set(span, { baggage, inferenceChildOperations: new Set() });
     }
   }
 
   onEnd(span: ReadableSpan): void {
+    const parentPending = this._parentPendingBySpan.get(span);
+    if (parentPending) {
+      this._parentPendingBySpan.delete(span);
+      // Record this span on its parent, so a parent with the same operation does not match aws.inference.
+      // Children end before their parents.
+      const operation = genAiInferenceOperation(span);
+      if (operation !== undefined) {
+        parentPending.inferenceChildOperations.add(operation);
+      }
+    }
     const pending = this._pendingBySpan.get(span);
     if (!pending) {
       return;
     }
     this._pendingBySpan.delete(span);
-    for (const [key, value] of Object.entries(pending)) {
-      const scopeName = this._scopedKeys.get(key);
-      if (scopeName === undefined) {
-        continue;
-      }
-      const predicate = getScope(scopeName);
-      if (!predicate) {
-        this.warnUnknownScope(scopeName, key);
-        continue;
-      }
-      let matches = false;
-      try {
-        matches = predicate(span);
-      } catch (e) {
-        diag.debug(`Baggage scope check failed for key '${key}'`, e);
-        continue;
-      }
-      if (matches) {
-        setAttributeIfAbsent(span, key, value);
+    for (const [key, value] of pending.baggage) {
+      const scopes = this._scopedKeys.get(key) ?? [];
+      for (const scope of scopes) {
+        if (this.scopeMatches(scope, span, pending)) {
+          setAttributeIfAbsent(span, key, value);
+          break;
+        }
       }
     }
   }
 
-  private warnUnknownScope(scopeName: string, key: string): void {
+  private scopeMatches(scopeName: string, span: ReadableSpan, pending: PendingSpan): boolean {
+    if (scopeName === INFERENCE_SCOPE) {
+      const operation = genAiInferenceOperation(span);
+      return operation !== undefined && !pending.inferenceChildOperations.has(operation);
+    }
+    const predicate = getRegisteredBaggageScope(scopeName);
+    if (!predicate) {
+      this.warnUnknownScope(scopeName);
+      return false;
+    }
+    try {
+      return Boolean(predicate(span));
+    } catch (e) {
+      diag.debug(`Baggage scope '${scopeName}' check failed`, e);
+      return false;
+    }
+  }
+
+  private warnUnknownScope(scopeName: string): void {
     if (this._warnedScopes.has(scopeName)) {
       return;
     }
     this._warnedScopes.add(scopeName);
-    diag.warn(
-      `Unknown baggage scope '${scopeName}' for key '${key}' in OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS. The key is not copied.`
-    );
+    diag.warn(`Unknown baggage scope '${scopeName}' in OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS. It matches no span.`);
   }
 
   shutdown(): Promise<void> {

@@ -7,8 +7,8 @@ import {
   getAwsRegionFromEnvironment,
   isAgentObservabilityEnabled,
   isAgenticInstrumentationOptIn,
+  EVERY_SPAN_SCOPE,
   parseBaggageSpanAttributeKeys,
-  parseOtelBaggageKeysEnvVar,
   isInstrumentationDisabled,
   detectConflictingInstrumentation,
   getNodeVersion,
@@ -114,37 +114,24 @@ describe('Utils', function () {
     expect(version).toBeGreaterThan(0);
   });
 
-  it('Test parseOtelBaggageKeysEnvVar', () => {
+  it('Test parseBaggageSpanAttributeKeys', () => {
+    const parsed = () => Object.fromEntries([...parseBaggageSpanAttributeKeys()].map(([k, v]) => [k, [...v].sort()]));
     delete process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS];
-    expect(parseOtelBaggageKeysEnvVar().size).toEqual(0);
-
-    process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] = 'key1,key2,key3';
-    const keys = parseOtelBaggageKeysEnvVar();
-    expect(keys.size).toEqual(3);
-    expect(keys.has('key1')).toBeTruthy();
-    expect(keys.has('key2')).toBeTruthy();
-    expect(keys.has('key3')).toBeTruthy();
-
-    process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] = ' key1 , key2 ';
-    const trimmed = parseOtelBaggageKeysEnvVar();
-    expect(trimmed.size).toEqual(2);
-    expect(trimmed.has('key1')).toBeTruthy();
-    expect(trimmed.has('key2')).toBeTruthy();
+    expect(parsed()).toEqual({});
 
     process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] = '';
-    expect(parseOtelBaggageKeysEnvVar().size).toEqual(0);
+    expect(parsed()).toEqual({});
 
-    delete process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS];
-  });
+    // An entry without a scope, or with an empty one, is EVERY_SPAN_SCOPE. Repeated keys collect their scopes.
+    process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] = ' session.id , my.key:tools,other.key : b ,empty:, ,dup:tools,dup';
+    expect(parsed()).toEqual({
+      'session.id': [EVERY_SPAN_SCOPE],
+      'my.key': ['tools'],
+      'other.key': ['b'],
+      empty: [EVERY_SPAN_SCOPE],
+      dup: [EVERY_SPAN_SCOPE, 'tools'],
+    });
 
-  it('Test parseBaggageSpanAttributeKeys separates key:scope entries', () => {
-    process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS] =
-      ' session.id , my.key:tools,other.key : inference ,empty:, ,dup:tools,dup';
-    const { allSpanKeys, scopedKeys } = parseBaggageSpanAttributeKeys();
-    expect([...allSpanKeys].sort()).toEqual(['dup', 'empty', 'session.id']);
-    expect(scopedKeys).toEqual({ 'my.key': 'tools', 'other.key': 'inference' });
-    // Keys with a scope are not copied to every span by BaggageSpanProcessor.
-    expect([...parseOtelBaggageKeysEnvVar()].sort()).toEqual(['dup', 'empty', 'session.id']);
     delete process.env[OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS];
   });
 

@@ -13,6 +13,10 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix: release `GenAINestedClientSpanProcessor` state when the parent span ends or is garbage-collected.
+  Model calls under a remote parent, a parent that ended first, or a parent that never ended each left an
+  entry in memory until shutdown
+  ([#589](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/589))
 - fix: in Lambda, treat `OTEL_EXPORTER_OTLP_ENDPOINT` as a custom trace endpoint, as the OTLP exporter
   spec requires. Setting only the generic endpoint previously fell back to the X-Ray UDP exporter, so
   traces never reached the configured collector

@@ -251,6 +251,74 @@ describe('ScopedBaggageSpanProcessor', () => {
     expect(finished('sdk').attributes[AWS_AGENT_LINEAGE]).toBe(LINEAGE);
   });
 
+  it('stamps only the innermost span when the parent context is rebuilt from its span context', () => {
+    const framework = startSpan('framework');
+    const sdk = startSpan(
+      'sdk',
+      GEN_AI_OPERATION_NAME_VALUE_CHAT,
+      SpanKind.CLIENT,
+      trace.setSpanContext(lineageContext, framework.spanContext())
+    );
+    sdk.end();
+    framework.end();
+
+    expect(finished('framework').attributes[AWS_AGENT_LINEAGE]).toBeUndefined();
+    expect(finished('sdk').attributes[AWS_AGENT_LINEAGE]).toBe(LINEAGE);
+  });
+
+  it("releases a parent's state when it ends while a child without baggage is still open", async () => {
+    await provider.shutdown();
+    const processor = new ScopedBaggageSpanProcessor({ [AWS_AGENT_LINEAGE]: INFERENCE_SCOPE });
+    setup([processor]);
+
+    const parent = startSpan('parent', null, SpanKind.INTERNAL);
+    const child = tracer.startSpan('child', {}, trace.setSpan(ROOT_CONTEXT, parent));
+    expect(processor['_childOperationsBySpanId'].size).toBe(1);
+    parent.end();
+
+    expect(processor['_childOperationsBySpanId'].size).toBe(0);
+    child.end();
+  });
+
+  it('releases state for parents collected without ending while their children are open', () => {
+    // Runs in a child process for --expose-gc. Uses the compiled processor directly.
+    const script = `
+      const path = require('path');
+      const { propagation, trace, ROOT_CONTEXT } = require('@opentelemetry/api');
+      const { AlwaysOnSampler } = require('@opentelemetry/sdk-trace-base');
+      const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node');
+      const { ScopedBaggageSpanProcessor } = require(path.join(process.cwd(), '..', 'build', 'src', 'scoped-baggage-span-processor'));
+      const processor = new ScopedBaggageSpanProcessor({ 'aws.agent.lineage': 'aws.inference' });
+      const tracer = new NodeTracerProvider({ sampler: new AlwaysOnSampler(), spanProcessors: [processor] }).getTracer('t');
+      const ctx = propagation.setBaggage(
+        ROOT_CONTEXT,
+        propagation.createBaggage({ 'aws.agent.lineage': { value: 'x'.repeat(1000) } })
+      );
+      const children = [];
+      for (let i = 0; i < 1000; i++) {
+        children.push(tracer.startSpan('child', {}, trace.setSpan(ROOT_CONTEXT, tracer.startSpan('parent', {}, ctx))));
+      }
+      (async () => {
+        const state = processor['_childOperationsBySpanId'];
+        if (state.size !== 1000) process.exit(2);
+        for (let i = 0; i < 50 && state.size > 0; i++) {
+          global.gc();
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        const remaining = state.size;
+        children.forEach(child => child.end());
+        process.exit(remaining === 0 ? 0 : 1);
+      })();
+    `;
+    const proc = spawnSync(process.execPath, ['--expose-gc', '-e', script], {
+      cwd: __dirname,
+      timeout: 20000,
+      killSignal: 'SIGKILL',
+    });
+    expect(proc.error).toBeUndefined();
+    expect(proc.status).toBe(0);
+  });
+
   it('stamps nested inference spans with different operations', () => {
     // Same rule as GenAINestedClientSpanProcessor: only a child with the same operation demotes the parent.
     nestedChatSpans(GEN_AI_OPERATION_NAME_VALUE_EMBEDDINGS);
@@ -484,16 +552,23 @@ describe('registerBaggageScope through the public register entry point', () => {
       const { context, propagation, SpanKind, trace } = require('@opentelemetry/api');
       const tracer = trace.getTracer('t');
       const ctx = propagation.setBaggage(context.active(), propagation.createBaggage({ 'tenant.id': { value: 't1' } }));
-      const framework = tracer.startSpan('framework', { kind: SpanKind.CLIENT }, ctx);
-      framework.setAttribute('gen_ai.operation.name', 'chat');
-      const sdk = tracer.startSpan('sdk', { kind: SpanKind.CLIENT }, trace.setSpan(ctx, framework));
-      sdk.setAttribute('gen_ai.operation.name', 'chat');
-      sdk.end();
-      framework.end();
-      const ok =
-        framework.kind === SpanKind.CLIENT &&
-        framework.attributes['tenant.id'] === undefined &&
-        sdk.attributes['tenant.id'] === 't1';
+      // The SDK span's parent context is built both from the parent span and from its span context only.
+      const ok = [
+        framework => trace.setSpan(ctx, framework),
+        framework => trace.setSpanContext(ctx, framework.spanContext()),
+      ].every(parentContext => {
+        const framework = tracer.startSpan('framework', { kind: SpanKind.CLIENT }, ctx);
+        framework.setAttribute('gen_ai.operation.name', 'chat');
+        const sdk = tracer.startSpan('sdk', { kind: SpanKind.CLIENT }, parentContext(framework));
+        sdk.setAttribute('gen_ai.operation.name', 'chat');
+        sdk.end();
+        framework.end();
+        return (
+          framework.kind === SpanKind.CLIENT &&
+          framework.attributes['tenant.id'] === undefined &&
+          sdk.attributes['tenant.id'] === 't1'
+        );
+      });
       process.exit(ok ? 0 : 1);
     `;
     const proc = run(script, {

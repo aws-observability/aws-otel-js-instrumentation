@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Context, diag, propagation, SpanKind, trace } from '@opentelemetry/api';
+import { Context, diag, propagation, SpanContext, SpanKind } from '@opentelemetry/api';
 import { ReadableSpan, Span, SpanLimits, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { GEN_AI_INFERENCE_OPERATIONS } from './gen-ai-nested-client-span-processor';
 import { ATTR_GEN_AI_OPERATION_NAME } from './instrumentation/common/semconv';
@@ -32,6 +32,22 @@ interface PendingSpan {
   inferenceChildOperations: Set<string>;
 }
 
+// FinalizationRegistry exists in every supported Node version (>= 18), but the es2017 lib this package
+// compiles against has no type for it.
+interface SpanFinalizationRegistry {
+  register(target: object, heldValue: string, unregisterToken: object): void;
+  unregister(unregisterToken: object): void;
+}
+const SpanFinalizationRegistry = (
+  globalThis as unknown as {
+    FinalizationRegistry: new (cleanup: (heldValue: string) => void) => SpanFinalizationRegistry;
+  }
+).FinalizationRegistry;
+
+function spanId(spanContext: SpanContext): string {
+  return `${spanContext.traceId}-${spanContext.spanId}`;
+}
+
 /**
  * Copies selected baggage entries to span attributes, but only on spans that match a scope.
  *
@@ -42,7 +58,7 @@ interface PendingSpan {
  *
  * This processor must run after processors that change span kind in onEnd (VercelAISpanProcessor,
  * GenAINestedClientSpanProcessor), so it sees the final kind, and before the exporter processors, so
- * they see the new attribute. Pending state is held in WeakMaps keyed by the span, so spans that never
+ * they see the new attribute. Pending baggage is held in a WeakMap keyed by the span, so spans that never
  * end do not retain it.
  *
  * The built-in `aws.inference` scope matches only the innermost span of nested CLIENT inference spans with
@@ -55,8 +71,14 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
   private readonly _scopedKeys: ReadonlyMap<string, ReadonlySet<string>>;
   private readonly _warnedScopes: Set<string> = new Set();
   private readonly _pendingBySpan: WeakMap<object, PendingSpan> = new WeakMap();
-  // Child span -> pending state of its parent, for children of spans with pending baggage.
-  private readonly _parentPendingBySpan: WeakMap<object, PendingSpan> = new WeakMap();
+  // Trace and span ID of each span with pending baggage -> its inferenceChildOperations. A child finds its
+  // parent here by ID, as GenAINestedClientSpanProcessor does, so a parent context rebuilt with
+  // trace.setSpanContext() still works and a child never references its parent's baggage.
+  private readonly _childOperationsBySpanId: Map<string, Set<string>> = new Map();
+  // Removes a span's entry above if the span is garbage-collected without ending.
+  private readonly _collected: SpanFinalizationRegistry = new SpanFinalizationRegistry(id =>
+    this._childOperationsBySpanId.delete(id)
+  );
 
   /**
    * @param scopedKeys Mapping of baggage key to scope names. The key is copied to a span that matches any
@@ -75,11 +97,6 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
     if (scopedKeys.size === 0) {
       return;
     }
-    const parent = trace.getSpan(parentContext);
-    const parentPending = parent && this._pendingBySpan.get(parent);
-    if (parentPending) {
-      this._parentPendingBySpan.set(span, parentPending);
-    }
     const entries = propagation.getBaggage(parentContext)?.getAllEntries() ?? [];
     const baggage = new Map<string, string>();
     for (const [key, entry] of entries) {
@@ -88,19 +105,22 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
       }
     }
     if (baggage.size > 0) {
-      this._pendingBySpan.set(span, { baggage, inferenceChildOperations: new Set() });
+      const pending: PendingSpan = { baggage, inferenceChildOperations: new Set() };
+      const id = spanId(span.spanContext());
+      this._pendingBySpan.set(span, pending);
+      this._childOperationsBySpanId.set(id, pending.inferenceChildOperations);
+      this._collected.register(span, id, span);
     }
   }
 
   onEnd(span: ReadableSpan): void {
-    const parentPending = this._parentPendingBySpan.get(span);
-    if (parentPending) {
-      this._parentPendingBySpan.delete(span);
-      // Record this span on its parent, so a parent with the same operation does not match aws.inference.
-      // Children end before their parents.
+    // Record this span on its parent, so a parent with the same operation does not match aws.inference.
+    // Children end before their parents.
+    const parent = span.parentSpanContext;
+    if (parent && this._childOperationsBySpanId.size > 0) {
       const operation = genAiInferenceOperation(span);
       if (operation !== undefined) {
-        parentPending.inferenceChildOperations.add(operation);
+        this._childOperationsBySpanId.get(spanId(parent))?.add(operation);
       }
     }
     const pending = this._pendingBySpan.get(span);
@@ -108,6 +128,8 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
       return;
     }
     this._pendingBySpan.delete(span);
+    this._childOperationsBySpanId.delete(spanId(span.spanContext()));
+    this._collected.unregister(span);
     for (const [key, value] of pending.baggage) {
       const scopes = this._scopedKeys.get(key) ?? [];
       for (const scope of scopes) {
@@ -146,6 +168,7 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
   }
 
   shutdown(): Promise<void> {
+    this._childOperationsBySpanId.clear();
     return Promise.resolve();
   }
 

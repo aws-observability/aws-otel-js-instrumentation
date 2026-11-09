@@ -1,8 +1,9 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { context, SpanKind, trace } from '@opentelemetry/api';
+import { context, ROOT_CONTEXT, SpanKind, TraceFlags, trace } from '@opentelemetry/api';
 import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { spawnSync } from 'child_process';
 import { expect } from 'expect';
 import { GenAINestedClientSpanProcessor } from '../src/gen-ai-nested-client-span-processor';
 import {
@@ -125,7 +126,7 @@ describe('TestGenAINestedClientSpanProcessor', () => {
     const spans = exporter.getFinishedSpans();
     expect(spans[0].kind).toBe(SpanKind.CLIENT);
     expect(spans[1].kind).toBe(SpanKind.CLIENT);
-    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(0);
+    expect((processor as any)._childOperationsByParent.has(parent)).toBe(false);
   });
 
   it('should not convert non-LLM operation', () => {
@@ -148,7 +149,7 @@ describe('TestGenAINestedClientSpanProcessor', () => {
     const spans = exporter.getFinishedSpans();
     expect(spans[0].kind).toBe(SpanKind.CLIENT);
     expect(spans[1].kind).toBe(SpanKind.CLIENT);
-    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(0);
+    expect((processor as any)._childOperationsByParent.has(parent)).toBe(false);
   });
 
   it('should not modify INTERNAL span', () => {
@@ -176,12 +177,114 @@ describe('TestGenAINestedClientSpanProcessor', () => {
     expect(spans[0].kind).toBe(SpanKind.CLIENT);
   });
 
+  it('should demote all but the innermost of three nested spans', () => {
+    const top = makeLlmSpan('top');
+    const middle = makeLlmSpan(
+      'middle',
+      GEN_AI_OPERATION_NAME_VALUE_CHAT,
+      SpanKind.CLIENT,
+      trace.setSpan(ROOT_CONTEXT, top)
+    );
+    const inner = makeLlmSpan(
+      'inner',
+      GEN_AI_OPERATION_NAME_VALUE_CHAT,
+      SpanKind.CLIENT,
+      trace.setSpan(ROOT_CONTEXT, middle)
+    );
+    inner.end();
+    middle.end();
+    top.end();
+
+    const kinds = Object.fromEntries(exporter.getFinishedSpans().map(span => [span.name, span.kind]));
+    expect(kinds).toEqual({ top: SpanKind.INTERNAL, middle: SpanKind.INTERNAL, inner: SpanKind.CLIENT });
+  });
+
+  it('should keep no state for a remote parent', () => {
+    const remote = trace.wrapSpanContext({
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      spanId: 'b7ad6b7169203331',
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: true,
+    });
+    const child = makeLlmSpan(
+      'chat model',
+      GEN_AI_OPERATION_NAME_VALUE_CHAT,
+      SpanKind.CLIENT,
+      trace.setSpan(ROOT_CONTEXT, remote)
+    );
+    expect((processor as any)._parentOperationsByChild.has(child)).toBe(false);
+    child.end();
+
+    expect((processor as any)._childOperationsByParent.has(remote)).toBe(false);
+  });
+
+  it('should not recreate state for a parent that ended before its child', () => {
+    const parent = tracer.startSpan('agent');
+    const ctx = trace.setSpan(ROOT_CONTEXT, parent);
+    const child = makeLlmSpan('chat model', GEN_AI_OPERATION_NAME_VALUE_CHAT, SpanKind.CLIENT, ctx);
+    parent.end();
+    child.end();
+    // A child that starts after its parent ended.
+    const late = makeLlmSpan('late', GEN_AI_OPERATION_NAME_VALUE_CHAT, SpanKind.CLIENT, ctx);
+    expect((processor as any)._parentOperationsByChild.has(late)).toBe(false);
+    late.end();
+
+    expect((processor as any)._childOperationsByParent.has(parent)).toBe(false);
+  });
+
+  it('should let parents be garbage-collected while their children are open', () => {
+    // Runs in a child process for --expose-gc. Uses the compiled processor directly.
+    // Compares against a provider without the processor, because the runtime can keep the most recently
+    // created span reachable on its own.
+    const script = `
+      const path = require('path');
+      const { trace, ROOT_CONTEXT, SpanKind } = require('@opentelemetry/api');
+      const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node');
+      const { AlwaysOnSampler } = require('@opentelemetry/sdk-trace-base');
+      const { GenAINestedClientSpanProcessor } = require(
+        path.join(process.cwd(), '..', 'build', 'src', 'gen-ai-nested-client-span-processor')
+      );
+      async function aliveParents(spanProcessors) {
+        const tracer = new NodeTracerProvider({ sampler: new AlwaysOnSampler(), spanProcessors }).getTracer('t');
+        const parents = [];
+        const children = [];
+        function startPair() {
+          const parent = tracer.startSpan('agent');
+          parents.push(new WeakRef(parent));
+          const child = tracer.startSpan('chat', { kind: SpanKind.CLIENT }, trace.setSpan(ROOT_CONTEXT, parent));
+          child.setAttribute('gen_ai.operation.name', 'chat');
+          children.push(child);
+        }
+        for (let i = 0; i < 1000; i++) startPair();
+        for (let i = 0; i < 20; i++) {
+          global.gc();
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        const alive = parents.filter(ref => ref.deref()).length;
+        children.forEach(child => child.end());
+        return alive;
+      }
+      (async () => {
+        const baseline = await aliveParents([]);
+        const alive = await aliveParents([new GenAINestedClientSpanProcessor()]);
+        process.exit(alive <= baseline && baseline <= 1 ? 0 : 1);
+      })();
+    `;
+    const proc = spawnSync(process.execPath, ['--expose-gc', '-e', script], {
+      cwd: __dirname,
+      timeout: 20000,
+      killSignal: 'SIGKILL',
+    });
+    expect(proc.error).toBeUndefined();
+    expect(proc.status).toBe(0);
+  });
+
   it('should clear state on shutdown', async () => {
-    const processor = new GenAINestedClientSpanProcessor();
-    (processor as any)._parentSpanIdAndOperationToGenAiClientChild.set(`123:${GEN_AI_OPERATION_NAME_VALUE_CHAT}`, true);
-    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(1);
+    const parent = tracer.startSpan('agent');
+    makeLlmSpan('chat model', GEN_AI_OPERATION_NAME_VALUE_CHAT, SpanKind.CLIENT, trace.setSpan(ROOT_CONTEXT, parent));
+    expect((processor as any)._childOperationsByParent.has(parent)).toBe(true);
     await processor.shutdown();
-    expect((processor as any)._parentSpanIdAndOperationToGenAiClientChild.size).toBe(0);
+    expect((processor as any)._childOperationsByParent.has(parent)).toBe(false);
   });
 
   it('should return resolved promise from forceFlush', async () => {

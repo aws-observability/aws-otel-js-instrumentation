@@ -1,51 +1,37 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Context, diag, propagation, SpanContext, SpanKind } from '@opentelemetry/api';
+import { Context, diag, propagation, SpanKind } from '@opentelemetry/api';
 import { ReadableSpan, Span, SpanLimits, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { GEN_AI_INFERENCE_OPERATIONS } from './gen-ai-nested-client-span-processor';
 import { ATTR_GEN_AI_OPERATION_NAME } from './instrumentation/common/semconv';
-import { getRegisteredBaggageScope } from './scoped-baggage-registration';
+import { getRegisteredBaggageScope, ScopePredicate } from './scoped-baggage-registration';
 
 export { clearRegisteredBaggageScopes, registerBaggageScope } from './scoped-baggage-registration';
 
 export const AWS_AGENT_LINEAGE = 'aws.agent.lineage';
 export const INFERENCE_SCOPE = 'aws.inference';
 
-function genAiInferenceOperation(span: ReadableSpan): string | undefined {
+/**
+ * A CLIENT span for a GenAI inference operation (chat, text_completion, generate_content, embeddings).
+ *
+ * When a framework span wraps the model SDK span with the same operation, GenAINestedClientSpanProcessor
+ * demotes the outer span to INTERNAL before this check runs, so only the innermost span matches.
+ */
+export function isGenAiInferenceSpan(span: ReadableSpan): boolean {
   if (span.kind !== SpanKind.CLIENT) {
-    return undefined;
+    return false;
   }
   const operation = (span.attributes || {})[ATTR_GEN_AI_OPERATION_NAME];
-  return typeof operation === 'string' && GEN_AI_INFERENCE_OPERATIONS.includes(operation) ? operation : undefined;
+  return typeof operation === 'string' && GEN_AI_INFERENCE_OPERATIONS.includes(operation);
 }
 
-/** A CLIENT span for a GenAI inference operation (chat, text_completion, generate_content, embeddings). */
-export function isGenAiInferenceSpan(span: ReadableSpan): boolean {
-  return genAiInferenceOperation(span) !== undefined;
-}
+// Built-in scopes: scope name -> predicate evaluated when the span ends. Names use the reserved prefix.
+// A Map, not an object literal, so names like 'constructor' or 'toString' are not found on a prototype.
+const BUILTIN_SCOPES: ReadonlyMap<string, ScopePredicate> = new Map([[INFERENCE_SCOPE, isGenAiInferenceSpan]]);
 
-/** Baggage captured at span start, held until the span ends. */
-interface PendingSpan {
-  baggage: Map<string, string>;
-  // Inference operations of CLIENT child spans that have ended.
-  inferenceChildOperations: Set<string>;
-}
-
-// FinalizationRegistry exists in every supported Node version (>= 18), but the es2017 lib this package
-// compiles against has no type for it.
-interface SpanFinalizationRegistry {
-  register(target: object, heldValue: string, unregisterToken: object): void;
-  unregister(unregisterToken: object): void;
-}
-const SpanFinalizationRegistry = (
-  globalThis as unknown as {
-    FinalizationRegistry: new (cleanup: (heldValue: string) => void) => SpanFinalizationRegistry;
-  }
-).FinalizationRegistry;
-
-function spanId(spanContext: SpanContext): string {
-  return `${spanContext.traceId}-${spanContext.spanId}`;
+function getScope(name: string): ScopePredicate | undefined {
+  return BUILTIN_SCOPES.get(name) ?? getRegisteredBaggageScope(name);
 }
 
 /**
@@ -61,24 +47,12 @@ function spanId(spanContext: SpanContext): string {
  * they see the new attribute. Pending baggage is held in a WeakMap keyed by the span, so spans that never
  * end do not retain it.
  *
- * The built-in `aws.inference` scope matches only the innermost span of nested CLIENT inference spans with
- * the same operation, such as a framework span wrapping the model SDK span. The processor tracks this
- * itself, so the result does not depend on GenAINestedClientSpanProcessor being installed.
- *
  * A key is only set when the span does not already have it, so a value set by the instrumentation wins.
  */
 export class ScopedBaggageSpanProcessor implements SpanProcessor {
   private readonly _scopedKeys: ReadonlyMap<string, ReadonlySet<string>>;
   private readonly _warnedScopes: Set<string> = new Set();
-  private readonly _pendingBySpan: WeakMap<object, PendingSpan> = new WeakMap();
-  // Trace and span ID of each span with pending baggage -> its inferenceChildOperations. A child finds its
-  // parent here by ID, as GenAINestedClientSpanProcessor does, so a parent context rebuilt with
-  // trace.setSpanContext() still works and a child never references its parent's baggage.
-  private readonly _childOperationsBySpanId: Map<string, Set<string>> = new Map();
-  // Removes a span's entry above if the span is garbage-collected without ending.
-  private readonly _collected: SpanFinalizationRegistry = new SpanFinalizationRegistry(id =>
-    this._childOperationsBySpanId.delete(id)
-  );
+  private readonly _pendingBySpan: WeakMap<object, Map<string, string>> = new WeakMap();
 
   /**
    * @param scopedKeys Mapping of baggage key to scope names. The key is copied to a span that matches any
@@ -98,42 +72,27 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
       return;
     }
     const entries = propagation.getBaggage(parentContext)?.getAllEntries() ?? [];
-    const baggage = new Map<string, string>();
+    const pending = new Map<string, string>();
     for (const [key, entry] of entries) {
       if (scopedKeys.has(key)) {
-        baggage.set(key, entry.value);
+        pending.set(key, entry.value);
       }
     }
-    if (baggage.size > 0) {
-      const pending: PendingSpan = { baggage, inferenceChildOperations: new Set() };
-      const id = spanId(span.spanContext());
+    if (pending.size > 0) {
       this._pendingBySpan.set(span, pending);
-      this._childOperationsBySpanId.set(id, pending.inferenceChildOperations);
-      this._collected.register(span, id, span);
     }
   }
 
   onEnd(span: ReadableSpan): void {
-    // Record this span on its parent, so a parent with the same operation does not match aws.inference.
-    // Children end before their parents.
-    const parent = span.parentSpanContext;
-    if (parent && this._childOperationsBySpanId.size > 0) {
-      const operation = genAiInferenceOperation(span);
-      if (operation !== undefined) {
-        this._childOperationsBySpanId.get(spanId(parent))?.add(operation);
-      }
-    }
     const pending = this._pendingBySpan.get(span);
     if (!pending) {
       return;
     }
     this._pendingBySpan.delete(span);
-    this._childOperationsBySpanId.delete(spanId(span.spanContext()));
-    this._collected.unregister(span);
-    for (const [key, value] of pending.baggage) {
+    for (const [key, value] of pending) {
       const scopes = this._scopedKeys.get(key) ?? [];
       for (const scope of scopes) {
-        if (this.scopeMatches(scope, span, pending)) {
+        if (this.scopeMatches(scope, span)) {
           setAttributeIfAbsent(span, key, value);
           break;
         }
@@ -141,12 +100,8 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
     }
   }
 
-  private scopeMatches(scopeName: string, span: ReadableSpan, pending: PendingSpan): boolean {
-    if (scopeName === INFERENCE_SCOPE) {
-      const operation = genAiInferenceOperation(span);
-      return operation !== undefined && !pending.inferenceChildOperations.has(operation);
-    }
-    const predicate = getRegisteredBaggageScope(scopeName);
+  private scopeMatches(scopeName: string, span: ReadableSpan): boolean {
+    const predicate = getScope(scopeName);
     if (!predicate) {
       this.warnUnknownScope(scopeName);
       return false;
@@ -168,7 +123,6 @@ export class ScopedBaggageSpanProcessor implements SpanProcessor {
   }
 
   shutdown(): Promise<void> {
-    this._childOperationsBySpanId.clear();
     return Promise.resolve();
   }
 

@@ -22,6 +22,10 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   attribute model cost to agents. `session.id` and keys in `OTEL_BAGGAGE_SPAN_ATTRIBUTE_KEYS` are still copied
   to every span
   ([#586](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/586))
+- feat: run `GenAINestedClientSpanProcessor` with or without `AGENT_OBSERVABILITY_ENABLED`. When a framework
+  span wraps the model SDK span for the same GenAI inference call, the outer span is now INTERNAL instead of
+  CLIENT, so the call is not counted twice as a dependency
+  ([#586](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/586))
 - fix: support AWS China partition endpoints (`amazonaws.com.cn`) for collector-less X-Ray and
   CloudWatch Logs OTLP export
   ([#569](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/569))

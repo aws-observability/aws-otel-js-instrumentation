@@ -398,11 +398,11 @@ export class AwsOpentelemetryConfigurator {
       spanProcessors.unshift(new ScopedBaggageSpanProcessor(scopedBaggageKeys));
     }
 
-    if (isAgentObservabilityEnabled()) {
-      // This processor modifies span kind in onEnd, so it must run before exporter
-      // processors to ensure they observe the updated kind.
-      spanProcessors.unshift(new GenAINestedClientSpanProcessor());
+    // This processor modifies span kind in onEnd, so it must run before exporter
+    // processors to ensure they observe the updated kind.
+    spanProcessors.unshift(new GenAINestedClientSpanProcessor());
 
+    if (isAgentObservabilityEnabled()) {
       // We always send 100% spans to Bedrock AgentCore platform for agent observability because
       // AI applications typically have low throughput traffic patterns and require
       // comprehensive monitoring to catch subtle failure modes like hallucinations

@@ -11,6 +11,7 @@ import {
   SpanStatusCode,
   Context as OtelContext,
   context,
+  createContextKey,
 } from '@opentelemetry/api';
 import type {
   TracingProcessor,
@@ -69,11 +70,36 @@ import {
   tryParseJson,
 } from '../common/instrumentation-utils';
 
+// The SDK only exposes tool definitions on the ModelRequest passed to the model, so the
+// instrumentation runs model calls in a context carrying the request.
+// see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/model.ts
+export const MODEL_REQUEST_CONTEXT_KEY = createContextKey('aws_openai_agents.model_request');
+
+// Maps the SDK's SerializedTool and SerializedHandoff entries, or tools echoed by the Responses
+// API, to gen_ai.tool.definitions. Handoffs are presented to the model as function tools.
+function toToolDefinitions(tools: any[] = [], handoffs: any[] = []): Record<string, unknown>[] {
+  return [
+    ...tools.map(tool =>
+      tool.type === 'function'
+        ? { type: 'function', name: tool.name, description: tool.description, parameters: tool.parameters }
+        : { type: tool.providerData?.type ?? tool.type, name: tool.name ?? tool.type }
+    ),
+    ...handoffs.map(handoff => ({
+      type: 'function',
+      name: handoff.toolName,
+      description: handoff.toolDescription,
+      parameters: handoff.inputJsonSchema,
+    })),
+  ];
+}
+
 interface AgentSpanCaptureState {
   otelSpan: OtelSpan;
   // Tracks whether this agent span has already captured its initial user input
   // so later model calls do not overwrite it.
   hasCapturedFirstUserMessage: boolean;
+  // Tool definitions from the agent's first model request.
+  toolDefinitions?: string;
 }
 
 interface SpanEntry {
@@ -81,6 +107,7 @@ interface SpanEntry {
   otelContext: OtelContext;
   // The nearest ancestor agent span, or this span itself when it is an agent.
   agentSpan?: AgentSpanCaptureState;
+  modelRequest?: Record<string, any>;
 }
 
 export class OpenTelemetryTracingProcessor implements TracingProcessor {
@@ -90,12 +117,8 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   private static readonly ATTRIBUTE_MAP: AttributeMapping[] = [
     { from: 'agent.name', to: ATTR_GEN_AI_AGENT_NAME },
     { from: 'agent.output_type', to: ATTR_GEN_AI_OUTPUT_TYPE },
-    // AgentSpanData only exposes tool names, not their concrete SDK tool types.
-    {
-      from: 'agent.tools',
-      to: ATTR_GEN_AI_TOOL_DEFINITIONS,
-      transform: (tools: string[]) => tools.map(name => ({ type: 'tool', name })),
-    },
+    // Agent tool definitions are set in _setToolDefinitions.
+    { from: 'agent.tools' },
     { from: 'task.name', to: ATTR_GEN_AI_WORKFLOW_NAME },
     { from: 'task.usage' },
     { from: 'turn.agent_name', to: ATTR_GEN_AI_AGENT_NAME },
@@ -166,6 +189,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       otelSpan,
       otelContext,
       agentSpan: spanData.type === 'agent' ? { otelSpan, hasCapturedFirstUserMessage: false } : parentEntry?.agentSpan,
+      modelRequest: context.active().getValue(MODEL_REQUEST_CONTEXT_KEY) as Record<string, any> | undefined,
     });
   }
 
@@ -179,6 +203,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     const spanData = span.spanData;
 
     this._setEndAttributes(otelSpan, spanData, span.parentId);
+    this._setToolDefinitions(entry, spanData);
 
     if (span.error) {
       otelSpan.setStatus({ code: SpanStatusCode.ERROR, message: span.error.message });
@@ -298,10 +323,6 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       otelSpan.setAttribute(ATTR_GEN_AI_RESPONSE_FINISH_REASONS, finishReasons);
     }
 
-    if (response.tools && Array.isArray(response.tools)) {
-      otelSpan.setAttribute(ATTR_GEN_AI_TOOL_DEFINITIONS, serializeToJson(response.tools));
-    }
-
     if (this._captureMessageContent) {
       if (response.instructions) {
         otelSpan.setAttribute(ATTR_GEN_AI_SYSTEM_INSTRUCTIONS, serializeToJson(contentToParts(response.instructions)));
@@ -374,6 +395,30 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
         otelSpan.setAttribute(ATTR_GEN_AI_TOOL_CALL_RESULT, output);
       }
     }
+  }
+
+  // Records the tools and handoffs sent to the model on chat spans, falling back to tools echoed
+  // by the Responses API, and on the agent span from its first model request.
+  private _setToolDefinitions(entry: SpanEntry, spanData: SpanData): void {
+    const data = spanData as Record<string, any>;
+    if (data.type === 'agent') {
+      // Without a model request, AgentSpanData only exposes tool names.
+      const names = data.tools?.length
+        ? JSON.stringify(data.tools.map((name: string) => ({ type: 'tool', name })))
+        : undefined;
+      const definitions = entry.agentSpan?.toolDefinitions ?? names;
+      if (definitions) entry.otelSpan.setAttribute(ATTR_GEN_AI_TOOL_DEFINITIONS, definitions);
+      return;
+    }
+    if (data.type !== 'response' && data.type !== 'generation') return;
+
+    const request = entry.modelRequest;
+    const definitions = toToolDefinitions(request ? request.tools : data._response?.tools, request?.handoffs);
+    if (definitions.length === 0) return;
+
+    const serialized = JSON.stringify(definitions);
+    entry.otelSpan.setAttribute(ATTR_GEN_AI_TOOL_DEFINITIONS, serialized);
+    if (entry.agentSpan && !entry.agentSpan.toolDefinitions) entry.agentSpan.toolDefinitions = serialized;
   }
 
   private _setUsageAttributes(otelSpan: OtelSpan, usage?: Record<string, any>): void {

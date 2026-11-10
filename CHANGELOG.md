@@ -13,6 +13,11 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix(openai-agents): record full `gen_ai.tool.definitions` (name, description, and parameters) for the tools
+  and handoffs sent to the model on chat and `invoke_agent` spans, for Responses API, Chat Completions, and
+  AI SDK models, including streamed responses. Chat Completions and AI SDK chat spans previously had no tool
+  definitions, and agent spans only had tool names. Agents without tools no longer record an empty list
+  ([#590](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/590))
 - fix: support AWS China partition endpoints (`amazonaws.com.cn`) for collector-less X-Ray and
   CloudWatch Logs OTLP export
   ([#569](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/569))

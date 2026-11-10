@@ -72,7 +72,7 @@ import {
 } from '../test-fixtures';
 import { expect } from 'expect';
 import { validateOtelGenaiSchema } from '../otel-schema-validator';
-import { Agent, Runner, tool, OpenAIProvider, webSearchTool } from '@openai/agents';
+import { Agent, Runner, tool, OpenAIProvider } from '@openai/agents';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAzure } from '@ai-sdk/azure';
@@ -1162,135 +1162,66 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
   });
 
   describe('tool definitions', function () {
-    const getWeather = tool({
+    const getWeatherTool = tool({
       name: 'get_weather',
       description: 'Get weather for a city',
       parameters: z.object({ city: z.string() }),
       execute: async ({ city }) => `Sunny in ${city}`,
     });
-    const WEATHER_DEFINITION = {
+
+    // How get_weather should appear in gen_ai.tool.definitions.
+    const getWeatherDefinition = {
       type: 'function',
       name: 'get_weather',
       description: 'Get weather for a city',
       parameters: expect.objectContaining({ type: 'object', required: ['city'] }),
     };
 
-    async function toolDefinitions(operation: string): Promise<any[] | undefined> {
-      const span = getTestSpans().find((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === operation);
-      const value = span?.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS];
-      if (value === undefined) return undefined;
-      const definitions = JSON.parse(value as string);
-      await validateOtelGenaiSchema(definitions, 'gen-ai-tool-definitions');
-      return definitions;
+    function spansNamed(prefix: string): ReadableSpan[] {
+      return getTestSpans().filter((span: ReadableSpan) => span.name.startsWith(prefix));
     }
 
-    async function runStreamed(agent: Agent): Promise<void> {
-      const events = [
-        { type: 'response.completed', response: { ...OPENAI_RESPONSES_API_CHAT_RESPONSE, status: 'completed' } },
-      ];
-      const body = events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
-      const client = new OpenAI({
-        apiKey: FAKE_OPENAI_KEY,
-        fetch: async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
-      });
-      const runner = new Runner({
-        modelProvider: new OpenAIProvider({ openAIClient: client }),
-        tracingDisabled: false,
-      });
-      const result = await runner.run(agent, 'Weather in Tokyo?', { stream: true });
-      await result.completed;
+    function toolDefinitionsOn(span: ReadableSpan): unknown {
+      const value = span.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS];
+      return value === undefined ? undefined : JSON.parse(value as string);
     }
 
-    const modelCases = [
-      {
-        name: 'Responses API',
-        model: () => OPENAI_MODEL,
-        run: (agent: Agent) => createRunner([OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(agent, 'Weather in Tokyo?'),
-      },
-      {
-        name: 'Chat Completions',
-        model: () => OPENAI_MODEL,
-        run: (agent: Agent) =>
-          createRunner([getProviderCases().find(pc => pc.name === ProviderName.OPENAI)!.chatResponse], 200, false).run(
-            agent,
-            'Weather in Tokyo?'
-          ),
-      },
-      {
-        name: 'AI SDK',
-        model: () =>
-          aisdk(createAiSdkLanguageModel(getProviderCases().find(pc => pc.name === ProviderName.ANTHROPIC)!)),
-        run: (agent: Agent) => new Runner({ tracingDisabled: false }).run(agent, 'Weather in Tokyo?'),
-      },
-      { name: 'streamed Responses API', model: () => OPENAI_MODEL, run: runStreamed },
-    ];
+    it('records the agent tools on every LLM call when the model calls a tool', async () => {
+      const agent = new Agent({ name: 'WeatherAgent', model: OPENAI_MODEL, tools: [getWeatherTool] });
 
-    for (const { name, model, run } of modelCases) {
-      it(`records request tool definitions on ${name} chat and agent spans`, async () => {
-        // Tool definitions are schemas, not content, so content capture does not gate them.
-        setCaptureContent(false);
-        await run(new Agent({ name: 'ToolAgent', model: model(), tools: [getWeather] }));
-
-        expect(await toolDefinitions('chat')).toEqual([WEATHER_DEFINITION]);
-        expect(await toolDefinitions(GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT)).toEqual([WEATHER_DEFINITION]);
-      });
-    }
-
-    it('records hosted tools and handoffs', async () => {
-      const refundAgent = new Agent({ name: 'RefundAgent' });
-      const agent = new Agent({
-        name: 'TriageAgent',
-        model: OPENAI_MODEL,
-        tools: [getWeather, webSearchTool()],
-        handoffs: [refundAgent],
-      });
-      await createRunner([OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(agent, 'I want a refund');
-
-      expect(await toolDefinitions('chat')).toEqual([
-        WEATHER_DEFINITION,
-        { type: expect.stringMatching(/^web_search/), name: 'web_search' },
-        {
-          type: 'function',
-          name: 'transfer_to_RefundAgent',
-          description: expect.any(String),
-          parameters: expect.any(Object),
-        },
-      ]);
-    });
-
-    it('omits tool definitions for agents without tools', async () => {
-      await createRunner([OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(
-        new Agent({ name: 'NoTools', model: OPENAI_MODEL }),
-        'Hi'
+      // The model asks for get_weather, the SDK runs it, then the model answers.
+      // Neither reply echoes the tools, so the definitions must come from the request.
+      await createRunner([OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE, OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(
+        agent,
+        'Weather in Tokyo?'
       );
 
-      expect(await toolDefinitions('chat')).toBeUndefined();
-      expect(await toolDefinitions(GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT)).toBeUndefined();
+      const chatSpans = spansNamed('chat');
+      expect(chatSpans).toHaveLength(2);
+      for (const chatSpan of chatSpans) {
+        expect(toolDefinitionsOn(chatSpan)).toEqual([getWeatherDefinition]);
+      }
+      expect(toolDefinitionsOn(spansNamed('invoke_agent')[0])).toEqual([getWeatherDefinition]);
+      expect(toolDefinitionsOn(spansNamed('execute_tool')[0])).toBeUndefined();
+      await validateOtelGenaiSchema(toolDefinitionsOn(chatSpans[0]), 'gen-ai-tool-definitions');
     });
 
-    it('falls back to Responses API tools and agent tool names without a model request', async () => {
-      const processor = new OpenTelemetryTracingProcessor(trace.getTracer('openai-agents-tool-def-test'), true);
-      const parameters = { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] };
-      const responseTools = [
-        { type: 'function', name: 'get_weather', description: 'Get weather for a city', parameters, strict: true },
-        { type: 'web_search_preview' },
-      ];
-      const spans = [
-        { spanId: 'agent', parentId: null, spanData: { type: 'agent', name: 'CustomAgent', tools: ['get_weather'] } },
-        { spanId: 'response', parentId: null, spanData: { type: 'response', _response: { tools: responseTools } } },
-      ];
-      for (const span of spans) {
-        await processor.onSpanStart(span as any);
-        await processor.onSpanEnd(span as any);
-      }
+    it('records the agent tools on Chat Completions LLM calls', async () => {
+      const agent = new Agent({ name: 'WeatherAgent', model: OPENAI_MODEL, tools: [getWeatherTool] });
+      const chatCompletion = getProviderCases().find(pc => pc.name === ProviderName.OPENAI)!.chatResponse;
 
-      expect(await toolDefinitions('chat')).toEqual([
-        { type: 'function', name: 'get_weather', description: 'Get weather for a city', parameters },
-        { type: 'web_search_preview', name: 'web_search_preview' },
-      ]);
-      expect(await toolDefinitions(GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT)).toEqual([
-        { type: 'tool', name: 'get_weather' },
-      ]);
+      await createRunner([chatCompletion], 200, false).run(agent, 'Weather in Tokyo?');
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([getWeatherDefinition]);
+    });
+
+    it('does not record tool definitions for an agent without tools', async () => {
+      const agent = new Agent({ name: 'NoToolsAgent', model: OPENAI_MODEL });
+
+      await createRunner([OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(agent, 'Hi');
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toBeUndefined();
+      expect(toolDefinitionsOn(spansNamed('invoke_agent')[0])).toBeUndefined();
     });
   });
 

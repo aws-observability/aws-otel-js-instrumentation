@@ -412,6 +412,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     }
     if (data.type !== 'response' && data.type !== 'generation') return;
 
+    // ModelRequest.tools is always an array, so _response.tools is only used when no request was captured.
     const request = entry.modelRequest;
     const definitions = toToolDefinitions(request ? request.tools : data._response?.tools, request?.handoffs);
     if (definitions.length === 0) return;

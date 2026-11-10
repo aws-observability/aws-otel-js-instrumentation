@@ -1382,6 +1382,7 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const agentsOpenAI = require('@openai/agents-openai');
     const { prototype } = agentsOpenAI.OpenAIChatCompletionsModel;
+    // The instrumentation already wrapped this method on load, so re-wrapping must be a no-op.
     const wrapped = prototype.getResponse;
     const instr = instrumentation as any;
 

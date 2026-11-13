@@ -27,6 +27,7 @@ import {
   ATTR_GEN_AI_REQUEST_TOP_K,
   ATTR_GEN_AI_TOOL_CALL_ARGUMENTS,
   ATTR_GEN_AI_TOOL_CALL_RESULT,
+  ATTR_GEN_AI_TOOL_DEFINITIONS,
   ATTR_GEN_AI_TOOL_NAME,
   ATTR_GEN_AI_TOOL_TYPE,
 } from '../../../src/instrumentation/common/semconv';
@@ -639,6 +640,115 @@ describe('basic chat spans', function () {
     expect(span.attributes[ATTR_GEN_AI_REQUEST_TEMPERATURE]).toBe(0.5);
     expect(span.attributes[ATTR_GEN_AI_REQUEST_MAX_TOKENS]).toBe(256);
     expect(span.attributes[ATTR_GEN_AI_REQUEST_TOP_K]).toBe(40);
+  });
+});
+
+describe('tool definitions', function () {
+  this.timeout(10000);
+
+  beforeEach(() => {
+    resetMemoryExporter();
+    nock.cleanAll();
+  });
+
+  afterEach(() => {
+    instrumentation.disable();
+    nock.cleanAll();
+  });
+
+  const question = [new HumanMessage('What is the weather in Tokyo?')];
+  const getWeather = tool(async () => 'Sunny', {
+    name: 'get_weather',
+    description: 'Get the current weather for a location.',
+    schema: z.object({ location: z.string() }),
+  });
+  // What every provider should record for getWeather. Providers add extras such as $schema to the
+  // parameters, so this is matched as a subset.
+  const expectedWeatherTool = {
+    type: 'function',
+    name: 'get_weather',
+    description: 'Get the current weather for a location.',
+    parameters: { type: 'object', properties: { location: { type: 'string' } }, required: ['location'] },
+  };
+
+  // Runs one model call for the provider and returns the chat span's parsed gen_ai.tool.definitions.
+  async function recordToolDefinitions(
+    provider: ProviderName,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    invoke: (model: any) => Promise<unknown>,
+    { modelOpts = {}, useStub }: { modelOpts?: Record<string, unknown>; useStub?: boolean } = {}
+  ) {
+    instrumentation.enable();
+    const pc = providerCases.find(p => p.name === provider)!;
+    const model = createModel(pc.name, modelOpts);
+    const restore = useStub ?? pc.useStub ? stubGenerate(model) : (nockProvider(pc.name, pc.chatResponse), () => {});
+    try {
+      await invoke(model);
+    } finally {
+      restore();
+    }
+    const chatSpans = getTestSpans().filter(
+      (s: ReadableSpan) =>
+        s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat' && s.instrumentationScope.name === INSTRUMENTATION_NAME
+    );
+    expect(chatSpans).toHaveLength(1);
+    const raw = chatSpans[0].attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string | undefined;
+    return raw === undefined ? undefined : JSON.parse(raw);
+  }
+
+  async function expectOnlyWeatherTool(toolDefinitions: unknown) {
+    await validateOtelGenaiSchema(toolDefinitions, 'gen-ai-tool-definitions');
+    expect(toolDefinitions).toHaveLength(1);
+    expect(toolDefinitions).toMatchObject([expectedWeatherTool]);
+  }
+
+  // Each provider puts bound tools into invocation_params in its own format (see _toToolDefinitions).
+  for (const pc of providerCases) {
+    it(`${pc.name}: records tools bound with bindTools`, async () => {
+      await expectOnlyWeatherTool(
+        await recordToolDefinitions(pc.name, m => m.bindTools([getWeather]).invoke(question))
+      );
+    });
+  }
+
+  it('OpenAI: records legacy functions', async () => {
+    const { type: _type, ...weatherFunction } = expectedWeatherTool;
+    await expectOnlyWeatherTool(
+      await recordToolDefinitions(ProviderName.OPENAI, m => m.invoke(question, { functions: [weatherFunction] }))
+    );
+  });
+
+  it('Anthropic: skips provider built-in tools', async () => {
+    const webSearch = { type: 'web_search_20250305', name: 'web_search', max_uses: 1 };
+    await expectOnlyWeatherTool(
+      await recordToolDefinitions(ProviderName.ANTHROPIC, m => m.bindTools([webSearch, getWeather]).invoke(question))
+    );
+  });
+
+  // The Responses API flattens function tools to {type: 'function', name, description, parameters}.
+  // invocation_params is built before _generate, so stubbing it avoids nocking /v1/responses.
+  it('OpenAI: records function tools on the Responses API', async () => {
+    await expectOnlyWeatherTool(
+      await recordToolDefinitions(ProviderName.OPENAI, m => m.bindTools([getWeather]).invoke(question), {
+        modelOpts: { useResponsesApi: true },
+        useStub: true,
+      })
+    );
+  });
+
+  // Binding a built-in tool switches ChatOpenAI to the Responses API without opting in.
+  it('OpenAI: records function tools bound next to a built-in tool', async () => {
+    await expectOnlyWeatherTool(
+      await recordToolDefinitions(
+        ProviderName.OPENAI,
+        m => m.bindTools([{ type: 'web_search' }, getWeather]).invoke(question),
+        { useStub: true }
+      )
+    );
+  });
+
+  it('does not set the attribute when no tools are bound', async () => {
+    expect(await recordToolDefinitions(ProviderName.OPENAI, m => m.invoke(question))).toBeUndefined();
   });
 });
 

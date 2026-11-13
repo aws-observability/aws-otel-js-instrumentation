@@ -81,6 +81,15 @@ interface SpanEntry {
   otelContext: OtelContext;
   // The nearest ancestor agent span, or this span itself when it is an agent.
   agentSpan?: AgentSpanCaptureState;
+  // Set when this SDK span reuses its trace's workflow span, which ends with the trace instead.
+  isWorkflowSpan?: boolean;
+}
+
+interface WorkflowEntry {
+  otelSpan: OtelSpan;
+  otelContext: OtelContext;
+  // Whether a top-level task span has already been merged into this workflow span.
+  hasTaskSpan: boolean;
 }
 
 export class OpenTelemetryTracingProcessor implements TracingProcessor {
@@ -118,6 +127,9 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   private _tracer: OtelTracer;
   private _captureMessageContent: boolean;
   private _spanMap: Map<string, SpanEntry> = new Map();
+  // One invoke_workflow span per SDK trace. Top-level SDK spans have no SDK parent span,
+  // so without it each one (e.g. the agent span started by a handoff) would start a new OTel trace.
+  private _workflowMap: Map<string, WorkflowEntry> = new Map();
   private _disabled: boolean = false;
 
   constructor(tracer: OtelTracer, captureMessageContent: boolean) {
@@ -141,9 +153,39 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     return this._spanMap.get(spanId)?.otelContext;
   }
 
-  async onTraceStart(_trace: SdkTrace): Promise<void> {}
+  getWorkflowOtelContext(traceId: string): OtelContext | undefined {
+    return this._workflowMap.get(traceId)?.otelContext;
+  }
 
-  async onTraceEnd(_trace: SdkTrace): Promise<void> {}
+  async onTraceStart(sdkTrace: SdkTrace): Promise<void> {
+    if (this._disabled || this._workflowMap.has(sdkTrace.traceId)) return;
+
+    const parentContext = context.active();
+    const otelSpan = this._tracer.startSpan(
+      sdkTrace.name
+        ? `${GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW} ${sdkTrace.name}`
+        : GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW,
+      { kind: SpanKind.INTERNAL },
+      parentContext
+    );
+    otelSpan.setAttribute(ATTR_GEN_AI_PROVIDER_NAME, GEN_AI_PROVIDER_NAME_VALUE_OPENAI);
+    otelSpan.setAttribute(ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW);
+    if (sdkTrace.name) {
+      otelSpan.setAttribute(ATTR_GEN_AI_WORKFLOW_NAME, sdkTrace.name);
+    }
+    this._workflowMap.set(sdkTrace.traceId, {
+      otelSpan,
+      otelContext: trace.setSpan(parentContext, otelSpan),
+      hasTaskSpan: false,
+    });
+  }
+
+  async onTraceEnd(sdkTrace: SdkTrace): Promise<void> {
+    const entry = this._workflowMap.get(sdkTrace.traceId);
+    if (!entry) return;
+    this._workflowMap.delete(sdkTrace.traceId);
+    entry.otelSpan.end();
+  }
 
   async onSpanStart(sdkSpan: SdkSpan<SpanData>): Promise<void> {
     if (this._disabled) return;
@@ -155,7 +197,27 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     if (!spanData?.type) return;
 
     const parentEntry = sdkSpan.parentId ? this._spanMap.get(sdkSpan.parentId) : undefined;
-    const parentContext = parentEntry?.otelContext || context.active();
+    const workflowEntry = parentEntry ? undefined : this._workflowMap.get(sdkSpan.traceId);
+
+    // SDK versions with task spans start one per run directly under the trace. The first one
+    // describes the same workflow as the trace, so merge it into the workflow span rather than
+    // nesting a duplicate invoke_workflow span.
+    if (workflowEntry && (spanData.type as string) === 'task' && !workflowEntry.hasTaskSpan) {
+      workflowEntry.hasTaskSpan = true;
+      this._setStartAttributes(workflowEntry.otelSpan, spanData);
+      const taskName = (spanData as Record<string, any>).name;
+      if (taskName) {
+        workflowEntry.otelSpan.updateName(`${GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW} ${taskName}`);
+      }
+      this._spanMap.set(sdkSpan.spanId, {
+        otelSpan: workflowEntry.otelSpan,
+        otelContext: workflowEntry.otelContext,
+        isWorkflowSpan: true,
+      });
+      return;
+    }
+
+    const parentContext = parentEntry?.otelContext || workflowEntry?.otelContext || context.active();
     const { name, kind } = this._getSpanNameAndKind(spanData);
 
     const otelSpan = this._tracer.startSpan(name, { kind }, parentContext);
@@ -185,12 +247,15 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       otelSpan.recordException({ message: span.error.message });
     }
 
-    otelSpan.end();
+    if (!entry.isWorkflowSpan) {
+      otelSpan.end();
+    }
     this._spanMap.delete(span.spanId);
   }
 
   async shutdown(): Promise<void> {
     this._spanMap.clear();
+    this._workflowMap.clear();
   }
 
   async forceFlush(): Promise<void> {

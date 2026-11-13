@@ -672,12 +672,16 @@ describe('tool definitions', function () {
   };
 
   // Runs one model call for the provider and returns the chat span's parsed gen_ai.tool.definitions.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function recordToolDefinitions(provider: ProviderName, invoke: (model: any) => Promise<unknown>) {
+  async function recordToolDefinitions(
+    provider: ProviderName,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    invoke: (model: any) => Promise<unknown>,
+    { modelOpts = {}, useStub }: { modelOpts?: Record<string, unknown>; useStub?: boolean } = {}
+  ) {
     instrumentation.enable();
     const pc = providerCases.find(p => p.name === provider)!;
-    const model = createModel(pc.name);
-    const restore = pc.useStub ? stubGenerate(model) : (nockProvider(pc.name, pc.chatResponse), () => {});
+    const model = createModel(pc.name, modelOpts);
+    const restore = useStub ?? pc.useStub ? stubGenerate(model) : (nockProvider(pc.name, pc.chatResponse), () => {});
     try {
       await invoke(model);
     } finally {
@@ -718,6 +722,28 @@ describe('tool definitions', function () {
     const webSearch = { type: 'web_search_20250305', name: 'web_search', max_uses: 1 };
     await expectOnlyWeatherTool(
       await recordToolDefinitions(ProviderName.ANTHROPIC, m => m.bindTools([webSearch, getWeather]).invoke(question))
+    );
+  });
+
+  // The Responses API flattens function tools to {type: 'function', name, description, parameters}.
+  // invocation_params is built before _generate, so stubbing it avoids nocking /v1/responses.
+  it('OpenAI: records function tools on the Responses API', async () => {
+    await expectOnlyWeatherTool(
+      await recordToolDefinitions(ProviderName.OPENAI, m => m.bindTools([getWeather]).invoke(question), {
+        modelOpts: { useResponsesApi: true },
+        useStub: true,
+      })
+    );
+  });
+
+  // Binding a built-in tool switches ChatOpenAI to the Responses API without opting in.
+  it('OpenAI: records function tools bound next to a built-in tool', async () => {
+    await expectOnlyWeatherTool(
+      await recordToolDefinitions(
+        ProviderName.OPENAI,
+        m => m.bindTools([{ type: 'web_search' }, getWeather]).invoke(question),
+        { useStub: true }
+      )
     );
   });
 

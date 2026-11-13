@@ -63,10 +63,6 @@ interface SpanEntry {
   agentSpan?: Span; // to track the nearest ancestor invoke_agent span, see _propagateToAgentSpan for why
 }
 
-// Implements the callback handler contract instead of extending BaseCallbackHandler, which would
-// need the base class as a value and therefore at runtime. LangChain duck-types handlers:
-// isBaseCallbackHandler() requires only `copy`, `name` and `awaitHandlers`.
-// https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/callbacks/base.ts
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
@@ -107,6 +103,10 @@ function cohereParametersToJsonSchema(parameterDefinitions: Record<string, unkno
   return { type: 'object', properties, ...(required.length > 0 ? { required } : {}) };
 }
 
+// Implements the callback handler contract instead of extending BaseCallbackHandler, which would
+// need the base class as a value and therefore at runtime. LangChain duck-types handlers:
+// isBaseCallbackHandler() requires only `copy`, `name` and `awaitHandlers`.
+// https://github.com/langchain-ai/langchainjs/blob/0c799481f691e046a4533588fc96e190669fa16e/libs/langchain-core/src/callbacks/base.ts
 export class OpenTelemetryCallbackHandler implements CallbackHandlerMethods {
   name: string = 'otel-callback-handler';
   // Ensures the OTel callback is executed synchronously and not in an async thread.
@@ -507,7 +507,8 @@ export class OpenTelemetryCallbackHandler implements CallbackHandlerMethods {
     }
     const toolDefinitions = OpenTelemetryCallbackHandler._extractToolDefinitions(params);
     if (toolDefinitions.length > 0) {
-      this._setAttribute(span, ATTR_GEN_AI_TOOL_DEFINITIONS, serializeToJson(toolDefinitions));
+      // No depth limit: the default truncates nested tool parameter schemas.
+      this._setAttribute(span, ATTR_GEN_AI_TOOL_DEFINITIONS, serializeToJson(toolDefinitions, Number.MAX_SAFE_INTEGER));
     }
   }
 
@@ -541,8 +542,10 @@ export class OpenTelemetryCallbackHandler implements CallbackHandlerMethods {
     // Used by ChatOpenAI, ChatMistralAI, ChatGroq, ChatDeepSeek, ChatXAI:
     // https://github.com/langchain-ai/langchainjs/blob/1d57fca1aa7bc89911fe5ead28afe4430fb0fb58/libs/langchain-core/src/utils/function_calling.ts#L61-L93
     if (tool.type === 'function') {
-      const fn = asRecord(tool.function);
-      return functionToolDefinition(fn?.name, fn?.description, fn?.parameters);
+      // ChatOpenAI on the Responses API flattens this to {type: 'function', name, description, parameters, strict}:
+      // https://github.com/langchain-ai/langchainjs/blob/main/libs/providers/langchain-openai/src/chat_models/responses.ts
+      const fn = asRecord(tool.function) ?? tool;
+      return functionToolDefinition(fn.name, fn.description, fn.parameters);
     }
 
     // Any other `type` is a provider built-in tool (for example Anthropic web search), not a function tool.

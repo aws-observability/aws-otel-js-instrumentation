@@ -82,7 +82,11 @@ function toToolDefinitions(tools: any[] = [], handoffs: any[] = []): Record<stri
     ...tools.map(tool =>
       tool.type === 'function'
         ? { type: 'function', name: tool.name, description: tool.description, parameters: tool.parameters }
-        : { type: tool.providerData?.type ?? tool.type, name: tool.name ?? tool.type }
+        : {
+            type: tool.providerData?.type ?? tool.type,
+            // Hosted MCP tools are all named 'hosted_mcp', so the server label tells them apart.
+            name: tool.providerData?.server_label ?? tool.server_label ?? tool.name ?? tool.type,
+          }
     ),
     ...handoffs.map(handoff => ({
       type: 'function',
@@ -412,9 +416,12 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     }
     if (data.type !== 'response' && data.type !== 'generation') return;
 
-    // ModelRequest.tools is always an array, so _response.tools is only used when no request was captured.
     const request = entry.modelRequest;
-    const definitions = toToolDefinitions(request ? request.tools : data._response?.tools, request?.handoffs);
+    let definitions = request ? toToolDefinitions(request.tools, request.handoffs) : [];
+    // Prompt-defined tools are not on the request; the Responses API echoes them on the response.
+    if (definitions.length === 0 && Array.isArray(data._response?.tools)) {
+      definitions = toToolDefinitions(data._response.tools);
+    }
     if (definitions.length === 0) return;
 
     const serialized = JSON.stringify(definitions);

@@ -72,7 +72,7 @@ import {
 } from '../test-fixtures';
 import { expect } from 'expect';
 import { validateOtelGenaiSchema } from '../otel-schema-validator';
-import { Agent, Runner, tool, OpenAIProvider } from '@openai/agents';
+import { Agent, Runner, tool, OpenAIProvider, hostedMcpTool, webSearchTool } from '@openai/agents';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAzure } from '@ai-sdk/azure';
@@ -1211,6 +1211,81 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
       const chatCompletion = getProviderCases().find(pc => pc.name === ProviderName.OPENAI)!.chatResponse;
 
       await createRunner([chatCompletion], 200, false).run(agent, 'Weather in Tokyo?');
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([getWeatherDefinition]);
+    });
+
+    it('records the agent tools on AI SDK LLM calls', async () => {
+      const anthropic = getProviderCases().find(pc => pc.name === ProviderName.ANTHROPIC)!;
+      const agent = new Agent({
+        name: 'WeatherAgent',
+        model: aisdk(createAiSdkLanguageModel(anthropic)),
+        tools: [getWeatherTool],
+      });
+
+      await new Runner({ tracingDisabled: false }).run(agent, 'Weather in Tokyo?');
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([getWeatherDefinition]);
+      expect(toolDefinitionsOn(spansNamed('invoke_agent')[0])).toEqual([getWeatherDefinition]);
+    });
+
+    it('records the agent tools on streamed LLM calls', async () => {
+      const agent = new Agent({ name: 'WeatherAgent', model: OPENAI_MODEL, tools: [getWeatherTool] });
+      const completed = { type: 'response.completed', response: OPENAI_RESPONSES_API_CHAT_RESPONSE };
+      const body = `event: ${completed.type}\ndata: ${JSON.stringify(completed)}\n\n`;
+      const client = new OpenAI({
+        apiKey: FAKE_OPENAI_KEY,
+        fetch: async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+      });
+      const runner = new Runner({
+        modelProvider: new OpenAIProvider({ openAIClient: client }),
+        tracingDisabled: false,
+      });
+
+      const result = await runner.run(agent, 'Weather in Tokyo?', { stream: true });
+      await result.completed;
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([getWeatherDefinition]);
+      expect(toolDefinitionsOn(spansNamed('invoke_agent')[0])).toEqual([getWeatherDefinition]);
+    });
+
+    it('records hosted tools, MCP servers by label, and handoffs', async () => {
+      const agent = new Agent({
+        name: 'TriageAgent',
+        model: OPENAI_MODEL,
+        tools: [
+          webSearchTool(),
+          hostedMcpTool({ serverLabel: 'docs', serverUrl: 'https://docs.example.com/mcp' }),
+          hostedMcpTool({ serverLabel: 'billing', serverUrl: 'https://billing.example.com/mcp' }),
+        ],
+        handoffs: [new Agent({ name: 'RefundAgent' })],
+      });
+
+      await createRunner([OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(agent, 'I want a refund');
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([
+        { type: expect.stringMatching(/^web_search/), name: 'web_search' },
+        { type: 'mcp', name: 'docs' },
+        { type: 'mcp', name: 'billing' },
+        {
+          type: 'function',
+          name: 'transfer_to_RefundAgent',
+          description: expect.any(String),
+          parameters: expect.any(Object),
+        },
+      ]);
+    });
+
+    it('records prompt-defined tools echoed by the Responses API', async () => {
+      // With a stored prompt the SDK sends no tools, so they only appear on the response.
+      const agent = new Agent({ name: 'PromptAgent', model: OPENAI_MODEL, prompt: { promptId: 'pmpt_123' } });
+      const parameters = { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] };
+      const response = {
+        ...OPENAI_RESPONSES_API_CHAT_RESPONSE,
+        tools: [{ type: 'function', name: 'get_weather', description: 'Get weather for a city', parameters }],
+      };
+
+      await createRunner([response]).run(agent, 'Weather in Tokyo?');
 
       expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([getWeatherDefinition]);
     });

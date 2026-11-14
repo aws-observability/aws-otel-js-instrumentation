@@ -8,10 +8,11 @@ import {
   InstrumentationBase,
   InstrumentationNodeModuleDefinition,
   InstrumentationNodeModuleFile,
+  isWrapped,
 } from '@opentelemetry/instrumentation';
 import { LIB_VERSION } from '../../version';
 import { OpenAIAgentsInstrumentationConfig } from './types';
-import { OpenTelemetryTracingProcessor } from './tracing-processor';
+import { MODEL_REQUEST_CONTEXT_KEY, OpenTelemetryTracingProcessor } from './tracing-processor';
 import {
   isAgenticInstrumentationOptIn,
   isInstrumentationDisabled,
@@ -23,6 +24,7 @@ export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentati
 export const INSTRUMENTATION_SHORT_NAME = 'aws_openai_agents';
 
 const SUPPORTED_VERSIONS = ['>=0.1.0'];
+const MODEL_METHODS = ['getResponse', 'getStreamedResponse'];
 
 export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgentsInstrumentationConfig> {
   // OpenAI Agents SDK has its own tracing system that is completely separate from OTel.
@@ -66,6 +68,12 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     const unpatchCore = (_moduleExports: any) => this._unpatch();
     const patchCreateSpans = (moduleExports: any) => this._wrapCreateSpansWithOtelContext(moduleExports);
     const unpatchCreateSpans = (moduleExports: any) => this._unwrapCreateSpansWithOtelContext(moduleExports);
+    const patchModels = (classNames: string[]) => (moduleExports: any) =>
+      this._wrapModelsWithRequestContext(moduleExports, classNames);
+    const unpatchModels = (classNames: string[]) => (moduleExports: any) =>
+      this._unwrapModelsWithRequestContext(moduleExports, classNames);
+    const openAIModels = ['OpenAIResponsesModel', 'OpenAIChatCompletionsModel'];
+    const aiSdkModel = ['AiSdkModel'];
 
     return [
       new InstrumentationNodeModuleDefinition('@openai/agents-core', SUPPORTED_VERSIONS, patchCore, unpatchCore, [
@@ -82,6 +90,28 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
           unpatchCreateSpans
         ),
       ]),
+      new InstrumentationNodeModuleDefinition(
+        '@openai/agents-openai',
+        SUPPORTED_VERSIONS,
+        patchModels(openAIModels),
+        unpatchModels(openAIModels)
+      ),
+      // AiSdkModel is exported from the package root before 0.5 and from the ai-sdk subpath after.
+      new InstrumentationNodeModuleDefinition(
+        '@openai/agents-extensions',
+        SUPPORTED_VERSIONS,
+        patchModels(aiSdkModel),
+        unpatchModels(aiSdkModel),
+        ['mjs', 'js'].map(
+          ext =>
+            new InstrumentationNodeModuleFile(
+              `@openai/agents-extensions/dist/ai-sdk/index.${ext}`,
+              SUPPORTED_VERSIONS,
+              patchModels(aiSdkModel),
+              unpatchModels(aiSdkModel)
+            )
+        )
+      ),
     ];
   }
 
@@ -186,6 +216,46 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
       if (typeof moduleExports[key] !== 'function') continue;
       if (!key.match(/^with\w+Span$/)) continue;
       tryUnwrap(() => this._unwrap(moduleExports, key), `OpenAI Agents ${key}`);
+    }
+  }
+
+  // Runs model calls in a context carrying the ModelRequest so the processor can record its tool
+  // definitions, which the SDK does not expose on generation or response span data.
+  private _wrapModelsWithRequestContext(moduleExports: any, classNames: string[]): any {
+    for (const className of classNames) {
+      const prototype = moduleExports?.[className]?.prototype;
+      for (const method of MODEL_METHODS) {
+        if (typeof prototype?.[method] !== 'function' || isWrapped(prototype[method])) continue;
+        tryWrap(
+          () =>
+            this._wrap(prototype, method, (original: any) => {
+              return function (this: any, request: any, ...rest: any[]) {
+                const ctx = context.active().setValue(MODEL_REQUEST_CONTEXT_KEY, request);
+                const result = context.with(ctx, () => original.call(this, request, ...rest));
+                // getStreamedResponse returns an async generator, whose steps run in the caller's
+                // context, so run each step in ours.
+                if (typeof result?.next === 'function') {
+                  const next = result.next.bind(result);
+                  result.next = (...args: any[]) => context.with(ctx, () => next(...args));
+                }
+                return result;
+              };
+            }),
+          `OpenAI Agents ${className}.${method}`
+        );
+      }
+    }
+    return moduleExports;
+  }
+
+  private _unwrapModelsWithRequestContext(moduleExports: any, classNames: string[]): void {
+    for (const className of classNames) {
+      const prototype = moduleExports?.[className]?.prototype;
+      for (const method of MODEL_METHODS) {
+        if (isWrapped(prototype?.[method])) {
+          tryUnwrap(() => this._unwrap(prototype, method), `OpenAI Agents ${className}.${method}`);
+        }
+      }
     }
   }
 

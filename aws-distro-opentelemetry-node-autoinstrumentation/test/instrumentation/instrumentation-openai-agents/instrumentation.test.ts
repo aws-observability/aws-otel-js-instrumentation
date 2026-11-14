@@ -63,7 +63,6 @@ import {
   FAKE_XAI_KEY,
   OPENAI_MODEL,
   OPENAI_RESPONSES_API_CHAT_RESPONSE,
-  OPENAI_RESPONSES_API_CHAT_RESPONSE_WITH_TOOLS,
   OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE,
   OPENAI_RESPONSES_API_ERROR_RESPONSE,
   ProviderName,
@@ -73,7 +72,7 @@ import {
 } from '../test-fixtures';
 import { expect } from 'expect';
 import { validateOtelGenaiSchema } from '../otel-schema-validator';
-import { Agent, Runner, tool, OpenAIProvider } from '@openai/agents';
+import { Agent, Runner, tool, OpenAIProvider, hostedMcpTool, webSearchTool } from '@openai/agents';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAzure } from '@ai-sdk/azure';
@@ -1163,36 +1162,141 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
   });
 
   describe('tool definitions', function () {
-    it('captures tool definitions on chat spans', async () => {
-      const getWeather = tool({
-        name: 'get_weather',
-        description: 'Get weather for a city',
-        parameters: z.object({ city: z.string() }),
-        execute: async ({ city }) => `Sunny in ${city}`,
-      });
+    const getWeatherTool = tool({
+      name: 'get_weather',
+      description: 'Get weather for a city',
+      parameters: z.object({ city: z.string() }),
+      execute: async ({ city }) => `Sunny in ${city}`,
+    });
 
+    // How get_weather should appear in gen_ai.tool.definitions.
+    const getWeatherDefinition = {
+      type: 'function',
+      name: 'get_weather',
+      description: 'Get weather for a city',
+      parameters: expect.objectContaining({ type: 'object', required: ['city'] }),
+    };
+
+    function spansNamed(prefix: string): ReadableSpan[] {
+      return getTestSpans().filter((span: ReadableSpan) => span.name.startsWith(prefix));
+    }
+
+    function toolDefinitionsOn(span: ReadableSpan): unknown {
+      const value = span.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS];
+      return value === undefined ? undefined : JSON.parse(value as string);
+    }
+
+    it('records the agent tools on every LLM call when the model calls a tool', async () => {
+      const agent = new Agent({ name: 'WeatherAgent', model: OPENAI_MODEL, tools: [getWeatherTool] });
+
+      // The model asks for get_weather, the SDK runs it, then the model answers.
+      // Neither reply echoes the tools, so the definitions must come from the request.
+      await createRunner([OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE, OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(
+        agent,
+        'Weather in Tokyo?'
+      );
+
+      const chatSpans = spansNamed('chat');
+      expect(chatSpans).toHaveLength(2);
+      for (const chatSpan of chatSpans) {
+        expect(toolDefinitionsOn(chatSpan)).toEqual([getWeatherDefinition]);
+      }
+      expect(toolDefinitionsOn(spansNamed('invoke_agent')[0])).toEqual([getWeatherDefinition]);
+      expect(toolDefinitionsOn(spansNamed('execute_tool')[0])).toBeUndefined();
+      await validateOtelGenaiSchema(toolDefinitionsOn(chatSpans[0]), 'gen-ai-tool-definitions');
+    });
+
+    it('records the agent tools on Chat Completions LLM calls', async () => {
+      const agent = new Agent({ name: 'WeatherAgent', model: OPENAI_MODEL, tools: [getWeatherTool] });
+      const chatCompletion = getProviderCases().find(pc => pc.name === ProviderName.OPENAI)!.chatResponse;
+
+      await createRunner([chatCompletion], 200, false).run(agent, 'Weather in Tokyo?');
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([getWeatherDefinition]);
+    });
+
+    it('records the agent tools on AI SDK LLM calls', async () => {
+      const anthropic = getProviderCases().find(pc => pc.name === ProviderName.ANTHROPIC)!;
       const agent = new Agent({
-        name: 'ToolDefAgent',
-        instructions: 'Use tools.',
-        model: OPENAI_MODEL,
-        tools: [getWeather],
+        name: 'WeatherAgent',
+        model: aisdk(createAiSdkLanguageModel(anthropic)),
+        tools: [getWeatherTool],
       });
 
-      const runner = createRunner([OPENAI_RESPONSES_API_CHAT_RESPONSE_WITH_TOOLS]);
-      await runner.run(agent, 'Weather in Tokyo?');
+      await new Runner({ tracingDisabled: false }).run(agent, 'Weather in Tokyo?');
 
-      const spans = getTestSpans();
-      const chatSpan = spans.find((s: ReadableSpan) => s.attributes[ATTR_GEN_AI_OPERATION_NAME] === 'chat');
-      expect(chatSpan).toBeDefined();
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([getWeatherDefinition]);
+      expect(toolDefinitionsOn(spansNamed('invoke_agent')[0])).toEqual([getWeatherDefinition]);
+    });
 
-      const toolDefs = chatSpan!.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS] as string | undefined;
-      expect(toolDefs).toBeDefined();
-      const parsed = JSON.parse(toolDefs!);
-      expect(Array.isArray(parsed)).toBe(true);
-      const def = parsed.find((t: any) => t.name === 'get_weather');
-      expect(def).toBeDefined();
-      expect(def.type).toBe('function');
-      expect(def.description).toBe('Get weather for a city');
+    it('records the agent tools on streamed LLM calls', async () => {
+      const agent = new Agent({ name: 'WeatherAgent', model: OPENAI_MODEL, tools: [getWeatherTool] });
+      const completed = { type: 'response.completed', response: OPENAI_RESPONSES_API_CHAT_RESPONSE };
+      const body = `event: ${completed.type}\ndata: ${JSON.stringify(completed)}\n\n`;
+      const client = new OpenAI({
+        apiKey: FAKE_OPENAI_KEY,
+        fetch: async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+      });
+      const runner = new Runner({
+        modelProvider: new OpenAIProvider({ openAIClient: client }),
+        tracingDisabled: false,
+      });
+
+      const result = await runner.run(agent, 'Weather in Tokyo?', { stream: true });
+      await result.completed;
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([getWeatherDefinition]);
+      expect(toolDefinitionsOn(spansNamed('invoke_agent')[0])).toEqual([getWeatherDefinition]);
+    });
+
+    it('records hosted tools, MCP servers by label, and handoffs', async () => {
+      const agent = new Agent({
+        name: 'TriageAgent',
+        model: OPENAI_MODEL,
+        tools: [
+          webSearchTool(),
+          hostedMcpTool({ serverLabel: 'docs', serverUrl: 'https://docs.example.com/mcp' }),
+          hostedMcpTool({ serverLabel: 'billing', serverUrl: 'https://billing.example.com/mcp' }),
+        ],
+        handoffs: [new Agent({ name: 'RefundAgent' })],
+      });
+
+      await createRunner([OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(agent, 'I want a refund');
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([
+        { type: expect.stringMatching(/^web_search/), name: 'web_search' },
+        { type: 'mcp', name: 'docs' },
+        { type: 'mcp', name: 'billing' },
+        {
+          type: 'function',
+          name: 'transfer_to_RefundAgent',
+          description: expect.any(String),
+          parameters: expect.any(Object),
+        },
+      ]);
+    });
+
+    it('records prompt-defined tools echoed by the Responses API', async () => {
+      // With a stored prompt the SDK sends no tools, so they only appear on the response.
+      const agent = new Agent({ name: 'PromptAgent', model: OPENAI_MODEL, prompt: { promptId: 'pmpt_123' } });
+      const parameters = { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] };
+      const response = {
+        ...OPENAI_RESPONSES_API_CHAT_RESPONSE,
+        tools: [{ type: 'function', name: 'get_weather', description: 'Get weather for a city', parameters }],
+      };
+
+      await createRunner([response]).run(agent, 'Weather in Tokyo?');
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([getWeatherDefinition]);
+    });
+
+    it('does not record tool definitions for an agent without tools', async () => {
+      const agent = new Agent({ name: 'NoToolsAgent', model: OPENAI_MODEL });
+
+      await createRunner([OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(agent, 'Hi');
+
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toBeUndefined();
+      expect(toolDefinitionsOn(spansNamed('invoke_agent')[0])).toBeUndefined();
     });
   });
 
@@ -1278,6 +1382,22 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
       const errorSpans = spans.filter((s: ReadableSpan) => s.status.code === SpanStatusCode.ERROR);
       expect(errorSpans.length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  it('wraps model methods once and restores them on unwrap', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const agentsOpenAI = require('@openai/agents-openai');
+    const { prototype } = agentsOpenAI.OpenAIChatCompletionsModel;
+    // The instrumentation already wrapped this method on load, so re-wrapping must be a no-op.
+    const wrapped = prototype.getResponse;
+    const instr = instrumentation as any;
+
+    instr._wrapModelsWithRequestContext(agentsOpenAI, ['OpenAIChatCompletionsModel']);
+    expect(prototype.getResponse).toBe(wrapped);
+    instr._unwrapModelsWithRequestContext(agentsOpenAI, ['OpenAIChatCompletionsModel']);
+    expect(prototype.getResponse.__wrapped).toBeUndefined();
+    instr._wrapModelsWithRequestContext(agentsOpenAI, ['OpenAIChatCompletionsModel']);
+    expect(prototype.getResponse.__wrapped).toBe(true);
   });
 
   describe('enable override', () => {

@@ -30,3 +30,9 @@ vulnerabilities:
     purls:
       - "pkg:npm/minimatch@9.0.9"
     expired_at: 2026-11-30
+
+  - id: CVE-2026-128080
+    statement: "Temporary suppression pending OTel core upgrade (#499). @opentelemetry/instrumentation-http does not redact sensitive query params on incoming server spans. Pulled in via @opentelemetry/auto-instrumentations-node 0.77.0, whose ^0.219.0 range cannot reach the fixed 0.222.0; the fix needs @opentelemetry/core 2.11+. https://avd.aquasec.com/nvd/cve-2026-128080"
+    purls:
+      - "pkg:npm/%40opentelemetry/instrumentation-http@0.219.0"
+    expired_at: 2026-11-30

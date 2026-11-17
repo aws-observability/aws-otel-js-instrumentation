@@ -653,6 +653,7 @@ describe('tool definitions', function () {
 
   afterEach(() => {
     instrumentation.disable();
+    contentCaptureInstrumentation.disable();
     nock.cleanAll();
   });
 
@@ -676,9 +677,13 @@ describe('tool definitions', function () {
     provider: ProviderName,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     invoke: (model: any) => Promise<unknown>,
-    { modelOpts = {}, useStub }: { modelOpts?: Record<string, unknown>; useStub?: boolean } = {}
+    {
+      modelOpts = {},
+      useStub,
+      captureContent = true,
+    }: { modelOpts?: Record<string, unknown>; useStub?: boolean; captureContent?: boolean } = {}
   ) {
-    instrumentation.enable();
+    (captureContent ? contentCaptureInstrumentation : instrumentation).enable();
     const pc = providerCases.find(p => p.name === provider)!;
     const model = createModel(pc.name, modelOpts);
     const restore = useStub ?? pc.useStub ? stubGenerate(model) : (nockProvider(pc.name, pc.chatResponse), () => {});
@@ -745,6 +750,38 @@ describe('tool definitions', function () {
         { useStub: true }
       )
     );
+  });
+
+  it('records deeply nested and reused parameter schemas intact', async () => {
+    const address = {
+      type: 'object',
+      properties: { street: { type: 'object', properties: { line: { type: 'string' } } } },
+    };
+    const parameters = {
+      type: 'object',
+      properties: { order: { type: 'object', properties: { home: address, work: address } } },
+    };
+    const shipOrder = { type: 'function', function: { name: 'ship_order', description: 'Ship an order.', parameters } };
+
+    const toolDefinitions = await recordToolDefinitions(ProviderName.OPENAI, m =>
+      m.bindTools([shipOrder]).invoke(question)
+    );
+
+    expect(toolDefinitions).toEqual([
+      { type: 'function', name: 'ship_order', description: 'Ship an order.', parameters },
+    ]);
+  });
+
+  it('records only type and name when content capture is off', async () => {
+    const toolDefinitions = await recordToolDefinitions(
+      ProviderName.OPENAI,
+      m => m.bindTools([getWeather]).invoke(question),
+      {
+        captureContent: false,
+      }
+    );
+    await validateOtelGenaiSchema(toolDefinitions, 'gen-ai-tool-definitions');
+    expect(toolDefinitions).toEqual([{ type: 'function', name: 'get_weather' }]);
   });
 
   it('does not set the attribute when no tools are bound', async () => {

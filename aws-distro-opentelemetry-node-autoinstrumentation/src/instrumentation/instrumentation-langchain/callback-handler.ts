@@ -507,8 +507,19 @@ export class OpenTelemetryCallbackHandler implements CallbackHandlerMethods {
     }
     const toolDefinitions = OpenTelemetryCallbackHandler._extractToolDefinitions(params);
     if (toolDefinitions.length > 0) {
-      // No depth limit: the default truncates nested tool parameter schemas.
-      this._setAttribute(span, ATTR_GEN_AI_TOOL_DEFINITIONS, serializeToJson(toolDefinitions, Number.MAX_SAFE_INTEGER));
+      // description and parameters are optional in the semconv, so they are recorded only with content capture on.
+      const recorded = this.captureMessageContent
+        ? toolDefinitions
+        : toolDefinitions.map(({ type, name }) => ({ type, name }));
+      // The definitions are plain JSON from the provider request. serializeToJson would truncate deeply
+      // nested schemas and replace a reused sub-schema with "[Circular]".
+      let serialized: string | undefined;
+      try {
+        serialized = JSON.stringify(recorded);
+      } catch {
+        serialized = undefined;
+      }
+      this._setAttribute(span, ATTR_GEN_AI_TOOL_DEFINITIONS, serialized);
     }
   }
 

@@ -13,6 +13,10 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- fix(langchain): record `gen_ai.tool.definitions` (name, description, and parameters) on LangChain/LangGraph
+  chat spans for tools bound to the model, covering the OpenAI, Bedrock Converse, Anthropic, Google Gemini, and
+  Cohere tool formats and legacy OpenAI functions
+  ([#588](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/588))
 - fix: in Lambda, treat `OTEL_EXPORTER_OTLP_ENDPOINT` as a custom trace endpoint, as the OTLP exporter
   spec requires. Setting only the generic endpoint previously fell back to the X-Ray UDP exporter, so
   traces never reached the configured collector

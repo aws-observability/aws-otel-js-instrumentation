@@ -13,6 +13,8 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+## v0.14.0 - 2026-11-18
+
 - fix(langchain): record `gen_ai.tool.definitions` (name, description, and parameters) on LangChain/LangGraph
   chat spans for tools bound to the model, covering the OpenAI, Bedrock Converse, Anthropic, Google Gemini, and
   Cohere tool formats and legacy OpenAI functions

@@ -57,6 +57,8 @@ import { OTLPAwsMetricExporter } from '../src/exporter/otlp/aws/metrics/otlp-aws
 import { CompressionAlgorithm } from '@opentelemetry/otlp-exporter-base';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
+import { SnapshotSafeIdGenerator } from '../src/snapshot-safe-id-generator';
+import { AWSXRayIdGenerator } from '@opentelemetry/id-generator-aws-xray';
 import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
 let setAwsDefaultEnvironmentVariables: () => void;
 import { AwsXRayRemoteSampler } from '../src/sampler/aws-xray-remote-sampler';
@@ -143,6 +145,30 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       const traceId4ByteNumber: number = Number(`0x${traceId4ByteHex}`);
       expect(traceId4ByteNumber).toBeGreaterThanOrEqual(startTimeSec);
     }
+  });
+
+  describe('ID generator', () => {
+    afterEach(() => {
+      delete process.env.AWS_EXECUTION_ENV;
+    });
+
+    function idGeneratorFor(executionEnv: string | undefined) {
+      if (executionEnv !== undefined) {
+        process.env.AWS_EXECUTION_ENV = executionEnv;
+      }
+      const configurator = new AwsOpentelemetryConfigurator([]);
+      (configurator as any).spanProcessors.forEach((spanProcessor: SpanProcessor) => spanProcessor.shutdown());
+      return configurator.configure().idGenerator;
+    }
+
+    it('uses SnapshotSafeIdGenerator in AgentCore Runtime', () => {
+      expect(idGeneratorFor('AWS_BedrockAgentCore_Runtime')).toBeInstanceOf(SnapshotSafeIdGenerator);
+    });
+
+    it('uses AWSXRayIdGenerator outside AgentCore Runtime', () => {
+      expect(idGeneratorFor(undefined)).toBeInstanceOf(AWSXRayIdGenerator);
+      expect(idGeneratorFor('AWS_Lambda_nodejs20.x')).toBeInstanceOf(AWSXRayIdGenerator);
+    });
   });
 
   describe('Propagator Extraction', () => {

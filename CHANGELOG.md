@@ -13,6 +13,11 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+- feat: in Amazon Bedrock AgentCore Runtime (`AWS_EXECUTION_ENV=AWS_BedrockAgentCore_Runtime`), use the new
+  `SnapshotSafeIdGenerator`. It reads trace and span IDs from `/dev/urandom` instead of `Math.random()`, so sessions
+  restored from the same memory snapshot don't repeat IDs. Trace IDs keep the X-Ray format.
+  ([#PR_NUMBER](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/PR_NUMBER))
+
 ## v0.14.0 - 2026-11-18
 
 - fix(langchain): record `gen_ai.tool.definitions` (name, description, and parameters) on LangChain/LangGraph

@@ -85,12 +85,52 @@ describe('SnapshotSafeIdGenerator', () => {
     expect(new SnapshotSafeIdGenerator().generateTraceId()).toBe('00000000000000000000000000000001');
   });
 
-  it('falls back to crypto when /dev/urandom is unavailable', () => {
-    sinon.stub(fs, 'openSync').throws(new Error('ENOENT'));
+  it('uses crypto on platforms without /dev/urandom', () => {
+    sinon.stub(fs, 'existsSync').withArgs('/dev/urandom').returns(false);
+    const openSpy = sinon.spy(fs, 'openSync');
     const randomFillSpy = sinon.spy(crypto, 'randomFillSync');
     const generator = new SnapshotSafeIdGenerator();
     expect(generator.generateSpanId()).toMatch(/^[0-9a-f]{16}$/);
     expect(generator.generateTraceId()).toMatch(/^[0-9a-f]{32}$/);
     expect(randomFillSpy.called).toBe(true);
+    expect(openSpy.called).toBe(false);
+  });
+
+  it('recovers /dev/urandom after a transient open error', () => {
+    const realOpen = fs.openSync;
+    const openStub = sinon.stub(fs, 'openSync');
+    // Fail both attempts for the first ID (for example EMFILE), then let /dev/urandom open again.
+    openStub.onCall(0).throws(Object.assign(new Error('EMFILE'), { code: 'EMFILE' }));
+    openStub.onCall(1).throws(Object.assign(new Error('EMFILE'), { code: 'EMFILE' }));
+    openStub.callsFake((...args: any[]) => realOpen(...args));
+    const randomFillSpy = sinon.spy(crypto, 'randomFillSync');
+    const generator = new SnapshotSafeIdGenerator();
+
+    generator.generateSpanId();
+    expect(randomFillSpy.callCount).toBe(1);
+
+    generator.generateSpanId();
+    generator.generateTraceId();
+    expect(randomFillSpy.callCount).toBe(1);
+    expect(openStub.callCount).toBe(3);
+  });
+
+  it('retries with a new descriptor and closes the failed one after a read error', () => {
+    const openStub = sinon.stub(fs, 'openSync');
+    openStub.onCall(0).returns(41);
+    openStub.onCall(1).returns(42);
+    const closeStub = sinon.stub(fs, 'closeSync');
+    const readStub = sinon.stub(fs, 'readSync');
+    readStub.onFirstCall().throws(Object.assign(new Error('EIO'), { code: 'EIO' }));
+    readStub.callsFake((_fd: number, buffer: Buffer) => {
+      buffer.fill(0xab);
+      return buffer.length;
+    });
+    const randomFillSpy = sinon.spy(crypto, 'randomFillSync');
+
+    expect(new SnapshotSafeIdGenerator().generateSpanId()).toBe('abababababababab');
+    expect(closeStub.calledOnceWith(41)).toBe(true);
+    expect(readStub.secondCall.args[0]).toBe(42);
+    expect(randomFillSpy.called).toBe(false);
   });
 });

@@ -122,7 +122,7 @@ describe('SnapshotSafeIdGenerator', () => {
     const closeStub = sinon.stub(fs, 'closeSync');
     const readStub = sinon.stub(fs, 'readSync');
     readStub.onFirstCall().throws(Object.assign(new Error('EIO'), { code: 'EIO' }));
-    readStub.callsFake((_fd: number, buffer: Buffer) => {
+    readStub.onSecondCall().callsFake((_fd: number, buffer: Buffer) => {
       buffer.fill(0xab);
       return buffer.length;
     });

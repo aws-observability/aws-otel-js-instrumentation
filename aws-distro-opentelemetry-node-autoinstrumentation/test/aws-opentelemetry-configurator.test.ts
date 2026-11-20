@@ -870,6 +870,34 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
     }
   });
 
+  it('tests configureOTLP on Lambda with empty OTLP endpoints uses UDP exporter', () => {
+    const previousLambdaFunctionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+    const previousTracesExporter = process.env.OTEL_TRACES_EXPORTER;
+    const previousTracesEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+    const previousBaseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+    const cases: Array<[string | undefined, string | undefined]> = [
+      ['', undefined],
+      [undefined, ''],
+      ['', ''],
+    ];
+    try {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+      process.env.OTEL_TRACES_EXPORTER = 'otlp';
+      for (const [baseEndpoint, tracesEndpoint] of cases) {
+        restoreEnv('OTEL_EXPORTER_OTLP_ENDPOINT', baseEndpoint);
+        restoreEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', tracesEndpoint);
+        const spanExporter: SpanExporter = AwsSpanProcessorProvider.configureOtlp();
+        expect(spanExporter).toBeInstanceOf(OTLPUdpSpanExporter);
+      }
+    } finally {
+      restoreEnv('AWS_LAMBDA_FUNCTION_NAME', previousLambdaFunctionName);
+      restoreEnv('OTEL_TRACES_EXPORTER', previousTracesExporter);
+      restoreEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', previousTracesEndpoint);
+      restoreEnv('OTEL_EXPORTER_OTLP_ENDPOINT', previousBaseEndpoint);
+    }
+  });
+
   it('Tests that OTLP exporter from the configurator is UDPExporter when Application Signals is disabled on Lambda', () => {
     process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
     process.env.OTEL_AWS_APPLICATION_SIGNALS_ENABLED = 'False';

@@ -1045,11 +1045,8 @@ export function isLambdaEnvironment() {
 
 function hasCustomOtlpTraceEndpoint() {
   // Check for signal-specific endpoint first, then fall back to generic endpoint
-  // per OpenTelemetry OTLP Exporter specification
-  return (
-    process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] !== undefined ||
-    process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] !== undefined
-  );
+  // per OpenTelemetry OTLP Exporter specification. Empty values are treated as unset.
+  return !!(process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] || process.env['OTEL_EXPORTER_OTLP_ENDPOINT']);
 }
 
 function getXrayDaemonEndpoint() {

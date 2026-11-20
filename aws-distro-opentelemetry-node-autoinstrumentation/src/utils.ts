@@ -59,11 +59,11 @@ export const isAgentObservabilityEnabled = () => {
 };
 
 const AWS_EXECUTION_ENV = 'AWS_EXECUTION_ENV';
-const AGENTCORE_RUNTIME_EXECUTION_ENV_PREFIX = 'AWS_BedrockAgentCore';
+const AGENTCORE_RUNTIME_EXECUTION_ENV = 'AWS_BedrockAgentCore_Runtime';
 
 // Is the process running in Amazon Bedrock AgentCore Runtime?
 export const isAgentCoreRuntimeEnvironment = (): boolean => {
-  return (process.env[AWS_EXECUTION_ENV] ?? '').startsWith(AGENTCORE_RUNTIME_EXECUTION_ENV_PREFIX);
+  return process.env[AWS_EXECUTION_ENV] === AGENTCORE_RUNTIME_EXECUTION_ENV;
 };
 
 export const isAgenticInstrumentationOptIn = (): boolean => {

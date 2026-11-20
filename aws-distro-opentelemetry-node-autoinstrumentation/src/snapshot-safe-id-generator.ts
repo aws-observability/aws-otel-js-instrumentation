@@ -1,17 +1,17 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { context, INVALID_SPANID } from '@opentelemetry/api';
+import { context, INVALID_SPANID, INVALID_TRACEID } from '@opentelemetry/api';
 import { suppressTracing } from '@opentelemetry/core';
 import { IdGenerator } from '@opentelemetry/sdk-trace-base';
 import { randomFillSync } from 'crypto';
 import { openSync, readSync } from 'fs';
 
 const URANDOM_PATH = '/dev/urandom';
-const INVALID_XRAY_TRACE_IDENTIFIER = '000000000000000000000000';
 
 /**
- * Generates X-Ray compatible trace IDs and span IDs from the operating system's random source.
+ * Generates fully random trace IDs and span IDs, like the upstream `RandomIdGenerator`, from the operating
+ * system's random source.
  *
  * The default ID generators use `Math.random()`, whose state lives in process memory. Platforms that start
  * processes by restoring a memory snapshot, such as Amazon Bedrock AgentCore Runtime, restore that state too,
@@ -19,22 +19,17 @@ const INVALID_XRAY_TRACE_IDENTIFIER = '000000000000000000000000';
  * cache entropy in process, and a Node.js build that bundles its own OpenSSL restores the OpenSSL random state.
  * Reading `/dev/urandom` on every call keeps no random state in the process, so restored processes get
  * distinct IDs.
- *
- * Trace IDs keep the X-Ray format: the first 8 hex digits are the start time in epoch seconds.
  */
 export class SnapshotSafeIdGenerator implements IdGenerator {
   private fd: number | undefined;
   private urandomUnavailable: boolean = false;
 
   generateTraceId(): string {
-    const epoch = Math.floor(Date.now() / 1000)
-      .toString(16)
-      .padStart(8, '0');
-    let identifier = this.generateRandomHex(12);
-    while (identifier === INVALID_XRAY_TRACE_IDENTIFIER) {
-      identifier = this.generateRandomHex(12);
+    let traceId = this.generateRandomHex(16);
+    while (traceId === INVALID_TRACEID) {
+      traceId = this.generateRandomHex(16);
     }
-    return epoch + identifier;
+    return traceId;
   }
 
   generateSpanId(): string {

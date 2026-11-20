@@ -14,8 +14,9 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 ## Unreleased
 
 - feat: in Amazon Bedrock AgentCore Runtime (`AWS_EXECUTION_ENV=AWS_BedrockAgentCore_Runtime`), use the new
-  `SnapshotSafeIdGenerator`. It reads trace and span IDs from `/dev/urandom` instead of `Math.random()`, so sessions
-  restored from the same memory snapshot don't repeat IDs. Trace IDs keep the X-Ray format.
+  `SnapshotSafeIdGenerator`. Like the upstream `RandomIdGenerator`, it generates fully random trace and span IDs, but
+  reads them from `/dev/urandom` instead of `Math.random()`, so sessions restored from the same memory snapshot don't
+  repeat IDs.
   ([#597](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/597))
 
 ## v0.14.0 - 2026-11-18

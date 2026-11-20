@@ -37,6 +37,10 @@ describe('Utils', function () {
     expect(isAgentCoreRuntimeEnvironment()).toBeFalsy();
     process.env.AWS_EXECUTION_ENV = 'AWS_BedrockAgentCore_Runtime';
     expect(isAgentCoreRuntimeEnvironment()).toBeTruthy();
+    process.env.AWS_EXECUTION_ENV = 'AWS_BedrockAgentCore_Runtime_Other';
+    expect(isAgentCoreRuntimeEnvironment()).toBeFalsy();
+    process.env.AWS_EXECUTION_ENV = 'AWS_BedrockAgentCore';
+    expect(isAgentCoreRuntimeEnvironment()).toBeFalsy();
     process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs20.x';
     expect(isAgentCoreRuntimeEnvironment()).toBeFalsy();
     delete process.env.AWS_EXECUTION_ENV;

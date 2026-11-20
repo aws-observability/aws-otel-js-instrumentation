@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { INVALID_SPANID } from '@opentelemetry/api';
+import { INVALID_SPANID, INVALID_TRACEID } from '@opentelemetry/api';
 import expect from 'expect';
 import * as sinon from 'sinon';
 import { SnapshotSafeIdGenerator } from '../src/snapshot-safe-id-generator';
@@ -35,13 +35,12 @@ describe('SnapshotSafeIdGenerator', () => {
     generator.generateSpanId();
   });
 
-  it('generates X-Ray format trace IDs and valid span IDs', () => {
+  it('generates valid random trace IDs and span IDs', () => {
     const generator = new SnapshotSafeIdGenerator();
-    const startTimeSec = Math.floor(Date.now() / 1000);
     const traceId = generator.generateTraceId();
     const spanId = generator.generateSpanId();
     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
-    expect(Number(`0x${traceId.substring(0, 8)}`)).toBeGreaterThanOrEqual(startTimeSec);
+    expect(traceId).not.toBe(INVALID_TRACEID);
     expect(spanId).toMatch(/^[0-9a-f]{16}$/);
     expect(spanId).not.toBe(INVALID_SPANID);
   });
@@ -69,6 +68,21 @@ describe('SnapshotSafeIdGenerator', () => {
       return buffer.length;
     });
     expect(new SnapshotSafeIdGenerator().generateSpanId()).toBe('0000000000000001');
+  });
+
+  it('retries an all-zero trace ID', () => {
+    const readStub = sinon.stub(fs, 'readSync');
+    sinon.stub(fs, 'openSync').returns(42);
+    readStub.onFirstCall().callsFake((_fd: number, buffer: Buffer) => {
+      buffer.fill(0);
+      return buffer.length;
+    });
+    readStub.onSecondCall().callsFake((_fd: number, buffer: Buffer) => {
+      buffer.fill(0);
+      buffer[buffer.length - 1] = 1;
+      return buffer.length;
+    });
+    expect(new SnapshotSafeIdGenerator().generateTraceId()).toBe('00000000000000000000000000000001');
   });
 
   it('falls back to crypto when /dev/urandom is unavailable', () => {

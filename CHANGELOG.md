@@ -15,7 +15,7 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 - fix: in Lambda, treat empty `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` values as
   unset, so traces fall back to the X-Ray UDP exporter again instead of being dropped
-  ([#PR_NUMBER](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/PR_NUMBER))
+  ([#598](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/598))
 
 ## v0.14.0 - 2026-11-18
 

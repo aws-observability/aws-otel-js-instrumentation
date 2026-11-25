@@ -5,11 +5,14 @@
 
 import { instrumentation } from './load-instrumentation';
 import { OpenAIAgentsInstrumentation } from '../../../src/instrumentation/instrumentation-openai-agents/instrumentation';
-import { OpenTelemetryTracingProcessor } from '../../../src/instrumentation/instrumentation-openai-agents/tracing-processor';
+import {
+  MODEL_REQUEST_CONTEXT_KEY,
+  OpenTelemetryTracingProcessor,
+} from '../../../src/instrumentation/instrumentation-openai-agents/tracing-processor';
 import { getTestSpans, resetMemoryExporter } from '@opentelemetry/contrib-test-utils';
 import * as sinon from 'sinon';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
-import { SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
+import { SpanKind, SpanStatusCode, context, trace } from '@opentelemetry/api';
 import {
   ATTR_GEN_AI_AGENT_NAME,
   ATTR_GEN_AI_INPUT_MESSAGES,
@@ -1288,6 +1291,77 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
       await createRunner([response]).run(agent, 'Weather in Tokyo?');
 
       expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual([getWeatherDefinition]);
+    });
+
+    it('records only tool type and name when content capture is off', async () => {
+      setCaptureContent(false);
+      const agent = new Agent({ name: 'WeatherAgent', model: OPENAI_MODEL, tools: [getWeatherTool] });
+
+      await createRunner([OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(agent, 'Weather in Tokyo?');
+
+      const nameOnly = [{ type: 'function', name: 'get_weather' }];
+      expect(toolDefinitionsOn(spansNamed('chat')[0])).toEqual(nameOnly);
+      expect(toolDefinitionsOn(spansNamed('invoke_agent')[0])).toEqual(nameOnly);
+    });
+
+    it('omits agent tool definitions when a later turn offers a different list', async () => {
+      // get_time is disabled once get_weather has run, so the second turn offers only get_weather.
+      let weatherRan = false;
+      const weatherTool = tool({
+        name: 'get_weather',
+        description: 'Get weather for a city',
+        parameters: z.object({ city: z.string() }),
+        execute: async ({ city }) => {
+          weatherRan = true;
+          return `Sunny in ${city}`;
+        },
+      });
+      const timeTool = tool({
+        name: 'get_time',
+        description: 'Get the time in a city',
+        parameters: z.object({ city: z.string() }),
+        isEnabled: () => !weatherRan,
+        execute: async () => 'noon',
+      });
+      const agent = new Agent({ name: 'WeatherAgent', model: OPENAI_MODEL, tools: [weatherTool, timeTool] });
+
+      await createRunner([OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE, OPENAI_RESPONSES_API_CHAT_RESPONSE]).run(
+        agent,
+        'Weather in Tokyo?'
+      );
+
+      const chatSpans = spansNamed('chat');
+      expect(chatSpans).toHaveLength(2);
+      expect((toolDefinitionsOn(chatSpans[0]) as any[]).map(d => d.name)).toEqual(['get_weather', 'get_time']);
+      expect(toolDefinitionsOn(chatSpans[1])).toEqual([getWeatherDefinition]);
+      expect(toolDefinitionsOn(spansNamed('invoke_agent')[0])).toBeUndefined();
+    });
+
+    it('ends the span without tool definitions when they cannot be serialized', async () => {
+      const processor = new OpenTelemetryTracingProcessor(trace.getTracer('openai-agents-tooldefs-test'), true);
+      const request = {
+        tools: [{ type: 'function', name: 'big', description: 'd', parameters: { maximum: BigInt(1) } }],
+      };
+      const agentSpan = { spanId: 'agent', parentId: null, spanData: { type: 'agent', name: 'A' }, error: null };
+      const chatSpan = {
+        spanId: 'chat',
+        parentId: 'agent',
+        spanData: { type: 'response', _response: OPENAI_RESPONSES_API_CHAT_RESPONSE },
+        error: null,
+      };
+
+      await processor.onSpanStart(agentSpan as any);
+      await context.with(context.active().setValue(MODEL_REQUEST_CONTEXT_KEY, request), () =>
+        processor.onSpanStart(chatSpan as any)
+      );
+      await processor.onSpanEnd(chatSpan as any);
+      await processor.onSpanEnd(agentSpan as any);
+
+      expect(getTestSpans()).toHaveLength(2);
+      for (const span of getTestSpans()) {
+        expect(span.attributes[ATTR_GEN_AI_TOOL_DEFINITIONS]).toBeUndefined();
+      }
+      expect((processor as any)._spanMap.size).toBe(0);
     });
 
     it('does not record tool definitions for an agent without tools', async () => {

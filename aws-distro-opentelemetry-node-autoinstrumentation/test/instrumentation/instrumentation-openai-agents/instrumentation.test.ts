@@ -1305,14 +1305,14 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
     });
 
     it('omits agent tool definitions when a later turn offers a different list', async () => {
-      // get_time is disabled once get_weather has run, so the second turn offers only get_weather.
-      let weatherRan = false;
+      // Running get_weather removes get_time from the agent, so the second turn offers only get_weather.
+      // The SDK re-reads agent.tools every turn; tool-level isEnabled is missing from older SDK versions.
       const weatherTool = tool({
         name: 'get_weather',
         description: 'Get weather for a city',
         parameters: z.object({ city: z.string() }),
         execute: async ({ city }) => {
-          weatherRan = true;
+          agent.tools = agent.tools.filter(t => t.name !== 'get_time');
           return `Sunny in ${city}`;
         },
       });
@@ -1320,7 +1320,6 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
         name: 'get_time',
         description: 'Get the time in a city',
         parameters: z.object({ city: z.string() }),
-        isEnabled: () => !weatherRan,
         execute: async () => 'noon',
       });
       const agent = new Agent({ name: 'WeatherAgent', model: OPENAI_MODEL, tools: [weatherTool, timeTool] });

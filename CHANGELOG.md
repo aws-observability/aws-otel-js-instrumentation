@@ -19,6 +19,7 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   attribute if the agent's tool list changes between turns. Chat Completions and AI SDK chat spans previously had
   no tool definitions, and agent spans only had tool names. Agents without tools no longer record an empty list
   ([#590](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/590))
+
 ## v0.15.0 - 2026-11-20
 
 - fix: in Lambda, treat empty `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` values as

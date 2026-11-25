@@ -13,6 +13,23 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
 
 ## Unreleased
 
+## v0.15.0 - 2026-11-20
+
+- fix: in Lambda, treat empty `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` values as
+  unset, so traces fall back to the X-Ray UDP exporter again instead of being dropped
+  ([#598](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/598))
+- feat: in Amazon Bedrock AgentCore Runtime (`AWS_EXECUTION_ENV=AWS_BedrockAgentCore_Runtime`), use the new
+  `SnapshotSafeIdGenerator`. Like the upstream `RandomIdGenerator`, it generates fully random trace and span IDs, but
+  reads them from `/dev/urandom` instead of `Math.random()`, so sessions restored from the same memory snapshot don't
+  repeat IDs.
+  ([#597](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/597))
+
+## v0.14.0 - 2026-11-18
+
+- fix(langchain): record `gen_ai.tool.definitions` (name, description, and parameters) on LangChain/LangGraph
+  chat spans for tools bound to the model, covering the OpenAI, Bedrock Converse, Anthropic, Google Gemini, and
+  Cohere tool formats and legacy OpenAI functions
+  ([#588](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/588))
 - fix: in Lambda, treat `OTEL_EXPORTER_OTLP_ENDPOINT` as a custom trace endpoint, as the OTLP exporter
   spec requires. Setting only the generic endpoint previously fell back to the X-Ray UDP exporter, so
   traces never reached the configured collector

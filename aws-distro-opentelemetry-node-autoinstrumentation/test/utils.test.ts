@@ -5,6 +5,7 @@ import expect from 'expect';
 import {
   getAwsDnsSuffix,
   getAwsRegionFromEnvironment,
+  isAgentCoreRuntimeEnvironment,
   isAgentObservabilityEnabled,
   isAgenticInstrumentationOptIn,
   parseOtelBaggageKeysEnvVar,
@@ -29,6 +30,20 @@ describe('Utils', function () {
     delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
     delete process.env.AWS_REGION;
     delete process.env.AWS_DEFAULT_REGION;
+  });
+
+  it('Test isAgentCoreRuntimeEnvironment', () => {
+    delete process.env.AWS_EXECUTION_ENV;
+    expect(isAgentCoreRuntimeEnvironment()).toBeFalsy();
+    process.env.AWS_EXECUTION_ENV = 'AWS_BedrockAgentCore_Runtime';
+    expect(isAgentCoreRuntimeEnvironment()).toBeTruthy();
+    process.env.AWS_EXECUTION_ENV = 'AWS_BedrockAgentCore_Runtime_Other';
+    expect(isAgentCoreRuntimeEnvironment()).toBeFalsy();
+    process.env.AWS_EXECUTION_ENV = 'AWS_BedrockAgentCore';
+    expect(isAgentCoreRuntimeEnvironment()).toBeFalsy();
+    process.env.AWS_EXECUTION_ENV = 'AWS_Lambda_nodejs20.x';
+    expect(isAgentCoreRuntimeEnvironment()).toBeFalsy();
+    delete process.env.AWS_EXECUTION_ENV;
   });
 
   it('Test isAgentObservabilityEnabled to be True', () => {

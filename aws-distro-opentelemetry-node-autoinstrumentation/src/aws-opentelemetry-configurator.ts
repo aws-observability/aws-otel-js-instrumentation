@@ -80,7 +80,8 @@ import { OTLPAwsLogExporter } from './exporter/otlp/aws/logs/otlp-aws-log-export
 import { OTLPAwsMetricExporter } from './exporter/otlp/aws/metrics/otlp-aws-metric-exporter';
 import { OTLPAwsSigV4Options } from './exporter/otlp/aws/common/otlp-aws-base-exporter';
 import { loadSigV4RegionFromAwsConfig, resolveSigV4Region } from './exporter/otlp/aws/common/aws-authenticator';
-import { isAgentObservabilityEnabled, parseOtelBaggageKeysEnvVar } from './utils';
+import { isAgentCoreRuntimeEnvironment, isAgentObservabilityEnabled, parseOtelBaggageKeysEnvVar } from './utils';
+import { SnapshotSafeIdGenerator } from './snapshot-safe-id-generator';
 import { GenAINestedClientSpanProcessor } from './gen-ai-nested-client-span-processor';
 import { BaggageSpanProcessor } from '@opentelemetry/baggage-span-processor';
 import { AWS_ATTRIBUTE_KEYS } from './aws-attribute-keys';
@@ -224,7 +225,9 @@ export class AwsOpentelemetryConfigurator {
     // TODO: Consider removing AWSXRayIdGenerator as it is not needed
     // Similarly to Java, always use AWS X-Ray Id Generator
     // https://github.com/aws-observability/aws-otel-java-instrumentation/blob/a011b8cc29ee32b7f668c04ccfdf64cd30de467c/awsagentprovider/src/main/java/software/amazon/opentelemetry/javaagent/providers/AwsTracerCustomizerProvider.java#L36
-    this.idGenerator = new AWSXRayIdGenerator();
+    // AgentCore Runtime can start sessions from a memory snapshot, which repeats the state of Math.random() in
+    // every session. Read IDs from the OS instead, so sessions don't repeat IDs.
+    this.idGenerator = isAgentCoreRuntimeEnvironment() ? new SnapshotSafeIdGenerator() : new AWSXRayIdGenerator();
 
     this.sampler = AwsOpentelemetryConfigurator.customizeSampler(
       customBuildSamplerFromEnv(this.resource, useXraySampler)
@@ -1045,11 +1048,8 @@ export function isLambdaEnvironment() {
 
 function hasCustomOtlpTraceEndpoint() {
   // Check for signal-specific endpoint first, then fall back to generic endpoint
-  // per OpenTelemetry OTLP Exporter specification
-  return (
-    process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] !== undefined ||
-    process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] !== undefined
-  );
+  // per OpenTelemetry OTLP Exporter specification. Empty values are treated as unset.
+  return !!(process.env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'] || process.env['OTEL_EXPORTER_OTLP_ENDPOINT']);
 }
 
 function getXrayDaemonEndpoint() {

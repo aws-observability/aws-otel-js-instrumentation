@@ -57,6 +57,8 @@ import { OTLPAwsMetricExporter } from '../src/exporter/otlp/aws/metrics/otlp-aws
 import { CompressionAlgorithm } from '@opentelemetry/otlp-exporter-base';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { AwsSpanMetricsProcessor } from '../src/aws-span-metrics-processor';
+import { SnapshotSafeIdGenerator } from '../src/snapshot-safe-id-generator';
+import { AWSXRayIdGenerator } from '@opentelemetry/id-generator-aws-xray';
 import { OTLPUdpSpanExporter } from '../src/otlp-udp-exporter';
 let setAwsDefaultEnvironmentVariables: () => void;
 import { AwsXRayRemoteSampler } from '../src/sampler/aws-xray-remote-sampler';
@@ -143,6 +145,30 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       const traceId4ByteNumber: number = Number(`0x${traceId4ByteHex}`);
       expect(traceId4ByteNumber).toBeGreaterThanOrEqual(startTimeSec);
     }
+  });
+
+  describe('ID generator', () => {
+    afterEach(() => {
+      delete process.env.AWS_EXECUTION_ENV;
+    });
+
+    function idGeneratorFor(executionEnv: string | undefined) {
+      if (executionEnv !== undefined) {
+        process.env.AWS_EXECUTION_ENV = executionEnv;
+      }
+      const configurator = new AwsOpentelemetryConfigurator([]);
+      (configurator as any).spanProcessors.forEach((spanProcessor: SpanProcessor) => spanProcessor.shutdown());
+      return configurator.configure().idGenerator;
+    }
+
+    it('uses SnapshotSafeIdGenerator in AgentCore Runtime', () => {
+      expect(idGeneratorFor('AWS_BedrockAgentCore_Runtime')).toBeInstanceOf(SnapshotSafeIdGenerator);
+    });
+
+    it('uses AWSXRayIdGenerator outside AgentCore Runtime', () => {
+      expect(idGeneratorFor(undefined)).toBeInstanceOf(AWSXRayIdGenerator);
+      expect(idGeneratorFor('AWS_Lambda_nodejs20.x')).toBeInstanceOf(AWSXRayIdGenerator);
+    });
   });
 
   describe('Propagator Extraction', () => {
@@ -867,6 +893,34 @@ describe('AwsOpenTelemetryConfiguratorTest', () => {
       restoreEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', previousTracesEndpoint);
       restoreEnv('OTEL_EXPORTER_OTLP_ENDPOINT', previousBaseEndpoint);
       restoreEnv('OTEL_EXPORTER_OTLP_PROTOCOL', previousProtocol);
+    }
+  });
+
+  it('tests configureOTLP on Lambda with empty OTLP endpoints uses UDP exporter', () => {
+    const previousLambdaFunctionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+    const previousTracesExporter = process.env.OTEL_TRACES_EXPORTER;
+    const previousTracesEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
+    const previousBaseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+    const cases: Array<[string | undefined, string | undefined]> = [
+      ['', undefined],
+      [undefined, ''],
+      ['', ''],
+    ];
+    try {
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'TestFunction';
+      process.env.OTEL_TRACES_EXPORTER = 'otlp';
+      for (const [baseEndpoint, tracesEndpoint] of cases) {
+        restoreEnv('OTEL_EXPORTER_OTLP_ENDPOINT', baseEndpoint);
+        restoreEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', tracesEndpoint);
+        const spanExporter: SpanExporter = AwsSpanProcessorProvider.configureOtlp();
+        expect(spanExporter).toBeInstanceOf(OTLPUdpSpanExporter);
+      }
+    } finally {
+      restoreEnv('AWS_LAMBDA_FUNCTION_NAME', previousLambdaFunctionName);
+      restoreEnv('OTEL_TRACES_EXPORTER', previousTracesExporter);
+      restoreEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', previousTracesEndpoint);
+      restoreEnv('OTEL_EXPORTER_OTLP_ENDPOINT', previousBaseEndpoint);
     }
   });
 

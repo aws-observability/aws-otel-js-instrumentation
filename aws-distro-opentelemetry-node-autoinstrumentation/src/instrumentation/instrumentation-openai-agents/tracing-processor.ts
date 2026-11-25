@@ -11,6 +11,7 @@ import {
   SpanStatusCode,
   Context as OtelContext,
   context,
+  createContextKey,
 } from '@opentelemetry/api';
 import type {
   TracingProcessor,
@@ -69,11 +70,41 @@ import {
   tryParseJson,
 } from '../common/instrumentation-utils';
 
+// The SDK only exposes tool definitions on the ModelRequest passed to the model, so the
+// instrumentation runs model calls in a context carrying the request.
+// see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/model.ts
+export const MODEL_REQUEST_CONTEXT_KEY = createContextKey('aws_openai_agents.model_request');
+
+// Maps the SDK's SerializedTool and SerializedHandoff entries, or tools echoed by the Responses
+// API, to gen_ai.tool.definitions. Handoffs are presented to the model as function tools.
+function toToolDefinitions(tools: unknown, handoffs?: unknown): Record<string, any>[] {
+  return [
+    ...(Array.isArray(tools) ? tools : []).map(tool =>
+      tool.type === 'function'
+        ? { type: 'function', name: tool.name, description: tool.description, parameters: tool.parameters }
+        : {
+            type: tool.providerData?.type ?? tool.type,
+            // Hosted MCP tools are all named 'hosted_mcp', so the server label tells them apart.
+            name: tool.providerData?.server_label ?? tool.server_label ?? tool.name ?? tool.type,
+          }
+    ),
+    ...(Array.isArray(handoffs) ? handoffs : []).map(handoff => ({
+      type: 'function',
+      name: handoff.toolName,
+      description: handoff.toolDescription,
+      parameters: handoff.inputJsonSchema,
+    })),
+  ];
+}
+
 interface AgentSpanCaptureState {
   otelSpan: OtelSpan;
   // Tracks whether this agent span has already captured its initial user input
   // so later model calls do not overwrite it.
   hasCapturedFirstUserMessage: boolean;
+  // Serialized tool definitions from the agent's first model request, or null once a later request
+  // offers a different list, since semconv records the attribute only for a single configured list.
+  toolDefinitions?: string | null;
 }
 
 interface SpanEntry {
@@ -81,6 +112,7 @@ interface SpanEntry {
   otelContext: OtelContext;
   // The nearest ancestor agent span, or this span itself when it is an agent.
   agentSpan?: AgentSpanCaptureState;
+  modelRequest?: Record<string, any>;
 }
 
 export class OpenTelemetryTracingProcessor implements TracingProcessor {
@@ -90,12 +122,8 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
   private static readonly ATTRIBUTE_MAP: AttributeMapping[] = [
     { from: 'agent.name', to: ATTR_GEN_AI_AGENT_NAME },
     { from: 'agent.output_type', to: ATTR_GEN_AI_OUTPUT_TYPE },
-    // AgentSpanData only exposes tool names, not their concrete SDK tool types.
-    {
-      from: 'agent.tools',
-      to: ATTR_GEN_AI_TOOL_DEFINITIONS,
-      transform: (tools: string[]) => tools.map(name => ({ type: 'tool', name })),
-    },
+    // Agent tool definitions are set in _setToolDefinitions.
+    { from: 'agent.tools' },
     { from: 'task.name', to: ATTR_GEN_AI_WORKFLOW_NAME },
     { from: 'task.usage' },
     { from: 'turn.agent_name', to: ATTR_GEN_AI_AGENT_NAME },
@@ -166,6 +194,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       otelSpan,
       otelContext,
       agentSpan: spanData.type === 'agent' ? { otelSpan, hasCapturedFirstUserMessage: false } : parentEntry?.agentSpan,
+      modelRequest: context.active().getValue(MODEL_REQUEST_CONTEXT_KEY) as Record<string, any> | undefined,
     });
   }
 
@@ -179,6 +208,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     const spanData = span.spanData;
 
     this._setEndAttributes(otelSpan, spanData, span.parentId);
+    this._setToolDefinitions(entry, spanData);
 
     if (span.error) {
       otelSpan.setStatus({ code: SpanStatusCode.ERROR, message: span.error.message });
@@ -298,10 +328,6 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
       otelSpan.setAttribute(ATTR_GEN_AI_RESPONSE_FINISH_REASONS, finishReasons);
     }
 
-    if (response.tools && Array.isArray(response.tools)) {
-      otelSpan.setAttribute(ATTR_GEN_AI_TOOL_DEFINITIONS, serializeToJson(response.tools));
-    }
-
     if (this._captureMessageContent) {
       if (response.instructions) {
         otelSpan.setAttribute(ATTR_GEN_AI_SYSTEM_INSTRUCTIONS, serializeToJson(contentToParts(response.instructions)));
@@ -374,6 +400,64 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
         otelSpan.setAttribute(ATTR_GEN_AI_TOOL_CALL_RESULT, output);
       }
     }
+  }
+
+  // Records the tools and handoffs sent to the model on chat spans, falling back to tools echoed
+  // by the Responses API. The agent span gets the list only if every model request offered the same
+  // one; the SDK re-resolves tools and handoffs each turn, so an agent's list can change mid-run.
+  // see: https://github.com/open-telemetry/semantic-conventions-genai/pull/721
+  private _setToolDefinitions(entry: SpanEntry, spanData: SpanData): void {
+    const data = spanData as Record<string, any>;
+    if (data.type === 'agent') {
+      const recorded = entry.agentSpan?.toolDefinitions;
+      if (recorded === undefined) {
+        // Without a model request, AgentSpanData only exposes tool names.
+        const names = Array.isArray(data.tools) ? data.tools.map((name: string) => ({ type: 'tool', name })) : [];
+        this._setToolDefinitionsAttribute(entry.otelSpan, this._serializeToolDefinitions(names));
+      } else if (recorded) {
+        this._setToolDefinitionsAttribute(entry.otelSpan, recorded);
+      }
+      return;
+    }
+    if (data.type !== 'response' && data.type !== 'generation') return;
+
+    const request = entry.modelRequest;
+    let definitions = request ? toToolDefinitions(request.tools, request.handoffs) : [];
+    // Prompt-defined tools are not on the request; the Responses API echoes them on the response.
+    if (definitions.length === 0 && Array.isArray(data._response?.tools)) {
+      definitions = toToolDefinitions(data._response.tools);
+    }
+    // Without a request or echoed tools the list is unknown, so it says nothing about the agent's list.
+    if (!request && definitions.length === 0) return;
+
+    const serialized = this._serializeToolDefinitions(definitions);
+    this._setToolDefinitionsAttribute(entry.otelSpan, serialized);
+
+    const agentSpan = entry.agentSpan;
+    if (!agentSpan) return;
+    if (agentSpan.toolDefinitions === undefined) {
+      // An empty list is kept as '[]' so a later turn that adds tools still counts as a different list.
+      agentSpan.toolDefinitions = serialized ?? null;
+    } else if (agentSpan.toolDefinitions !== serialized) {
+      agentSpan.toolDefinitions = null;
+    }
+  }
+
+  // description and parameters are optional in the semconv, so they are recorded only with content
+  // capture on. Returns undefined if the definitions cannot be serialized, e.g. a circular or BigInt
+  // value in a user-supplied schema, so a throw cannot leave the span unended.
+  private _serializeToolDefinitions(definitions: Record<string, any>[]): string | undefined {
+    const recorded = this._captureMessageContent ? definitions : definitions.map(({ type, name }) => ({ type, name }));
+    try {
+      return JSON.stringify(recorded);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private _setToolDefinitionsAttribute(otelSpan: OtelSpan, serialized: string | undefined): void {
+    // Agents and model calls without tools record no attribute rather than an empty list.
+    if (serialized && serialized !== '[]') otelSpan.setAttribute(ATTR_GEN_AI_TOOL_DEFINITIONS, serialized);
   }
 
   private _setUsageAttributes(otelSpan: OtelSpan, usage?: Record<string, any>): void {

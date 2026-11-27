@@ -88,6 +88,7 @@ interface SpanEntry {
 interface WorkflowEntry {
   otelSpan: OtelSpan;
   otelContext: OtelContext;
+  name?: string;
   // Whether a top-level task span has already been merged into this workflow span.
   hasTaskSpan: boolean;
 }
@@ -176,6 +177,7 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     this._workflowMap.set(sdkTrace.traceId, {
       otelSpan,
       otelContext: trace.setSpan(parentContext, otelSpan),
+      name: sdkTrace.name,
       hasTaskSpan: false,
     });
   }
@@ -199,16 +201,17 @@ export class OpenTelemetryTracingProcessor implements TracingProcessor {
     const parentEntry = sdkSpan.parentId ? this._spanMap.get(sdkSpan.parentId) : undefined;
     const workflowEntry = parentEntry ? undefined : this._workflowMap.get(sdkSpan.traceId);
 
-    // SDK versions with task spans start one per run directly under the trace. The first one
-    // describes the same workflow as the trace, so merge it into the workflow span rather than
-    // nesting a duplicate invoke_workflow span.
-    if (workflowEntry && (spanData.type as string) === 'task' && !workflowEntry.hasTaskSpan) {
+    // SDK versions with task spans start one per run directly under the trace. A run that opened its
+    // own trace names its task after it, so merge that task into the workflow span rather than nesting
+    // a duplicate invoke_workflow span. Runs the app groups under its own trace stay child workflows.
+    if (
+      workflowEntry &&
+      (spanData.type as string) === 'task' &&
+      !workflowEntry.hasTaskSpan &&
+      (spanData as Record<string, any>).name === workflowEntry.name
+    ) {
       workflowEntry.hasTaskSpan = true;
       this._setStartAttributes(workflowEntry.otelSpan, spanData);
-      const taskName = (spanData as Record<string, any>).name;
-      if (taskName) {
-        workflowEntry.otelSpan.updateName(`${GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW} ${taskName}`);
-      }
       this._spanMap.set(sdkSpan.spanId, {
         otelSpan: workflowEntry.otelSpan,
         otelContext: workflowEntry.otelContext,

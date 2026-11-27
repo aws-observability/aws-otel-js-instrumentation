@@ -1108,9 +1108,10 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
     // Agent spans have no SDK parent span, so without the workflow span each agent reached through a
     // handoff would start its own trace when the app has no active span.
     for (const withAppSpan of [false, true]) {
-      it(`keeps handoff agents in one trace under an invoke_workflow span${
-        withAppSpan ? ' inside an app span' : ''
-      }`, async () => {
+      const title = withAppSpan
+        ? 'keeps handoff agents in one trace under an invoke_workflow span inside an app span'
+        : 'keeps handoff agents in one trace under an invoke_workflow span';
+      it(title, async () => {
         const refundAgent = new Agent({ name: 'RefundAgent', instructions: 'Handle refunds.', model: OPENAI_MODEL });
         const triageAgent = new Agent({
           name: 'TriageAgent',
@@ -1204,14 +1205,17 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
       expect(new Set(spans.map(span => span.spanContext().traceId)).size).toBe(1);
     });
 
-    it('merges the first top-level task span into the workflow span', async () => {
+    // SDK versions before 0.14 emit no task spans, so these drive the processor with stand-in SDK objects.
+    const sdkSpan = (spanId: string, parentId: string | null, spanData: Record<string, unknown>) =>
+      ({ traceId: 'trace_1', spanId, parentId, spanData, error: null } as any);
+
+    it('merges the task span of a run that opened its own trace into the workflow span', async () => {
       const processor = new OpenTelemetryTracingProcessor(trace.getTracer('openai-agents-task-merge-test'), false);
       const sdkTrace = { traceId: 'trace_1', name: 'Order workflow' } as any;
-      const span = (spanId: string, parentId: string | null, spanData: Record<string, unknown>) =>
-        ({ traceId: 'trace_1', spanId, parentId, spanData, error: null } as any);
-      const firstTask = span('task_1', null, { type: 'task', name: 'Order workflow', usage: { input_tokens: 3 } });
-      const agent = span('agent_1', 'task_1', { type: 'agent', name: 'OrderAgent' });
-      const secondTask = span('task_2', null, { type: 'task', name: 'Follow-up' });
+      const firstTask = sdkSpan('task_1', null, { type: 'task', name: 'Order workflow', usage: { input_tokens: 3 } });
+      const agent = sdkSpan('agent_1', 'task_1', { type: 'agent', name: 'OrderAgent' });
+      // A second run in the same trace with the same name is a separate workflow, not the trace itself.
+      const secondTask = sdkSpan('task_2', null, { type: 'task', name: 'Order workflow' });
 
       await processor.onTraceStart(sdkTrace);
       await processor.onSpanStart(firstTask);
@@ -1222,21 +1226,37 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
       await processor.onSpanEnd(secondTask);
 
       // The workflow span ends with the trace, not with the merged task span.
-      expect(findSpan(getTestSpans(), 'invoke_workflow Order workflow')).toBeUndefined();
+      expect(getTestSpans().map(span => span.name)).toEqual([
+        'invoke_agent OrderAgent',
+        'invoke_workflow Order workflow',
+      ]);
       await processor.onTraceEnd(sdkTrace);
 
       const spans = getTestSpans();
-      const workflowSpan = findSpan(spans, 'invoke_workflow Order workflow')!;
       expect(spans.length).toBe(3);
+      const workflowSpan = spans[2];
+      expect(workflowSpan.name).toBe('invoke_workflow Order workflow');
       expect(workflowSpan.parentSpanContext).toBeUndefined();
-      expect(workflowSpan.attributes[ATTR_GEN_AI_WORKFLOW_NAME]).toBe('Order workflow');
       expect(workflowSpan.attributes[ATTR_GEN_AI_USAGE_INPUT_TOKENS]).toBe(3);
-      expect(findSpan(spans, 'invoke_agent OrderAgent')!.parentSpanContext?.spanId).toBe(
-        workflowSpan.spanContext().spanId
-      );
-      expect(findSpan(spans, 'invoke_workflow Follow-up')!.parentSpanContext?.spanId).toBe(
-        workflowSpan.spanContext().spanId
-      );
+      expect(spans[0].parentSpanContext?.spanId).toBe(workflowSpan.spanContext().spanId);
+      expect(spans[1].parentSpanContext?.spanId).toBe(workflowSpan.spanContext().spanId);
+    });
+
+    it('keeps runs grouped under an app-named trace as child workflows', async () => {
+      const processor = new OpenTelemetryTracingProcessor(trace.getTracer('openai-agents-task-merge-test'), false);
+      const sdkTrace = { traceId: 'trace_1', name: 'Support session' } as any;
+      const task = sdkSpan('task_1', null, { type: 'task', name: 'Triage' });
+
+      await processor.onTraceStart(sdkTrace);
+      await processor.onSpanStart(task);
+      await processor.onSpanEnd(task);
+      await processor.onTraceEnd(sdkTrace);
+
+      const [taskSpan, sessionSpan] = getTestSpans();
+      expect(sessionSpan.name).toBe('invoke_workflow Support session');
+      expect(sessionSpan.attributes[ATTR_GEN_AI_WORKFLOW_NAME]).toBe('Support session');
+      expect(taskSpan.name).toBe('invoke_workflow Triage');
+      expect(taskSpan.parentSpanContext?.spanId).toBe(sessionSpan.spanContext().spanId);
     });
   });
 

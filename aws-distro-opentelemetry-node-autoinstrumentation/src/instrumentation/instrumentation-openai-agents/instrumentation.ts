@@ -3,7 +3,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { context } from '@opentelemetry/api';
+import { Context, context } from '@opentelemetry/api';
 import {
   InstrumentationBase,
   InstrumentationNodeModuleDefinition,
@@ -23,6 +23,32 @@ export const INSTRUMENTATION_NAME = '@aws/aws-distro-opentelemetry-instrumentati
 export const INSTRUMENTATION_SHORT_NAME = 'aws_openai_agents';
 
 const SUPPORTED_VERSIONS = ['>=0.1.0'];
+const TRACE_SCOPE_FUNCTIONS = ['withTrace', 'getOrCreateTrace'];
+
+// The SDK tracks its current span with AsyncLocalStorage.enterWith, which OTel context cannot follow.
+// Streamed model calls start their span that way inside an async generator driven by a detached
+// stream loop, so HTTP calls made while reading the stream would otherwise have no parent.
+// This context resolves the OTel context of the SDK's current span on every lookup.
+// see: https://github.com/openai/openai-agents-js/blob/v0.8.5/packages/agents-core/src/tracing/context.ts#L148-L160
+class SdkCurrentSpanContext implements Context {
+  constructor(private readonly _base: Context, private readonly _resolve: () => Context | undefined) {}
+
+  private _current(): Context {
+    return this._resolve() ?? this._base;
+  }
+
+  getValue(key: symbol): unknown {
+    return this._current().getValue(key);
+  }
+
+  setValue(key: symbol, value: unknown): Context {
+    return this._current().setValue(key, value);
+  }
+
+  deleteValue(key: symbol): Context {
+    return this._current().deleteValue(key);
+  }
+}
 
 export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgentsInstrumentationConfig> {
   // OpenAI Agents SDK has its own tracing system that is completely separate from OTel.
@@ -66,6 +92,8 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     const unpatchCore = (_moduleExports: any) => this._unpatch();
     const patchCreateSpans = (moduleExports: any) => this._wrapCreateSpansWithOtelContext(moduleExports);
     const unpatchCreateSpans = (moduleExports: any) => this._unwrapCreateSpansWithOtelContext(moduleExports);
+    const patchContext = (moduleExports: any) => this._wrapTraceScopesWithSdkContext(moduleExports);
+    const unpatchContext = (moduleExports: any) => this._unwrapTraceScopesWithSdkContext(moduleExports);
 
     return [
       new InstrumentationNodeModuleDefinition('@openai/agents-core', SUPPORTED_VERSIONS, patchCore, unpatchCore, [
@@ -80,6 +108,18 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
           SUPPORTED_VERSIONS,
           patchCreateSpans,
           unpatchCreateSpans
+        ),
+        new InstrumentationNodeModuleFile(
+          '@openai/agents-core/dist/tracing/context.mjs',
+          SUPPORTED_VERSIONS,
+          patchContext,
+          unpatchContext
+        ),
+        new InstrumentationNodeModuleFile(
+          '@openai/agents-core/dist/tracing/context.js',
+          SUPPORTED_VERSIONS,
+          patchContext,
+          unpatchContext
         ),
       ]),
     ];
@@ -185,6 +225,60 @@ export class OpenAIAgentsInstrumentation extends InstrumentationBase<OpenAIAgent
     for (const key of Object.keys(moduleExports)) {
       if (typeof moduleExports[key] !== 'function') continue;
       if (!key.match(/^with\w+Span$/)) continue;
+      tryUnwrap(() => this._unwrap(moduleExports, key), `OpenAI Agents ${key}`);
+    }
+  }
+
+  // Runs each SDK trace scope (every Runner.run goes through one) in an SdkCurrentSpanContext, so
+  // code the SDK runs outside the withSpan callbacks, such as streamed model calls, still sees
+  // the OTel span of the SDK's current span, or the workflow span when no SDK span is current.
+  private _wrapTraceScopesWithSdkContext(moduleExports: any): any {
+    const instrumentation = this;
+    const getCurrentSpan = moduleExports.getCurrentSpan;
+    const getCurrentTrace = moduleExports.getCurrentTrace;
+    if (typeof getCurrentSpan !== 'function' || typeof getCurrentTrace !== 'function') {
+      this._diag.warn('Could not find getCurrentSpan/getCurrentTrace on @openai/agents-core tracing context');
+      return moduleExports;
+    }
+
+    const resolveSdkContext = (): Context | undefined => {
+      const processor = instrumentation._processor;
+      if (!processor || processor.disabled) return undefined;
+      const sdkSpan = getCurrentSpan();
+      const spanContext = sdkSpan ? processor.getOtelContext(sdkSpan.spanId) : undefined;
+      if (spanContext) return spanContext;
+      const sdkTrace = getCurrentTrace();
+      return sdkTrace ? processor.getWorkflowOtelContext(sdkTrace.traceId) : undefined;
+    };
+
+    for (const key of TRACE_SCOPE_FUNCTIONS) {
+      if (typeof moduleExports[key] !== 'function') continue;
+      tryWrap(
+        () =>
+          this._wrap(moduleExports, key, (original: any) => {
+            return function (this: any, ...args: any[]) {
+              // withTrace(trace, fn, options) and getOrCreateTrace(fn, options)
+              const fnIndex = key === 'withTrace' ? 1 : 0;
+              const fn = args[fnIndex];
+              if (typeof fn !== 'function') return original.apply(this, args);
+
+              const sdkContext = new SdkCurrentSpanContext(context.active(), resolveSdkContext);
+              args[fnIndex] = function (this: any, ...fnArgs: any[]) {
+                return context.with(sdkContext, () => fn.apply(this, fnArgs));
+              };
+              return original.apply(this, args);
+            };
+          }),
+        `OpenAI Agents ${key}`
+      );
+    }
+
+    return moduleExports;
+  }
+
+  private _unwrapTraceScopesWithSdkContext(moduleExports: any): void {
+    for (const key of TRACE_SCOPE_FUNCTIONS) {
+      if (typeof moduleExports[key] !== 'function') continue;
       tryUnwrap(() => this._unwrap(moduleExports, key), `OpenAI Agents ${key}`);
     }
   }

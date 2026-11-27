@@ -64,6 +64,11 @@ If your change does not need a CHANGELOG entry, add the "skip changelog" label t
   `Authorization` header. The signing service defaults to `xray`, `monitoring` or `logs` and can be overridden with
   `AWS_<SIGNAL>_EXPORTER_SERVICE` or `AWS_EXPORTER_SERVICE`
   ([#582](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/582))
+- fix(openai-agents): keep each agent run in a single trace. Every run now starts with an `invoke_workflow` span
+  that its agent, model and tool spans nest under, so agents reached through a handoff no longer start a new trace
+  when no other span is active. HTTP calls made while reading a streamed model response are now parented to their
+  `chat` span instead of starting separate traces
+  ([#TBD](https://github.com/aws-observability/aws-otel-js-instrumentation/pull/TBD))
 
 ## v0.13.0 - 2026-09-14
 

@@ -1105,50 +1105,61 @@ const { OPENAI_RESPONSES_API_CHAT_RESPONSE } = require(${JSON.stringify(
     const findSpan = (spans: ReadableSpan[], name: string): ReadableSpan | undefined =>
       spans.find(span => span.name === name);
 
-    it('keeps handoff agents in one trace under an invoke_workflow span', async () => {
-      const refundAgent = new Agent({ name: 'RefundAgent', instructions: 'Handle refunds.', model: OPENAI_MODEL });
-      const triageAgent = new Agent({
-        name: 'TriageAgent',
-        instructions: 'Hand off refunds.',
-        model: OPENAI_MODEL,
-        handoffs: [refundAgent],
+    // Agent spans have no SDK parent span, so without the workflow span each agent reached through a
+    // handoff would start its own trace when the app has no active span.
+    for (const withAppSpan of [false, true]) {
+      it(`keeps handoff agents in one trace under an invoke_workflow span${
+        withAppSpan ? ' inside an app span' : ''
+      }`, async () => {
+        const refundAgent = new Agent({ name: 'RefundAgent', instructions: 'Handle refunds.', model: OPENAI_MODEL });
+        const triageAgent = new Agent({
+          name: 'TriageAgent',
+          instructions: 'Hand off refunds.',
+          model: OPENAI_MODEL,
+          handoffs: [refundAgent],
+        });
+        const handoffResponse = {
+          ...OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE,
+          output: [
+            {
+              type: 'function_call',
+              id: 'fc_handoff',
+              call_id: 'call_handoff',
+              name: 'transfer_to_RefundAgent',
+              arguments: '{}',
+              status: 'completed',
+            },
+          ],
+        };
+        const runner = createRunner([handoffResponse, OPENAI_RESPONSES_API_CHAT_RESPONSE]);
+
+        if (withAppSpan) {
+          await trace.getTracer('openai-agents-trace-grouping-test').startActiveSpan('app request', async appSpan => {
+            await runner.run(triageAgent, 'I want a refund.');
+            appSpan.end();
+          });
+        } else {
+          await runner.run(triageAgent, 'I want a refund.');
+        }
+
+        const spans = getTestSpans();
+        const workflowSpans = spans.filter(
+          span => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW
+        );
+        expect(new Set(spans.map(span => span.spanContext().traceId)).size).toBe(1);
+        expect(workflowSpans.length).toBe(1);
+        const workflowSpan = workflowSpans[0];
+        expect(workflowSpan.attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(GEN_AI_PROVIDER_NAME_VALUE_OPENAI);
+        expect(workflowSpan.parentSpanContext?.spanId).toBe(
+          withAppSpan ? findSpan(spans, 'app request')!.spanContext().spanId : undefined
+        );
+        for (const agentName of ['TriageAgent', 'RefundAgent']) {
+          expect(findSpan(spans, `invoke_agent ${agentName}`)!.parentSpanContext?.spanId).toBe(
+            workflowSpan.spanContext().spanId
+          );
+        }
       });
-      const handoffResponse = {
-        ...OPENAI_RESPONSES_API_TOOL_CALL_RESPONSE,
-        output: [
-          {
-            type: 'function_call',
-            id: 'fc_handoff',
-            call_id: 'call_handoff',
-            name: 'transfer_to_RefundAgent',
-            arguments: '{}',
-            status: 'completed',
-          },
-        ],
-      };
-      const runner = createRunner([handoffResponse, OPENAI_RESPONSES_API_CHAT_RESPONSE]);
-
-      const tracer = trace.getTracer('openai-agents-trace-grouping-test');
-      await tracer.startActiveSpan('user-request', async requestSpan => {
-        await runner.run(triageAgent, 'I want a refund.');
-        requestSpan.end();
-      });
-
-      const spans = getTestSpans();
-      const requestSpan = findSpan(spans, 'user-request')!;
-      const workflowSpans = spans.filter(
-        span => span.attributes[ATTR_GEN_AI_OPERATION_NAME] === GEN_AI_OPERATION_NAME_VALUE_INVOKE_WORKFLOW
-      );
-      const triageSpan = findSpan(spans, 'invoke_agent TriageAgent')!;
-      const refundSpan = findSpan(spans, 'invoke_agent RefundAgent')!;
-
-      expect(new Set(spans.map(span => span.spanContext().traceId)).size).toBe(1);
-      expect(workflowSpans.length).toBe(1);
-      expect(workflowSpans[0].attributes[ATTR_GEN_AI_PROVIDER_NAME]).toBe(GEN_AI_PROVIDER_NAME_VALUE_OPENAI);
-      expect(workflowSpans[0].parentSpanContext?.spanId).toBe(requestSpan.spanContext().spanId);
-      expect(triageSpan.parentSpanContext?.spanId).toBe(workflowSpans[0].spanContext().spanId);
-      expect(refundSpan.parentSpanContext?.spanId).toBe(workflowSpans[0].spanContext().spanId);
-    });
+    }
 
     it('makes the chat span active while a streamed model call runs', async () => {
       const chunk = (fields: Record<string, unknown>) =>
